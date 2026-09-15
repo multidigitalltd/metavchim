@@ -4,6 +4,7 @@ import {
   OWNER_ACTIVITY_TRUNCATED_NOTE,
   buildOwnerActivity,
   ownerActivityCsv,
+  ownerActivityEmail,
   ownerActivityFileName,
   ownerActivityText,
   summarizeOwnerActivity,
@@ -304,5 +305,68 @@ describe("ownerActivityText", () => {
       OWNER_ACTIVITY_TEXT_LINES,
     );
     expect(text).toContain("ועוד 5 פעולות");
+  });
+});
+
+/**
+ * ‏המייל הוא מה שבעל הנכס באמת מקבל — ולכן הוא נבדק כמו הודעה
+ * שיוצאת ללקוח ולא כמו פונקציית עזר: מה יש בו, ומה אין בו.
+ */
+describe("ownerActivityEmail", () => {
+  const base = {
+    propertyLabel: "רבי עקיבא 12",
+    officeName: "משרד הדגמה",
+    periodLabel: "‏30 הימים האחרונים",
+    now: NOW,
+  };
+  const someEntries: OwnerActivityEntry[] = [
+    { at: new Date("2026-08-20T06:30:00.000Z"), kind: "viewing", result: "held" },
+    { at: new Date("2026-08-21T06:30:00.000Z"), kind: "inquiry", result: "answered" },
+  ];
+
+  it("הנושא נושא את הנכס, והפנייה את שם הבעלים", () => {
+    const mail = ownerActivityEmail({ ...base, ownerName: "יוסי לוי", entries: someEntries });
+    expect(mail.subject).toBe("דוח פעילות — רבי עקיבא 12");
+    expect(mail.greeting).toBe("שלום יוסי לוי,");
+  });
+
+  it("בלי שם בעלים אין פנייה חצי-ריקה", () => {
+    const mail = ownerActivityEmail({ ...base, entries: someEntries });
+    expect(mail.greeting).toBeUndefined();
+    const blank = ownerActivityEmail({ ...base, ownerName: "   ", entries: someEntries });
+    expect(blank.greeting).toBeUndefined();
+  });
+
+  it("הפעילות בגוף ההודעה ולא רק בקובץ — בעל נכס פותח מייל בטלפון", () => {
+    const mail = ownerActivityEmail({ ...base, entries: someEntries });
+    expect(mail.paragraphs.some((p) => p.includes("ביקור"))).toBe(true);
+    expect(mail.paragraphs[0]).toContain("‏30 הימים האחרונים");
+  });
+
+  it("תקופה בלי פעילות נאמרת, ולא נשלחת כמייל ריק", () => {
+    const mail = ownerActivityEmail({ ...base, entries: [] });
+    expect(mail.paragraphs).toContain("לא נרשמה פעילות בתקופה זו.");
+  });
+
+  it("קיטום נאמר — גם כשהוא במסד וגם כשהוא בגוף", () => {
+    const many: OwnerActivityEntry[] = Array.from({ length: 45 }, (_, i) => ({
+      at: new Date(NOW.getTime() - i * 3_600_000),
+      kind: "inquiry",
+      result: "answered",
+    }));
+    expect(ownerActivityEmail({ ...base, entries: many }).paragraphs).toContain(
+      "ועוד 5 פעולות — הרשימה המלאה בקובץ המצורף.",
+    );
+    /* ‏הקיטום שבמסד אינו יודע כמה נשארו, ולכן אינו נוקב במספר */
+    const cut = ownerActivityEmail({ ...base, entries: many, truncated: true });
+    expect(cut.paragraphs).toContain("ועוד פעולות נוספות — הרשימה המלאה בקובץ המצורף.");
+    expect(cut.paragraphs).not.toContain("ועוד 5 פעולות — הרשימה המלאה בקובץ המצורף.");
+  });
+
+  it("אין בו שם, טלפון או תוכן שיחה — וזה נאמר לנמען", () => {
+    const mail = ownerActivityEmail({ ...base, ownerName: "יוסי לוי", entries: someEntries });
+    const body = mail.paragraphs.join("\n");
+    expect(body).not.toMatch(/05\d/u);
+    expect(mail.footnote).toContain("אינו כולל שמות");
   });
 });

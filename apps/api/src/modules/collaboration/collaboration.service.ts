@@ -8,7 +8,11 @@ import {
 import { Prisma } from "@prisma/client";
 import { ulid } from "ulid";
 import {
+  dailyEmailIdempotencyKey,
+
   BuyerRequirementsSchema,
+  buyerSharedTabuStance,
+  type SharedTabuStance,
   DEFAULT_COMMISSION_SPLIT,
   commissionSplitRejectionReason,
   commissionTermsColumns,
@@ -32,11 +36,22 @@ import {
   CLIENT_RATING_DIMENSIONS,
   referralReasonRejectionReason,
   presentationChips,
+  withNetworkSafeTitle,
+  isSharedTabuProperty,
+  sharedTabuFit,
+  SHARED_TABU_REFUSED_NOTE,
   type NetworkPresentationFields,
   scoreMatch,
   suggestedReferralPrice,
   type BuyerRequirements,
   type LeadSourcePrice,
+  NETWORK_MATCH_MIN_SCORE,
+  MAX_FOLLOWS_PER_USER,
+  jerusalemMonthStart,
+  demandMatchCopy,
+  demandMatchDedupeKey,
+  DEMAND_MATCH_NOTIFICATION_TYPE,
+  demandLabel,
 } from "@metavchim/shared";
 import { loadEnv } from "../../config/env";
 import { lockContact } from "../../common/locks";
@@ -76,6 +91,28 @@ import { readCustomFeatures, rowToFields } from "../properties/property.mapper";
 const OFFER_PHOTO_MAX = 12;
 
 /**
+ * ‎**גודל עמוד בסבב המעקבים — לא תקרה.**
+ *
+ * ‏קודם עמדו כאן `take: 500` על המעקבים ו-`take: 200` על הנכסים,
+ * בלי סדר ובלי סמן. שניהם היו **תקרות שקטות**: משרד עם 13 סוכנים
+ * במלוא מכסת ה-40 חוצה 500 מעקבים, וב-Pro מותרים 300 נכסים
+ * (ובמסלולים הגבוהים אין תקרה) — וכל ריצה שעתית הייתה חוזרת בדיוק
+ * על אותו חלון, כלומר מעקב או נכס שמחוץ לו לא היו מפעילים התראה
+ * לעולם (ביקורת Codex). מעקב הוא בדיוק ההבטחה ההפוכה.
+ *
+ * ‏עכשיו זה גודל עמוד עם סמן: הסבב עובר על הכול, והמספר קובע רק
+ * כמה שורות נמצאות בזיכרון בכל רגע.
+ *
+ * ‎**`id: { gt: cursor }` ולא `cursor`/`skip` של Prisma.** ‏`cursor`
+ * מעגן את העמוד הבא על **שורה שחייבת להתקיים**, והסבב מוחק מעקבים
+ * מיושנים באמצע — כלומר עמוד שהמעקב האחרון בו הצביע על ביקוש שנסגר
+ * היה מוחק בדיוק את שורת העוגן, והשאילתה הבאה הייתה חוזרת ריקה. כל
+ * שאר המעקבים היו נדלגים עד הסריקה הבאה (ביקורת Codex), וזה אותו
+ * כשל שהדפדוף בא לתקן. תנאי על המזהה אינו תלוי בקיום השורה.
+ */
+const SWEEP_PAGE = 200;
+
+/**
  * תפוגת הקרדיטים כפי שהמשרד רואה אותה.
  *
  * `months: 0` = התפוגה כבויה בפלטפורמה, ואין מה להציג. שדות המנה
@@ -113,14 +150,6 @@ function narrowScores(value: unknown): Record<string, number> {
   }
   return out;
 }
-
-/**
- * הסף שמעליו התאמה ברשת שווה הצגה.
- *
- * זהה לסף בפיד הביקושים בכוונה: "התאמה ברשת" חייבת להיות אותו דבר
- * בכל מסך, אחרת אותו נכס נראה מתאים בכרטיס ולא מתאים ברשימה.
- */
-const NETWORK_MATCH_MIN_SCORE = 70;
 
 /** ביקוש ברשת שהנכס הנוכחי עונה עליו — העמודה השנייה בכרטיס הנכס. */
 export interface NetworkDemandMatchDto {
@@ -328,6 +357,55 @@ export interface SharedDemandDto {
   createdAt: Date;
   /** הנכסים שלי שמתאימים — מחושב במנוע ההתאמות, לא ניחוש */
   myMatches?: DemandMatchDto[];
+  /**
+   * ‎**האם המשתמש הנוכחי עוקב אחרי הביקוש הזה.**
+   *
+   * ‏רלוונטי רק כשאין `myMatches`: ביקוש שיש לו נכס מתאים אינו
+   * צריך מעקב, והפעולה הנכונה שם היא להציע. השדה מגיע גם על ביקוש
+   * שיש לו התאמה, כדי שהמסך לא יצטרך לנחש מה קורה למעקב ישן
+   * שהתאמה נכנסה אליו בינתיים.
+   */
+  following?: boolean;
+}
+
+/**
+ * ‎**המספרים שבראש מסך הרשת.**
+ *
+ * ## מה נספר כאן, ומה **לא** — וזו ההכרעה
+ *
+ * ‏„מתאימים לנכסים שלך” אינו כאן בכוונה. הוא התווית של הקטע
+ * שמתחתיו, ולכן הוא חייב להיות בדיוק מספר הכרטיסים בו — והם
+ * מחושבים מהפיד שכבר הגיע למסך. חישוב שני בשרת היה מנוע התאמות
+ * שני, ומספיק הבדל אחד בסינון כדי שהכותרת תאמר „6” מעל חמישה
+ * כרטיסים.
+ *
+ * ‏מה שכן נספר כאן הוא מה שהמסך **אינו** יכול לדעת: הפיד חסום
+ * במאה שורות, ומשרד שרואה מאה ביקושים אינו יודע אם יש 100 או 340.
+ * ‏„32 ביקושים ברשת” הוא מספר, ולא אורך הרשימה שהוצגה.
+ */
+export interface NetworkSummaryDto {
+  /** ביקושים פעילים של משרדים אחרים. */
+  demands: number;
+  /** נכסים פעילים של משרדים אחרים. */
+  listings: number;
+  /** הפניות פעילות של משרדים אחרים. */
+  referrals: number;
+  /** ‏משרדים שיש להם משהו פעיל ברשת — „שותפים מחוברים אליך”. */
+  offices: number;
+  /** ‏עסקאות משותפות שנסגרו החודש (בשעון ישראל), משני הצדדים. */
+  dealsThisMonth: number;
+  /** הצעות שנשלחו אליי וטרם נענו. */
+  incomingOffers: number;
+  /**
+   * ‏אותו מספר כמו `referrals`, בשם שהדשבורד כבר קורא לו.
+   *
+   * ‏שני שמות ולא שתי ספירות: הדשבורד נבנה סביב „הפניות פתוחות”
+   * ומסך הרשת סביב „הפניות ברשת”, והם אותו דבר. חישוב שני היה
+   * מאפשר להם להיפרד בשקט.
+   */
+  openReferrals: number;
+  /** יתרת הקרדיטים של המשרד. */
+  credits: number;
 }
 
 export interface CoopOfferDto {
@@ -678,6 +756,15 @@ export class CollaborationService {
        * ולחכות לתשובה — בלעדיהם ההצעות נשלחות באוויר משני הכיוונים.
        */
       propertyTypes: requirements.propertyTypes,
+      /*
+       * ‎**והסירוב לרישום משותף נוסע איתו** (ביקורת Codex, P1).
+       *
+       * ‏בלעדיו המשרד המקבל משחזר את הקונה בלי עמדה, `sharedTabuFit`
+       * ‏קורא לזה „טרם נשאל” — וההתאמה מותרת על סירוב **מפורש**.
+       * ‏`buyerSharedTabuStance` ולא השדה הגולמי, כדי שגם קונה מדור
+       * ‏קודם ייסע עם העמדה שהמערכת באמת מפעילה עליו.
+       */
+      sharedTabuStance: buyerSharedTabuStance(requirements) ?? null,
       areaSqmMin: requirements.areaSqmMin ?? null,
       budgetMinAgorot:
         buyer.budgetMinAgorot === null
@@ -1021,12 +1108,18 @@ export class CollaborationService {
       return new Set(rows.map((row) => `${row.demandId}:${row.propertyId}`));
     });
 
-    const [prices, offices] = await Promise.all([
+    const [prices, offices, followed] = await Promise.all([
       this.pricing.all(),
       officeBadges(
         this.prisma,
         visible.map((row) => row.tenantId),
       ),
+      /*
+       * ‏אחרי מה **המשתמש הזה** עוקב. שאילתה אחת לכל הפיד, כמו
+       * ‎`offered` שמעליה: קריאה לכל כרטיס הייתה מאה שאילתות על
+       * מסך אחד.
+       */
+      this.followedDemandIds(visible.map((row) => row.id)),
     ]);
     return visible.map((row) => {
       const dto = this.toDemandDto(
@@ -1041,8 +1134,263 @@ export class CollaborationService {
           ? { ...match, offered: true }
           : match,
       );
-      return matches.length > 0 ? { ...dto, myMatches: matches } : dto;
+      return {
+        ...dto,
+        ...(matches.length > 0 ? { myMatches: matches } : {}),
+        following: followed.has(row.id),
+      };
     });
+  }
+
+  /* ======================================================================
+   * ‏מעקב אחרי ביקוש
+   * ====================================================================== */
+
+  /** ‏מתוך הביקושים שעל המסך — אחרי אילו המשתמש הזה עוקב. */
+  private async followedDemandIds(demandIds: string[]): Promise<Set<string>> {
+    if (demandIds.length === 0) return new Set();
+    const ctx = TenantContext.current();
+    return this.prisma.withTenant(async (tx) => {
+      const rows = await tx.demandFollow.findMany({
+        where: {
+          tenantId: ctx.tenantId,
+          userId: ctx.userId,
+          demandId: { in: demandIds },
+        },
+        select: { demandId: true },
+      });
+      return new Set(rows.map((row) => row.demandId));
+    });
+  }
+
+  /**
+   * ‎**התחלת מעקב אחרי ביקוש ברשת.**
+   *
+   * ‏הביקוש נבדק דרך `withNetworkRead` ולא נלקח כנתון מהמסך: מזהה
+   * של ביקוש סגור, או של שורה שאינה ביקוש כלל, היה נכנס לטבלה
+   * ומייצר מעקב שלעולם לא יופעל — כלומר משתמש שממתין להתראה שלא
+   * תגיע.
+   *
+   * ‏מעקב אחרי ביקוש **שלי** נחסם: ההתראה אומרת „נכנס נכס שמתאים
+   * לביקוש הזה”, ועל הביקושים שלי המערכת כבר עושה בדיוק את זה
+   * דרך ההתאמות הפנימיות.
+   */
+  async followDemand(demandId: string): Promise<{ following: true }> {
+    const ctx = TenantContext.current();
+    const demand = await this.prisma.withNetworkRead((tx) =>
+      tx.sharedDemand.findFirst({
+        where: { id: demandId, status: "active" },
+        select: { id: true, tenantId: true },
+      }),
+    );
+    if (demand === null) throw new NotFoundException("הביקוש לא נמצא");
+    if (demand.tenantId === ctx.tenantId) {
+      throw new BadRequestException("זה ביקוש שלכם — ההתאמות אליו כבר מוצגות בכרטיס הקונה");
+    }
+
+    await this.prisma.withTenant(async (tx) => {
+      const existing = await tx.demandFollow.count({
+        where: { tenantId: ctx.tenantId, userId: ctx.userId },
+      });
+      if (existing >= MAX_FOLLOWS_PER_USER) {
+        throw new BadRequestException(
+          `אפשר לעקוב אחרי ${MAX_FOLLOWS_PER_USER} ביקושים. הפסיקו לעקוב אחרי אחד כדי להוסיף חדש.`,
+        );
+      }
+      /*
+       * ‎`createMany` עם `skipDuplicates` ולא בדיקה-ואז-כתיבה:
+       * לחיצה כפולה על כפתור היא שתי בקשות מקבילות, והאילוץ
+       * הייחודי הוא מה שמכריע ביניהן.
+       */
+      await tx.demandFollow.createMany({
+        data: [
+          {
+            id: ulid(),
+            tenantId: ctx.tenantId,
+            userId: ctx.userId,
+            demandId,
+          },
+        ],
+        skipDuplicates: true,
+      });
+    });
+    return { following: true };
+  }
+
+  /** ‏הפסקת מעקב. מזהה שאינו שלי פשוט אינו מוחק דבר. */
+  async unfollowDemand(demandId: string): Promise<{ following: false }> {
+    const ctx = TenantContext.current();
+    await this.prisma.withTenant((tx) =>
+      tx.demandFollow.deleteMany({
+        where: { tenantId: ctx.tenantId, userId: ctx.userId, demandId },
+      }),
+    );
+    return { following: false };
+  }
+
+  /**
+   * ‎**סבב המעקבים של משרד אחד — „נכנס נכס שמתאים לביקוש שעקבת אחריו”.**
+   *
+   * ## למה כאן ולא ב-Worker
+   *
+   * ‏זה נראה כמו עבודה של סורק, ובכל זאת הוא יושב ב-API. ‏`apps/workers`
+   * אינה יכולה לייבא מ-`apps/api`, ולכן סורק שם היה מחייב **עותק שני
+   * של „מה נחשב התאמה”** — אותו סינון, אותו סף, אותו מיפוי שדות.
+   * זה בדיוק הכשל שכבר קרה במנטור, ושדרש שער שלם כדי לשמור עליו:
+   * שני מקורות אמת שנפרדים בשקט, ומשתמש שרואה בכרטיס „92% התאמה”
+   * לצד התראה שלא הגיעה.
+   *
+   * ‏כאן הסבב קורא ל-`matchOwnProperties` **עצמה** — אותה פונקציה
+   * שמציירת את הכרטיס. אין מה שיסטה.
+   *
+   * ## מה הוא עושה, לפי הסדר
+   *
+   * ‎`withExplicitTenant` ולא `withTenant`: הסבב רץ בלי בקשה ובלי
+   * ‎`TenantContext`, והוא מגדיר את הדייר במפורש לכל סיבוב.
+   *
+   * ‎**ניקוי לפני חישוב.** מעקב אחרי ביקוש שנסגר או נמחק אינו יכול
+   * להתממש לעולם, והוא ממשיך להיספר בגבול המעקבים של המשתמש. הוא
+   * נמחק כאן, וזה גם המקום היחיד שרואה את שני הצדדים.
+   *
+   * ‎**התראה אחת לכל (מעקב, נכס).** ‏`skipDuplicates` והאילוץ
+   * הייחודי על `dedupeKey` הם שמכריעים, ולכן שתי ריצות במקביל אינן
+   * צריכות לקרוא זו את זו.
+   */
+  async sweepFollowsForTenant(tenantId: string): Promise<number> {
+    let created = 0;
+    let cursor: string | undefined;
+    for (;;) {
+      const follows = await this.prisma.withExplicitTenant(tenantId, (tx) =>
+        tx.demandFollow.findMany({
+          where: { tenantId, ...(cursor === undefined ? {} : { id: { gt: cursor } }) },
+          orderBy: { id: "asc" },
+          take: SWEEP_PAGE,
+        }),
+      );
+      if (follows.length === 0) break;
+      cursor = follows[follows.length - 1]!.id;
+      created += await this.sweepFollowPage(tenantId, follows);
+      if (follows.length < SWEEP_PAGE) break;
+    }
+    return created;
+  }
+
+  /**
+   * ‏עמוד אחד של מעקבים מול **כל** הנכסים הפעילים של המשרד.
+   *
+   * ‏הנכסים נסרקים גם הם בעמודים ולא ב-`take` יחיד: משרד ב-Pro רשאי
+   * ל-300 נכסים, וב-Agency ו-Enterprise אין תקרה בכלל. חלון קבוע
+   * פירושו שנכס שנכנס אחרי החלון לא יפעיל התראה **לעולם**, כי כל
+   * ריצה שעתית חוזרת בדיוק על אותו חלון (ביקורת Codex, P1) —
+   * ומעקב הוא בדיוק ההבטחה ההפוכה.
+   */
+  private async sweepFollowPage(
+    tenantId: string,
+    follows: { id: string; userId: string; demandId: string }[],
+  ): Promise<number> {
+    /* ‏הביקושים עצמם — קריאה חוצת-משרדים, כמו הפיד */
+    const demands = await this.prisma.withNetworkRead((tx) =>
+      tx.sharedDemand.findMany({
+        where: { id: { in: follows.map((f) => f.demandId) }, status: "active" },
+      }),
+    );
+    const byId = new Map(demands.map((row) => [row.id, row]));
+
+    const stale = follows.filter((f) => !byId.has(f.demandId)).map((f) => f.id);
+    if (stale.length > 0) {
+      await this.prisma.withExplicitTenant(tenantId, (tx) =>
+        tx.demandFollow.deleteMany({ where: { tenantId, id: { in: stale } } }),
+      );
+    }
+
+    const live = follows.filter((f) => byId.has(f.demandId));
+    if (live.length === 0) return 0;
+
+    let created = 0;
+    let cursor: string | undefined;
+    for (;;) {
+      const properties = await this.prisma.withExplicitTenant(tenantId, (tx) =>
+        tx.property.findMany({
+          where: {
+            tenantId,
+            deletedAt: null,
+            status: "active",
+            ...(cursor === undefined ? {} : { id: { gt: cursor } }),
+          },
+          orderBy: { id: "asc" },
+          take: SWEEP_PAGE,
+        }),
+      );
+      if (properties.length === 0) break;
+      cursor = properties[properties.length - 1]!.id;
+      created += await this.notifyMatches(tenantId, live, byId, properties);
+      if (properties.length < SWEEP_PAGE) break;
+    }
+    return created;
+  }
+
+  /**
+   * ‏ההתראות על עמוד נכסים אחד.
+   *
+   * ‏הכתיבה לכל עמוד ולא בסוף: `dedupeKey` הוא שמונע כפילות, ולכן
+   * אין סיבה לצבור הכול בזיכרון לפני שכותבים.
+   */
+  private async notifyMatches(
+    tenantId: string,
+    live: { id: string; userId: string; demandId: string }[],
+    /* ‏השורה כפי שהיא נשלפה — עם `id`, שההתראה נושאת כישות היעד */
+    byId: Map<string, Parameters<CollaborationService["demandToRequirements"]>[0] & { id: string }>,
+    properties: PropertyRow[],
+  ): Promise<number> {
+    const rows: {
+      id: string;
+      tenantId: string;
+      userId: string;
+      type: string;
+      dedupeKey: string;
+      title: string;
+      body: string;
+      entityType: string;
+      entityId: string;
+    }[] = [];
+    for (const follow of live) {
+      const demand = byId.get(follow.demandId);
+      if (demand === undefined) continue;
+      for (const match of this.matchOwnProperties(properties, demand)) {
+        const copy = demandMatchCopy({
+          /*
+           * ‎`Decimal` מ-Prisma הופך למספר כאן ולא בפונקציה: החבילה
+           * המשותפת אינה יודעת מה זה `Decimal`, וזה בדיוק הגבול
+           * שמאפשר לאותה פונקציה לשמש גם את הדפדפן.
+           */
+          demandLabel: demandLabel({
+            cities: demand.cities,
+            roomsMin: demand.roomsMin === null ? null : Number(demand.roomsMin),
+            roomsMax: demand.roomsMax === null ? null : Number(demand.roomsMax),
+            dealType: demand.dealType,
+          }),
+          propertyTitle: match.title,
+          score: match.score,
+        });
+        rows.push({
+          id: ulid(),
+          tenantId,
+          userId: follow.userId,
+          type: DEMAND_MATCH_NOTIFICATION_TYPE,
+          dedupeKey: demandMatchDedupeKey(follow.id, match.propertyId),
+          title: copy.title,
+          body: copy.body,
+          entityType: "coop_demand",
+          entityId: demand.id,
+        });
+      }
+    }
+    if (rows.length === 0) return 0;
+
+    const written = await this.prisma.withExplicitTenant(tenantId, (tx) =>
+      tx.notification.createMany({ data: rows, skipDuplicates: true }),
+    );
+    return written.count;
   }
 
   /** שלוש ההתאמות הטובות ביותר מבין הנכסים שלי, מעל סף שווה-הצגה. */
@@ -1096,6 +1444,7 @@ export class CollaborationService {
     neighborhoods: string[];
     dealType: string;
     propertyTypes: string[];
+    sharedTabuStance: string | null;
     areaSqmMin: number | null;
     budgetMinAgorot: bigint | null;
     budgetMaxAgorot: bigint | null;
@@ -1121,6 +1470,10 @@ export class CollaborationService {
        * הגבול.
        */
       propertyTypes: demand.propertyTypes,
+      /* ‏מה שנשמר בפרסום — ובעיקר `refuses`. ראו `demandSnapshot`. */
+      ...(demand.sharedTabuStance === null
+        ? {}
+        : { sharedTabu: demand.sharedTabuStance as SharedTabuStance }),
       ...(demand.areaSqmMin !== null ? { areaSqmMin: demand.areaSqmMin } : {}),
       /*
        * גם רף התקציב התחתון, ולא רק התקרה. הוא נשמר ומוצג — ובלעדיו
@@ -1298,7 +1651,11 @@ export class CollaborationService {
       shared: true,
       offers: rows.map((row) => ({
         id: row.id,
-        presentation: row.presentation as Record<string, unknown>,
+        /* גזירה בקריאה — כך גם הצעות שנשלחו לפני התיקון מפסיקות לדלוף */
+        presentation: withNetworkSafeTitle(row.presentation as NetworkPresentationFields) as Record<
+          string,
+          unknown
+        >,
         commissionSplit: row.commissionSplit,
         status: row.status,
         createdAt: row.createdAt,
@@ -1426,6 +1783,36 @@ export class CollaborationService {
       if (!property) throw new NotFoundException("נכס לא נמצא או אינו משווק");
 
       /*
+       * ‎**הסירוב נאכף גם בהצעה הידנית — ולפני החיוב** (ביקורת
+       * ‏Codex, P1).
+       *
+       * ‏ההתאמה האוטומטית מדלגת על נכס בטאבו משותף כשהביקוש סימן
+       * ‏„מסרב”, אבל „בחר נכס להצעה” בכרטיס הרשת הוא בורר שמונה את
+       * ‏**כל** הנכסים, והנתיב הזה בדק רק שהנכס משווק. ההצעה נוצרה
+       * ‏בניגוד לסירוב מפורש — **וגבתה קרדיטים** על ליד ממקור
+       * ‏חיצוני. ולסוכן המציע אין דרך לראות את הקונפליקט: העמדה
+       * ‏מוסתרת במכוון מ-DTO הביקוש של המשרד המקבל.
+       *
+       * ‏לכן השער כאן, מעל `coopOfferCost` — פעולה שנדחית אינה
+       * ‏פעולה שמשלמים עליה.
+       *
+       * ‏ושתי הגזירות הן אלה שהמנוע משתמש בהן, ובאותו מסלול:
+       * ‎`isSharedTabuProperty` על הנכס, ו-`buyerSharedTabuStance`
+       * ‏על **הדרישות שנגזרות מהביקוש** — `demandToRequirements`,
+       * ‏אותה מתודה שהניקוד ניזון ממנה.
+       *
+       * ‏ולא קריאה ישירה של `demand.sharedTabuStance`: ביקוש
+       * ‏שפורסם לפני העמודה נושא `null`, והעמדה שלו נגזרת מסוג
+       * ‏המבנה הישן. העמודה לבדה הייתה קוראת לו „טרם נשאל”
+       * ‏ומתירה את ההצעה — כלומר בדיוק הביקושים הוותיקים, אלה
+       * ‏שהתכונה נבנתה בשבילם.
+       */
+      const demandStance = buyerSharedTabuStance(this.demandToRequirements(demand));
+      if (sharedTabuFit(isSharedTabuProperty(property), demandStance).excluded) {
+        throw new BadRequestException(SHARED_TABU_REFUSED_NOTE);
+      }
+
+      /*
        * הצעה כפולה נחסמת כאן ולא רק במפתח הייחודי שבמסד — בדיוק כמו
        * `coopInterest` בצד הנכסים.
        *
@@ -1501,9 +1888,25 @@ export class CollaborationService {
             : Number(property.priceAgorot),
         entryType: property.entryType ?? undefined,
         entryDate: property.entryDate ?? undefined,
+        /*
+         * ‎**וגם בהצעה, ולא רק במודעה** (ביקורת Codex, P1).
+         *
+         * ‏שני המסלולים מציגים את אותו צילום דרך `presentationChips`,
+         * ‏ולכן שדה שנוסע באחד ולא בשני הוא בדיוק „חצי מהתיקון”:
+         * ‏אישור חיבור על הצעה הוא אותו צעד שקשה לחזור ממנו.
+         *
+         * ‏הגזירה ולא השדה הגולמי — נכס שנושא את הסוג הישן הוא
+         * ‏רישום משותף לכל דבר. ראו `isSharedTabuProperty`.
+         */
+        sharedTabu: isSharedTabuProperty(property),
         features,
-        title: property.marketingTitle ?? undefined,
       };
+      /*
+       * הכותרת נגזרת מהשדות שכבר גלויים, ואינה `marketingTitle`.
+       * הטקסט החופשי הזה נושא בפועל את הכתובת — „ירושלים 67” — וכך
+       * הכרטיס הבטיח „כתובת רק אחרי אישור” והציג אותה בכותרת.
+       */
+      const presentationWithTitle = withNetworkSafeTitle(presentation);
 
       await tx.coopOffer
         .create({
@@ -1513,7 +1916,7 @@ export class CollaborationService {
             fromTenantId: ctx.tenantId,
             toTenantId: demand.tenantId,
             propertyId,
-            presentation,
+            presentation: presentationWithTitle,
             creditsCost: cost,
             commissionSplit,
             // מי הציע — כדי שחדר העסקה יידע למי להרים טלפון
@@ -1594,6 +1997,7 @@ export class CollaborationService {
         fromTenantId: ctx.tenantId,
         presentation: sent.presentation,
         commissionSplit,
+        coopOfferId: id,
       });
     } catch (error: unknown) {
       this.logger.warn(`מייל על הצעת נכס (${id}) לא נשלח: ${String(error)}`);
@@ -1631,6 +2035,19 @@ export class CollaborationService {
     fromTenantId: string;
     presentation: NetworkPresentationFields;
     commissionSplit: number;
+    /**
+     * ‎**ההצעה עצמה היא הזהות** (ביקורת Codex, P2).
+     *
+     * ‏המפתח נגזר קודם מהמשרד המציע ומהביקוש בלבד. משרד שמציע
+     * ‏**שני נכסים שונים** לאותו ביקוש באותו יום — ש-`CoopOffer`
+     * ‏מתיר במפורש, כי הייחודיות שלו היא `(demandId, propertyId)` —
+     * ‏היה מייצר את אותו מפתח פעמיים, והמייל השני, עם נכס אחר
+     * ‏לגמרי, היה נבלע בשקט.
+     *
+     * ‏ומזהה ההצעה אינו זקוק לתאריך: הצעה נוצרת פעם אחת, וניסיון
+     * ‏חוזר עליה הוא בדיוק אותה שליחה.
+     */
+    coopOfferId: string;
   }): Promise<void> {
     if (!(await this.email.isConfigured())) return;
 
@@ -1692,6 +2109,8 @@ export class CollaborationService {
       .map((chip) => chip.text)
       .join(" · ");
 
+    /* ‏ההצעה עצמה היא הזהות — ראו `coopOfferId` בחתימה */
+    const idempotency = { key: `demandoffer:${input.coopOfferId}`, purpose: "collab" };
     await this.email.send(to.email, "הצעת נכס חדשה לביקוש שפרסמתם ברשת", {
       heading: "מחכה לכם הצעת נכס",
       greeting: `שלום ${to.name},`,
@@ -1707,7 +2126,7 @@ export class CollaborationService {
       },
       footnote:
         "ההודעה נשלחה כי פרסמתם ביקוש ברשת שיתופי הפעולה. אפשר לסגור את הפרסום במסך בכל רגע.",
-    });
+    }, { idempotency });
   }
 
   /**
@@ -1742,6 +2161,10 @@ export class CollaborationService {
         what: "הנכס שהצעתם ברשת",
         note,
       });
+      const idempotency = {
+        key: dailyEmailIdempotencyKey("offerdeclined", offerId, new Date()),
+        purpose: "collab",
+      };
       await sendCollabMail(this.email, to, {
         subject: "עדכון על הנכס שהצעתם ברשת",
         heading: "ההצעה נסגרה",
@@ -1755,7 +2178,7 @@ export class CollaborationService {
           label: "לרשת שיתופי הפעולה",
           url: `${loadEnv().WEB_ORIGIN}/collaboration?tab=demands`,
         },
-      });
+      }, idempotency);
     } catch (error: unknown) {
       this.logger.warn(
         `מייל על דחיית הצעה (${offerId}) לא נשלח: ${String(error)}`,
@@ -1822,7 +2245,10 @@ export class CollaborationService {
           : {}),
         direction: row.toTenantId === tenantId ? "incoming" : "outgoing",
         commissionSplit: row.commissionSplit,
-        presentation: row.presentation as Record<string, unknown>,
+        presentation: withNetworkSafeTitle(row.presentation as NetworkPresentationFields) as Record<
+          string,
+          unknown
+        >,
         status: row.status,
         ...(office === undefined ? {} : { officeName: office.name }),
         ...(office?.logoUrl === undefined
@@ -2990,25 +3416,65 @@ export class CollaborationService {
    * ההפניות הפתוחות היה נמוך מהאמת (ביקורת Codex). `count` אינו
    * מוגבל, והוא גם חוסך הורדה של מאתיים שורות שאיש לא מציג.
    */
-  async networkSummary(): Promise<{
-    incomingOffers: number;
-    openReferrals: number;
-    credits: number;
-  }> {
+  async networkSummary(now = new Date()): Promise<NetworkSummaryDto> {
     const tenantId = TenantContext.current().tenantId;
+    /*
+     * ‏„של אחרים” בכל שלוש הטבלאות: הרשת היא מה שיש **לי** מולה.
+     * ההפניות של המשרד עצמו אינן „פתוחות ברשת” עבורו — הוא פרסם
+     * אותן — ואותו נימוק חל על הביקושים ועל הנכסים.
+     */
+    const others = { status: "active", NOT: { tenantId } } as const;
+
     const incomingOffers = await this.prisma.withTenant((tx) =>
       tx.coopOffer.count({ where: { toTenantId: tenantId, status: "sent" } }),
     );
+
+    const network = await this.prisma.withNetworkRead(async (tx) => {
+      const [demands, listings, referrals, byDemand, byListing, byLead] =
+        await Promise.all([
+          tx.sharedDemand.count({ where: others }),
+          tx.sharedListing.count({ where: others }),
+          tx.sharedLead.count({ where: others }),
+          /*
+           * ‏„משרדים ברשת” נספר על שלוש הטבלאות ולא על אחת: משרד
+           * שפרסם נכס בלבד הוא שותף לכל דבר, וספירה על הביקושים
+           * לבדם הייתה מציגה רשת קטנה משהיא באמת.
+           */
+          tx.sharedDemand.groupBy({ by: ["tenantId"], where: others }),
+          tx.sharedListing.groupBy({ by: ["tenantId"], where: others }),
+          tx.sharedLead.groupBy({ by: ["tenantId"], where: others }),
+        ]);
+      const offices = new Set([
+        ...byDemand.map((row) => row.tenantId),
+        ...byListing.map((row) => row.tenantId),
+        ...byLead.map((row) => row.tenantId),
+      ]);
+      return { demands, listings, referrals, offices: offices.size };
+    });
+
     /*
-     * ההפניות של המשרד עצמו אינן "פתוחות ברשת" עבורו — הוא פרסם
-     * אותן. אותו סינון בדיוק כמו בלוח, כדי שהמספר בדשבורד יהיה
-     * מספר השורות שייראו בלחיצה.
+     * ‎`closedAt` ולא שם השלב: „נסגרה” הוא תאריך שנכתב, ושלב הוא
+     * מילה שיכולה להשתנות. „החודש” הוא חודש **בשעון ישראל** — ראו
+     * ‎`jerusalemMonthStart`.
      */
-    const openReferrals = await this.prisma.withNetworkRead((tx) =>
-      tx.sharedLead.count({ where: { status: "active", NOT: { tenantId } } }),
+    const dealsThisMonth = await this.prisma.withTenant((tx) =>
+      tx.coopDeal.count({
+        where: {
+          OR: [{ listingTenantId: tenantId }, { buyerTenantId: tenantId }],
+          closedAt: { gte: jerusalemMonthStart(now) },
+        },
+      }),
     );
+
     const { balance } = await this.balance();
-    return { incomingOffers, openReferrals, credits: balance };
+    return {
+      ...network,
+      incomingOffers,
+      /* ‏אותו מספר בשני שמות: הדשבורד קורא לו „הפניות פתוחות” */
+      openReferrals: network.referrals,
+      dealsThisMonth,
+      credits: balance,
+    };
   }
 
   /**

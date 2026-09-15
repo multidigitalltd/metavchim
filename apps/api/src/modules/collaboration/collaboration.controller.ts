@@ -43,6 +43,7 @@ import {
   type NetworkPropertyOfferDto,
   type ReferralTermsDto,
   type SharedDemandDto,
+  type NetworkSummaryDto,
   type SharedLeadDto,
 } from "./collaboration.service";
 import {
@@ -687,12 +688,59 @@ export class CollaborationController {
    */
   @Get("summary")
   @RequireCapability("collaboration.offer")
-  async summary(): Promise<{
-    incomingOffers: number;
-    openReferrals: number;
-    credits: number;
-  }> {
+  async summary(): Promise<NetworkSummaryDto> {
     return this.collaboration.networkSummary();
+  }
+
+  /* ============================================================
+     מעקב אחרי ביקוש שאין לו כרגע נכס מתאים אצלנו
+     ============================================================
+
+     `collaboration.offer` ולא יכולת חדשה: מי שרשאי להציע ברשת הוא
+     מי שהמעקב הזה נועד לו — הוא אומר "כשייכנס נכס מתאים, אודיע
+     לך", וההודעה מובילה בדיוק לפעולה שהיכולת הזו מתירה. */
+
+  @Post("demands/:id/follow")
+  @RequireCapability("collaboration.offer")
+  @HttpCode(200)
+  async followDemand(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+  ): Promise<{ following: true }> {
+    return this.collaboration.followDemand(id);
+  }
+
+  @Delete("demands/:id/follow")
+  @RequireCapability("collaboration.offer")
+  @HttpCode(200)
+  async unfollowDemand(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+  ): Promise<{ following: false }> {
+    return this.collaboration.unfollowDemand(id);
+  }
+
+  /* ‏הכיוון השני: מעקב אחרי נכס שפורסם לרשת.
+
+     ‎`collaboration.offer` ולא יכולת חדשה — אותו נימוק בדיוק כמו
+     ‏למעלה: המעקב אומר „כשייכנס קונה מתאים, אודיע לך”, וההודעה
+     ‏מובילה בדיוק לפעולה שהיכולת הזו מתירה. יכולת נפרדת לשני
+     ‏כיווני אותה פעולה הייתה טבלת הרשאות שצריך להסביר. */
+
+  @Post("listings/:id/follow")
+  @RequireCapability("collaboration.offer")
+  @HttpCode(200)
+  async followListing(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+  ): Promise<{ following: true }> {
+    return this.listings.followListing(id);
+  }
+
+  @Delete("listings/:id/follow")
+  @RequireCapability("collaboration.offer")
+  @HttpCode(200)
+  async unfollowListing(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+  ): Promise<{ following: false }> {
+    return this.listings.unfollowListing(id);
   }
 
   /* ============================================================

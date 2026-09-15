@@ -38,7 +38,7 @@ export function VoiceConsole(): React.JSX.Element | null {
      * mv-agent ולא mv-card: המשתמש ביקש שהאזור יהיה תחום, צבעוני
      * ומזמין — כרטיס לבן בין כרטיסים לבנים אינו אף אחד מהשלושה.
      */
-    <section className="mv-agent mb-4" aria-labelledby="agent-console-title">
+    <section className="mv-agent" aria-labelledby="agent-console-title">
       <div className="mv-agent-head">
         <span className="mv-agent-badge" aria-hidden="true">
           <IconMic s={21} />

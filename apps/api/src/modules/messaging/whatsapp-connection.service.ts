@@ -1,0 +1,971 @@
+import { Injectable, Logger } from "@nestjs/common";
+import type { Prisma } from "@prisma/client";
+import { ulid } from "ulid";
+import { loadEnv } from "../../config/env";
+import { CryptoService } from "../../core/crypto.service";
+import { PlanCatalogService } from "../../core/plan-catalog.service";
+import { PlatformSettingsService } from "../../core/platform-settings.service";
+import { PrismaService } from "../../core/prisma.service";
+
+/**
+ * חיבור המספר העסקי של משרד דרך Embedded Signup (docs/12, ADR-006).
+ *
+ * ‎**מה קורה כאן בשלוש שורות:** הפרונט מקבל מ-Meta `code` חד-פעמי
+ * בסיום הפופאפ; אנחנו ממירים אותו בשרת ל-token של העסק *של המתווך*,
+ * רושמים את האפליקציה שלנו ל-Webhooks של ה-WABA שלו, ושומרים את
+ * החיבור. מכאן כל הודעה שמגיעה לקו הזה יודעת לאיזה משרד היא שייכת.
+ *
+ * ## למה ההמרה חייבת להיות בשרת
+ *
+ * ההמרה דורשת את ה-App Secret. Secret שמגיע לדפדפן הוא Secret שדלף,
+ * ולכן הפרונט מעביר `code` בלבד — ערך חד-פעמי וקצר-מועד שאין בו נזק
+ * אם נראה בלוג של הרשת.
+ *
+ * ## למה `subscribed_apps` היא קריאה נפרדת שאסור לוותר עליה
+ *
+ * המרה מוצלחת נותנת טוקן, אבל **אינה** מפנה את ההודעות של ה-WABA
+ * אלינו. בלי הקריאה הזו החיבור "מצליח", המסך מראה ✓, ואף הודעה לא
+ * מגיעה לעולם — כשל שקט שנראה למתווך בדיוק כמו מערכת מקולקלת. לכן
+ * כישלון שלה מסומן `status=error` עם הסיבה, ולא נבלע.
+ */
+
+const GRAPH_BASE = "https://graph.facebook.com/v23.0";
+const REQUEST_TIMEOUT_MS = 15_000;
+
+/**
+ * זרימת הדו-קיום — המספר שכבר חי באפליקציית WhatsApp Business
+ * בטלפון. זו ברירת המחדל של המוצר (docs/12), אך היא פתוחה רק
+ * לאפליקציות שאושרו ל-Coexistence ב-Meta.
+ */
+const COEXISTENCE_FEATURE = "whatsapp_business_app_onboarding";
+
+/**
+ * ‎**„רגיל” נשמר כמילה, ולא כמחרוזת ריקה.**
+ *
+ * ‏כלפי Meta הערך הוא `""` — אבל `PATCH /platform/settings` מתרגם
+ * מחרוזת ריקה ל„מחק את השורה, חזור למשתנה הסביבה”, וזה נכון לכל
+ * שאר ההגדרות שם. שמירת `""` הייתה מוחקת את הבחירה, הנפילה החוזרת
+ * הייתה מחזירה את הדו-קיום, והבורר במסך היה נראה כאילו הוא עובד
+ * בזמן שאינו משנה דבר (ביקורת Codex). לכן סנטינל, והתרגום ל-`""`
+ * נעשה כאן — במקום אחד, בגבול מול Meta.
+ */
+const STANDARD_FEATURE = "standard";
+
+/**
+ * מרעננים כשנותרו פחות משבועיים. Meta מנפיקה 60 יום, כלומר הרענון
+ * מתחיל אחרי כ-46 יום ויש לו 56 סבבים לפני שהקו נופל.
+ */
+const REFRESH_WINDOW_MS = 14 * 24 * 60 * 60 * 1000;
+
+/** הסיבה שנכתבת בשורה, ושהמסך מסביר בעברית */
+const TOKEN_EXPIRED = "token_expired";
+
+/** קו שהטוקן שלו מת — מה שההתראה צריכה כדי להגיע לסוכן הנכון. */
+export interface ExpiredLine {
+  id: string;
+  tenantId: string;
+  userId: string;
+  displayPhone: string;
+}
+
+export interface ConnectionSummary {
+  id: string;
+  /** הסוכן שהקו שלו — מה שמאפשר למסך לומר „הקו שלך” מול „של דנה” */
+  userId: string;
+  displayPhone: string;
+  verifiedName: string | null;
+  status: string;
+  historyShared: boolean;
+  qualityRating: string | null;
+  connectedAt: Date;
+  disconnectedAt: Date | null;
+  disconnectReason: string | null;
+}
+
+/**
+ * טוקן כפי ש-Meta הנפיקה אותו — הערך **ומתי הוא מת**.
+ *
+ * ‎`expiresAt: null` אינו "לא ידוע" אלא "אינו פג": Meta משמיטה את
+ * ‎`expires_in` בדיוק כשהטוקן ארוך-טווח. ההפרדה הזו היא מה שמונע
+ * מהסורק לרדוף אחרי טוקנים תקינים, ומהמסך להזהיר על תפוגה מומצאת.
+ */
+export interface IssuedToken {
+  token: string;
+  expiresAt: Date | null;
+}
+
+/**
+ * קריאת תשובת `/oauth/access_token`. שדה `expires_in` הוא שניות
+ * מעכשיו; אפס או שלילי הוא הדרך של Meta לומר "לא פג", ולכן אינו
+ * הופך לתאריך בעבר שהיה שולח את הסורק לרענן מיד ובלולאה.
+ */
+function readIssuedToken(payload: unknown): IssuedToken | null {
+  const json = payload as { access_token?: unknown; expires_in?: unknown };
+  if (typeof json.access_token !== "string" || json.access_token === "") return null;
+  const seconds = typeof json.expires_in === "number" ? json.expires_in : 0;
+  return {
+    token: json.access_token,
+    expiresAt: seconds > 0 ? new Date(Date.now() + seconds * 1000) : null,
+  };
+}
+
+/** תוצאת חיבור — הסיבה נועדה למסך, ולכן היא בעברית ובלי מונחי Graph. */
+export type ConnectResult =
+  | { ok: true; connection: ConnectionSummary }
+  | { ok: false; reason: string };
+
+@Injectable()
+export class WhatsAppConnectionService {
+  private readonly logger = new Logger(WhatsAppConnectionService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly crypto: CryptoService,
+    private readonly platformSettings: PlatformSettingsService,
+    private readonly plans: PlanCatalogService,
+  ) {}
+
+  /**
+   * מזהה האפליקציה וה-Secret — של **הפלטפורמה**, לא של המתווך.
+   * חסרים ⇒ החיבור כבוי לגמרי; אין מצב "פתוח בטעות".
+   */
+  private async appCredentials(): Promise<{ appId: string; appSecret: string } | null> {
+    const env = loadEnv();
+    const appId = (await this.platformSettings.get("whatsappAppId")) ?? env.WHATSAPP_APP_ID;
+    /*
+     * ‎**הסוד חייב להיות של אותה אפליקציה כמו `appId`.**
+     *
+     * ‏Meta מחליפה `code` לטוקן רק מול הצמד `client_id`+`client_secret`
+     * של אפליקציה אחת. כשחיבור המשרדים יושב באפליקציה נפרדת מקו
+     * הסוכן, `whatsappAppId` הוא כבר שלה — וצירוף שלו עם הסוד של
+     * האפליקציה השנייה נדחה ב-Meta עם שגיאת אימות שאינה מרמזת על
+     * הסיבה. הנפילה ל-`whatsappAppSecret` היא המצב של אפליקציה אחת.
+     */
+    const appSecret =
+      (await this.platformSettings.get("whatsappConnectAppSecret")) ??
+      env.WHATSAPP_CONNECT_APP_SECRET ??
+      (await this.platformSettings.get("whatsappAppSecret")) ??
+      env.WHATSAPP_APP_SECRET;
+    if (!appId || !appSecret) return null;
+    return { appId, appSecret };
+  }
+
+  /**
+   * ‎`config_id` של Embedded Signup — מה שהפרונט צריך כדי לפתוח את
+   * הפופאפ הנכון. ריק = הכפתור במסך מוסתר עם הסבר, ולא נשבר בלחיצה.
+   *
+   * ‎**`featureType` חוזר מהשרת ולא מקובע בפרונט**, כי הוא בוחר *איזו*
+   * זרימה Meta פותחת: `whatsapp_business_app_onboarding` היא זרימת
+   * הדו-קיום, והיא דורשת שהאפליקציה תהיה מאושרת ל-Coexistence אצל
+   * Meta. אפליקציה שאינה מאושרת מקבלת עליה את דיאלוג ההתחברות הרגיל
+   * ("להמשיך בתור…") במקום בחירת מספר — כשל שנראה למתווך כמו מסך
+   * מקולקל, ולנו כמו "אין שגיאה". ריק = Embedded Signup רגיל, שעובד
+   * בכל אפליקציה עם קונפיגורציית WhatsApp — ולכן זו נקודת המילוט
+   * שאפשר להפעיל מהמסך בלי גרסה חדשה.
+   */
+  async signupConfig(): Promise<{
+    appId: string;
+    configId: string;
+    featureType: string;
+  } | null> {
+    const creds = await this.appCredentials();
+    const env = loadEnv();
+    const configId =
+      (await this.platformSettings.get("whatsappSignupConfigId")) ??
+      env.WHATSAPP_SIGNUP_CONFIG_ID;
+    if (!creds || !configId) return null;
+    const chosen =
+      (await this.platformSettings.get("whatsappSignupFeatureType")) ??
+      env.WHATSAPP_SIGNUP_FEATURE_TYPE ??
+      COEXISTENCE_FEATURE;
+    /*
+     * ‎**„רגיל” מפורש; כל השאר הוא ברירת המחדל של המוצר.**
+     *
+     * הסנטינל, ומחרוזת ריקה שמשתנה סביבה עדיין מורשה לשאת, הם
+     * Embedded Signup רגיל. ערך שאינו מוכר (שגיאת הקלדה בסביבה)
+     * נופל לדו-קיום ולא למסלול הרגיל, כי המסלול הרגיל **מעביר את
+     * המספר** מהטלפון — וזו אינה תוצאה של הקלדה שגויה.
+     */
+    const featureType = chosen === STANDARD_FEATURE || chosen === "" ? "" : COEXISTENCE_FEATURE;
+    return { appId: creds.appId, configId, featureType };
+  }
+
+  /**
+   * החיבורים לתצוגה — הפעילים ראשונים.
+   *
+   * ‎`userId` נתון ⇒ הקווים של אותו סוכן בלבד. זו התצוגה הרגילה:
+   * הקו הוא של הסוכן, ואין סיבה שיראה את המספרים הפרטיים של
+   * עמיתיו. השמטתו מחזירה את כל קווי המשרד, ושמורה למי שרשאי
+   * לנהל את המשרד — למשל כדי לנתק קו של סוכן שעזב.
+   */
+  async list(tenantId: string, userId?: string): Promise<ConnectionSummary[]> {
+    const rows = await this.prisma.whatsAppBusinessConnection.findMany({
+      where: { tenantId, ...(userId ? { userId } : {}) },
+      orderBy: [{ disconnectedAt: "asc" }, { connectedAt: "desc" }],
+      select: {
+        id: true,
+        userId: true,
+        displayPhone: true,
+        verifiedName: true,
+        status: true,
+        historyShared: true,
+        qualityRating: true,
+        connectedAt: true,
+        disconnectedAt: true,
+        disconnectReason: true,
+      },
+    });
+    return rows;
+  }
+
+  /**
+   * סיום Embedded Signup: `code` ⟵ טוקן ⟵ הרשמה ל-Webhooks ⟵ שמירה.
+   *
+   * ‎**אידמפוטנטי לפי `phone_number_id`**: מתווך שלחץ פעמיים, או רענן
+   * באמצע, מעדכן את החיבור הקיים ולא יוצר שני קווים זהים.
+   */
+  async complete(
+    tenantId: string,
+    userId: string,
+    /**
+     * ‎**המזהים אופציונליים בכוונה.** הם מגיעים מאירוע `message` של
+     * הפופאפ, וזה ערוץ שאינו מובטח: מתווך שכבר חיבר בעבר מקבל מ-Meta
+     * מסך "להמשיך עם ההגדרות הקודמות?", ומסלול ההמשך מדלג על בחירת
+     * המספר — כלומר `code` מגיע בלי אירוע. חוסם פרסומות או דפדפן
+     * שחוסם `postMessage` בין מקורות עושה את אותו דבר. בלי הנפילה
+     * החוזרת בשרת, כל אלה מסתיימים ב"החיבור לא הושלם" שאין לו מוצא.
+     */
+    input: { code: string; wabaId?: string; phoneNumberId?: string },
+  ): Promise<ConnectResult> {
+    const app = await this.appCredentials();
+    if (!app) {
+      return {
+        ok: false,
+        reason: "חיבור וואטסאפ אינו מוגדר בפלטפורמה — פנו למנהל המערכת",
+      };
+    }
+
+    const issued = await this.exchangeCode(app, input.code);
+    if (issued === null) {
+      return {
+        ok: false,
+        reason: "‏Meta לא אישרה את החיבור. נסו שוב — ואם זה חוזר, התחילו את התהליך מחדש",
+      };
+    }
+
+    /*
+     * מה שהפופאפ מסר גובר תמיד: הוא מתאר את הבחירה שהמתווך *עשה*
+     * עכשיו. רק בהיעדרו שואלים את Meta מה הטוקן הזה פותח.
+     */
+    const assets =
+      input.wabaId !== undefined && input.phoneNumberId !== undefined
+        ? { wabaId: input.wabaId, phoneNumberId: input.phoneNumberId }
+        : await this.resolveAssets(app, issued.token);
+    if (assets === null) {
+      return {
+        ok: false,
+        reason:
+          "לא הצלחנו לזהות איזה מספר חיברתם. התחילו שוב ובחרו „עריכת ההגדרות” בחלון של Meta",
+      };
+    }
+
+    /*
+     * פרטי הקו נשלפים לפני השמירה: המספר המוצג והשם המאומת הם מה
+     * שהמתווך מזהה במסך. חיבור ששמור בלי מספר מציג "מחובר" בלי לומר
+     * *מה* מחובר — וזה בדיוק מה שמייצר פנייה לתמיכה.
+     */
+    const line = await this.fetchLine(issued.token, assets.phoneNumberId);
+    if (line === null) {
+      return { ok: false, reason: "לא הצלחנו לקרוא את פרטי המספר מ-Meta" };
+    }
+
+    /*
+     * ההרשמה ל-Webhooks לפני השמירה, ותוצאתה נשמרת: חיבור שנרשם
+     * כ„מחובר” בלי שההודעות מנותבות אלינו הוא ההבטחה השקרית היחידה
+     * שהמסך הזה יכול לתת.
+     */
+    const subscribed = await this.subscribeApp(issued.token, assets.wabaId);
+
+    const now = new Date();
+    const existing = await this.prisma.whatsAppBusinessConnection.findFirst({
+      where: { phoneNumberId: assets.phoneNumberId, disconnectedAt: null },
+      select: { id: true, tenantId: true, userId: true },
+    });
+
+    /*
+     * ‎**אותו קו אצל סוכן אחר באותו משרד.**
+     *
+     * ‏קו שייך לסוכן אחד, ו„חיבור” מחדש בידי אחר היה מעביר אליו
+     * בשקט את הלידים של עמיתו — כולל שיחות שכבר רצות. זו טעות
+     * נפוצה (שני סוכנים על אותו מכשיר) ולא זדון, ולכן התשובה היא
+     * עצירה עם הסבר ולא השתלטות שקטה.
+     */
+    if (existing && existing.tenantId === tenantId && existing.userId !== userId) {
+      this.logger.warn(
+        `ניסיון לחבר קו ${assets.phoneNumberId} שכבר מחובר לסוכן אחר במשרד — נדחה`,
+      );
+      return {
+        ok: false,
+        reason: "המספר הזה כבר מחובר לסוכן אחר במשרד. עליו לנתק אותו תחילה",
+      };
+    }
+
+    /*
+     * אותו קו אצל משרד אחר — לא נוגעים. זה או ניסיון השתלטות או
+     * טעות אמיתית, ובשני המקרים התשובה הנכונה היא לעצור ולומר.
+     */
+    if (existing && existing.tenantId !== tenantId) {
+      this.logger.warn(
+        `ניסיון לחבר קו ${assets.phoneNumberId} שכבר מחובר למשרד אחר — נדחה`,
+      );
+      return {
+        ok: false,
+        reason: "המספר הזה כבר מחובר למשרד אחר במערכת. נתקו אותו שם תחילה",
+      };
+    }
+
+    const data = {
+      tenantId,
+      userId,
+      wabaId: assets.wabaId,
+      phoneNumberId: assets.phoneNumberId,
+      displayPhone: line.displayPhone,
+      verifiedName: line.verifiedName,
+      accessTokenEncrypted: this.crypto.encrypt(issued.token),
+      accessTokenExpiresAt: issued.expiresAt,
+      status: subscribed ? "pending_history" : "error",
+      qualityRating: line.qualityRating,
+      connectedAt: now,
+      disconnectedAt: null,
+      disconnectReason: subscribed ? null : "webhook_subscribe_failed",
+    };
+
+    const saved = existing
+      ? await this.prisma.whatsAppBusinessConnection.update({
+          where: { id: existing.id },
+          data,
+          select: SUMMARY_SELECT,
+        })
+      : await this.prisma.whatsAppBusinessConnection.create({
+          data: { id: ulid(), ...data },
+          select: SUMMARY_SELECT,
+        });
+
+    if (!subscribed) {
+      this.logger.error(
+        `החיבור נשמר אך ההרשמה ל-Webhooks של WABA ${assets.wabaId} נכשלה — הודעות לא יגיעו`,
+      );
+      return {
+        ok: false,
+        reason:
+          "המספר חובר אך Meta לא אישרה את ניתוב ההודעות אלינו. נסו לחבר מחדש בעוד כמה דקות",
+      };
+    }
+
+    this.logger.log(`קו ${line.displayPhone} חובר לסוכן ${userId} במשרד ${tenantId}`);
+    return { ok: true, connection: saved };
+  }
+
+  /**
+   * ניתוק — **הסוד נמחק, השורה נשארת.**
+   *
+   * "היה מחובר ונותק" הוא מידע שהמשרד צריך לראות; מחיקת השורה הייתה
+   * מציגה "מעולם לא חובר". מנגד, טוקן חי של עסק שכבר לא איתנו אינו
+   * דבר שמחזיקים — ולכן העמודה Nullable והניתוק מרוקן אותה.
+   */
+  async disconnect(
+    tenantId: string,
+    connectionId: string,
+    reason: string,
+    /**
+     * ‎`userId` נתון ⇒ מותר לנתק רק את הקו של אותו סוכן. השמטתו
+     * מתירה ניתוק של כל קו במשרד, ושמורה לניהול המשרד: סוכן שעזב
+     * משאיר קו מחובר שאיש אחר אינו יכול לשחרר.
+     */
+    userId?: string,
+  ): Promise<boolean> {
+    const row = await this.prisma.whatsAppBusinessConnection.findFirst({
+      where: { id: connectionId, tenantId, ...(userId ? { userId } : {}), disconnectedAt: null },
+      select: { id: true, wabaId: true, accessTokenEncrypted: true },
+    });
+    if (!row) return false;
+
+    /*
+     * ביטול ההרשמה אצל Meta לפני מחיקת הטוקן — אחריה אין במה לקרוא.
+     * ‏best-effort: מתווך שניתק אצלו קודם מחזיר שגיאה כאן, וזה עדיין
+     * ניתוק תקין מבחינתנו.
+     */
+    if (row.accessTokenEncrypted) {
+      const token = this.safeDecrypt(row.accessTokenEncrypted);
+      if (token) await this.unsubscribeApp(token, row.wabaId);
+    }
+
+    await this.prisma.whatsAppBusinessConnection.update({
+      where: { id: row.id },
+      data: {
+        accessTokenEncrypted: null,
+        accessTokenExpiresAt: null,
+        status: "disconnected",
+        disconnectedAt: new Date(),
+        disconnectReason: reason.slice(0, 40),
+      },
+    });
+    this.logger.log(`חיבור ${connectionId} נותק (${reason})`);
+    return true;
+  }
+
+  /**
+   * החיבור שאליו שייך קו — נתיב ה-Webhook, לפני שהדייר ידוע.
+   * ‏null = הודעה לקו שאינו מוכר לנו.
+   */
+  async byPhoneNumberId(phoneNumberId: string): Promise<{
+    id: string;
+    tenantId: string;
+    /// הסוכן שהקו שלו — הליד שייווצר מההודעה נוחת אצלו
+    userId: string;
+    status: string;
+  } | null> {
+    return this.prisma.whatsAppBusinessConnection.findFirst({
+      where: { phoneNumberId, disconnectedAt: null },
+      select: { id: true, tenantId: true, userId: true, status: true },
+    });
+  }
+
+  /**
+   * קריאת הגדרות הבוט של קו — **רק אם הוא של הסוכן ששואל.**
+   *
+   * ‏null = לא נמצא או לא שלו. אין הבחנה בין השניים כלפי חוץ: „הקו
+   * הזה קיים אבל אינו שלך” הוא בעצמו מידע על עמית.
+   */
+  async botSettingsFor(
+    tenantId: string,
+    connectionId: string,
+    userId: string,
+  ): Promise<unknown | null> {
+    const row = await this.prisma.whatsAppBusinessConnection.findFirst({
+      where: { id: connectionId, tenantId, userId },
+      select: { botSettings: true },
+    });
+    return row ? (row.botSettings ?? null) : null;
+  }
+
+  /**
+   * שמירת הגדרות הבוט. מחזירה `false` כשהקו אינו של הסוכן.
+   *
+   * מה שנשמר הוא **הטעם בלבד** — נוסח, שעות, שאלות. השלד (הצגה
+   * עצמית כבוט, „הסר”, אסקלציה) קבוע ב-`bot-policy` ואינו עובר
+   * כאן, כדי שלא ניתן יהיה לבטלו דרך המסך.
+   */
+  async saveBotSettings(
+    tenantId: string,
+    connectionId: string,
+    userId: string,
+    settings: Record<string, unknown>,
+  ): Promise<boolean> {
+    const { count } = await this.prisma.whatsAppBusinessConnection.updateMany({
+      where: { id: connectionId, tenantId, userId },
+      /* ‏Prisma דורש את טיפוס ה-JSON שלו; המבנה כבר אומת ב-Zod בבקר */
+      data: { botSettings: settings as Prisma.InputJsonValue },
+    });
+    return count > 0;
+  }
+
+  /**
+   * ‎**סבב רענון הטוקנים — מה שמונע מהחיבורים למות בשקט.**
+   *
+   * ‏תצורת Embedded Signup מנפיקה טוקן קצוב, ו-Meta אינה מודיעה
+   * כשהוא פג: אין `account_update`, אין שגיאה במסך, ההודעות פשוט
+   * מפסיקות להגיע. הסבב הזה מאריך כל טוקן זמן רב לפני שזה קורה.
+   *
+   * ‎**למה חלון של שבועיים ולא יום לפני.** רענון שנכשל צריך מקום
+   * לניסיונות חוזרים: שיבוש רשת בן יומיים, או שעתיים שבהן Meta
+   * מחזירה 500, אינם אמורים לעלות בקו. שבועיים הם 56 סבבים.
+   *
+   * ‎**הסימון חד-פעמי, ואינו דורס תקלה קיימת.** כשלון רענון מסמן
+   * את הקו רק אחרי שהטוקן באמת פג — לא בכישלון הראשון — ורק אם
+   * ‎`disconnectReason` עדיין ריק. שורה שכבר נושאת סיבה היא או קו
+   * שסומן בסבב קודם (והתראה שנייה עליו רק תגרום לכיבוי התראות),
+   * או קו עם תקלה אחרת שאסור למחוק מהמסך.
+   *
+   * ‎**כל כתיבה מותנית בשורה שנקראה, לא ב-`id` בלבד.** בין הקריאה
+   * לכתיבה עוברת קריאת רשת, והמתווך יכול לנתק באמצע.
+   */
+  async sweepExpiringTokens(now: Date = new Date()): Promise<{
+    refreshed: number;
+    expired: ExpiredLine[];
+  }> {
+    const rows = await this.prisma.whatsAppBusinessConnection.findMany({
+      where: {
+        disconnectedAt: null,
+        accessTokenEncrypted: { not: null },
+        accessTokenExpiresAt: { not: null, lt: new Date(now.getTime() + REFRESH_WINDOW_MS) },
+      },
+      select: {
+        id: true,
+        tenantId: true,
+        userId: true,
+        displayPhone: true,
+        accessTokenEncrypted: true,
+        accessTokenExpiresAt: true,
+        disconnectReason: true,
+      },
+    });
+
+    let refreshed = 0;
+    const expired: ExpiredLine[] = [];
+    for (const row of rows) {
+      /* ‏השורה נבחרה עם `not: null`, וההגנה כאן היא בשביל הטיפוס */
+      const stored = row.accessTokenEncrypted;
+      const token = stored === null ? null : this.safeDecrypt(stored);
+      const issued = token === null ? null : await this.refreshToken(token);
+
+      if (issued !== null && stored !== null) {
+        /*
+         * ‎**הכתיבה מותנית בשורה שקראנו, ולא רק ב-`id`.**
+         *
+         * ‏בין הקריאה לכתיבה עוברת קריאת רשת אל Meta — שניות שבהן
+         * המתווך יכול ללחוץ „ניתוק”. `disconnect` מוחקת את הטוקן
+         * ומסמנת `disconnectedAt`, ואז כתיבה שמזוהה לפי `id` בלבד
+         * הייתה מחזירה טוקן **חי** לשורה מנותקת: הפרה של ההבטחה
+         * שהסוד נמחק בניתוק, והחזקת אישורים של עסק שכבר לא איתנו
+         * (ביקורת Codex). התנאי על הצופן שקראנו סוגר גם את המקרה
+         * השני — חיבור מחדש שהספיק לכתוב טוקן חדש באמצע.
+         */
+        const { count } = await this.prisma.whatsAppBusinessConnection.updateMany({
+          where: { id: row.id, disconnectedAt: null, accessTokenEncrypted: stored },
+          data: {
+            accessTokenEncrypted: this.crypto.encrypt(issued.token),
+            accessTokenExpiresAt: issued.expiresAt,
+          },
+        });
+        if (count > 0) refreshed += 1;
+        else this.logger.warn(`קו ${row.displayPhone} השתנה תוך כדי רענון — הטוקן החדש נזרק`);
+        continue;
+      }
+
+      /*
+       * ‏רענון שנכשל בזמן שהטוקן עוד חי אינו אירוע: הסבב הבא ינסה
+       * שוב. רק טוקן שכבר פג הוא קו מת, ורק אז יש למתווך מה לעשות.
+       */
+      const dead = row.accessTokenExpiresAt !== null && row.accessTokenExpiresAt <= now;
+      if (!dead) continue;
+
+      /*
+       * ‎**קו שכבר נושא סיבת תקלה אינו נוגעים בו.**
+       *
+       * ‏שתי סיבות שונות לאותו תנאי. הראשונה: `disconnectReason`
+       * קיים כבר סומן פעם אחת, וסימון חוזר היה שולח את אותה התראה
+       * כל שש שעות עד שהמתווך יכבה התראות. השנייה, ופחות מובנת
+       * מאליה: `webhook_subscribe_failed` הוא קו שההודעות שלו
+       * מעולם לא נותבו אלינו, והחלפת הסיבה ב-`token_expired` הייתה
+       * מוחקת את התקלה **האמיתית** מהמסך (ביקורת Codex). הקו כבר
+       * אדום ומוסבר, והתרופה זהה — חיבור מחדש.
+       *
+       * ‏מאותה סיבה אין כאן ענף „חזר לחיות”: טוקן שפג אינו ניתן
+       * להארכה אצל Meta, כך שהמסלול לא היה מתממש; ואילו התממש,
+       * הוא היה מכריז „מחובר” על קו שאולי נשבר מסיבה אחרת לגמרי.
+       * ההתאוששות מ-`token_expired` היא Embedded Signup מחדש,
+       * ו-`complete` כבר כותבת שם סטטוס נקי.
+       */
+      if (row.disconnectReason !== null) continue;
+
+      /*
+       * ‏אותו מירוץ, ואותו פתרון: הסימון מותנה בכך שהשורה עדיין
+       * מחוברת ועדיין בלי סיבה. `count === 0` אומר שמישהו הקדים —
+       * ניתוק, חיבור מחדש, או סבב מקביל — ואז גם ההתראה מיותרת.
+       */
+      const { count } = await this.prisma.whatsAppBusinessConnection.updateMany({
+        /*
+         * ‎**גם כאן הצופן שקראנו, ולא ה-`id` בלבד** (ביקורת Codex).
+         *
+         * ‏ענף ההצלחה כבר מותנה בו; כאן הוא היה חסר, ובין הקריאה
+         * לכתיבה עוברת אותה קריאת רשת. סבב מקביל ברפליקה שנייה
+         * שהספיק לרענן, או מתווך שחיבר מחדש בזמן שהבקשה באוויר,
+         * היו מקבלים `token_expired` על קו שהטוקן שלו **חי** —
+         * ואיתו התראה שקרית שמובילה לחיבור מחדש מיותר.
+         */
+        where: {
+          id: row.id,
+          disconnectedAt: null,
+          disconnectReason: null,
+          accessTokenEncrypted: stored,
+        },
+        data: { status: "error", disconnectReason: TOKEN_EXPIRED },
+      });
+      if (count === 0) continue;
+
+      expired.push({
+        id: row.id,
+        tenantId: row.tenantId,
+        userId: row.userId,
+        displayPhone: row.displayPhone,
+      });
+      this.logger.error(
+        `הטוקן של קו ${row.displayPhone} פג ולא ניתן לרענון — הקו מסומן לחיבור מחדש`,
+      );
+    }
+
+    return { refreshed, expired };
+  }
+
+  /** אישורי השליחה של קו מסוים — לבוט ולתשובות על הקו של המשרד. */
+  async credentialsFor(
+    connectionId: string,
+  ): Promise<{ token: string; phoneNumberId: string } | null> {
+    const row = await this.prisma.whatsAppBusinessConnection.findFirst({
+      where: { id: connectionId, disconnectedAt: null },
+      select: { accessTokenEncrypted: true, phoneNumberId: true },
+    });
+    if (!row?.accessTokenEncrypted) return null;
+    const token = this.safeDecrypt(row.accessTokenEncrypted);
+    return token ? { token, phoneNumberId: row.phoneNumberId } : null;
+  }
+
+  /**
+   * עדכון מצב שהגיע מ-Meta ב-`account_update` — ניתוק מהטלפון, שינוי
+   * דירוג איכות, חסימה. מגיע מהוובהוק ולכן אינו זורק לעולם.
+   */
+  async applyAccountUpdate(
+    phoneNumberId: string,
+    update: { event?: string; qualityRating?: string },
+  ): Promise<void> {
+    const row = await this.prisma.whatsAppBusinessConnection.findFirst({
+      where: { phoneNumberId, disconnectedAt: null },
+      select: { id: true },
+    });
+    if (!row) return;
+
+    /*
+     * ‏Meta מדווחת על ניתוק בכמה שמות אירוע. כולם אומרים אותו דבר:
+     * הקו כבר לא שלנו, ולכן הטוקן נמחק כמו בניתוק יזום.
+     */
+    const disconnected =
+      update.event !== undefined &&
+      ["DISABLED_UPDATE", "ACCOUNT_DELETED", "PARTNER_REMOVED", "ACCOUNT_RESTRICTION"].includes(
+        update.event,
+      );
+
+    await this.prisma.whatsAppBusinessConnection.update({
+      where: { id: row.id },
+      data: {
+        ...(update.qualityRating ? { qualityRating: update.qualityRating.slice(0, 10) } : {}),
+        ...(disconnected
+          ? {
+              accessTokenEncrypted: null,
+              accessTokenExpiresAt: null,
+              status: "disconnected",
+              disconnectedAt: new Date(),
+              disconnectReason: (update.event ?? "meta_update").slice(0, 40),
+            }
+          : {}),
+      },
+    });
+    if (disconnected) {
+      this.logger.warn(`קו ${phoneNumberId} נותק על ידי Meta (${update.event ?? "לא צוין"})`);
+    }
+  }
+
+  /**
+   * ‎**האם מותר לבוט לענות ללקוח בשם המשרד הזה — השער היחיד.**
+   *
+   * ## למה השער כאן ולא ב-Controller
+   *
+   * ‎`@RequireFeature` שומר על נתיבי HTTP, והבוט אינו נתיב HTTP: הוא
+   * נובע מהודעה נכנסת בוובהוק **ציבורי**, שבו אין מסלול, אין משתמש
+   * ואין דקורטור שיבדוק. בלי שער בשכבת השירות, „פיצ'ר בתשלום” היה
+   * שורה בקטלוג המסלולים שדבר אינו אוכף.
+   *
+   * ## מה **לא** נשמר כאן
+   *
+   * חיבור המספר, קליטת הפניות כלידים, ציר הזמן והדי האפליקציה —
+   * כולם פתוחים לכל מסלול, בכוונה: Meta אינה מחייבת על הודעות
+   * נכנסות, והחיוב על היוצאות הוא של המשרד מולה. מה שעולה לנו הוא
+   * קריאת ה-LLM שמנסחת תשובה, ורק היא נגבית.
+   */
+  async botAllowed(tenantId: string): Promise<boolean> {
+    return this.plans.tenantHasFeature(tenantId, "whatsapp_bot");
+  }
+
+  /**
+   * מצב סנכרון ההיסטוריה — מה שמוציא את החיבור ממצב ההמתנה.
+   *
+   * ‎`done` מסיים את ההמתנה: או שהסנכרון הושלם, או שהמתווך בחר לא
+   * לשתף. בשני המקרים הסטטוס עובר ל-`connected`, כי החיבור **עובד**
+   * — היעדר היסטוריה אינו תקלה ואינו ראוי לאזהרה במסך.
+   *
+   * ‎`failed` הוא היחיד שמסמן תקלה: Meta אינה שולחת נתח שוב אחרי
+   * שקיבלה 200, ולכן אין ניסיון חוזר והתרופה היחידה היא חיבור
+   * מחדש — בדיוק מה ש-`error` אומר למתווך במסך.
+   *
+   * ‎`updateMany` עם `disconnectedAt: null` ולא `update`: נתח
+   * שמגיע אחרי שהמתווך ניתק אינו מחייה את החיבור, והיעדר שורה
+   * אינו חריגה.
+   */
+  async markHistory(
+    connectionId: string,
+    state: { shared?: boolean; done?: boolean; failed?: boolean },
+  ): Promise<void> {
+    try {
+      await this.prisma.whatsAppBusinessConnection.updateMany({
+        where: { id: connectionId, disconnectedAt: null },
+        data: {
+          ...(state.shared === undefined ? {} : { historyShared: state.shared }),
+          ...(state.done ? { historySyncedThrough: new Date(), status: "connected" } : {}),
+          ...(state.failed ? { status: "error" } : {}),
+        },
+      });
+    } catch (error) {
+      /* מגיע מהוובהוק ולכן אינו זורק — כישלון סימון אינו שווה 500 */
+      this.logger.warn(`עדכון מצב היסטוריה לחיבור ${connectionId} נכשל: ${String(error)}`);
+    }
+  }
+
+  /**
+   * ‎**מי ה-WABA ומי הקו — כששואלים את Meta ולא את הפופאפ.**
+   *
+   * ‎`debug_token` מחזיר את ה-`granular_scopes` של הטוקן, ובתוכם
+   * ‎`target_ids`: רשימת חשבונות ה-WhatsApp שהטוקן הזה מורשה לנהל.
+   * משם `/{waba}/phone_numbers` נותן את הקו עצמו.
+   *
+   * ‎**יחיד בלבד, ובכוונה.** יותר מ-WABA אחד או יותר מקו אחד פירושו
+   * שיש כאן בחירה — ובחירה אינה דבר שמנחשים: חיבור הקו הלא-נכון
+   * מנתב לקוחות אמיתיים לסוכן הלא-נכון, בשקט ובלי שאיש ידע. במצב
+   * כזה מוטב להחזיר `null` ולבקש מהמתווך לבחור במפורש.
+   */
+  private async resolveAssets(
+    app: { appId: string; appSecret: string },
+    token: string,
+  ): Promise<{ wabaId: string; phoneNumberId: string } | null> {
+    const wabas = await this.tokenWabas(app, token);
+    if (wabas.length !== 1) {
+      this.logger.warn(
+        `זיהוי אוטומטי של הקו לא התאפשר: הטוקן פותח ${wabas.length} חשבונות WhatsApp`,
+      );
+      return null;
+    }
+    const wabaId = wabas[0]!;
+    const lines = await this.wabaPhoneNumbers(token, wabaId);
+    if (lines.length !== 1) {
+      this.logger.warn(
+        `זיהוי אוטומטי של הקו לא התאפשר: ל-WABA ${wabaId} יש ${lines.length} מספרים`,
+      );
+      return null;
+    }
+    return { wabaId, phoneNumberId: lines[0]! };
+  }
+
+  /** חשבונות ה-WhatsApp שהטוקן מורשה לנהל, לפי Meta עצמה. */
+  private async tokenWabas(
+    app: { appId: string; appSecret: string },
+    token: string,
+  ): Promise<string[]> {
+    try {
+      const url = new URL(`${GRAPH_BASE}/debug_token`);
+      url.searchParams.set("input_token", token);
+      /* טוקן האפליקציה — `app_id|app_secret`. הצורה שבה Meta מזהה אותנו כאן */
+      url.searchParams.set("access_token", `${app.appId}|${app.appSecret}`);
+      const res = await fetch(url, { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+      if (!res.ok) {
+        this.logger.warn(`בדיקת הטוקן מול Meta נכשלה: HTTP ${res.status}`);
+        return [];
+      }
+      const json = (await res.json()) as {
+        data?: { granular_scopes?: { scope?: string; target_ids?: string[] }[] };
+      };
+      const ids = new Set<string>();
+      for (const entry of json.data?.granular_scopes ?? []) {
+        if (
+          entry.scope !== "whatsapp_business_management" &&
+          entry.scope !== "whatsapp_business_messaging"
+        ) {
+          continue;
+        }
+        for (const id of entry.target_ids ?? []) {
+          if (/^\d{5,30}$/u.test(id)) ids.add(id);
+        }
+      }
+      return [...ids];
+    } catch (error) {
+      this.logger.warn(`בדיקת הטוקן מול Meta נכשלה: ${String(error)}`);
+      return [];
+    }
+  }
+
+  /** הקווים שתחת ה-WABA. ריק = גם כשל וגם "אין" — ושניהם עוצרים. */
+  private async wabaPhoneNumbers(token: string, wabaId: string): Promise<string[]> {
+    try {
+      const res = await fetch(
+        `${GRAPH_BASE}/${encodeURIComponent(wabaId)}/phone_numbers?fields=id`,
+        {
+          headers: { authorization: `Bearer ${token}` },
+          signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+        },
+      );
+      if (!res.ok) {
+        this.logger.warn(`שליפת מספרי ה-WABA ${wabaId} נכשלה: HTTP ${res.status}`);
+        return [];
+      }
+      const json = (await res.json()) as { data?: { id?: string }[] };
+      return (json.data ?? [])
+        .map((row) => row.id)
+        .filter((id): id is string => typeof id === "string" && /^\d{5,30}$/u.test(id));
+    } catch (error) {
+      this.logger.warn(`שליפת מספרי ה-WABA ${wabaId} נכשלה: ${String(error)}`);
+      return [];
+    }
+  }
+
+  /**
+   * ‎`code` ⟵ טוקן עסקי של המתווך. `null` = Meta סירבה.
+   *
+   * הטוקן אינו נרשם בלוג בשום מצב — גם לא חלקית. שגיאה מחזירה את
+   * הודעת Meta בלבד, מקוצצת.
+   */
+  private async exchangeCode(
+    app: { appId: string; appSecret: string },
+    code: string,
+  ): Promise<IssuedToken | null> {
+    try {
+      const url = new URL(`${GRAPH_BASE}/oauth/access_token`);
+      url.searchParams.set("client_id", app.appId);
+      url.searchParams.set("client_secret", app.appSecret);
+      url.searchParams.set("code", code);
+      const res = await fetch(url, { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+      if (!res.ok) {
+        const detail = (await res.text()).slice(0, 300);
+        this.logger.error(`המרת קוד החיבור נכשלה: HTTP ${res.status} — ${detail}`);
+        return null;
+      }
+      return readIssuedToken(await res.json());
+    } catch (error) {
+      this.logger.error(`המרת קוד החיבור נכשלה: ${String(error)}`);
+      return null;
+    }
+  }
+
+  /**
+   * הארכת טוקן קיים — `fb_exchange_token`, אותה משפחה של המרת ה-`code`.
+   *
+   * ‎`null` = Meta סירבה, וזה **אינו** בהכרח סוף הדרך: סירוב זמני
+   * (רשת, 500 אצל מטא) חוזר לסבב הבא, ורק טוקן שפג באמת מסמן את
+   * הקו. ההבחנה הזו נעשית אצל הקורא, שרואה גם כמה זמן נשאר.
+   */
+  async refreshToken(token: string): Promise<IssuedToken | null> {
+    const app = await this.appCredentials();
+    if (!app) return null;
+    try {
+      const url = new URL(`${GRAPH_BASE}/oauth/access_token`);
+      url.searchParams.set("grant_type", "fb_exchange_token");
+      url.searchParams.set("client_id", app.appId);
+      url.searchParams.set("client_secret", app.appSecret);
+      url.searchParams.set("fb_exchange_token", token);
+      const res = await fetch(url, { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+      if (!res.ok) {
+        const detail = (await res.text()).slice(0, 300);
+        this.logger.warn(`הארכת טוקן נכשלה: HTTP ${res.status} — ${detail}`);
+        return null;
+      }
+      return readIssuedToken(await res.json());
+    } catch (error) {
+      this.logger.warn(`הארכת טוקן נכשלה: ${String(error)}`);
+      return null;
+    }
+  }
+
+  /** פרטי הקו כפי ש-Meta מציגה אותם — המספר, השם המאומת והדירוג. */
+  private async fetchLine(
+    token: string,
+    phoneNumberId: string,
+  ): Promise<{
+    displayPhone: string;
+    verifiedName: string | null;
+    qualityRating: string | null;
+  } | null> {
+    try {
+      const res = await fetch(
+        `${GRAPH_BASE}/${encodeURIComponent(phoneNumberId)}?fields=display_phone_number,verified_name,quality_rating`,
+        {
+          headers: { authorization: `Bearer ${token}` },
+          signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+        },
+      );
+      if (!res.ok) {
+        this.logger.error(`שליפת פרטי הקו נכשלה: HTTP ${res.status}`);
+        return null;
+      }
+      const json = (await res.json()) as {
+        display_phone_number?: string;
+        verified_name?: string;
+        quality_rating?: string;
+      };
+      return {
+        // ספרות בלבד, כמו בכל מקום אחר בערוץ — Meta מחזירה "+972 50-..."
+        displayPhone: (json.display_phone_number ?? "").replace(/\D/gu, "").slice(0, 20),
+        verifiedName: json.verified_name?.slice(0, 120) ?? null,
+        qualityRating: json.quality_rating?.slice(0, 10) ?? null,
+      };
+    } catch (error) {
+      this.logger.error(`שליפת פרטי הקו נכשלה: ${String(error)}`);
+      return null;
+    }
+  }
+
+  /** מפנה את ה-Webhooks של ה-WABA של המתווך אל האפליקציה שלנו. */
+  private async subscribeApp(token: string, wabaId: string): Promise<boolean> {
+    try {
+      const res = await fetch(`${GRAPH_BASE}/${encodeURIComponent(wabaId)}/subscribed_apps`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${token}` },
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      });
+      if (!res.ok) {
+        const detail = (await res.text()).slice(0, 300);
+        this.logger.error(`הרשמה ל-Webhooks נכשלה: HTTP ${res.status} — ${detail}`);
+        return false;
+      }
+      return true;
+    } catch (error) {
+      this.logger.error(`הרשמה ל-Webhooks נכשלה: ${String(error)}`);
+      return false;
+    }
+  }
+
+  private async unsubscribeApp(token: string, wabaId: string): Promise<void> {
+    try {
+      await fetch(`${GRAPH_BASE}/${encodeURIComponent(wabaId)}/subscribed_apps`, {
+        method: "DELETE",
+        headers: { authorization: `Bearer ${token}` },
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      });
+    } catch (error) {
+      this.logger.warn(`ביטול ההרשמה ל-Webhooks נכשל: ${String(error)}`);
+    }
+  }
+
+  /**
+   * פענוח שאינו מפיל את הקורא. ערך שהוצפן במפתח אחר (שחזור בסיס
+   * נתונים לסביבה אחרת) מחזיר null — והקורא מתייחס אליו כמו לחיבור
+   * בלי טוקן, שזה בדיוק מה שהוא.
+   */
+  private safeDecrypt(stored: string): string | null {
+    try {
+      return this.crypto.decrypt(stored);
+    } catch {
+      this.logger.warn("פענוח טוקן החיבור נכשל — החיבור יטופל כלא-מוגדר");
+      return null;
+    }
+  }
+}
+
+const SUMMARY_SELECT = {
+  id: true,
+  userId: true,
+  displayPhone: true,
+  verifiedName: true,
+  status: true,
+  historyShared: true,
+  qualityRating: true,
+  connectedAt: true,
+  disconnectedAt: true,
+  disconnectReason: true,
+} as const;

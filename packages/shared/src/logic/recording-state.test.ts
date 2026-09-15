@@ -2,11 +2,16 @@ import { describe, expect, it } from "vitest";
 import {
   RECORDING_BLOCKED_REASON,
   RECORDING_GIVE_UP_MS,
+  RECORDING_REFUSALS_BEFORE_PAUSE,
   RECORDING_STATES,
+  recordingPullHealth,
   recordingReasonLabel,
   recordingStateLabel,
   recordingStateOf,
   importSentences,
+  recordingQueueFloor,
+  RECORDING_SWEEP_MAX,
+  RECORDING_PROMISE_MS,
 } from "./recording-state";
 import { UNANSWERED_OUTCOMES } from "./telephony";
 
@@ -137,6 +142,81 @@ describe("recordingStateOf", () => {
         now,
       ),
     ).toEqual({ state: "pending" });
+  });
+
+  /*
+   * ‎**ההמתנה הארוכה — התקלה שהגיעה מהשטח בניסוח הזה בדיוק:**
+   * ‏„הכיתוב ההקלטה בדרך מהמרכזייה מופיע כבר הרבה שעות וזה לא מגיע
+   * ‏בפועל”. שני מצבים שנראו זהים — אחד באמת בדרך, אחד שאיש אינו
+   * ‏מגיע אליו — ושניהם הבטיחו זמן.
+   */
+  it("נוסתה ולא הותירה לא הקלטה ולא סיבה — „לא קיבלנו תשובה”, ולא „בדרך”", () => {
+    expect(
+      recordingStateOf(
+        {
+          providerRecordingPath: "54936/12048/record_1_2",
+          providerRecordingAttemptAt: new Date(now - 9 * hour),
+          occurredAt: new Date(now - 9 * hour),
+        },
+        now,
+      ),
+    ).toEqual({ state: "stalled" });
+  });
+
+  /*
+   * ‎**חותמת ניסיון ריקה נשארת „בדרך” — ויהא גיל השיחה אשר יהא.**
+   *
+   * ‏זה הצד השני של אותה הכרעה, והוא מה שמגן על „נסו למשוך שוב”:
+   * ‏הלחיצה מאפסת את החותמת ומחזירה את השיחה לראש התור, ואם הגיל
+   * ‏היה הקובע — היא הייתה נשארת „לא קיבלנו תשובה” מיד אחרי
+   * ‏הלחיצה, כלומר כפתור שנראה כאילו אינו עושה דבר.
+   */
+  it("חותמת ניסיון ריקה על שיחה ישנה — עדיין בדרך, כי היא בראש התור", () => {
+    expect(
+      recordingStateOf(
+        {
+          providerRecordingPath: "54936/12048/record_1_2",
+          providerRecordingAttemptAt: null,
+          occurredAt: new Date(now - 9 * hour),
+        },
+        now,
+      ),
+    ).toEqual({ state: "pending" });
+  });
+
+  /*
+   * ‏בתוך חלון הניסיון החוזר אין עדיין מה לומר: הסבב חוזר לשיחה
+   * ‏צעירה כל חמש דקות, ולשאר כל חצי שעה.
+   */
+  it("נוסתה לפני 40 דקות — עדיין בדרך, הניסיון החוזר טרם אזל", () => {
+    expect(
+      recordingStateOf(
+        {
+          providerRecordingPath: "54936/12048/record_1_2",
+          providerRecordingAttemptAt: minutesAgo(40),
+          occurredAt: minutesAgo(50),
+        },
+        now,
+      ),
+    ).toEqual({ state: "pending" });
+  });
+
+  /*
+   * ‏סיבה רשומה גוברת: היא אומרת **מה** קרה, ו„ממתינה זמן חריג”
+   * ‏אומר רק שלא קרה כלום. שיחה שנוסתה ונכשלה אינה תקועה בתור.
+   */
+  it("סיבה רשומה גוברת על ההמתנה הארוכה", () => {
+    expect(
+      recordingStateOf(
+        {
+          providerRecordingPath: "54936/12048/record_1_2",
+          providerRecordingError: "network_error",
+          providerRecordingAttemptAt: minutesAgo(40),
+          occurredAt: new Date(now - 9 * hour),
+        },
+        now,
+      ),
+    ).toEqual({ state: "retrying", reason: "network_error" });
   });
 
   it("אין חיבור פעיל — חסומה, ולא „ננסה שוב”", () => {
@@ -343,6 +423,7 @@ describe("importSentences", () => {
     alreadyHad: 0,
     withoutCall: 0,
     withoutRecordId: 0,
+    remaining: 0,
   };
 
   /*
@@ -381,6 +462,7 @@ describe("importSentences", () => {
       importSentences({ ...empty, skipped: 1 }),
       importSentences({ ...empty, alreadyHad: 1 }),
       importSentences({ ...empty, withoutCall: 1 }),
+      importSentences({ ...empty, remaining: 1 }),
       importSentences({ ...empty, linked: 1, skipped: 2, alreadyHad: 3, withoutCall: 4 }),
     ]) {
       for (const line of lines) {
@@ -388,5 +470,174 @@ describe("importSentences", () => {
         expect(line.endsWith(".")).toBe(true);
       }
     }
+  });
+
+  /*
+   * ‎**„סומנו” אינו „הגיעו”, והמשפט חייב לומר את ההפרש.**
+   *
+   * ‏מאה הקלטות הן חמישה סבבים, כלומר חצי שעה — ומי שקרא „תוך
+   * ‏כמה דקות” חזר אחרי חמש, מצא שרובן חסרות, והסיק שהייבוא
+   * ‏נכשל. המספרים נגזרים מקצב הסבב עצמו, ולכן שינוי קצב מזיז
+   * ‏את המשפט איתו.
+   */
+  it("המשפט על מה שסומן נושא את הקצב האמיתי", () => {
+    const line = importSentences({ ...empty, linked: RECORDING_SWEEP_MAX * 5 })[0] ?? "";
+    expect(line).toContain(String(RECORDING_SWEEP_MAX));
+    expect(line).toContain(recordingQueueFloor(RECORDING_SWEEP_MAX * 5));
+  });
+
+  /*
+   * ‎**רצפה, ולא הערכה.** החישוב מניח שכל התקציב מוקדש לאצווה
+   * ‏הזו, והתקציב משותף לכל המשרדים — כך ששיחות שממתינות מלפנים
+   * ‏דוחות אותה בסבבים שלמים (ביקורת Codex). „לא פחות מ־” הוא חלק
+   * ‏מהערך המוחזר דווקא, כדי שקורא שני לא יאבד אותו בדרך; והמשפט
+   * ‏על המסך מוסיף במפורש שהתור משותף.
+   */
+  it("הזמן מוצג כרצפה ולא כהבטחה", () => {
+    expect(recordingQueueFloor(RECORDING_SWEEP_MAX * 5)).toBe("לא פחות מ-25 דקות");
+    for (const count of [0, 1, RECORDING_SWEEP_MAX, RECORDING_SWEEP_MAX * 24]) {
+      expect(recordingQueueFloor(count).startsWith("לא פחות מ")).toBe(true);
+    }
+    const line = importSentences({ ...empty, linked: 1 })[0] ?? "";
+    expect(line).toContain("משרדים אחרים ממתינות");
+  });
+
+  it("המתנה — סבב שלם ומעלה, ובשעות כשזה כבר לא דקות", () => {
+    expect(recordingQueueFloor(1)).toBe("לא פחות מ-5 דקות");
+    expect(recordingQueueFloor(RECORDING_SWEEP_MAX)).toBe("לא פחות מ-5 דקות");
+    expect(recordingQueueFloor(RECORDING_SWEEP_MAX + 1)).toBe("לא פחות מ-10 דקות");
+    expect(recordingQueueFloor(RECORDING_SWEEP_MAX * 24)).toBe("לא פחות משעתיים");
+    // אפס אינו זמן שלילי ואינו NaN — הקורא עלול להעביר אותו
+    expect(recordingQueueFloor(0)).toBe("לא פחות מ-0 דקות");
+  });
+
+  /*
+   * ‎**מה שלא נבדק נאמר.** בלי זה לחיצה על טווח גדול נראית כמו
+   * ‏סיום, והמשרד נשאר עם השאר אצל הספק עד שיימחקו שם.
+   */
+  it("שורות שלא נבדקו — נספרות, ואינן „לא נמצאו”", () => {
+    const lines = importSentences({ ...empty, found: 300, linked: 100, remaining: 200 });
+    expect(lines.join(" ")).toContain("200");
+    expect(lines.join(" ")).not.toContain("לא נמצאו");
+    // גם לבדה, בלי שסומן דבר — התור התמלא ממה שכבר היה אצלנו
+    expect(importSentences({ ...empty, found: 300, remaining: 200 }).join(" ")).not.toContain(
+      "לא נמצאו",
+    );
+  });
+});
+
+describe("recordingPullHealth — מצב משיכת ההקלטות של משרד", () => {
+  it("בלי ניסיון — לא אומר „תקין” ולא „שבור”", () => {
+    expect(recordingPullHealth({}).level).toBe("unknown");
+  });
+
+  it("הצלחה אחרונה — תקין", () => {
+    const at = new Date("2026-09-09T06:00:00Z");
+    const health = recordingPullHealth({ lastPullAt: at, lastPullOk: true, pullFailStreak: 0 });
+    expect(health.level).toBe("ok");
+    expect(health.at).toBe(at);
+  });
+
+  /*
+   * ‏הקלטה אחת שטרם הוכנה אינה תקלה, ולכן היא אינה „שבור”. ההבחנה
+   * ‏הזו היא כל הערך של המסך: בלעדיה כל משרד פעיל נראה אדום.
+   */
+  it("כישלון בודד — אזהרה, לא שבור", () => {
+    const health = recordingPullHealth({
+      lastPullAt: new Date(),
+      lastPullOk: false,
+      lastPullIssue: "empty_audio",
+      pullFailStreak: 1,
+    });
+    expect(health.level).toBe("warn");
+    expect(health.sentence).toContain("טרם הכינה");
+  });
+
+  it("מהרצף שבו הסבב עוצר — שבור, והסיבה בפנים", () => {
+    const health = recordingPullHealth({
+      lastPullAt: new Date(),
+      lastPullOk: false,
+      lastPullIssue: "provider_rejected_402",
+      pullFailStreak: RECORDING_REFUSALS_BEFORE_PAUSE,
+    });
+    expect(health.level).toBe("broken");
+    expect(health.sentence).toContain("אין הרשאה למשוך הקלטות");
+    expect(health.sentence).toContain("402");
+  });
+
+  /*
+   * ‎**אותו ניסוח שהמתווך רואה על השיחה.** שני ניסוחים לאותו קוד
+   * ‏היו אומרים למנהל הפלטפורמה דבר אחד ולמשרד דבר אחר.
+   */
+  it("המשפט נגזר מאותו מילון של השיחה", () => {
+    for (const issue of ["missing_credentials", "network_error", "provider_rejected_401"]) {
+      const health = recordingPullHealth({
+        lastPullAt: new Date(),
+        lastPullOk: false,
+        lastPullIssue: issue,
+        pullFailStreak: 1,
+      });
+      expect(health.sentence).toContain(recordingReasonLabel(issue));
+    }
+  });
+
+  /*
+   * ‏חיבור שכובה משאיר מאחוריו הצלחה אחרונה. „נמשכה בהצלחה” עליו
+   * ‏הוא בדיוק השקר שנאמר ברגע שמישהו מנסה להבין למה אין הקלטות.
+   */
+  it("חיבור מכובה — לא „תקין”, גם אחרי הצלחה", () => {
+    const health = recordingPullHealth({
+      lastPullAt: new Date(),
+      lastPullOk: true,
+      active: false,
+    });
+    expect(health.level).toBe("unknown");
+    expect(health.sentence).toContain("אינו פעיל");
+  });
+});
+
+/*
+ * ‎**ההבטחה שעל המסך נגזרת מהמספרים שמאחוריה.**
+ *
+ * ‏„נמשכת תוך דקות” היה ניסוח שלא נגזר מדבר: הוא נכתב פעם אחת,
+ * ‏ולא היה יכול להפסיק להיות נכון כשקצב הסבב או זמן החסד זזו.
+ * ‏הבדיקה כאן היא על הקשר עצמו, ולא על המחרוזת.
+ */
+describe("ההבטחה על המסך", () => {
+  it("„בדרך” נוקבת בזמן, והזמן הוא בדיוק RECORDING_PROMISE_MS", () => {
+    const label = recordingStateLabel({ state: "pending" });
+    expect(label).toContain(`${RECORDING_PROMISE_MS / 60_000} דקות`);
+    // ‏עשר דקות: חמש לזמן החסד ועוד טיק אחד של הסבב
+    expect(RECORDING_PROMISE_MS).toBe(10 * 60 * 1000);
+  });
+
+  /*
+   * ‎**והיא אומרת „בדרך כלל”, כי התור משותף.**
+   *
+   * ‏התקציב הוא `RECORDING_SWEEP_MAX` בכל `RECORDING_SWEEP_TICK_MS`
+   * ‏על פני **כל** המשרדים, ולכן אחרי ייבוא גדול — כאן או אצל משרד
+   * ‏אחר — עשר דקות אינן מובטחות. ‎`recordingQueueFloor` כבר אומר
+   * ‏זאת בייבוא, ושני המשפטים על אותו תור חייבים להסכים.
+   */
+  it("ואינה מתחייבת — כי התקציב משותף לכל המשרדים", () => {
+    expect(recordingStateLabel({ state: "pending" })).toContain("בדרך כלל");
+  });
+
+  /*
+   * ‎**ומצב ההמתנה החריגה אינו נוקב בזמן — כי אין לו.** זו כל
+   * ‏הנקודה: המסך הפסיק להבטיח מה שאינו יודע.
+   */
+  it("„לא קיבלנו תשובה” אינה מבטיחה דקות", () => {
+    expect(recordingStateLabel({ state: "stalled" })).not.toContain("דקות");
+  });
+
+  /*
+   * ‏חריגה בלתי צפויה נרשמת כסיבה, ולכן היא חייבת ניסוח משלה —
+   * ‏„הסיבה אינה ידועה” נאמר על **היעדר** סיבה, וזה ההפך.
+   */
+  it("שגיאה לא צפויה אומרת שניסינו ונפלנו", () => {
+    const label = recordingReasonLabel("unexpected_error");
+    expect(label).not.toBe(recordingReasonLabel(undefined));
+    expect(label).toContain("לא צפויה");
   });
 });

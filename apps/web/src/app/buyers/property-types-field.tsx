@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { PROPERTY_TYPE_LABELS } from "@/lib/format";
+import { PropertyTypeOptions } from "../property-type-options";
 
 /**
  * סוגי הנכס שהקונה מחפש.
@@ -87,11 +88,7 @@ export function PropertyTypesField({
               ? "כל הסוגים נבחרו"
               : "הוספת סוג…"}
         </option>
-        {remaining.map(([value, label]) => (
-          <option key={value} value={value}>
-            {label}
-          </option>
-        ))}
+        <PropertyTypeOptions exclude={chosen} />
       </select>
 
       {chosen.length > 0 ? (

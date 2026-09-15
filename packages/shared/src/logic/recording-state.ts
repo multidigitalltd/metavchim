@@ -36,6 +36,59 @@ import { recordingWorthPulling } from "./telephony.js";
 export const RECORDING_GIVE_UP_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
+ * ‎**קצב המשיכה — כמה, וכל כמה זמן.**
+ *
+ * ‏שני המספרים שקובעים כמה מהר הקלטה שסומנה מגיעה אל האחסון:
+ * ‏הסבב רץ כל `RECORDING_SWEEP_TICK_MS`, ומושך בו לכל היותר
+ * ‏`RECORDING_SWEEP_MAX` הקלטות — **סך הכול על פני כל המשרדים**.
+ *
+ * ‎**כאן ולא בשרת, מאותו נימוק כמו `RECORDING_GIVE_UP_MS`:** המסך
+ * ‏מבטיח „ייכנסו תוך כמה דקות”, וכל עוד המספרים ישבו בשירות בלבד
+ * ‏המשפט הזה היה ניחוש שנכתב פעם אחת ולא זז יותר. עכשיו הוא נגזר
+ * ‏מהם, ושינוי קצב מזיז את ההבטחה איתו.
+ */
+export const RECORDING_SWEEP_MAX = 20;
+
+/** ‏כל כמה זמן רץ סבב המשיכה. ראו `RECORDING_SWEEP_MAX`. */
+export const RECORDING_SWEEP_TICK_MS = 5 * 60 * 1000;
+
+/**
+ * ‎**המנה של משרד אחד בסבב אחד — ומה שהיא מונעת.**
+ *
+ * ‏התקציב (`RECORDING_SWEEP_MAX`) משותף לכל המשרדים, והסבב חילק
+ * ‏אותו לפי הסדר שבו המשרדים חוזרים מהמסד: הראשון לקח כמה שרצה,
+ * ‏והשאר קיבלו את מה שנשאר. **משרד אחד עם מאה הקלטות ממתינות לקח
+ * ‏את כל התקציב בכל סבב** — והשאר לא נמשכו כלל, לא תוך עשר דקות
+ * ‏ולא תוך שעתיים, עד שהוא סיים.
+ *
+ * ‏זו הרעבה ולא איטיות: מבחינת המשרד השני שום דבר לא זז.
+ *
+ * ‎**רבע מהתקציב, ונגזר ולא נכתב:** ארבעה משרדים לפחות נמשכים בכל
+ * ‏סבב, ואף אחד אינו יכול לקחת את הכול. אם התקציב יזוז, המנה זזה
+ * ‏איתו והכלל „לפחות ארבעה” נשמר.
+ *
+ * ‎**והיא אינה תקרה קשיחה.** מה שנשאר מהתקציב אחרי שכל משרד קיבל
+ * ‏את מנתו מחולק שוב — כך שמשרד יחיד שעובד לבדו עדיין מנצל את
+ * ‏התקציב כולו, ומנה שווה אינה הופכת לבזבוז.
+ */
+export const RECORDING_SWEEP_FAIR_SHARE = Math.max(1, Math.round(RECORDING_SWEEP_MAX / 4));
+
+/**
+ * ‎**כמה הקלטות לחיצת ייבוא אחת מכניסה לתור.**
+ *
+ * ‏הייבוא עצמו אינו מוריד אודיו — הוא **מסמן** שיחות, ואיפוס
+ * ‏חותמת הניסיון מכניס כל אחת מהן לראש התור המשותף. בלי תקרה,
+ * ‏לחיצה אחת על טווח של תשעים יום מכניסה מאות שיחות של משרד אחד
+ * ‏לתור שכל המשרדים חולקים — כלומר משביתה את המשיכה אצל כל
+ * ‏השאר לשעות, בלי שאיש ביקש זאת.
+ *
+ * ‏מאה הן כחצי שעה של הסבב (`RECORDING_SWEEP_MAX` כל
+ * ‏`RECORDING_SWEEP_TICK_MS`). מה שלא נכנס אינו אובד: הייבוא
+ * ‏אידמפוטנטי, ולחיצה נוספת ממשיכה מהמקום שבו נעצר.
+ */
+export const RECORDING_IMPORT_QUEUE_LIMIT = 100;
+
+/**
  * ‎**כמה להמתין מסיום השיחה לפני הניסיון הראשון.**
  *
  * המרכזייה כותבת את קובץ ההקלטה אחרי שהשיחה נגמרת, ולוקח לה כמה
@@ -77,12 +130,40 @@ export const RECORDING_YOUNG_CALL_MS = 60 * 60 * 1000;
 export const RECORDING_EARLY_RETRY_MS = 5 * 60 * 1000;
 
 /**
+ * ‎**כמה זמן המסך מבטיח שההקלטה תגיע — ונגזר, ולא נכתב.**
+ *
+ * ‏זמן החסד לפני הניסיון הראשון ועוד טיק אחד של הסבב: זה בדיוק
+ * ‏המרווח בין סוף השיחה לבין הרגע שבו המשיכה הראשונה יוצאת. קודם
+ * ‏ישב במשפט „נמשכת תוך דקות” — ניסוח מעורפל שלא נגזר מדבר, ולכן
+ * ‏גם לא היה יכול להפסיק להיות נכון כשהמספרים זזו.
+ *
+ * ‎**והוא מתאר תור פנוי.** התקציב משותף לכל המשרדים, ולכן המשפט
+ * ‏שעוטף אותו אומר „בדרך כלל” ולא נוקב בהתחייבות — אותה הבחנה
+ * ‏בדיוק שכבר קיימת ב-`recordingQueueFloor`.
+ *
+ * ‎**אותו לקח של `recordingQueueFloor`:** מספר שאפשר לאמת עדיף על
+ * ‏הבטחה שאי אפשר.
+ */
+export const RECORDING_PROMISE_MS = RECORDING_FIRST_ATTEMPT_GRACE_MS + RECORDING_SWEEP_TICK_MS;
+
+/**
  * הסיבה היחידה שאינה „ננסה שוב” אלא „אי אפשר לנסות”.
  *
  * ‎**המקור, ולא עותק.** `RECORDING_ERRORS.integration` בשרת מיובא
  * מכאן. הכיוון הזה ולא ההפוך, כי הלוגיקה המשותפת אינה תלויה ב-API.
  */
 export const RECORDING_BLOCKED_REASON = "no_integration";
+
+/**
+ * ‏הקידומת של „הספק אמר לא”.
+ *
+ * ‎**המקור, ולא עותק** — בדיוק כמו `RECORDING_BLOCKED_REASON` שמעליו.
+ * ‏הקוד המלא הוא `provider_rejected_<סטטוס>`; `RECORDING_ERRORS.provider`
+ * ‏בשרת מרכיב אותו מכאן, ו-`recordingReasonLabel` מפרק אותו לפיו.
+ * ‏קודם ישבה כאן מחרוזת בשרת ומחרוזת זהה בניסוח — שתי הגדרות
+ * ‏שמסכימות רק במקרה, וזו בדיוק הצורה שכבר תוקנה כאן פעם אחת.
+ */
+export const RECORDING_PROVIDER_REFUSAL = "provider_rejected";
 
 /**
  * המצבים עצמם כרשימה, והטיפוס נגזר ממנה — ולא להפך.
@@ -96,6 +177,7 @@ export const RECORDING_STATES = [
   "none",
   "skipped",
   "pending",
+  "stalled",
   "retrying",
   "blocked",
   "failed",
@@ -173,6 +255,34 @@ export function recordingStateOf(row: RecordingFields, now: number = Date.now())
    */
   if (reason === RECORDING_BLOCKED_REASON) return { state: "blocked", reason };
   if (reason !== undefined) return { state: "retrying", reason };
+
+  /*
+   * ‎**„בדרך” היא הבטחה, ולכן יש לה תפוגה.**
+   *
+   * ‏עד כאן אין סיבת כישלון רשומה, ושני מצבים שונים לגמרי מגיעים
+   * ‏לכאן. שיחה שחותמת הניסיון שלה **ריקה** ממתינה בראש התור
+   * ‏(`pendingFor` ממיינת `nulls: "first"`) ותיבחר בסבב הקרוב —
+   * ‏גם אם היא בת שבוע, וגם מיד אחרי „נסו למשוך שוב”. שם „בדרך”
+   * ‏נכון, ואין דבר לומר במקומו.
+   *
+   * ‎**אבל שיחה שכן נוסתה ולא הותירה לא הקלטה ולא סיבה — נעלמה.**
+   * ‏הניסיון החוזר הארוך ביותר הוא חצי שעה, ולכן אחרי שעה שלמה
+   * ‏אין הסבר תמים: או שהסבב אינו חוזר אליה, או שהניסיון נפל בלי
+   * ‏להספיק לרשום. זה בדיוק מה שנראה בשטח — „ההקלטה בדרך
+   * ‏מהמרכזייה” שעה אחר שעה, על משיכה שכבר קרתה ונכשלה בשקט.
+   *
+   * ‎**הגבול הוא `RECORDING_YOUNG_CALL_MS`** ולא מספר חדש: זו
+   * ‏הנקודה שהמנוע כבר מכיר כגבול בין „כנראה רק טרם הוכן” לבין
+   * ‏תקלה של ממש. מספר שני היה מסכים עם הראשון ביום שנכתב בלבד.
+   *
+   * ‎`stalled` ולא `failed`: לא ויתרנו, והמשיכה עדיין עשויה לקרות
+   * ‏— ולכן גם הכפתור נשאר. מה שהשתנה הוא שהמסך מפסיק לנקוב בזמן
+   * ‏שאין לו כיסוי.
+   */
+  const attemptAt = row.providerRecordingAttemptAt ?? null;
+  if (attemptAt !== null && now - attemptAt.getTime() > RECORDING_YOUNG_CALL_MS) {
+    return { state: "stalled" };
+  }
   return { state: "pending" };
 }
 
@@ -187,7 +297,24 @@ export function recordingStateLabel(status: RecordingStatus): string {
       // בלי „ננסה שוב”: אין מה לשמוע, וזו החלטה ולא תקלה
       return "השיחה לא נענתה — אין הקלטה לתמלל";
     case "pending":
-      return "ההקלטה בדרך מהמרכזייה — נמשכת תוך דקות";
+      /*
+       * ‎**„בדרך כלל” אינו ריכוך — הוא מה שהופך את המשפט לנכון.**
+       *
+       * ‏המספר נגזר מ-`RECORDING_PROMISE_MS`, ולכן אינו יכול
+       * ‏להתיישן; אבל הוא מתאר **תור פנוי**. התקציב
+       * ‏(`RECORDING_SWEEP_MAX` בכל `RECORDING_SWEEP_TICK_MS`)
+       * ‏משותף לכל המשרדים, ולכן אחרי ייבוא גדול — כאן או אצל
+       * ‏משרד אחר — שיחה בודדת ממתינה יותר. הבטחה מוחלטת שם היא
+       * ‏שקר שקורה בדיוק ברגע העמוס (ביקורת Codex).
+       *
+       * ‎`recordingQueueFloor` כבר אומר את אותו דבר בייבוא („ויותר,
+       * ‏אם שיחות של משרדים אחרים ממתינות באותו תור”), ושני משפטים
+       * ‏על אותו תור חייבים להסכים.
+       */
+      return `ההקלטה בדרך מהמרכזייה — נמשכת בדרך כלל תוך ${RECORDING_PROMISE_MS / 60_000} דקות`;
+    case "stalled":
+      // בלי נקיבה בזמן: כמה זמן זה ייקח הוא בדיוק מה שאיננו יודעים
+      return "ניסינו למשוך את ההקלטה ולא קיבלנו תשובה — אפשר לנסות שוב, ואם זה חוזר יש לבדוק את חיבור המרכזייה בהגדרות";
     case "retrying":
       return `המשיכה מהמרכזייה נכשלה, ננסה שוב — ${recordingReasonLabel(status.reason)}`;
     case "blocked":
@@ -207,8 +334,8 @@ export function recordingStateLabel(status: RecordingStatus): string {
  */
 export function recordingReasonLabel(reason: string | undefined): string {
   if (reason === undefined) return "הסיבה אינה ידועה";
-  if (reason.startsWith("provider_rejected")) {
-    const status = reason.slice("provider_rejected_".length);
+  if (reason.startsWith(RECORDING_PROVIDER_REFUSAL)) {
+    const status = reason.slice(`${RECORDING_PROVIDER_REFUSAL}_`.length);
     /*
      * הקוד מגיע משני מקורות — סטטוס ה-HTTP, ומעטפת `responses`
      * שבתוך תשובת 200 — ומשמעותו זהה בשניהם. שלושת המקרים שיש
@@ -246,6 +373,16 @@ export function recordingReasonLabel(reason: string | undefined): string {
       return "ההקלטה גדולה מהמותר";
     case "network_error":
       return "לא הצלחנו להגיע למרכזייה";
+    /*
+     * ‎**שגיאה שנפלה מחוץ לכל מסלול מוכר.**
+     *
+     * ‏בלי הקוד הזה חריגה בלתי צפויה בתוך המשיכה הותירה את השורה
+     * ‏בלי סיבה כלל — כלומר „בדרך מהמרכזייה” עד הניסיון הבא, ושוב,
+     * ‏ושוב. „הסיבה אינה ידועה” נכון כאן, אבל הוא גם מה שנאמר על
+     * ‏היעדר סיבה; הניסוח הזה אומר במפורש ש**כן** ניסינו ונפלנו.
+     */
+    case "unexpected_error":
+      return "המשיכה נעצרה בשגיאה לא צפויה";
     default:
       return "הסיבה אינה ידועה";
   }
@@ -268,6 +405,43 @@ export interface RecordingImportSummary {
   alreadyHad: number;
   withoutCall: number;
   withoutRecordId: number;
+  /**
+   * ‏שורות שהספק החזיר ו**לא נבדקו** בלחיצה הזו, כי התור התמלא —
+   * ‏ראו `RECORDING_IMPORT_QUEUE_LIMIT`.
+   *
+   * ‏„לא נבדקו” ולא „לא סומנו”: איננו יודעים כמה מהן היו נצרכות.
+   * ‏הן פשוט לא נפתחו, ולחיצה נוספת תמשיך מהן.
+   */
+  remaining: number;
+}
+
+/**
+ * ‎**כמה זמן לכל המוקדם עד שהקלטות שסומנו יגיעו אלינו.**
+ *
+ * ‏נגזר מקצב הסבב ולא נכתב כמשפט: „ייכנסו תוך כמה דקות” היה נכון
+ * ‏כשלחיצה סימנה שלוש הקלטות, והפך למטעה כשהיא סימנה מאה.
+ *
+ * ‎**רצפה, ולא הערכה — והמחרוזת עצמה אומרת זאת.**
+ *
+ * ‏החישוב מניח שהסבב מקדיש את כל התקציב לאצווה הזו, וזה כמעט
+ * ‏לעולם אינו נכון: התקציב משותף לכל המשרדים, `pendingFor` מסדר
+ * ‏אותם לפי ניסיון אחרון, וסבב שלם יכול ללכת על עבודה שממתינה
+ * ‏מלפנים; ניסיונות חוזרים והמרווח מול הספק מוסיפים עוד (ביקורת
+ * ‏Codex). קודם ישבה האזהרה הזו כאן בהערה בלבד והמשפט על המסך
+ * ‏הבטיח „כ-25 דקות עד שכולן יגיעו” — כלומר האמת הייתה בקוד
+ * ‏והשקר היה במה שנקרא.
+ *
+ * ‏לכן „לא פחות מ־” הוא חלק מהערך המוחזר ולא מהמשפט שעוטף אותו:
+ * ‏קורא שני אינו יכול לאבד אותו בדרך.
+ */
+export function recordingQueueFloor(count: number): string {
+  const sweeps = Math.ceil(Math.max(count, 0) / RECORDING_SWEEP_MAX);
+  const minutes = (sweeps * RECORDING_SWEEP_TICK_MS) / 60_000;
+  if (minutes < 90) return `לא פחות מ-${minutes} דקות`;
+  const hours = Math.round(minutes / 60);
+  if (hours === 1) return "לא פחות משעה";
+  if (hours === 2) return "לא פחות משעתיים";
+  return `לא פחות מ-${hours} שעות`;
 }
 
 /**
@@ -298,7 +472,19 @@ export function importSentences(summary: RecordingImportSummary): string[] {
   const lines: string[] = [];
 
   if (summary.linked > 0) {
-    lines.push(`${summary.linked} הקלטות סומנו למשיכה — הן ייכנסו לכרטיסים תוך כמה דקות.`);
+    /*
+     * ‎**הקצב נאמר, ולא נרמז.** „תוך כמה דקות” נכתב כשלחיצה סימנה
+     * ‏שלוש הקלטות. הסבב מושך עד `RECORDING_SWEEP_MAX` בכל
+     * ‏`RECORDING_SWEEP_TICK_MS` על פני כל המשרדים, ולכן מאה
+     * ‏הקלטות הן חצי שעה — ומי שלא ידע זאת חזר אחרי חמש דקות,
+     * ‏ראה שרובן עוד לא כאן, והסיק שהייבוא נכשל.
+     */
+    lines.push(
+      `${summary.linked} הקלטות סומנו למשיכה — הן נמשכות עד ${RECORDING_SWEEP_MAX} בכל ` +
+        `${RECORDING_SWEEP_TICK_MS / 60_000} דקות על פני כל המשרדים, כלומר ` +
+        `${recordingQueueFloor(summary.linked)} עד שכולן יגיעו לכרטיסים — ויותר, ` +
+        `אם שיחות של משרדים אחרים ממתינות באותו תור.`,
+    );
   }
   if (summary.alreadyHad > 0) {
     lines.push(`${summary.alreadyHad} כבר היו אצלנו.`);
@@ -315,6 +501,20 @@ export function importSentences(summary: RecordingImportSummary): string[] {
   }
 
   /*
+   * ‎**מה שלא נבדק נאמר, אחרת הייבוא נראה כאילו סיים.**
+   *
+   * ‏בלי המשפט הזה לחיצה על טווח גדול הייתה מדווחת „מאה סומנו”
+   * ‏ונראית כמו סיום — והמשרד היה נשאר עם שאר ההקלטות אצל הספק
+   * ‏עד שיימחקו שם.
+   */
+  if (summary.remaining > 0) {
+    lines.push(
+      `${summary.remaining} שורות נוספות אצל הספק לא נבדקו בלחיצה הזו — ` +
+        `כל לחיצה מכניסה לתור עד ${RECORDING_IMPORT_QUEUE_LIMIT} הקלטות. לחצו שוב כדי להמשיך.`,
+    );
+  }
+
+  /*
    * ‎**„לא נמצאו” הוא נסיגה, ולא ענף של `linked`.** הוא נאמר רק
    * כשאין שום משפט אחר — כלומר כשבאמת לא היה מה לומר. `withoutRecordId`
    * אינו נספר כאן: המסך מציג אותו בשורה נפרדת משלו, והוא כן „נמצא
@@ -324,4 +524,73 @@ export function importSentences(summary: RecordingImportSummary): string[] {
     return ["לא נמצאו הקלטות חדשות לצרף."];
   }
   return lines;
+}
+
+/* ============ בריאות משיכת ההקלטות — לשולחן החיבורים ============ */
+
+/**
+ * ‎**כמה סירובים ברצף עד שזה כבר לא במקרה.**
+ *
+ * ‏אותו מספר משמש לשני דברים שהם למעשה אותה הכרעה: מתי הסבב מפסיק
+ * ‏לנסות למשוך מהמשרד הזה, ומתי שולחן החיבורים אומר „שבור” ולא
+ * ‏„כשל נקודתי”. הקלטה אחת שטרם הוכנה היא לא תקלה; שלוש דחיות
+ * ‏ברצף הן הספק שאומר „לא”.
+ *
+ * ‏קודם ישב כאן מספר בסבב ומספר שני היה נולד במסך — ואז אחד מהם
+ * ‏זז, והמסך הכריז „תקין” על משרד שהסבב כבר ויתר עליו.
+ */
+export const RECORDING_REFUSALS_BEFORE_PAUSE = 3;
+
+/** ‏מצב משיכת ההקלטות של משרד, כפי שהוא נשמר על שורת החיבור. */
+export interface RecordingPullFields {
+  lastPullAt?: Date | null;
+  lastPullOk?: boolean | null;
+  lastPullIssue?: string | null;
+  pullFailStreak?: number | null;
+  /**
+   * ‏האם החיבור **פעיל עכשיו**. חיבור שכובה משאיר מאחוריו הצלחה
+   * ‏אחרונה, ובלי השדה הזה המסך היה מכריז „נמשכה בהצלחה” על משרד
+   * ‏שכרגע לא נמשכת אצלו שום הקלטה — בדיוק הרגע שבו מישהו מנסה
+   * ‏להבין למה אין הקלטות.
+   */
+  active?: boolean;
+}
+
+export interface RecordingPullHealth {
+  /** `unknown` = טרם נוסתה משיכה; `broken` = הסבב כבר עוצר את המשרד */
+  level: "unknown" | "ok" | "warn" | "broken";
+  sentence: string;
+  /** ‏מתי נמדד — למסך שרוצה לומר „לפני שעתיים”. */
+  at?: Date;
+}
+
+/**
+ * ‎**מה לומר למי שמנסה לעזור למשרד שההקלטות שלו לא נמשכות.**
+ *
+ * ‏המשפט נגזר מהסיבה דרך `recordingReasonLabel` — אותו ניסוח בדיוק
+ * ‏שהמתווך רואה על השיחה. שני ניסוחים לאותו קוד היו אומרים למנהל
+ * ‏הפלטפורמה דבר אחד ולמשרד דבר אחר, ואז השיחה ביניהם מתחילה
+ * ‏מתרגום.
+ */
+export function recordingPullHealth(row: RecordingPullFields): RecordingPullHealth {
+  if (row.active === false) {
+    return { level: "unknown", sentence: "החיבור אינו פעיל — הקלטות אינן נמשכות" };
+  }
+  const at = row.lastPullAt ?? null;
+  if (at === null) {
+    return { level: "unknown", sentence: "עדיין לא נוסתה משיכת הקלטה" };
+  }
+  if (row.lastPullOk === true) {
+    return { level: "ok", sentence: "ההקלטה האחרונה נמשכה בהצלחה", at };
+  }
+  const reason = recordingReasonLabel(row.lastPullIssue ?? undefined);
+  const streak = row.pullFailStreak ?? 0;
+  if (streak >= RECORDING_REFUSALS_BEFORE_PAUSE) {
+    return {
+      level: "broken",
+      sentence: `${streak} משיכות נכשלו ברצף — ${reason}`,
+      at,
+    };
+  }
+  return { level: "warn", sentence: `המשיכה האחרונה נכשלה — ${reason}`, at };
 }

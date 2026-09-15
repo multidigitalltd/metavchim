@@ -292,6 +292,8 @@ export class AccountDeletionService {
 
         await tx.contactLink.deleteMany({ where: { tenantId } });
         await tx.contactPhone.deleteMany({ where: { tenantId } });
+        /* ‏טוקני ההסרה מדיוור — נופלים עם הכרטיס, אבל לא דרך הדייר */
+        await tx.contactOptOutToken.deleteMany({ where: { tenantId } });
         await tx.interaction.deleteMany({ where: { tenantId } });
         await tx.voiceIntake.deleteMany({ where: { tenantId } });
         await tx.match.deleteMany({ where: { tenantId } });
@@ -299,6 +301,13 @@ export class AccountDeletionService {
         await tx.message.deleteMany({ where: { tenantId } });
         // שיחות הסוכן בוואטסאפ — ההצעות וההיסטוריה מכילות פרטי לקוחות
         await tx.whatsAppChat.deleteMany({ where: { tenantId } });
+        /*
+         * שיחות הבוט מול לקוחות הקצה על הקו של המשרד (docs/12).
+         * ‎`whatsapp_business_connections` עצמו נמחק ב-Cascade של
+         * ה-FK לדייר, והשיחות תלויות בו — אבל המחיקה כאן מפורשת
+         * ולא נסמכת על סדר: השורות מכילות מזהי לקוחות ומצב שיחה.
+         */
+        await tx.whatsAppConversation.deleteMany({ where: { tenantId } });
         await tx.agentEvent.deleteMany({ where: { tenantId } });
         await tx.call.deleteMany({ where: { tenantId } });
         // צילומי הניתוב של שיחות שעדיין באוויר ברגע המחיקה
@@ -433,7 +442,18 @@ export class AccountDeletionService {
         await tx.mentorMessage.deleteMany({ where: { tenantId } });
         await tx.mentorWin.deleteMany({ where: { tenantId } });
         await tx.mentorReview.deleteMany({ where: { tenantId } });
+        await tx.mentorMonthlyReview.deleteMany({ where: { tenantId } });
+        await tx.mentorPractice.deleteMany({ where: { tenantId } });
         await tx.mentorGoal.deleteMany({ where: { tenantId } });
+        /*
+         * הטבלאות של המנטור הקודם (#377–#385) — נשמרו עם הנתונים ואינן
+         * בשימוש, אבל שורות של משרד שנמחק אינן נשארות בהן. „שום פרט
+         * לא נשמר אחריה” חל גם על מה שכבר אינו במוצר.
+         */
+        await tx.legacyMentorAchievement.deleteMany({ where: { tenantId } });
+        await tx.legacyMentorQuote.deleteMany({ where: { tenantId } });
+        await tx.legacyMentorWeeklyScore.deleteMany({ where: { tenantId } });
+        await tx.legacyMentorGoal.deleteMany({ where: { tenantId } });
         await tx.propertyTwin.deleteMany({ where: { tenantId } });
         /*
          * בקשות טופס הלקוח — כולל `answers`, שהוא מה שהלקוח כתב על
@@ -441,6 +461,21 @@ export class AccountDeletionService {
          * המחיקה כאן הן היו שורדות אותה.
          */
         await tx.intakeRequest.deleteMany({ where: { tenantId } });
+        /*
+         * ‏המעקבים אחרי ביקושים ברשת. אין להם מפתח זר — לא לשורת
+         * המשרד ולא לביקוש — ולכן בלי המחיקה כאן היו נשארות שורות
+         * שמצביעות על משרד שכבר אינו קיים.
+         */
+        await tx.demandFollow.deleteMany({ where: { tenantId } });
+        /* ‏ואותו דבר בכיוון השני — מעקב אחרי נכס שפורסם לרשת */
+        await tx.listingFollow.deleteMany({ where: { tenantId } });
+        /*
+         * ‏נכסים לגיוס. **לפני `property`** — שורה שגויסה נושאת
+         * ‎`convertedPropertyId`, ומחיקת הנכס לפניה הייתה משאירה
+         * הפניה לנכס שאינו קיים. אין מפתח זר (הטבלה נפרדת בכוונה),
+         * ולכן הסדר כאן הוא מה שמונע את זה.
+         */
+        await tx.recruitmentTarget.deleteMany({ where: { tenantId } });
         // תיק הבלעדיות — פעולות לפני תקופות, ושתיהן לפני הנכסים
         await tx.marketingAction.deleteMany({ where: { tenantId } });
         await tx.propertyExclusivity.deleteMany({ where: { tenantId } });
@@ -490,6 +525,12 @@ export class AccountDeletionService {
       this.prisma.supportThread.deleteMany({ where: { tenantId } }),
       // טוקני ה-Reply-To — מחוץ ל-RLS כמו ה-webhook, ולכן נמחקים כאן
       this.prisma.emailReplyToken.deleteMany({ where: { tenantId } }),
+      /*
+       * זיכרון השליחה — גם הוא מחוץ ל-RLS, ומאותה סיבה נמחק כאן.
+       * אין בשורות נמען, נושא או תוכן, אבל המשרד ביקש להימחק ומה
+       * שנושא את המזהה שלו הולך איתו.
+       */
+      this.prisma.emailSendAttempt.deleteMany({ where: { tenantId } }),
       this.prisma.subscriptionOffer.deleteMany({ where: { tenantId } }),
       this.prisma.subscription.deleteMany({ where: { tenantId } }),
       /*
@@ -521,10 +562,17 @@ export class AccountDeletionService {
        * הגיעה בקשה בכלל”, והוא נשמר גם בלי לדעת של מי. השורות
        * שמעולם לא שויכו למשרד נשארות כפי שהן — הן כל הסיבה שהטבלה
        * אינה תחת RLS מלכתחילה.
+       *
+       * ‎**וחתימות המספר יורדות איתו.** ניתוק ה-`tenantId` לבדו
+       * הפסיק לספיק ברגע שהשורה התחילה לשאת חתימת מספר וארבע
+       * ספרות אחרונות: היא אינה מזוהה עוד עם המשרד, אבל היא עדיין
+       * מזוהה עם **אדם** — ובעל הפלטפורמה יכול היה להקליד את
+       * המספר ולמצוא את אירועי השיחות של לקוח של משרד שנמחק
+       * (ביקורת Codex). „מה שנשאר” הוא הזמן, התוצאה והשדות — ולא מי.
        */
-      this.prisma.telephonyWebhookHit.updateMany({
+      this.prisma.webhookHit.updateMany({
         where: { tenantId },
-        data: { tenantId: null },
+        data: { tenantId: null, peerHash: null, peerSuffix: null },
       }),
       this.prisma.user.deleteMany({ where: { tenantId } }),
       this.prisma.tenant.delete({ where: { id: tenantId } }),

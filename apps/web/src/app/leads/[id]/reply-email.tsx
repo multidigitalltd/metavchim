@@ -3,6 +3,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { ApiError, apiGet, apiPost } from "@/lib/api";
 import { DictateFor } from "../../dictation-field";
+import { IconMail } from "../../icons";
 import { Notice } from "../../notice";
 
 /**
@@ -67,19 +68,19 @@ export function ReplyEmail({
   if (state === null || !state.canSend || contactEmail === undefined) return null;
 
   return (
-    <section
-      className="mb-4 rounded-xl border p-4"
-      style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
-      aria-labelledby="reply-email-heading"
-    >
-      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-        <h2 id="reply-email-heading" className="m-0" style={{ fontSize: "calc(16.5 / 16 * 1rem)", fontWeight: 800 }}>
+    <section className="mv-card mv-card--pad" aria-labelledby="reply-email-heading">
+      {/* אריח, שם, ובקצה מאיזו כתובת יוצא המייל — אותה כותרת בכל כרטיס */}
+      <div className="mv-card-head">
+        <span className="mv-tile mv-tile--44 mv-domain-blue" aria-hidden="true">
+          <IconMail s={20} />
+        </span>
+        <h2 id="reply-email-heading" className="mv-card-head__title">
           תשובה במייל
         </h2>
         {state.from ? (
-          <span className="text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
+          <p className="mv-card-head__note">
             נשלח מ-<span dir="ltr">{state.from}</span>
-          </span>
+          </p>
         ) : null}
       </div>
 

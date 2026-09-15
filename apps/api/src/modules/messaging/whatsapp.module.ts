@@ -1,13 +1,23 @@
 import { Module } from "@nestjs/common";
 import { AgentModule } from "../agent/agent.module";
+import { BillingModule } from "../billing/billing.module";
+import { CallsModule } from "../calls/calls.module";
+import { PropertiesModule } from "../properties/properties.module";
+import { RecruitmentModule } from "../recruitment/recruitment.module";
 import { ContactsModule } from "../contacts/contacts.module";
+import { ImportModule } from "../import/import.module";
 import { ForumModule } from "../forum/forum.module";
 import { MentorModule } from "../mentor/mentor.module";
 import { ViewingReplyService } from "../calendar/viewing-reply.service";
 import { VoiceIntakeModule } from "../voice-intake/voice-intake.module";
 import { MessagingModule } from "./messaging.module";
 import { WhatsAppAssistantService } from "./whatsapp-assistant.service";
+import { WhatsAppBotService } from "./whatsapp-bot.service";
+import { WhatsAppConnectionController } from "./whatsapp-connection.controller";
+import { WhatsAppConnectionService } from "./whatsapp-connection.service";
+import { WhatsappImportService } from "./whatsapp-import.service";
 import { WhatsAppInboundService } from "./whatsapp-inbound.service";
+import { WhatsAppTokenRefreshService } from "./whatsapp-token-refresh.service";
 import { WhatsAppWebhookController } from "./whatsapp-webhook.controller";
 
 /**
@@ -29,16 +39,49 @@ import { WhatsAppWebhookController } from "./whatsapp-webhook.controller";
    * עצר?”, המתווך עונה בטקסט חופשי). מודול עלה: אינו מייבא דבר
    * מהוואטסאפ, ולכן אין מעגל.
    */
+  /*
+   * ‎`CallsModule` — „המר ללקוח” פותח ליד מהשיחה (`ensureLead`),
+   * ‏אותו שירות שהמסך קורא לו דרך `POST /calls/:id/lead`. אין
+   * ‏מעגל: מודול השיחות מייבא אנשי קשר ולידים בלבד, ואינו מייבא
+   * ‏דבר מהוואטסאפ.
+   */
+  /*
+   * ‎`BillingModule` — חידוש המנוי מתוך השיחה, למשרד שתקופתו
+   * ‏נגמרה. מודול עלה בלי `imports` משלו, ולכן אין שום סיכוי
+   * ‏למעגל; והוא היחיד שיודע לפתוח דף תשלום נכון (קופון, מחיר
+   * ‏מוסכם, מע"מ, סגירת דף קודם).
+   */
+  /*
+   * ‎`PropertiesModule` — תמונה עם כיתוב „תוסיף לנכס…” מצורפת
+   * ‏לנכס קיים דרך `PropertyPhotoService`. הכיוון תקין: מודול
+   * ‏הנכסים מייבא את `MessagingModule` (העלה) ואינו יודע דבר על
+   * ‏מודול הוואטסאפ, ולכן אין מעגל — בדיוק כמו הגיוס.
+   */
   imports: [
     AgentModule,
+    PropertiesModule,
     VoiceIntakeModule,
     MessagingModule,
     ContactsModule,
     MentorModule,
-    // „להשיב בפורום” — ההודעה הבאה היא התגובה (docs/14). מודול עלה.
+    CallsModule,
+    BillingModule,
+    /*
+     * ‎`RecruitmentModule` — שלט „למכירה” מצולם הופך לנכס לגיוס.
+     * ‏אין מעגל: הגיוס מייבא נכסים בלבד ואינו יודע על הוואטסאפ.
+     */
+    RecruitmentModule,
+    /*
+     * ‎`ImportModule` — קובץ אקסל שנשלח בצ'אט נכתב דרך
+     * ‎`ImportWriteService`, **אותו שירות שהבקר מפעיל**. הכיוון
+     * ‏תקין: מודול הייבוא מייבא נכסים, קונים, לידים וגיוס, ואינו
+     * ‏יודע דבר על הוואטסאפ.
+     */
+    ImportModule,
+    // „להשיב בפורום” — ההודעה הבאה היא התגובה (docs/16). מודול עלה.
     ForumModule,
   ],
-  controllers: [WhatsAppWebhookController],
+  controllers: [WhatsAppWebhookController, WhatsAppConnectionController],
   /*
    * ‎`ViewingReplyService` מסופק כאן ולא ב-CalendarModule: הוא נצרך
    * רק על ידי הוובהוק, וייבוא של מודול היומן לכאן היה גורר את כל
@@ -47,7 +90,21 @@ import { WhatsAppWebhookController } from "./whatsapp-webhook.controller";
   providers: [
     WhatsAppInboundService,
     WhatsAppAssistantService,
+    WhatsappImportService,
     ViewingReplyService,
+    WhatsAppConnectionService,
+    WhatsAppBotService,
+    /*
+     * הסורק שמאריך את הטוקנים העסקיים. יושב כאן ולא במודול נפרד:
+     * הוא נשען על `WhatsAppConnectionService` בלבד, ומודול משלו
+     * היה מייבא את זה ממילא.
+     */
+    WhatsAppTokenRefreshService,
   ],
+  /*
+   * החיבורים מיוצאים: הבוט ושכבת השליחה על קו של משרד (שלבים 2–3)
+   * צריכים לשלוף את אישורי הקו, ואין סיבה שיעברו דרך הוובהוק.
+   */
+  exports: [WhatsAppConnectionService],
 })
 export class WhatsAppModule {}

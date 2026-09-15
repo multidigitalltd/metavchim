@@ -64,13 +64,28 @@ const RLS_EXEMPT: Readonly<Record<string, string>> = {
   // הנתיב הציבורי מקבל מפתח וממנו מגלה את הדייר
   lead_webhooks: "מפתח הקליטה הציבורי הוא מה שמזהה את הדייר",
   email_reply_tokens: "הטוקן שבכתובת ה-Reply-To הוא מה שמזהה את הדייר בתשובה נכנסת",
-  telephony_webhook_hits: "יומן קליטה שנכתב לפני זיהוי הדייר",
+  webhook_hits:
+    "יומן קליטה לשני הנתיבים הציבוריים (מרכזייה, טופס לידים) — נכתב לפני זיהוי הדייר, והשורות המעניינות הן דווקא אלה שלא שויכו לאף משרד",
   // פנייה לתמיכה מגיעה גם ממי שאינו לקוח כלל, והשיוך למשרד — כשיש —
   // נגזר מכתובת השולח **אחרי** שהפנייה כבר נקלטה. שולחן התמיכה
   // עצמו הוא מסך פלטפורמה, מוגן ב-PlatformAdminGuard.
   support_threads: "תיבת התמיכה — פנייה קודמת לזיהוי המשרד, אם בכלל יש כזה",
+  /*
+   * אותה משפחה: זיכרון השליחה משרת גם מיילים שאין להם דייר כלל —
+   * הרשמה, התחברות, התראות פלטפורמה, תמיכה — ופוליסה הייתה חוסמת
+   * דווקא אותם. אין בשורה נמען, נושא או תוכן; `tenant_id` נשמר
+   * כשהוא ידוע, כדי שמחיקת משרד תמחק גם אותו.
+   */
+  email_send_attempts: "זיכרון שליחה — משרת גם מיילים שאין להם דייר, ואין בו PII",
   // הוובהוק מקבל מספר וממנו מגלה את המשתמש ואת המשרד שלו
   whatsapp_links: "הקישור עצמו הוא מה שמזהה את הדייר בערוץ הוואטסאפ",
+  /*
+   * אותו נימוק בדיוק, לקו של המשרד: ההודעה נוחתת בנתיב הציבורי
+   * נושאת `phone_number_id`, והשורה הזו היא מה שמתרגם אותו למשרד.
+   * פוליסה כאן הייתה חוסמת את השאילתה שנועדה להכריע מי הדייר.
+   */
+  whatsapp_business_connections:
+    "מזהה הקו של Meta הוא מה שמזהה את הדייר בוובהוק, לפני שהוא ידוע",
 };
 
 const TENANT_A = "01TENANTAAAAAAAAAAAAAAAAAA";
@@ -307,6 +322,25 @@ beforeAll(async () => {
 }, 120_000);
 
 afterAll(async () => {
+  /*
+   * מה שנשתל — נמחק. לפני כן נשארו שורות של שני הדיירים המדומים
+   * בטבלאות בלי cascade מהדייר (audit_log, matches), וב-CI זה שקוף
+   * כי המסד חד-פעמי — אבל על מסד פיתוח משותף זה הצטבר. אותו מצב
+   * בדיוק כמו בשתילה: FK כבויים, RLS כבוי, כי הבעלים מנקה.
+   */
+  if (owner !== undefined) {
+    for (const table of seeded) {
+      await owner
+        .$transaction(async (tx) => {
+          await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = replica`);
+          await tx.$executeRawUnsafe(`SET LOCAL row_security = off`);
+          await tx.$executeRawUnsafe(
+            `DELETE FROM "${table}" WHERE tenant_id IN ('${TENANT_A}', '${TENANT_B}')`,
+          );
+        })
+        .catch(() => undefined);
+    }
+  }
   await owner?.$disconnect();
   await app?.$disconnect();
 });

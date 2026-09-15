@@ -1,6 +1,19 @@
 import { BadRequestException, ForbiddenException, Injectable } from "@nestjs/common";
 import {
+  MAX_QUIET_SPAN_HOURS,
+  NOTIFY_CATEGORIES,
+  NOTIFY_CATEGORY_LABELS,
+  parseWhatsAppNotifyPrefs,
+  WHATSAPP_NOTIFY_PREF_KEY,
+  type WhatsAppNotifyPrefs,
+  roleLabel,
   AGENT_ACTIONS,
+  practiceChatMenu,
+  practiceChatOpening,
+  practiceScenario,
+  activeOfficeStatuses,
+  matchOfficeStatus,
+  type OfficeBuyerStatus,
   MARKETING_ACTION_KINDS,
   MARKETING_ACTION_LABEL,
   agentNextSteps,
@@ -36,10 +49,20 @@ import {
   isSupportWaiting,
   jerusalemDayRange,
   mayUseAction,
+  checkActionParams,
   pendingMissedCalls,
   rankCallbacks,
+  CALL_CONVERT_NONE,
+  CALL_CONVERT_NO_KINDS,
+  callConvertKindsFor,
+  callConvertQuestion,
+  callConvertSeed,
+  callConvertSubject,
+  callConvertRefInCommand,
+  callIsConvertible,
   type AgentHistoryRef,
   type BuyerRequirements,
+  type CallConvertSeed,
   type CallbackCandidate,
   type PropertyFields,
   MentorGoalInputSchema,
@@ -49,6 +72,8 @@ import {
 } from "@metavchim/shared";
 import { isCardAccessible,
   assertContactAccess,
+  assertPropertyOwnerAction,
+  seesAllProperties,
 } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { PrismaService } from "../../core/prisma.service";
@@ -64,6 +89,12 @@ import {
   PENDING_AGREEMENT_MEANING,
   type DismissReason,
   type PendingAgreementState,
+  isOpenRecruitment,
+  recruitmentAddress,
+  recruitmentStatusLabel,
+  renewalBlockedText,
+  renewalLinkText,
+  subscriptionStatusText,
 } from "@metavchim/shared";
 import { AgreementsService } from "../agreements/agreements.service";
 import { ExclusivityService } from "../exclusivity/exclusivity.service";
@@ -78,7 +109,13 @@ import { BuyersService } from "../buyers/buyers.service";
 import { CalendarService } from "../calendar/calendar.service";
 import type { Readable } from "node:stream";
 import { CallsService, type CallDto } from "../calls/calls.service";
+import { OfficeSettingsService } from "../settings/office-settings.service";
+import { TeamService } from "../settings/team.service";
+import { PasswordResetService } from "../auth/password-reset.service";
+import { AuthService } from "../auth/auth.service";
 import { CollaborationService } from "../collaboration/collaboration.service";
+import { BillingService } from "../billing/billing.service";
+import { RecruitmentService } from "../recruitment/recruitment.service";
 import { ListingsService } from "../collaboration/listings.service";
 import { CoachService } from "../coach/coach.service";
 import { LandingService } from "../properties/landing.service";
@@ -92,6 +129,7 @@ import { LeadsService } from "../leads/leads.service";
 import { loadEnv } from "../../config/env";
 import { ForumService } from "../forum/forum.service";
 import { MentorService } from "../mentor/mentor.service";
+import { MentorPracticeService } from "../mentor/mentor-practice.service";
 import { MATCH_LIST_LIMIT, MatchingService } from "../matching/matching.service";
 import { NotificationsService } from "../notifications/notifications.service";
 import { OffersService } from "../offers/offers.service";
@@ -135,6 +173,14 @@ const MISSED_CALL_WINDOW_DAYS = 14;
  * בשאילתה שמחזירה שורה אחת לאיש קשר (ביקורת Codex).
  */
 const CALLBACK_LEAD_SCAN = 500;
+/**
+ * ‏כמה שיחות נסרקות כשלא נאמר איזו — „האחרונה שאפשר להמיר”.
+ *
+ * ‏קטן בכוונה: מי שמקליד „המר ללקוח” מתכוון לשיחה שהרגע הייתה,
+ * ‏ורשימה ארוכה הייתה מוצאת שיחה מלפני שבועיים ושואלת עליה. מי
+ * ‏שמתכוון לשיחה מסוימת לוחץ על הכפתור שבהתראה שלה.
+ */
+const CONVERT_CALL_SCAN = 20;
 /** אותו היגיון, על המשימות הפתוחות שקשורות ללידים בלבד. */
 const CALLBACK_TASK_SCAN = 500;
 
@@ -181,6 +227,29 @@ export interface ExecuteResult {
   /** תוצאות לשאילתה — מוצגות במקום, בלי ניווט */
   data?: unknown;
   /**
+   * ‎**תרגול שנפתח** — הערוץ שומר את המזהה, כי ההודעות שאחריו הן
+   * ‏תורים בתרגול ולא בקשות חדשות (docs/14 §7.3).
+   *
+   * ‏שדה מפורש ולא סמן בתוך `data`: `data` הוא מה שמוצג למתווך,
+   * ‏ומחרוזת מנגנון שמסתתרת בו נקראת בסוף על המסך. המסך מתעלם
+   * ‏מהשדה — הוא טוען את התרגול הפתוח בעצמו.
+   */
+  practice?: { id: string; counterpart: string };
+  /**
+   * ‎**שיחה שממתינה לסוג** — הערוץ שומר את המזהה, כי ההודעה הבאה
+   * ‏היא התשובה („קונה”/„מוכר”/„שוכר”/„משכיר”) ולא בקשה חדשה.
+   *
+   * ‏אותה מכניקה של `practice`, ומאותה סיבה: „מוכר” לבדו הוא משפט
+   * ‏שמנוע ההבנה יחפש בו פעולה ולא ימצא. `subject` נושא **מי** —
+   * ‏שם, או מתי הייתה השיחה כשאין שם; טלפון לעולם לא.
+   */
+  callConvert?: {
+    callId: string;
+    subject: string;
+    /** ‏מה שהשיחה ידעה — נכנס לכרטיס שייפתח על התשובה */
+    seed: CallConvertSeed;
+  };
+  /**
    * משפט-שניים של תובנה על התוצאות — לא רשימה, מסקנה. המספרים
    * מגיעים מהנתונים שכבר נשלפו; המודל רק מנסח. אופציונלי: בלי
    * Gemini, או כשהניסוח נכשל, הרשימה עומדת בפני עצמה.
@@ -226,6 +295,39 @@ export interface ExecuteResult {
    * המוצגות ב-`agentTurnRefs`, ולכן אין כאן ניסוח שני.
    */
   ref?: AgentHistoryRef;
+}
+
+/**
+ * ‏כמה שורות נכנסות לתשובה בשיחה.
+ *
+ * ‏תשובה בוואטסאפ נקראת על מסך טלפון בין פגישות: עשרים שורות
+ * ‏אינן „יותר מידע” אלא רשימה שאיש אינו קורא. מה שמעבר נספר
+ * ‏במשפט אחד, והקישור פותח את המסך המלא.
+ */
+const AGENT_LIST_MAX = 8;
+
+/** ‏רק השדות שנאמרו — `undefined` אינו „נמחק”, הוא „לא הוזכר”. */
+function recruitmentInput(params: Record<string, unknown>): Record<string, unknown> {
+  const keys = [
+    "city",
+    "neighborhood",
+    "street",
+    "houseNumber",
+    "propertyType",
+    "dealType",
+    "rooms",
+    "areaSqm",
+    "floor",
+    "totalFloors",
+    "priceAgorot",
+    "ownerName",
+    "ownerPhone",
+  ];
+  return Object.fromEntries(
+    keys
+      .map((key) => [key, params[key]])
+      .filter(([, value]) => value !== undefined && value !== null && value !== ""),
+  );
 }
 
 /**
@@ -280,6 +382,28 @@ function exclusivityRow(item: {
 export class AgentExecuteService {
   constructor(
     private readonly prisma: PrismaService,
+    /*
+     * ‎`TeamService` — „מי במשרד” ו„תוסיף סוכן”, דרך אותו מסלול
+     * ‏כתיבה של המסך: מכסה, נעילה ויומן באותה טרנזקציה.
+     */
+    private readonly team: TeamService,
+    /*
+     * ‎`OfficeSettingsService` — קריאת הגדרות המשרד ושלושת מתגי
+     * ‏הפרסום, דרך אותו מסלול כתיבה של המסך: הנעילה על שורת המשרד,
+     * ‏המחיקה במקום שמירת `false`, וחותמת ההפעלה של ההצעות.
+     */
+    private readonly officeSettings: OfficeSettingsService,
+    /*
+     * ‎`PasswordResetService` — הסוכן החדש מקבל קישור לקביעת
+     * ‏סיסמה במייל, ולא סיסמה בהודעת וואטסאפ.
+     */
+    private readonly passwordReset: PasswordResetService,
+    /*
+     * ‎`AuthService` — הפרופיל של הקורא עצמו. `getProfile` ו-
+     * ‎`updateProfile` הם אותו מסלול שמסך הפרופיל משתמש בו,
+     * ‏כולל מיזוג ההעדפות ברמה העליונה.
+     */
+    private readonly auth: AuthService,
     private readonly leads: LeadsService,
     private readonly buyers: BuyersService,
     private readonly properties: PropertiesService,
@@ -291,6 +415,17 @@ export class AgentExecuteService {
     private readonly analytics: AnalyticsService,
     private readonly dealRooms: DealRoomService,
     private readonly collaboration: CollaborationService,
+    /*
+     * ‎`BillingService` — מצב המנוי וחידושו מתוך השיחה. אותו
+     * ‏שירות שמסך החיוב קורא לו: קופון, מחיר מוסכם ומע"מ יושבים
+     * ‏שם, ומסלול תשלום שני היה מפספס אחד מהם בשקט.
+     */
+    private readonly billing: BillingService,
+    /*
+     * ‎`RecruitmentService` — משפך הגיוס מהשיחה. אותו מסלול
+     * ‏כתיבה של הטופס ושל המודעה המצולמת.
+     */
+    private readonly recruitment: RecruitmentService,
     private readonly exclusivity: ExclusivityService,
     private readonly resolver: AgentResolveService,
     private readonly gemini: GeminiService,
@@ -312,11 +447,13 @@ export class AgentExecuteService {
     private readonly landing: LandingService,
     private readonly payouts: PayoutsService,
     private readonly mentor: MentorService,
+    private readonly practice: MentorPracticeService,
     private readonly forum: ForumService,
   ) {}
 
   async execute(
     actionId: string,
+    /* ‏אינו `readonly`: `checkActionParams` מחליף אותו במפורש */
     params: Record<string, unknown>,
     /** המשפט המקורי — לניסוח התובנה על תוצאות שאילתה בלבד */
     transcript?: string,
@@ -334,6 +471,26 @@ export class AgentExecuteService {
     if (!mayUseAction(action, ctx.capabilities)) {
       throw new ForbiddenException(`אין לך הרשאה ל${action.title}`);
     }
+
+    /*
+     * ‎**והשער השני: הערכים, ולא רק המפתחות.**
+     *
+     * ‏הצמצום ב-`/agent/execute` העתיק פרמטרים **לפי שם השדה
+     * ‏בלבד** ולא נגע בערך. כלומר `values` בקטלוג הגביל את מה
+     * ‏שהמודל **מתבקש לייצר**, ולא את מה שהמסלול **מקבל**: מי
+     * ‏שמחובר יכול היה לשלוח `memberRole: "owner"` ולפתוח חשבון
+     * ‏בעלים עם `billing.manage`, שאינו הפיך מהמסך (ביקורת Codex,
+     * ‏P1 על #493).
+     *
+     * ‎**כאן ולא בבקר**, מאותו נימוק שהשער שמעליו יושב כאן: הסוכן
+     * ‏בוואטסאפ אינו עובר בבקר. בדיקה שם הייתה סוגרת ערוץ אחד
+     * ‏מתוך שניים — בדיוק צורת התקלה שהיא באה למנוע.
+     *
+     * ‏התוצאה מחליפה את `params`: ריק ירד, והשאר עבר כמו שהוא.
+     */
+    const checked = checkActionParams(action, params);
+    if (!checked.ok) throw new BadRequestException(checked.message);
+    params = checked.params;
 
     /*
      * ‎**זכאות המסלול — כאן, פעם אחת.**
@@ -362,7 +519,7 @@ export class AgentExecuteService {
     const resolution = await this.resolver.resolveForExecution(actionId, params);
     if (!resolution.ok) throw new BadRequestException(resolution.message);
 
-    const result = await this.dispatch(actionId, params, channel);
+    const result = await this.dispatch(actionId, params, channel, transcript);
     const final = await this.withInsight(actionId, transcript, result);
     /*
      * ‎**הצעד הנגזר גובר על זה שנוסח.**
@@ -419,6 +576,15 @@ export class AgentExecuteService {
     params: Record<string, unknown>,
     /** מאיפה הפקודה הגיעה — למנטור בלבד, ליומן האסימונים */
     channel: "web" | "whatsapp",
+    /**
+     * ‏המשפט כפי שנאמר — לפעולה אחת בלבד.
+     *
+     * ‎`convert_call` מגיעה גם מכפתור של התראה, והכפתור נושא את
+     * ‏מזהה השיחה שההתראה הציגה. המזהה אינו שדה בקטלוג בכוונה
+     * ‏(שדה כזה הוא הזמנה למודל לנחש מזהים), ולכן הוא נקרא מהמשפט
+     * ‏עצמו — בדיוק כמו מפתח הרעיון בכפתור המשוב של המנטור.
+     */
+    transcript?: string,
   ): Promise<ExecuteResult> {
     switch (actionId) {
       case "search":
@@ -439,6 +605,8 @@ export class AgentExecuteService {
         return this.playRecording(params);
       case "show_callbacks":
         return this.showCallbacks();
+      case "convert_call":
+        return this.convertCall(transcript);
       case "show_leads":
         return this.showLeads(params);
       case "show_calls":
@@ -501,6 +669,30 @@ export class AgentExecuteService {
         return this.messageOwner(params);
       case "show_credits":
         return this.showCredits();
+      case "show_subscription":
+        return this.showSubscription();
+      case "show_recruitment":
+        return this.showRecruitment(params);
+      case "create_recruitment":
+        return this.createRecruitment(params);
+      case "update_recruitment_status":
+        return this.updateRecruitmentStatus(params);
+      case "renew_subscription":
+        return this.renewSubscription();
+      case "show_team":
+        return this.showTeam();
+      case "add_agent":
+        return this.addAgent(params);
+      case "show_profile":
+        return this.showProfile();
+      case "update_profile":
+        return this.updateProfile(params);
+      case "update_notifications":
+        return this.updateNotifications(params);
+      case "show_office_settings":
+        return this.showOfficeSettings();
+      case "update_office_policy":
+        return this.updateOfficePolicy(params);
       case "open_deal_room":
         return this.openDealRoom(params);
       case "show_recommendations":
@@ -519,6 +711,8 @@ export class AgentExecuteService {
         return this.callContact(params);
       case "send_intake_form":
         return this.sendIntakeForm(params);
+      case "open_intake_link":
+        return this.openIntakeLink();
       case "offer_to_demand":
         return this.offerToDemand(params);
       case "express_interest":
@@ -571,6 +765,8 @@ export class AgentExecuteService {
         return this.mentorCommit(params);
       case "mentor_reflect":
         return this.mentorReflect(params);
+      case "mentor_practice":
+        return this.mentorPractice(params);
       case "forum_latest":
         return this.forumLatest();
       case "forum_search":
@@ -583,6 +779,8 @@ export class AgentExecuteService {
         return this.forumFollow(params);
       case "assign_task":
         return this.assignTask(params);
+      case "transfer_lead":
+        return this.transferLead(params);
       default:
         throw new BadRequestException("פעולה לא מוכרת");
     }
@@ -1219,6 +1417,42 @@ export class AgentExecuteService {
    * משתמש פעיל של אותו משרד; זה השער, ולא הבדיקה כאן. מה שכאן הוא
    * זיהוי בלבד.
    */
+  /**
+   * ‎**מסירת ליד לעמית — הפעולה היחידה שאינה דורשת הרשאת מנהל.**
+   *
+   * ‎`LeadsService.handOver` אוכפת שלוש שאלות נפרדות: הליד נראה לי,
+   * ‏מותר לי למסור אותו (בלי `tasks.assign` — רק ליד שמשויך אליי),
+   * ‏והיעד הוא סוכן פעיל של אותו משרד. זה השער, ולא בדיקה כאן.
+   *
+   * ‎**„כבר אצלו” אינו כישלון ואינו שינוי** — והמשפט אומר זאת,
+   * ‏אחרת מי ששאל פעמיים חושב שהמסירה לא תפסה.
+   */
+  private async transferLead(params: Record<string, unknown>): Promise<ExecuteResult> {
+    const leadId = str(params["leadId"]);
+    const assigneeId = str(params["assigneeId"]);
+    if (leadId === undefined) throw new BadRequestException("לא נבחר ליד למסירה");
+    if (assigneeId === undefined) throw new BadRequestException("לא נבחר סוכן למסור לו");
+    const result = await this.leads.handOver(leadId, assigneeId);
+    /*
+     * ‎**אחרי מסירה מוצלחת הקישור הוא לרשימה, ולא לליד** (ביקורת
+     * ‏Codex).
+     *
+     * ‏מסנן הבעלות מוציא את הליד משדה הראייה של המוסר באותו רגע,
+     * ‏ולכן כרטיס הליד מחזיר לו 404 — כלומר הפעולה הצליחה והקישור
+     * ‏שנלווה אליה שבור. בדיוק הסוכן שהפעולה הזו נועדה לו.
+     *
+     * ‎**ב„כבר אצלו” הקישור נשאר**: שם שום דבר לא זז, והליד עדיין
+     * ‏נראה למי ששאל — או שהוא שלו, או שיש לו ראייה משרדית.
+     */
+    return {
+      href: result.moved ? "/leads" : `/leads/${leadId}`,
+      message: result.moved
+        ? `הליד נמסר ל${result.agentName}`
+        : `הליד כבר משויך ל${result.agentName}`,
+      data: { id: leadId },
+    };
+  }
+
   private async assignTask(params: Record<string, unknown>): Promise<ExecuteResult> {
     const taskId = str(params["taskId"]);
     const assigneeId = str(params["assigneeId"]);
@@ -1404,12 +1638,21 @@ export class AgentExecuteService {
       };
     }
     const items = await this.exclusivity.list();
+    /*
+     * ‎**המספר נאמר עם ההיקף שהוא מתאר** (ביקורת Codex).
+     *
+     * הרשימה מסוננת לנכסים שבטיפול הדובר, ומנהל מקבל את כל המשרד.
+     * ‏„שלוש בלעדיות” בלי ההבחנה הזו נשמע לסוכן כמו סך המשרד — כלומר
+     * דיווח שקרי על שקט שאין בו — ולכן ההיקף נגזר מאותה פונקציה
+     * שקבעה את הסינון עצמו, ולא מבדיקה שנייה שעלולה להיפרד ממנה.
+     */
+    const scope = seesAllProperties() ? "במשרד" : "בטיפולך";
     return {
       href: "/exclusivity",
       message:
         items.length === 0
-          ? "אין בלעדיות פעילות במשרד"
-          : `${items.length} בלעדיות — לפי דחיפות`,
+          ? `אין בלעדיות פעילות ${scope}`
+          : `${items.length} בלעדיות ${scope} — לפי דחיפות`,
       data: { exclusivity: items.map(exclusivityRow) },
     };
   }
@@ -1659,6 +1902,67 @@ export class AgentExecuteService {
     };
   }
 
+  /**
+   * ‎**„המר ללקוח” — מוצאת את השיחה ושואלת. לא כותבת דבר.**
+   *
+   * ‏זה מה שמאפשר לה להיות פעולת קריאה, ולכן להיות ברצפה
+   * ‏הדטרמיניסטית: הכפתור בהתראה עובד גם כשמנוע ההבנה נפול, וזה
+   * ‏בדיוק המצב שבו „לא הבנתי” על כפתור שהמערכת עצמה שלחה הוא
+   * ‏הגרוע ביותר. הליד והכרטיס נפתחים על **התשובה**, דרך מצב
+   * ‏ממתין, ועוברים שם בשער של `execute` לפי הסוג שנבחר.
+   *
+   * ## ‏איזו שיחה
+   *
+   * ‏מזהה בסוגריים = השיחה שההתראה הציגה, וזה המקרה הרגיל. בלעדיו
+   * ‏— האחרונה שאפשר להמיר, מה שמכסה את ההקלדה החופשית. הראות
+   * ‏עצמה נשמרת ב-`list`, ולכן שיחה של עמית אינה נמצאת כאן כלל.
+   */
+  private async convertCall(transcript?: string): Promise<ExecuteResult> {
+    const ref = callConvertRefInCommand(transcript ?? "");
+    /*
+     * ‏שלושת המצביעים מתורגמים לשלושה מסננים שהרשימה כבר מכירה —
+     * ‏ובשאילתה, לא אחריה: „השיחה של הכרטיס הזה” בין עשרים
+     * ‏האחרונות אינה נמצאת אצל מי שדיבר עם עשרים לקוחות מאז.
+     */
+    const query =
+      ref === null
+        ? { limit: CONVERT_CALL_SCAN }
+        : ref.kind === "call"
+          ? { id: ref.id, limit: 1 }
+          : ref.kind === "lead"
+            ? { leadId: ref.id, limit: CONVERT_CALL_SCAN }
+            : { contactId: ref.id, limit: CONVERT_CALL_SCAN };
+    const calls = await this.calls.list(query);
+    const call = calls.find((row) => callIsConvertible(row));
+    if (call === undefined) return { href: "/calls", message: CALL_CONVERT_NONE };
+    /*
+     * ‎**רק הסוגים שאפשר להשלים** (ביקורת Codex, P2). בחירה בסוג
+     * ‏חסום הייתה פותחת ליד ואז נדחית בשער של פעולת ההמרה — ליד
+     * ‏שנפתח לחינם, אחרי תפריט שהבטיח מה שאינו יכול לבצע.
+     */
+    const caps = TenantContext.current().capabilities;
+    const offered = callConvertKindsFor((capability) => caps.has(capability));
+    if (offered.length === 0) return { href: "/calls", message: CALL_CONVERT_NO_KINDS };
+    const subject = callConvertSubject({
+      ...(call.contactName === undefined ? {} : { name: call.contactName }),
+      when: `${formatJerusalemDate(call.occurredAt)} ${formatJerusalemTime(call.occurredAt)}`,
+    });
+    return {
+      href: "/calls",
+      message: callConvertQuestion(subject, offered),
+      /*
+       * ‏מה שהשיחה כבר ידעה נוסע יחד עם המזהה: הכרטיס שייפתח יקבל
+       * ‏עיר, חדרים, תקציב וכתובת בדיוק כמו במסך, ולא ייפתח ריק על
+       * ‏שיחה שהכול נאמר בה (ביקורת Codex, P2).
+       */
+      callConvert: {
+        callId: call.id,
+        subject,
+        seed: callConvertSeed(call.highlights),
+      },
+    };
+  }
+
   private async showCalls(): Promise<ExecuteResult> {
     const calls = await this.calls.list({ limit: 20 });
     return {
@@ -1712,6 +2016,14 @@ export class AgentExecuteService {
       throw new BadRequestException("ליד דורש שם וטלפון");
     }
     const result = await this.leads.create({
+      /*
+       * ‎**הסוכן ה-AI פועל בשם הסוכן, ולכן הוא כפוף לאותו שער.**
+       *
+       * ‏המספר מוכתב לו בשיחה בדיוק כפי שסוכן מקליד אותו במסך, ואם
+       * ‏הוא שייך לכרטיס מוסתר — הצירוף היה פותח אותו. „‎AI” אינו
+       * ‏רמת הרשאה.
+       */
+      typedBy: "agent",
       contactName: name,
       contactPhone: phone,
       // המקור האמיתי: המתווך תיעד שיחה, לא מילא טופס
@@ -1741,11 +2053,21 @@ export class AgentExecuteService {
     if (name === undefined || phone === undefined) {
       throw new BadRequestException("כרטיס קונה דורש שם וטלפון");
     }
+    /*
+     * ‎`create_buyer` נושא את אותם שדות פרופיל כמו `update_buyer`,
+     * ולכן המודל יכול לומר שלב כבר בכרטיס הראשון. שדה שמוצהר בקטלוג
+     * ואינו נקרא כאן הוא בדיוק „המודל מציע והשרת זורק בשקט” שהקטלוג
+     * נבנה כדי למנוע.
+     */
+    const officeStatus = this.spokenOfficeStatus(str(params["officeStatus"]));
     const buyer = await this.buyers.create({
+      /* ‏אותו נימוק כמו ב-`createLead` — הסוכן ה-AI כפוף לאותו שער */
+      typedBy: "agent",
       contactName: name,
       contactPhone: phone,
       source: "voice",
       requirements: this.buyerRequirements(params),
+      ...(officeStatus === undefined ? {} : { officeStatus }),
       ...(str(params["maturity"]) !== undefined ? { maturity: str(params["maturity"])! } : {}),
       ...(str(params["financing"]) !== undefined ? { financing: str(params["financing"])! } : {}),
       ...(str(params["agentNotes"]) !== undefined
@@ -1805,14 +2127,38 @@ export class AgentExecuteService {
      * למי.
      */
     const related = await this.optionalCardTarget(params["relatedId"]);
+    /*
+     * ‎**„על מי” — רשות, והשער אינו כאן.**
+     *
+     * ‎`TasksService.create` אוכפת `tasks.assign` ליעד שאינו
+     * ‏המשתמש עצמו, **וגם** שהיעד הוא משתמש פעיל של אותו משרד.
+     * ‏בדיקה שנייה כאן הייתה כלל שני לאותה שאלה, ושניים כאלה
+     * ‏מסכימים ביום שנכתבו בלבד. מה שכאן הוא זיהוי בלבד.
+     */
+    const assigneeId = str(params["assigneeId"]);
     const task = await this.tasks.create({
       title,
       ...(dueAt ? { dueAt } : {}),
       ...(related ? { entityType: related.kind, entityId: related.id } : {}),
+      ...(assigneeId === undefined ? {} : { assignedToUserId: assigneeId }),
     });
+    /*
+     * ‎**מי קיבל את המשימה נאמר, ולא נרמז.** „המשימה נוצרה” על
+     * ‏משימה שהוטלה על סוכן אחר משאיר את המנהל בלי לדעת אם השיוך
+     * ‏תפס — וזו כל הבקשה.
+     */
+    const who =
+      assigneeId === undefined || task.assignedToUserId === TenantContext.current().userId
+        ? undefined
+        : task.assigneeName;
     return {
       href: related ? `/${related.kind}s/${related.id}` : "/tasks",
-      message: dueAt ? "התזכורת נוצרה — תישלח התראה במועד" : "המשימה נוצרה",
+      message:
+        who !== undefined
+          ? `המשימה נוצרה והוטלה על ${who}`
+          : dueAt
+            ? "התזכורת נוצרה — תישלח התראה במועד"
+            : "המשימה נוצרה",
       data: { id: task.id },
       // „תסגור אותה” על המשימה שהרגע נוצרה — הכותרת היא מה שנאמר
       ...refOf(title, "task", task.id),
@@ -2078,12 +2424,36 @@ export class AgentExecuteService {
     const { name, label, waUrl } = await this.prisma.withTenant(async (tx) => {
       const property = await tx.property.findFirst({
         where: { id: propertyId, tenantId, deletedAt: null },
-        select: { ownerContactId: true, marketingTitle: true, street: true, city: true },
+        select: {
+          ownerContactId: true,
+          agentUserId: true,
+          marketingTitle: true,
+          street: true,
+          city: true,
+        },
       });
       if (!property) throw new BadRequestException("הנכס לא נמצא");
       if (property.ownerContactId === null) {
         throw new BadRequestException("לנכס אין בעלים רשום — אפשר לקשר איש קשר במסך הנכס");
       }
+      /*
+       * ‎**גם דרך העוזר, ומאותה סיבה בדיוק.**
+       *
+       * ‏העוזר מקבל מזהה נכס והנכסים משרדיים, ולכן סוכן שחסום
+       * ‏מבעלי הנכסים של המשרד יכול היה לבקש „שלח הודעה לבעלים של
+       * ‏הנכס ברחוב X” ולקבל קישור שנושא את **הטלפון** ומשפט שנושא
+       * ‏את **השם** (ביקורת Codex, P1). ההודעה גם נרשמת ב-Messages
+       * ‏Hub, כלומר זו פנייה ולא רק צפייה.
+       */
+      /*
+       * ‎**וגם הנכס** — שער הלקוח הוא איחוד מקורות, ולכן לקוח שקונה
+       * ‏דרכי ומוכר דרך עמית פותח אותו; הבקשה כאן היא על הנכס של
+       * ‏העמית (ביקורת Codex).
+       */
+      await assertPropertyOwnerAction(tx, tenantId, {
+        agentUserId: property.agentUserId,
+        ownerContactId: property.ownerContactId,
+      });
       const contact = await this.contacts.getById(tx, property.ownerContactId);
       if (!contact || contact.phone === "") {
         throw new BadRequestException("לבעל הנכס אין מספר טלפון בכרטיס");
@@ -2110,9 +2480,361 @@ export class AgentExecuteService {
   }
 
   /**
+   * ‎**מצב המנוי — מהשיחה, בלי הדשבורד.**
+   *
+   * ‏המשפט עצמו הוא `describeSubscription`, אותו אחד שבראש מסך
+   * ‏החיוב; `BillingService.statusLine` מרכיב אותו עם המסלול
+   * ‏והמחיר **המוסכם למשרד**. ניסוח שני כאן היה אומר למשרד דבר
+   * ‏אחד במסך ודבר אחר בשיחה.
+   */
+  private async showSubscription(): Promise<ExecuteResult> {
+    const status = await this.billing.statusLine(TenantContext.current().tenantId);
+    return {
+      href: "/settings/billing",
+      message: subscriptionStatusText({ ...status, mayPay: true }),
+      data: { plan: status.planName, cycle: status.cycle },
+    };
+  }
+
+  /**
+   * ‏משפך הגיוס מהשיחה — מה פתוח, ומה כבר נסגר.
+   *
+   * ‏ברירת המחדל היא **הפתוחים בלבד**: „מה יש לי לגיוס” הוא שאלה
+   * ‏על עבודה שנשארה, ורשימה שמערבבת בה נכסים שסירבו לפני חודש
+   * ‏עונה על שאלה אחרת.
+   */
+  private async showRecruitment(params: Record<string, unknown>): Promise<ExecuteResult> {
+    const status = typeof params["recruitmentStatus"] === "string"
+      ? String(params["recruitmentStatus"])
+      : undefined;
+    const rows = await this.recruitment.list(status === undefined ? {} : { status });
+    const open = status === undefined ? rows.filter((row) => isOpenRecruitment(row.status)) : rows;
+    if (open.length === 0) {
+      return {
+        href: "/properties/recruitment",
+        message:
+          status === undefined
+            ? "אין נכסים פתוחים לגיוס כרגע."
+            : `אין נכסים לגיוס במצב „${recruitmentStatusLabel(status)}”.`,
+      };
+    }
+    const lines = open
+      .slice(0, AGENT_LIST_MAX)
+      .map((row) => `• ${recruitmentAddress(row)} — ${recruitmentStatusLabel(row.status)}`);
+    const more = open.length > AGENT_LIST_MAX ? `\nועוד ${open.length - AGENT_LIST_MAX}.` : "";
+    return {
+      href: "/properties/recruitment",
+      message: `${open.length} נכסים לגיוס:\n${lines.join("\n")}${more}`,
+      data: { count: open.length },
+    };
+  }
+
+  /**
+   * ‏נכס לגיוס חדש מתוך השיחה.
+   *
+   * ‏אותו `RecruitmentService.create` של הטופס ושל המודעה
+   * ‏המצולמת — מסלול כתיבה אחד לשורת גיוס.
+   */
+  private async createRecruitment(params: Record<string, unknown>): Promise<ExecuteResult> {
+    const target = await this.recruitment.create({
+      source: "other",
+      status: "new",
+      ...recruitmentInput(params),
+    });
+    return {
+      href: `/properties/recruitment/${target.id}`,
+      message: `נפתח נכס לגיוס: ${recruitmentAddress(target)}`,
+      data: { id: target.id },
+    };
+  }
+
+  /**
+   * ‎**עדכון מצב — אחרי שברור על איזה נכס מדובר.**
+   *
+   * ‏הזיהוי הוא לפי מה שנאמר, ולכן שתי תוצאות הן **שאלה ולא
+   * ‏ניחוש**: „התקשרתי לבעלים בהרצל” כשיש שני נכסים ברחוב הרצל
+   * ‏הוא משפט שהמתווך צריך להשלים, ובחירה אקראית בשמו הייתה
+   * ‏מעדכנת את הנכס הלא נכון בלי שידע.
+   */
+  private async updateRecruitmentStatus(
+    params: Record<string, unknown>,
+  ): Promise<ExecuteResult> {
+    /*
+     * ‎`recruitmentId` ולא הביטוי: `AgentResolveService` כבר תרגם
+     * ‏אותו, והציג בורר כשהיה יותר מאחד. פתרון שני כאן היה מחזיר
+     * ‏„יש כמה” **אחרי** שהמתווך אישר, במקום לשאול לפני.
+     */
+    const id = String(params["recruitmentId"] ?? "").trim();
+    const status = String(params["recruitmentStatus"] ?? "").trim();
+    if (id === "") throw new BadRequestException("לא ברור על איזה נכס לגיוס מדובר");
+    if (status === "") throw new BadRequestException("לא נאמר מה המצב החדש");
+    const target = await this.recruitment.getById(id);
+    if (!isOpenRecruitment(target.status)) {
+      throw new BadRequestException(
+        `${recruitmentAddress(target)} כבר ${recruitmentStatusLabel(target.status)} — אין מה לעדכן`,
+      );
+    }
+    await this.recruitment.update(id, { status });
+    return {
+      href: `/properties/recruitment/${id}`,
+      message: `${recruitmentAddress(target)} — ${recruitmentStatusLabel(status)}`,
+      data: { id, status },
+    };
+  }
+
+  /**
+   * ‎**חידוש המנוי — קישור תשלום אמיתי בשיחה.**
+   *
+   * ‏אותו `startCheckout` שמסך החיוב קורא לו, ולכן אותם קופון,
+   * ‏מחיר מוסכם ומע"מ. מסלול תשלום שני היה מפספס אחד מהם בשקט.
+   *
+   * ‏דחייה (מסלול שאינו נמכר עצמאית, סליקה שטרם הופעלה) חוזרת
+   * ‏כהודעה ולא כחריגה: זה מצב שצריך להסביר למשרד, לא תקלה
+   * ‏שתגיע אליו כ„משהו השתבש”.
+   */
+  private async renewSubscription(): Promise<ExecuteResult> {
+    const ctx = TenantContext.current();
+    const link = await this.billing.renewalLink({ tenantId: ctx.tenantId, userId: ctx.userId });
+    if (!link.ok) {
+      return { href: "/settings/billing", message: renewalBlockedText(link.reason) };
+    }
+    return {
+      href: "/settings/billing",
+      message: renewalLinkText(link),
+      data: { plan: link.planName, cycle: link.cycle },
+    };
+  }
+
+  /**
    * יתרת הקרדיטים — אותה קריאה כמו מסך הרשת, כולל מה שעומד לפוג:
    * „נשארו 25” בלי „10 מהם פגים בעוד שבוע” היא חצי תשובה.
    */
+  /**
+   * ‏מי במשרד — אותה רשימה של מסך ההגדרות.
+   *
+   * ‏התפקיד נאמר, כי „מי במשרד” בלי תפקידים הוא רשימת שמות; ומי
+   * ‏שהושבת מסומן, כי הוא עדיין בטבלה והמנהל שואל למה הוא לא
+   * ‏מקבל התראות.
+   */
+  /**
+   * ‏הפרטים של מי ששואל — **ורק שלו.**
+   *
+   * ‏המזהה מגיע מ-`TenantContext`, שנקבע מהחיבור, ולא מפרמטר.
+   * ‏פרמטר היה הופך את זה לנתיב לקריאת הפרופיל של כל אחד.
+   */
+  private async showProfile(): Promise<ExecuteResult> {
+    const profile = await this.auth.getProfile(TenantContext.current().userId);
+    const prefs = parseWhatsAppNotifyPrefs(profile.preferences);
+    const off = NOTIFY_CATEGORIES.filter((c) => prefs.categories[c] === false);
+    const notify = !prefs.enabled
+      ? "ההתראות כבויות"
+      : off.length === 0
+        ? "כל ההתראות דלוקות"
+        : `כבויות: ${off.map((c) => NOTIFY_CATEGORY_LABELS[c]).join(", ")}`;
+    return {
+      href: "/profile",
+      message: [
+        `שם: ${profile.name}`,
+        `אימייל: ${profile.email}`,
+        profile.phone === "" ? "טלפון: לא הוגדר" : `טלפון: ${profile.phone}`,
+        `${notify}. שקט מ-${prefs.quietFromHour}:00 עד ${prefs.quietToHour}:00.`,
+      ].join("\n"),
+    };
+  }
+
+  /**
+   * ‎**ההגדרות של המשרד — קריאה.**
+   *
+   * ‏„לא הוגדר” נאמר במפורש ואינו מושמט: מנהל ששואל „מה מספר
+   * ‏הרישיון” ומקבל רשימה שהשורה חסרה בה אינו יודע אם הוא פספס
+   * ‏אותה או שהיא ריקה — וזה בדיוק הפרט שהוא צריך למלא בטופס.
+   */
+  private async showOfficeSettings(): Promise<ExecuteResult> {
+    const office = await this.officeSettings.read();
+    const line = (label: string, value?: string): string =>
+      `${label}: ${value === undefined || value === "" ? "לא הוגדר" : value}`;
+    const flag = (label: string, on: boolean): string =>
+      `${label}: ${on ? "דלוק" : "כבוי"}`;
+    return {
+      href: "/settings",
+      message: [
+        `משרד: ${office.name}`,
+        line("מספר רישיון", office.licenseNumber),
+        line("כתובת", office.officeAddress),
+        line("טלפון", office.officePhone),
+        line("דמי תיווך (ברירת מחדל)", office.defaultCommission),
+        line("מועד תשלום (ברירת מחדל)", office.defaultPaymentTerms),
+        "",
+        flag("פרסום נכסים לרשת", office.autoShareProperties),
+        flag("פרסום קונים לרשת", office.autoShareBuyers),
+        flag("הצעות אוטומטיות במייל", office.autoEmailOffers),
+      ].join("\n"),
+    };
+  }
+
+  /**
+   * ‎**שלושת המתגים — דרך אותו מסלול כתיבה של המסך.**
+   *
+   * ‎`OfficeSettingsService.update` נושא את הנעילה על שורת המשרד,
+   * ‏את המחיקה-במקום-שמירת-`false`, ואת חותמת ההפעלה של ההצעות
+   * ‏האוטומטיות עם הסמן שלה. כתיבה ישירה ל-`settings` מכאן הייתה
+   * ‏מדלגת על ארבעתם בשקט — ובמקרה של ההצעות, מפציצה את כל
+   * ‏ההיסטוריה של המשרד.
+   */
+  private async updateOfficePolicy(params: Record<string, unknown>): Promise<ExecuteResult> {
+    const POLICIES = {
+      autoShareProperties: "פרסום נכסים לרשת",
+      autoShareBuyers: "פרסום קונים לרשת",
+      autoEmailOffers: "הצעות אוטומטיות במייל",
+    } as const;
+    const key = String(params["policyKey"] ?? "");
+    const state = String(params["policyState"] ?? "");
+    /*
+     * ‎**`Object.hasOwn` ולא `in`.**
+     *
+     * ‎`in` מוצא גם את מה שיורש מ-`Object.prototype`, כלומר
+     * ‎`policyKey: "constructor"` היה עובר את השער, `update` היה
+     * ‏מתעלם ממנו בשקט, והפעולה הייתה מדווחת „עודכן” על שינוי
+     * ‏שלא קרה — עם התווית `POLICIES["constructor"]`, שהיא פונקציה
+     * ‏ולא מחרוזת (ביקורת Codex).
+     *
+     * ‎`checkActionParams` שבצוואר הבקבוק כבר חוסם את הערך הזה,
+     * ‏כי `policyKey` הוא `enum` בקטלוג. אבל שער שסומך על הבודק
+     * ‏שמעליו הוא בדיוק התבנית שאנחנו מתקנים: הכלל נאכף במקום
+     * ‏שבו הוא קובע, ולא במקום אחר שבמקרה קודם לו.
+     */
+    if (!Object.hasOwn(POLICIES, key)) {
+      throw new BadRequestException("לא ברור איזו מדיניות לשנות");
+    }
+    if (state !== "on" && state !== "off") {
+      throw new BadRequestException("לא ברור אם להדליק או לכבות");
+    }
+    const field = key as keyof typeof POLICIES;
+    await this.officeSettings.update({ [field]: state === "on" });
+    return {
+      href: "/settings",
+      message: `${POLICIES[field]} — ${state === "on" ? "דלוק" : "כבוי"}.`,
+    };
+  }
+
+  /**
+   * ‏שינוי השם — ורק השם. ראו ההסבר בקטלוג: אימייל דורש סיסמה,
+   * ‏והטלפון הוא הזהות מול הסוכן ומאומת בקוד במסך.
+   */
+  private async updateProfile(params: Record<string, unknown>): Promise<ExecuteResult> {
+    const name = String(params["profileName"] ?? "").trim();
+    if (name.length < 2) throw new BadRequestException("לא נאמר שם חדש");
+    const profile = await this.auth.updateProfile(TenantContext.current().userId, { name });
+    return { href: "/profile", message: `השם עודכן ל${profile.name}.` };
+  }
+
+  /**
+   * ‎**ההתראות שהסוכן יוזם** — כיבוי לפי קטגוריה, או שעות שקט.
+   *
+   * ‏ההעדפות נקראות, משתנות, ונכתבות **במלואן**: `updateProfile`
+   * ‏ממזג ברמה העליונה בלבד, ולכן כתיבת חלק מהאובייקט הייתה
+   * ‏מוחקת את שאר השדות שבו. זה בדיוק מה שהמסך עושה.
+   */
+  private async updateNotifications(params: Record<string, unknown>): Promise<ExecuteResult> {
+    const userId = TenantContext.current().userId;
+    const profile = await this.auth.getProfile(userId);
+    const prefs = parseWhatsAppNotifyPrefs(profile.preferences);
+    const next: WhatsAppNotifyPrefs = {
+      ...prefs,
+      categories: { ...prefs.categories },
+    };
+    const said: string[] = [];
+
+    const state = String(params["notifyState"] ?? "");
+    const category = String(params["notifyCategory"] ?? "");
+    if (state === "on" || state === "off") {
+      const on = state === "on";
+      if (category === "all" || category === "") {
+        next.enabled = on;
+        said.push(on ? "כל ההתראות דלוקות" : "כל ההתראות כבויות");
+      } else if ((NOTIFY_CATEGORIES as string[]).includes(category)) {
+        const key = category as (typeof NOTIFY_CATEGORIES)[number];
+        next.categories[key] = on;
+        said.push(`${NOTIFY_CATEGORY_LABELS[key]} — ${on ? "דלוק" : "כבוי"}`);
+      }
+    }
+
+    const from = params["quietFromHour"];
+    const to = params["quietToHour"];
+    if (typeof from === "number" && typeof to === "number") {
+      /*
+       * ‏הסף המשותף, ולא מספר שנכתב כאן: טווח ארוך ממנו חורג
+       * ‏מחלון השמירה של הסורק — התראה שנדחתה בתחילתו מתיישנת
+       * ‏לפני סופו ולא נשלחת לעולם.
+       */
+      const span = from === to ? 0 : from < to ? to - from : 24 - from + to;
+      if (span > MAX_QUIET_SPAN_HOURS) {
+        throw new BadRequestException(
+          `טווח שקט ארוך מ-${MAX_QUIET_SPAN_HOURS} שעות יחסום התראות לגמרי`,
+        );
+      }
+      next.quietFromHour = from;
+      next.quietToHour = to;
+      said.push(`שקט מ-${from}:00 עד ${to}:00`);
+    }
+
+    if (said.length === 0) throw new BadRequestException("לא ברור מה לשנות בהתראות");
+    await this.auth.updateProfile(userId, {
+      preferences: { [WHATSAPP_NOTIFY_PREF_KEY]: next },
+    });
+    return { href: "/profile", message: said.join(". ") + "." };
+  }
+
+  private async showTeam(): Promise<ExecuteResult> {
+    const rows = await this.team.list();
+    const lines = rows.map(
+      (row) => `• ${row.name} — ${roleLabel(row.role)}${row.isActive ? "" : " (מושבת)"}`,
+    );
+    return {
+      href: "/settings",
+      message: `${rows.length} במשרד:\n${lines.join("\n")}`,
+      data: { count: rows.length },
+    };
+  }
+
+  /**
+   * ‎**פתיחת חשבון לסוכן חדש — והסיסמה אינה נאמרת בשיחה.**
+   *
+   * ‎`TeamService.create` מחזיר סיסמה זמנית, כי המסך מציג אותה
+   * ‏פעם אחת מול מי שיצר. בשיחה אין „פעם אחת”: ההודעה נשארת
+   * ‏בטלפון, נקראת בעדכון מסך, ונשלחת הלאה בצילום מסך. לכן היא
+   * ‏נזרקת כאן, והסוכן החדש מקבל **קישור לקביעת סיסמה במייל**.
+   *
+   * ‏ומדווח מה באמת קרה: „נוסף, ונשלח קישור” על מייל שלא יצא הוא
+   * ‏סוכן שיחכה למשהו שלא יגיע, ומנהל שלא יידע לשלוח שוב.
+   */
+  private async addAgent(params: Record<string, unknown>): Promise<ExecuteResult> {
+    const name = String(params["memberName"] ?? "").trim();
+    const email = String(params["memberEmail"] ?? "").trim();
+    const role = String(params["memberRole"] ?? "").trim() || "agent";
+    if (name === "") throw new BadRequestException("לא נאמר שם");
+    if (email === "") throw new BadRequestException("לא נאמר אימייל");
+
+    const { user } = await this.team.create({ name, email, role });
+    /*
+     * ‏שם המשרד נכנס לנושא המייל ולגוף שלו: „הצטרפת ל…”. בלעדיו
+     * ‏הסוכן החדש מקבל הזמנה ממערכת שהוא לא בטוח מי שלח לו.
+     */
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: TenantContext.current().tenantId },
+      select: { name: true },
+    });
+    const officeName = tenant?.name ?? "המשרד";
+    const sent = await this.passwordReset.welcome(user.email, officeName);
+    return {
+      href: "/settings",
+      message: sent
+        ? `${user.name} נוסף${role === "agent" ? " כסוכן" : ` כ${roleLabel(role)}`}. נשלח אליו מייל עם קישור לקביעת סיסמה.`
+        : `${user.name} נוסף, אבל המייל עם קישור קביעת הסיסמה לא יצא. אפשר לבקש קישור ממסך הכניסה ב„שכחתי סיסמה”.`,
+      data: { id: user.id, role },
+    };
+  }
+
   private async showCredits(): Promise<ExecuteResult> {
     const { balance, expiry } = await this.collaboration.credits();
     const expiring =
@@ -2376,7 +3098,11 @@ export class AgentExecuteService {
    */
   private async sendIntakeForm(params: Record<string, unknown>): Promise<ExecuteResult> {
     const card = await this.optionalCardTarget(params["cardId"]);
-    if (card === null) throw new BadRequestException("לא נבחר לקוח לטופס");
+    if (card === null) {
+      throw new BadRequestException(
+        "לא נבחר לקוח לטופס. אם הלקוח עדיין לא במערכת, בקשו „קישור לטופס ללקוח חדש”",
+      );
+    }
     // אותה הרשאה כמו בבקר: יצירת בקשת קליטה היא עריכת הכרטיס
     const needed = card.kind === "buyer" ? "buyers.edit" : "leads.edit";
     if (!TenantContext.current().capabilities.has(needed)) {
@@ -2392,6 +3118,31 @@ export class AgentExecuteService {
       message: `טופס הפרטים ל${name} מוכן — פתחו את הקישור ולחצו שלח. כשימולא, הכרטיס יתעדכן.`,
       link: request.waUrl ?? request.url,
       ...refOf(name, card.kind, card.id),
+    };
+  }
+
+  /**
+   * אותו טופס — בלי כרטיס, ללקוח שעדיין אינו במאגר.
+   *
+   * ‎`ensureOpen` היא גם מה ש-`POST /intake/open` קורא לו, ולכן
+   * הקישור שהמתווך מקבל כאן זהה לזה שבפאנל שבעמוד הקונים: אותה
+   * תפוגה, אותה רשימה, אותו טופס. השירות אוכף את `buyers.edit`
+   * דרך הבקר, ולכן כאן היכולת נבדקת במפורש — הסוכן אינו עובר בבקר.
+   *
+   * אין `waUrl` ואין נמען: קישור פתוח לא יודע למי הוא הולך, וזו
+   * בדיוק הנקודה. המתווך שולח אותו בעצמו, בכל ערוץ שנוח לו.
+   */
+  private async openIntakeLink(): Promise<ExecuteResult> {
+    if (!TenantContext.current().capabilities.has("buyers.edit")) {
+      throw new ForbiddenException("אין לך הרשאה ליצור קישור לטופס");
+    }
+    const request = await this.intake.ensureOpen();
+    return {
+      message:
+        "הקישור מוכן — שלחו אותו ללקוח בכל דרך שנוחה לכם. " +
+        "כשימולא ייפתח כרטיס קונה חדש עם מה שהוא כתב. " +
+        "כל לחיצה כאן יוצרת קישור חדש, כך שאפשר לתת לכל לקוח קישור משלו.",
+      link: request.url,
     };
   }
 
@@ -2852,8 +3603,10 @@ export class AgentExecuteService {
      */
     const existing = await this.buyers.getById(buyerId);
     const patch = this.buyerRequirements(params, existing.requirements);
+    const officeStatus = this.spokenOfficeStatus(str(params["officeStatus"]));
     const buyer = await this.buyers.update(buyerId, {
       requirements: patch,
+      ...(officeStatus === undefined ? {} : { officeStatus }),
       ...(str(params["maturity"]) !== undefined ? { maturity: str(params["maturity"])! } : {}),
       ...(str(params["financing"]) !== undefined ? { financing: str(params["financing"])! } : {}),
       ...(str(params["agentNotes"]) !== undefined
@@ -2865,6 +3618,45 @@ export class AgentExecuteService {
       message: "הכרטיס עודכן",
       // הכרטיס נשלף ממילא בשביל המיזוג, ולכן השם כאן חינם
       ...refOf(existing.contact.name, "buyer", buyer.id),
+    };
+  }
+
+  /**
+   * ‎**שם השלב שנאמר בקול ⟵ מזהה מרשימת המשרד.**
+   *
+   * הרשימה חיה ב-`tenants.settings` ושונה לכל משרד, ולכן היא אינה
+   * יכולה להיות `enum` בסכימת הפעולה. ההכרעה נעשית מול הרשימה
+   * האמיתית — אותו דפוס שהקטלוג כבר מגדיר לתאריך ולמיקום.
+   *
+   * ‎**מוחזרת פונקציה ולא מזהה** (ביקורת Codex). הגרסה הראשונה קראה
+   * את הרשימה בטרנזקציה משלה והחזירה מזהה; מנהל ששינה תווית או דרגה
+   * בין הקריאה לכתיבה השאיר את המזהה תקף — והכרטיס קיבל שלב אחר
+   * מזה שהמתווך אמר. ההכרעה רצה עכשיו **בתוך** הטרנזקציה הנעולה של
+   * הכתיבה, על הרשימה שהיא עצמה קראה.
+   *
+   * זה גם הדפוס שכבר קיים ב-`BuyersService.update` עבור `requirements`:
+   * פרמטר שמקבל פונקציה כדי שהגזירה תקרה אחרי הנעילה.
+   *
+   * ‎**כישלון נאמר במפורש ואינו נבלע.** מתווך שאמר „תסמן אותו
+   * בסיורים” וקיבל „הכרטיס עודכן” בלי שהסטטוס השתנה היה מגלה זאת
+   * ימים אחר כך, אם בכלל. ההודעה מונה את מה שכן קיים, כי זו בדיוק
+   * המידה שהוא צריך כדי לתקן את עצמו במשפט הבא.
+   *
+   * ‎`undefined` = לא נאמר שלב, ואין מה לעדכן.
+   */
+  private spokenOfficeStatus(
+    spoken: string | undefined,
+  ): ((statuses: readonly OfficeBuyerStatus[]) => string) | undefined {
+    if (spoken === undefined || spoken.trim() === "") return undefined;
+    return (statuses) => {
+      const matched = matchOfficeStatus(statuses, spoken);
+      if (matched !== null) return matched.id;
+      const open = activeOfficeStatuses(statuses);
+      throw new BadRequestException(
+        open.length === 0
+          ? `אין סטטוסים מוגדרים במשרד, ולכן אי אפשר לסמן „${spoken}”`
+          : `„${spoken}” אינו שלב מוכר. הסטטוסים במשרד: ${open.map((e) => e.label).join(" · ")}`,
+      );
     };
   }
 
@@ -3176,6 +3968,7 @@ export class AgentExecuteService {
       "houseNumber",
       "propertyType",
       "dealType",
+      "facing",
       "condition",
       "entryType",
       "entryNote",
@@ -3282,6 +4075,34 @@ export class AgentExecuteService {
     };
   }
 
+  /**
+   * ‎**תרגול שיחה מהוואטסאפ** (docs/14 §7.3).
+   *
+   * ‏אותו שירות שהמסך מפעיל, ולכן אותה מכסה, אותו משוב, ואותה שורה
+   * ‏במסד: תרגול שהתחיל בטלפון נגמר במסך ולהפך. שכפול של הלוגיקה
+   * ‏היה מייצר שני תרגולים שונים באותו שם.
+   *
+   * ‏בלי תרחיש — הרשימה, ולא ניחוש. „תרגל איתי” בלי לומר על מה הוא
+   * ‏משפט שאין בו את הנתון, ולבחור עבורו היה מתחיל תרגול שאינו מה
+   * ‏שביקש ושורף לו תור מהמכסה.
+   */
+  private async mentorPractice(
+    params: Record<string, unknown>,
+  ): Promise<ExecuteResult> {
+    const scenario = str(params["scenario"]);
+    if (scenario === undefined) {
+      return { href: "/mentor", message: practiceChatMenu() };
+    }
+    const info = practiceScenario(scenario);
+    if (info === null) throw new BadRequestException("תרחיש לא מוכר");
+    const started = await this.practice.start(info.code);
+    return {
+      href: "/mentor",
+      message: practiceChatOpening(info),
+      practice: { id: started.id, counterpart: info.counterpart.name },
+    };
+  }
+
   private async mentorReflect(params: Record<string, unknown>): Promise<ExecuteResult> {
     const answer = str(params["answer"]);
     if (answer === undefined) throw new BadRequestException("מה לענות למנטור?");
@@ -3300,7 +4121,7 @@ export class AgentExecuteService {
     };
   }
 
-  /* ==================== הפורום המקצועי (docs/14) ==================== */
+  /* ==================== הפורום המקצועי (docs/16) ==================== */
 
   private forumLink(threadId: string): string {
     return `${loadEnv().WEB_ORIGIN.replace(/\/+$/u, "")}${forumThreadPath(threadId)}`;

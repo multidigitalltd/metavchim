@@ -872,7 +872,7 @@ export default function AgentPage(): React.JSX.Element {
                     return (
                       <p key={i} className="m-0 mt-2 text-[length:var(--type-body-sm)]">
                         <a href={segment.url} target="_blank" rel="noreferrer" className="underline">
-                          פתיחה בוואטסאפ ←
+                          {segment.label} ←
                         </a>
                       </p>
                     );

@@ -314,7 +314,21 @@ export class ActivationNudgeService implements OnModuleInit, OnModuleDestroy {
          * לפני השליחה, ובלי הדרישה היעדר ספק היה חוזר בשקט —
          * הסימון נשאר, והמשרד לא היה מקבל את התזכורת לעולם.
          */
-        await this.email.send(owner.email, subject, content, { required: true });
+        /*
+         * ‎**כאן הכפילות נולדת מהתיקון עצמו.** הסימון נתפס לפני
+         * ‏השליחה ומשוחרר ב-`catch` — כלומר כישלון **עמום** משחרר
+         * ‏סימון על מייל שאולי כבר יצא, והסבב הבא שולח אותו שוב.
+         */
+        await this.email.send(owner.email, subject, content, {
+          /*
+           * ‎**המזהה ולא הטוקן.** טוקן ההסרה הוא סוד — מי שמחזיק
+           * ‏בו יכול להוציא את המשתמש מהדיוור — והמפתח נוסע גם
+           * ‏כ-Metadata אצל הספק. מזהה המשתמש עונה על אותה שאלה
+           * ‏בדיוק ואינו סוד.
+           */
+          idempotency: { key: `nudge:${stage}:${owner.id}`, purpose: "nudge" },
+          required: true,
+        });
         delivered += 1;
       }
       return true;
@@ -374,7 +388,7 @@ export class ActivationNudgeService implements OnModuleInit, OnModuleDestroy {
    */
   private async owners(
     tenantId: string,
-  ): Promise<{ name: string; email: string; token: string }[]> {
+  ): Promise<{ id: string; name: string; email: string; token: string }[]> {
     return this.prisma.withExplicitTenant(tenantId, async (tx) => {
       const rows = await tx.user.findMany({
         where: { tenantId, role: "owner", isActive: true },
@@ -386,7 +400,7 @@ export class ActivationNudgeService implements OnModuleInit, OnModuleDestroy {
           nudgeOptOut: { select: { token: true, optedOutAt: true } },
         },
       });
-      const out: { name: string; email: string; token: string }[] = [];
+      const out: { id: string; name: string; email: string; token: string }[] = [];
       for (const row of rows) {
         /*
          * ‎`undefined` = אין שורת הסרה כלל (טרם נשלחה תזכורת);
@@ -413,7 +427,7 @@ export class ActivationNudgeService implements OnModuleInit, OnModuleDestroy {
               select: { token: true },
             })
           ).token;
-        out.push({ name: row.name, email: row.email, token });
+        out.push({ id: row.id, name: row.name, email: row.email, token });
       }
       return out;
     });

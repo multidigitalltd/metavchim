@@ -48,10 +48,23 @@ import type { Capability } from "../rbac.js";
 import type { PlanFeature } from "../logic/plans.js";
 import type { AgentFieldSpec } from "./field-spec.js";
 import {
+  PROPERTY_CONDITION_LABELS,
+  PROPERTY_CONDITIONS,
+  PROPERTY_FACING_LABELS,
+} from "../schemas/property.js";
+import { ASSIGNABLE_ROLES, roleLabel } from "../schemas/user.js";
+import { NOTIFY_CATEGORIES, NOTIFY_CATEGORY_LABELS } from "../logic/notify-categories.js";
+import { DEAL_TYPE_LABELS, PROPERTY_TYPE_LABELS } from "./vocabulary.js";
+import {
+  RECRUITMENT_STATUSES,
+  RECRUITMENT_STATUS_LABELS,
+} from "../logic/recruitment.js";
+import {
   MENTOR_GOAL_PERIODS,
   MENTOR_GOAL_TARGET_MAX,
   MENTOR_METRICS,
 } from "../logic/mentor.js";
+import { PRACTICE_SCENARIO_INFO } from "../logic/mentor-practice.js";
 import {
   FORUM_BODY_MAX,
   FORUM_REPLY_MAX,
@@ -69,6 +82,7 @@ export const AGENT_ACTION_IDS = [
   "show_schedule",
   "show_tasks",
   "show_callbacks",
+  "convert_call",
   "show_leads",
   "show_calls",
   "log_call",
@@ -76,6 +90,18 @@ export const AGENT_ACTION_IDS = [
   "play_recording",
   "show_deals",
   "show_credits",
+  "show_subscription",
+  "renew_subscription",
+  "show_recruitment",
+  "create_recruitment",
+  "update_recruitment_status",
+  "show_team",
+  "add_agent",
+  "show_profile",
+  "update_profile",
+  "update_notifications",
+  "show_office_settings",
+  "update_office_policy",
   "show_payout_balance",
   "show_referral_board",
   "show_reach",
@@ -124,10 +150,12 @@ export const AGENT_ACTION_IDS = [
   "show_emails",
   "dismiss_match",
   "assign_task",
+  "transfer_lead",
   "send_email",
   "send_message",
   "call_contact",
   "send_intake_form",
+  "open_intake_link",
   "message_owner",
   "send_owner_update",
   "open_support_ticket",
@@ -138,6 +166,7 @@ export const AGENT_ACTION_IDS = [
   "mentor_goal",
   "mentor_commit",
   "mentor_reflect",
+  "mentor_practice",
   "forum_latest",
   "forum_search",
   "forum_ask",
@@ -161,7 +190,18 @@ export interface AgentActionDef {
   when: string;
   /** דוגמאות בעברית מדוברת. מודל שרואה ניסוח אמיתי מדייק בסדר גודל. */
   examples: readonly string[];
-  capability: Capability;
+  /**
+   * ‏היכולת שפותחת את הפעולה.
+   *
+   * ‎`null` = **אין שער** — וזה מצב אמיתי ולא פרצה: פעולה שנוגעת
+   * ‏אך ורק ברשומה של הקורא עצמו (הפרופיל שלו, ההתראות שלו).
+   * ‏אין יכולת שמתארת „מותר לך לראות את עצמך”, ובחירה ביכולת
+   * ‏אקראית שכולם מחזיקים בה הייתה משקרת על מה שנבדק.
+   *
+   * ‎**המזהה תמיד נלקח מההקשר ולא מהפרמטרים** בפעולות כאלה —
+   * ‏אחרת זה נתיב לקריאת הפרופיל של מישהו אחר.
+   */
+  capability: Capability | null;
   /**
    * יכולות נוספות שכל אחת מהן **מספיקה** לפתיחת הפעולה.
    *
@@ -210,23 +250,7 @@ export interface AgentActionDef {
 // אוצר המונחים — תוויות הערכים, פעם אחת לכל המערכת
 // ---------------------------------------------------------------------------
 
-const DEAL_TYPE_LABELS = { sale: "מכירה", rent: "השכרה" } as const;
 
-const PROPERTY_TYPE_LABELS = {
-  apartment: "דירה",
-  garden_apartment: "דירת גן",
-  penthouse: "פנטהאוז",
-  duplex: "דופלקס",
-  private_house: "בית פרטי",
-  two_family: "דו משפחתי",
-  studio: "סטודיו",
-  unit: "יחידת דיור",
-  shared_tabu: "טאבו משותף",
-  divisible_apartment: "דירה מתאימה לחלוקה",
-  plot: "מגרש",
-  commercial: "מסחרי",
-  other: "אחר",
-} as const;
 
 const FEATURE_LABELS = {
   hasElevator: "מעלית",
@@ -660,13 +684,78 @@ const BUYER_REQUIREMENT_FIELDS: readonly AgentFieldSpec[] = [
   },
 ];
 
+/**
+ * ‎**סטטוס המשרד — טקסט, ולא `enum`.**
+ *
+ * רשימת הסטטוסים שונה לכל משרד וחיה ב-`tenants.settings`, בעוד
+ * הקטלוג כאן הוא קבוע שנבנה בזמן קומפילציה. ההכרעה נעשית אחרי
+ * התשובה, ב-`matchOfficeStatus`, מול הרשימה האמיתית — אותו דפוס
+ * שהקובץ הזה כבר מגדיר לתאריך ולמיקום: מה שדורש ידע שאינו לשוני
+ * אינו ממולא בידי המודל.
+ *
+ * ‎**מה שנאמר, ולא מה שהמודל חושב שהתכוונו.** הרמז מבקש במפורש את
+ * המילים עצמן: פרפרזה („הוא מתקדם”) הייתה מרחיקה את הטקסט מהרשימה
+ * ומפילה התאמה שהייתה נמצאת.
+ */
+const F_OFFICE_STATUS: AgentFieldSpec = {
+  key: "officeStatus",
+  label: "סטטוס המשרד",
+  type: "string",
+  hint: "שם השלב במשרד כפי שנאמר, במילים עצמן — „בסבב סיורים”, „ממתין למשכנתא”. רק כשנאמר שם של שלב; לדרגת דחיפות יש „בשלות”",
+  maxLength: 40,
+};
+
 const BUYER_PROFILE_FIELDS: readonly AgentFieldSpec[] = [
   F_MATURITY,
+  F_OFFICE_STATUS,
   F_FINANCING,
   F_AGENT_NOTES,
 ];
 
 // --- שדות הנכס ---
+
+/**
+ * ‏בעל הנכס — משותף לנכס חדש ולנכס לגיוס.
+ *
+ * ‏סכימת השדות מאוחדת (ראו ההסבר בראש הקובץ), ולכן אותו מפתח
+ * ‏שמוצהר פעמיים בשני תיאורים גורם לאחת הפעולות לקבל את ההגדרה
+ * ‏של האחרת — והמודל ימלא לפי התיאור הלא נכון, בשקט.
+ */
+const F_OWNER_NAME: AgentFieldSpec = {
+  key: "ownerName",
+  label: "בעל הנכס",
+  type: "string",
+  maxLength: 120,
+};
+
+const F_OWNER_PHONE: AgentFieldSpec = {
+  key: "ownerPhone",
+  label: "טלפון בעל הנכס",
+  type: "string",
+  hint: "כפי שנאמר",
+  maxLength: 30,
+};
+
+/**
+ * ‏סטטוס במשפך הגיוס — משותף לעדכון ולסינון, בדיוק כמו
+ * ‎`F_LEAD_STATUS`. `recruited` אינו כאן: המרה לנכס היא מסלול
+ * ‏נפרד עם יצירת רשומה, ולא ערך שמציבים.
+ */
+const F_RECRUITMENT_STATUS: AgentFieldSpec = {
+  key: "recruitmentStatus",
+  label: "מצב הגיוס",
+  type: "enum",
+  values: RECRUITMENT_STATUSES.filter((status) => status !== "recruited"),
+  valueLabels: RECRUITMENT_STATUS_LABELS,
+};
+
+const F_RECRUITMENT_PHRASE: AgentFieldSpec = {
+  key: "recruitmentPhrase",
+  label: "איזה נכס לגיוס",
+  type: "string",
+  hint: "הכתובת או שם הבעלים, כפי שנאמר",
+  maxLength: 200,
+};
 
 const PROPERTY_FIELDS: readonly AgentFieldSpec[] = [
   { key: "city", label: "עיר", type: "string", maxLength: 80 },
@@ -681,6 +770,18 @@ const PROPERTY_FIELDS: readonly AgentFieldSpec[] = [
     valueLabels: PROPERTY_TYPE_LABELS,
   },
   F_DEAL_TYPE,
+  /*
+   * ‎**חזית / עורף** — אחת השאלות הראשונות בטלפון, ולכן גם משפט
+   * ‏שמתווך אומר לסוכן. בלי השדה כאן היא הייתה נשמעת, נכנסת
+   * ‏לתיאור החופשי, ולא מגיעה לעמודה.
+   */
+  {
+    key: "facing",
+    label: "חזית / עורף",
+    type: "enum",
+    values: Object.keys(PROPERTY_FACING_LABELS),
+    valueLabels: PROPERTY_FACING_LABELS,
+  },
   {
     key: "rooms",
     label: "חדרים",
@@ -706,15 +807,15 @@ const PROPERTY_FIELDS: readonly AgentFieldSpec[] = [
   { key: "hasStorage", label: "מחסן", type: "boolean" },
   {
     key: "condition",
-    label: "מצב",
+    label: "מצב הנכס",
     type: "enum",
-    values: ["new", "renovated", "good", "needs_renovation"],
-    valueLabels: {
-      new: "חדש מקבלן",
-      renovated: "משופץ",
-      good: "במצב טוב",
-      needs_renovation: "דורש שיפוץ",
-    },
+    /*
+     * ‏נגזר מ-`PROPERTY_CONDITIONS`, ולא רשימה שנייה. עד עכשיו
+     * ‏הערכים והתוויות היו כתובים כאן ביד, וכבר נפרדו ממה שהרשת
+     * ‏מציגה — הסוכן אמר „חדש מקבלן” והטופס לא היה קיים בכלל.
+     */
+    values: PROPERTY_CONDITIONS,
+    valueLabels: PROPERTY_CONDITION_LABELS,
   },
   {
     key: "priceShekels",
@@ -920,6 +1021,46 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
       "רשימת חזרות להיום",
     ],
     capability: "leads.view_own",
+    risk: "read",
+    fields: [],
+  },
+  {
+    /*
+     * ‎**„המר ללקוח” — מהוואטסאפ, על השיחה שההתראה מדברת עליה.**
+     *
+     * ‏המסך כבר מציע את זה על כל שיחה. מתווך שקיבל התראה על שיחה
+     * ‏שלא נענתה נמצא **בטלפון**, לא במסך, ושליחתו לפתוח את המערכת
+     * ‏כדי ללחוץ על כפתור שההתראה עצמה יכלה לשאת היא בדיוק החיכוך
+     * ‏שבגללו לקוח נשאר לא מטופל (בקשת המשתמש).
+     *
+     * ‎**קריאה ולא כתיבה, וזו הכרעה ולא סיווג.** הפעולה עצמה אינה
+     * ‏יוצרת דבר: היא מוצאת את השיחה ושואלת „קונה, מוכר, שוכר או
+     * ‏משכיר”. הכתיבה נעשית על התשובה, דרך מצב ממתין — אותה
+     * ‏מכניקה של התרגול והרפלקציה.
+     *
+     * ‏המחיר של הסיווג הזה הוא מה שמצדיק אותו: **פעולת קריאה
+     * ‏נמצאת ברצפה הדטרמיניסטית**, ולכן הכפתור עובד גם כשההבנה
+     * ‏החכמה נפולה — וזה בדיוק המצב שבו „לא הבנתי” על כפתור
+     * ‏שהמערכת עצמה שלחה הוא הגרוע ביותר.
+     *
+     * ‎**אין שדות בכוונה.** בהקלדה „השיחה האחרונה שאפשר להמיר” היא
+     * ‏הגדרה חד-משמעית, והבוט אומר בשאלה על מי מדובר. הכפתור
+     * ‏בהתראה מדייק יותר — הוא נושא את מזהה השיחה בסוגריים
+     * ‏(`callConvertCommand`), כי הודעת וואטסאפ נשארת לחיצה לנצח
+     * ‏ו„האחרונה” של מחר אינה זו שההתראה הציגה. שדה בקטלוג הוא
+     * ‏שדה שהמודל ינסה למלא, כלומר ינחש מזהים; הסוגריים נקראות
+     * ‏מהמשפט, כמו מפתח הרעיון של המנטור.
+     */
+    id: "convert_call",
+    title: "המר ללקוח",
+    when: "בקשה להפוך שיחה — בדרך כלל האחרונה, או זו שההתראה דיברה עליה — לכרטיס לקוח. הסוג עצמו (קונה/מוכר/שוכר/משכיר) נשאל אחר כך ואינו חלק מהבקשה.",
+    examples: [
+      "המר ללקוח",
+      "תפתח לקוח מהשיחה האחרונה",
+      "הפוך את השיחה ללקוח",
+      "תוסיף את מי שהתקשר כלקוח",
+    ],
+    capability: "leads.edit",
     risk: "read",
     fields: [],
   },
@@ -1227,6 +1368,40 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
     fields: [],
   },
   {
+    id: "show_subscription",
+    title: "מצב המנוי",
+    when: "שאלה על המנוי של המשרד — איזה מסלול, עד מתי, כמה זה עולה.",
+    examples: [
+      "מה מצב המנוי שלנו",
+      "עד מתי המנוי בתוקף",
+      "כמה אנחנו משלמים בחודש",
+      "איזה מסלול יש לנו",
+    ],
+    capability: "billing.manage",
+    risk: "read",
+    fields: [],
+  },
+  {
+    /*
+     * ‎**`create` ולא `read`, למרות שאיש אינו מחויב כאן.**
+     *
+     * ‏הפעולה פותחת דף תשלום, ופתיחת דף תשלום **מבטלת כל תשלום
+     * ‏ממתין של המשרד** (`BillingService.startCheckout`). כלומר
+     * ‏ריצה מיידית על פירוש שגוי הייתה הורגת דף תשלום פתוח
+     * ‏בדפדפן. `create` מחייב לחיצה על כרטיס ההצעה — וזה בדיוק
+     * ‏מה שהופך את זה לבקשה אחת מפורשת.
+     */
+    id: "renew_subscription",
+    title: "חידוש המנוי",
+    when:
+      "בקשה לחדש את המנוי של המשרד או לשלם עליו. מחדש את המסלול הקיים — " +
+      "בקשה למסלול אחר אינה כאן.",
+    examples: ["תחדש לי את המנוי", "אני רוצה לשלם על המנוי", "תפתח לי תשלום למנוי"],
+    capability: "billing.manage",
+    risk: "create",
+    fields: [],
+  },
+  {
     id: "office_report",
     title: "דוח המשרד",
     feature: "analytics",
@@ -1352,16 +1527,268 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
     risk: "create",
     fields: [
       ...PROPERTY_FIELDS,
-      { key: "ownerName", label: "בעל הנכס", type: "string", maxLength: 120 },
-      {
-        key: "ownerPhone",
-        label: "טלפון בעל הנכס",
-        type: "string",
-        hint: "כפי שנאמר",
-        maxLength: 30,
-      },
+      F_OWNER_NAME,
+      F_OWNER_PHONE,
     ],
     resolved: PROPERTY_RESOLVED,
+  },
+  {
+    id: "show_recruitment",
+    title: "נכסים לגיוס",
+    when: "בקשה לראות את רשימת הנכסים שהמשרד רודף אחריהם — לא נכסים שכבר במלאי.",
+    examples: [
+      "מה יש לי לגיוס",
+      "תראה לי את הנכסים לגיוס",
+      "על מי עוד לא התקשרתי מהגיוס",
+    ],
+    capability: "properties.view",
+    risk: "read",
+    fields: [F_RECRUITMENT_STATUS],
+  },
+  {
+    /*
+     * ‎**נכס לגיוס ולא נכס.** ההבדל אינו ניסוח: שורת גיוס אינה
+     * ‏מגיעה להתאמות, לרשת או להצעות עד ההמרה, כי המשרד עדיין
+     * ‏אינו מייצג אותה. פעולה שהייתה פותחת „נכס” על מודעה שראו
+     * ‏ברחוב הייתה משווקת נכס של מישהו אחר.
+     */
+    id: "create_recruitment",
+    title: "נכס לגיוס חדש",
+    when:
+      "נכס שראו ורוצים לגייס — מודעה, שלט או המלצה. המשרד **אינו** מייצג אותו עדיין. " +
+      "נכס שכבר התקבל לשיווק הוא `create_property`.",
+    examples: [
+      "תפתח לי נכס לגיוס בהרצל 12 חיפה, 4 חדרים, הבעלים 0521234567",
+      "ראיתי שלט למכירה ברוטשילד 40 תל אביב, תוסיף לגיוס",
+      "יש מודעה ביד2 על דירה בפתח תקווה 1.9 מיליון, תרשום לגיוס",
+    ],
+    capability: "properties.create",
+    risk: "create",
+    fields: [...PROPERTY_FIELDS, F_OWNER_NAME, F_OWNER_PHONE],
+  },
+  {
+    id: "update_recruitment_status",
+    title: "עדכון מצב גיוס",
+    when: "דיווח על מה שקרה עם נכס לגיוס — התקשרתי, קבעתי פגישה, סירבו.",
+    examples: [
+      "התקשרתי לבעלים של הרצל 12",
+      "קבעתי פגישה על הנכס ברוטשילד 40",
+      "הבעלים בהרצל 12 סירב",
+    ],
+    capability: "properties.edit",
+    risk: "update",
+    fields: [F_RECRUITMENT_PHRASE, F_RECRUITMENT_STATUS],
+  },
+  {
+    id: "show_team",
+    title: "צוות המשרד",
+    when: "בקשה לראות מי במשרד — הסוכנים, התפקידים ומי פעיל.",
+    examples: ["מי במשרד", "תראה לי את הצוות", "מי הסוכנים שלי"],
+    capability: "users.manage",
+    risk: "read",
+    fields: [],
+  },
+  {
+    /*
+     * ‎**פתיחת חשבון היא הפעולה הרגישה ביותר בקטלוג.**
+     *
+     * ‏היא מוסיפה מישהו לתוך המשרד — עם גישה לנתוני הלקוחות שלו.
+     * ‏לכן `create`: כרטיס ההצעה חייב אישור מפורש, והיא לעולם
+     * ‏אינה רצה על פירוש שגוי של משפט.
+     *
+     * ‏והסיסמה אינה נאמרת בשיחה. הסוכן החדש מקבל **קישור לקביעת
+     * ‏סיסמה במייל**: סיסמה פעילה בהודעת וואטסאפ נשארת שם, נקראת
+     * ‏מעבר לכתף, ונשלחת הלאה.
+     */
+    id: "add_agent",
+    title: "הוספת איש צוות",
+    when:
+      "פתיחת חשבון לסוכן חדש במשרד — מי שיעבוד *בו*. דורש שם ואימייל. " +
+      "‏**אינו** יצירת ליד, קונה או איש קשר: אלה אנשים שהמשרד עובד *איתם*.",
+    examples: [
+      "תפתח חשבון לדנה כהן, dana@example.com, סוכנת",
+      "תוסיף את יוסי לוי למשרד, yossi@example.com",
+      "צריך לפתוח משתמש לרינת, rinat@example.com, מנהלת סניף",
+    ],
+    capability: "users.manage",
+    risk: "create",
+    fields: [
+      { key: "memberName", label: "שם מלא", type: "string", maxLength: 120 },
+      { key: "memberEmail", label: "אימייל", type: "string", maxLength: 254 },
+      {
+        key: "memberRole",
+        label: "תפקיד",
+        type: "enum",
+        /* ‏הרשימה נגזרת מהסכימה — בדיוק כמו התפריט במסך */
+        values: ASSIGNABLE_ROLES,
+        valueLabels: Object.fromEntries(ASSIGNABLE_ROLES.map((r) => [r, roleLabel(r)])),
+        hint: "‏ברירת המחדל היא סוכן",
+      },
+    ],
+  },
+  {
+    id: "show_profile",
+    title: "הפרטים שלי",
+    when: "בקשה לראות את הפרטים האישיים — שם, אימייל, טלפון, ומצב ההתראות.",
+    examples: ["מה הפרטים שלי", "תראה לי את הפרופיל", "איזה התראות מופעלות לי"],
+    /* ‏כל אחד רואה את **שלו**, ולכן אין כאן יכולת לדרוש */
+    capability: null,
+    risk: "read",
+    fields: [],
+  },
+  {
+    /*
+     * ‎**שם בלבד — ובכוונה.**
+     *
+     * ‏אימייל דורש אימות סיסמה (`updateProfile`), וסיסמה בהודעת
+     * ‏וואטסאפ היא בדיוק מה שאנחנו נמנעים ממנו בכל הקטלוג.
+     *
+     * ‏והטלפון הוא **הזהות מול הסוכן**: הודעה שמגיעה ממנו היא מה
+     * ‏שמזהה את המתווך. שינוי שלו למספר אחר מהשיחה היה מעביר את
+     * ‏הזהות למספר שאיש לא אימת — ולכך כבר יש מסלול עם קוד
+     * ‏(`whatsapp-link`), שזו כל תכליתו.
+     */
+    id: "update_profile",
+    title: "עדכון השם שלי",
+    when:
+      "שינוי השם האישי של המשתמש עצמו. " +
+      "‏אימייל וטלפון **אינם** כאן: הראשון דורש סיסמה, והשני מאומת בקוד במסך הפרופיל.",
+    examples: [
+      "תעדכן לי את השם לדנה כהן-לוי",
+      "תשנה את השם שלי ליוסי",
+      "השם שלי נכתב לא נכון, תתקן לרונית בר",
+    ],
+    capability: null,
+    risk: "update",
+    fields: [{ key: "profileName", label: "השם החדש", type: "string", maxLength: 120 }],
+  },
+  {
+    /*
+     * ‏זו הפעולה שבאמת חוזרת: מתווך שנמצא בסיור לא רוצה לכבות
+     * ‏את הסוכן, הוא רוצה שהלידים יפסיקו לצלצל. השעות השקטות הן
+     * ‏אותו דבר בגרסה קבועה.
+     */
+    id: "update_notifications",
+    title: "ההתראות שלי",
+    when:
+      "הדלקה או כיבוי של התראות שהסוכן **יוזם** — לפי קטגוריה או הכול, " +
+      "‏או קביעת שעות שקט. **אינו** השתקה זמנית („תשתיק לשעתיים”), שהיא דבר אחר.",
+    examples: [
+      "תכבה לי התראות של לידים",
+      "תדליק בחזרה את ההתראות על שיחות",
+      "אל תשלח לי כלום בין 23 ל-8",
+    ],
+    capability: null,
+    risk: "update",
+    fields: [
+      {
+        key: "notifyCategory",
+        label: "אילו התראות",
+        type: "enum",
+        values: [...NOTIFY_CATEGORIES, "all"],
+        valueLabels: { ...NOTIFY_CATEGORY_LABELS, all: "הכול" },
+      },
+      {
+        key: "notifyState",
+        label: "דלוק או כבוי",
+        type: "enum",
+        values: ["on", "off"],
+        valueLabels: { on: "דלוק", off: "כבוי" },
+      },
+      {
+        key: "quietFromHour",
+        label: "שעת תחילת השקט",
+        type: "integer",
+        hint: "‏שעה עגולה בשעון ישראל",
+        min: 0,
+        max: 23,
+      },
+      {
+        key: "quietToHour",
+        label: "שעת סיום השקט",
+        type: "integer",
+        hint: "‏שעה עגולה בשעון ישראל",
+        min: 0,
+        max: 23,
+      },
+    ],
+  },
+  {
+    /*
+     * ‎**מה שמנהל שואל מהדרך, ולא מהמסך.**
+     *
+     * ‏„מה העמלה שלנו?” נשאלת מול מוכר, ו„מספר הרישיון” נדרש בטופס
+     * ‏שממלאים באותו רגע. שניהם נמצאים במסך ההגדרות — כלומר במקום
+     * ‏שאי אפשר להגיע אליו בלי להתנצל ולשלוף מחשב.
+     */
+    id: "show_office_settings",
+    title: "ההגדרות של המשרד",
+    when:
+      "בקשה לראות פרטי משרד או ברירות מחדל — שם, מספר רישיון, כתובת, טלפון, " +
+      "‏דמי התיווך ומועד התשלום שנכנסים להסכמים, ומדיניות הפרסום לרשת.",
+    examples: [
+      "מה העמלה שלנו",
+      "מה מספר הרישיון של המשרד",
+      "תראה לי את ההגדרות של המשרד",
+      "האם אנחנו מפרסמים נכסים לרשת אוטומטית",
+    ],
+    /*
+     * ‏אותה יכולת שהמסך דורש. אלה פרטי המשרד ולא פרטי הקורא, ולכן
+     * ‎`null` כאן היה פתיחה שלהם לכל סוכן — כולל דמי התיווך
+     * ‏המוסכמים, שהם מידע מסחרי.
+     */
+    capability: "settings.manage",
+    risk: "read",
+    fields: [],
+  },
+  {
+    /*
+     * ‎**שלושה מתגים, ולא טופס ההגדרות.**
+     *
+     * ‏אלה השדות שמנהל באמת רוצה לשנות מהדרך: „הגיע נכס רגיש,
+     * ‏תפסיק לפרסם לרשת אוטומטית” הוא דבר שצריך לקרות עכשיו, והוא
+     * ‏הפיך בהודעה אחת.
+     *
+     * ‎**ומה במכוון אינו כאן.** דמי התיווך, מועד התשלום ומספר
+     * ‏הרישיון הם טקסט חופשי ש**נכנס להסכם חתום**. הכתבה של „שני
+     * ‏אחוז פלוס מע״מ” לשדה שמודפס במסמך משפטי, בלי לראות את
+     * ‏המסמך, אינה דבר שצריך לקרות מטלפון — ולכן הם נקראים כאן
+     * ‏ונערכים במסך. גם שם המשרד, הכתובת והטלפון: הם מופיעים בדפי
+     * ‏הנחיתה ובהסכמים, ונקבעים פעם אחת.
+     */
+    id: "update_office_policy",
+    title: "מדיניות הפרסום של המשרד",
+    when:
+      "הדלקה או כיבוי של פרסום אוטומטי לרשת השיתופים (נכסים או קונים), " +
+      "‏או של שליחת הצעות אוטומטית במייל. " +
+      "‎**אינו** שינוי דמי התיווך, מספר הרישיון או פרטי המשרד — אלה נערכים במסך ההגדרות.",
+    examples: [
+      "תפסיק לפרסם נכסים לרשת אוטומטית",
+      "תדליק שיתוף אוטומטי של קונים",
+      "תכבה את ההצעות האוטומטיות במייל",
+    ],
+    capability: "settings.manage",
+    risk: "update",
+    fields: [
+      {
+        key: "policyKey",
+        label: "איזו מדיניות",
+        type: "enum",
+        values: ["autoShareProperties", "autoShareBuyers", "autoEmailOffers"],
+        valueLabels: {
+          autoShareProperties: "פרסום נכסים לרשת",
+          autoShareBuyers: "פרסום קונים לרשת",
+          autoEmailOffers: "הצעות אוטומטיות במייל",
+        },
+      },
+      {
+        key: "policyState",
+        label: "דלוק או כבוי",
+        type: "enum",
+        values: ["on", "off"],
+        valueLabels: { on: "דלוק", off: "כבוי" },
+      },
+    ],
   },
   {
     id: "create_task",
@@ -1373,11 +1800,27 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
       "תזכיר לי ביום ראשון לשלוח את ההצעה",
       // המשך לעדכון שהסוכן שלח — „אליו” הוא הכרטיס שבשורת ההקשר
       "תזכיר לי להתקשר אליו",
+      // ‏משימה **על סוכן אחר** — משפט אחד, ולא „תיצור” ואז „תעביר”
+      "תשייך משימה לדנה להתקשר למשפחת כהן",
+      "תטיל על אבי לבדוק את החוזה עד יום חמישי",
     ],
     capability: "calendar.manage",
     risk: "create",
     fields: [
       F_TASK_TITLE,
+      /*
+       * ‎**„על מי” — רשות, ובאותו שדה של שאר הפעולות.**
+       *
+       * ‏בלי זה „תשייך משימה לדנה” חייב שתי פניות: ליצור על עצמך,
+       * ‏ואז להעביר. בשיחה בוואטסאפ זה נקרא כאילו הבקשה לא הובנה.
+       *
+       * ‏חסר ⇒ על עצמי, וזה רוב השימוש. השער אינו כאן אלא ב-
+       * ‎`TasksService.resolveAssignee`, שדורש `tasks.assign` **וגם**
+       * ‏שהיעד יהיה משתמש פעיל של אותו משרד — כלומר סוכן בלי הרשאת
+       * ‏מנהל אינו יכול להטיל על אף אחד, ומנהל אינו יכול להטיל
+       * ‏מחוץ למשרד שלו.
+       */
+      F_ASSIGNEE_PHRASE,
       {
         key: "relatedPhrase",
         label: "קשור ל",
@@ -1639,11 +2082,12 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
   {
     id: "update_buyer",
     title: "עדכון כרטיס קונה",
-    when: "שינוי פרט בכרטיס קונה קיים — תקציב שעלה, אזור שהתווסף, בשלות שהשתנתה.",
+    when: "שינוי פרט בכרטיס קונה קיים — תקציב שעלה, אזור שהתווסף, בשלות שהשתנתה, או שלב בתהליך של המשרד.",
     examples: [
       "משה כהן העלה את התקציב לשלושה מיליון",
       "תעדכן שמשפחת לוי מחפשים גם בגבעתיים",
       "הקונה של רמת גן הפך לחם מאוד",
+      "תסמן את משה כהן בסבב סיורים",
     ],
     capability: "buyers.edit",
     risk: "update",
@@ -1856,7 +2300,7 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
   {
     id: "show_exclusivity",
     title: "בלעדיות — מה בסיכון",
-    when: "שאלה על מצב הבלעדיות: מה מסתיים, מה בסיכון, כמה פעולות שיווק חסרות, ומתי מועד השליש. בלי שם נכס — כל הבלעדיות של המשרד לפי דחיפות.",
+    when: "שאלה על מצב הבלעדיות: מה מסתיים, מה בסיכון, כמה פעולות שיווק חסרות, ומתי מועד השליש. בלי שם נכס — הבלעדיות שבטיפול הדובר לפי דחיפות, ולמנהל כל המשרד.",
     examples: [
       "מה המצב עם הבלעדיות?",
       "איזה בלעדיות מסתיימות החודש",
@@ -2190,6 +2634,34 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
     fields: [F_TASK_PHRASE, F_ASSIGNEE_PHRASE],
   },
   /*
+   * ‎**מסירת ליד לעמית — ולא „העברת כרטיס”.**
+   *
+   * ‏העברת כרטיס בין סוכנים היא פעולת מנהל בכל המערכת (`tasks.assign`),
+   * ‏ובצדק: היא מוציאה לקוח מידיו של מי שמטפל בו. **ליד הוא היוצא
+   * ‏מן הכלל היחיד**, לפי הכרעת בעלת המוצר: „בין סוכנים ניתן להעביר
+   * ‏לידים בלבד”.
+   *
+   * ‏מה שמאפשר את זה בלי לפרוץ את הגבול הוא שסוכן יכול למסור **רק
+   * ‏ליד שמשויך אליו**. הוא אינו יכול לקחת ליד של עמית, ואינו יכול
+   * ‏למסור מה שאינו רואה — אלה שתי בדיקות נפרדות, ושתיהן בשרת.
+   * ‏מנהל עם `tasks.assign` מוסר כל ליד שהוא רואה, כמו קודם.
+   *
+   * ‎`leads.edit` ולא `tasks.assign`: זו בדיוק הנקודה.
+   */
+  {
+    id: "transfer_lead",
+    title: "מסירת ליד לסוכן",
+    when: "העברת ליד קיים לסוכן אחר במשרד. לא למשימה (assign_task) ולא להמרת ליד ללקוח (convert_lead).",
+    examples: [
+      "תעביר את הליד של משה כהן לדנה",
+      "תמסור את הפנייה מאתמול לאבי",
+      "הליד הזה שייך לדנה מעכשיו",
+    ],
+    capability: "leads.edit",
+    risk: "update",
+    fields: [F_LEAD_PHRASE, F_ASSIGNEE_PHRASE],
+  },
+  /*
    * מייל מהתיבה הפנימית — אותו נתיב בדיוק כמו תשובה מהמסך: יוצא
    * מכתובת המשרד (אם חובר דומיין), נושא Reply-To שמחזיר את תשובת
    * הלקוח לתיבה, ונרשם בשיחה ובציר. `outbound` — הודעה יוצאת
@@ -2278,6 +2750,38 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
     capabilityAlts: ["leads.edit"],
     risk: "outbound",
     fields: [F_BUYER_PHRASE],
+  },
+  {
+    /*
+     * ‎**אותו טופס, בלי כרטיס** — ללקוח שעדיין אינו במאגר.
+     *
+     * פעולה נפרדת ולא `cardId` אופציונלי ב-`send_intake_form`,
+     * ובכוונה: שם הכרטיס מסומן `alwaysChoose`, כלומר הנמען נבחר
+     * במפורש תמיד ולעולם אינו „ההתאמה היחידה”. לו הפכתי אותו
+     * לרשות, שם שנאמר ולא נפתר — „תשלח לדני טופס”, ובמאגר אין דני —
+     * היה נופל בשקט לקישור פתוח במקום לעצור ולשאול. פעולה שנייה
+     * שומרת על שתי ההתנהגויות במלואן.
+     *
+     * ‎**היכולת היא `buyers.edit` לבדה**, בלי `leads.edit`: הקישור
+     * הפתוח מייצר כרטיס קונה, וזה בדיוק מה ש-`POST /intake/open`
+     * דורש. הצהרה רחבה יותר כאן הייתה מבטיחה למשתמש פעולה שהשירות
+     * ידחה.
+     *
+     * ‎**והסיכון הוא `create` ולא `outbound`**: שום דבר אינו יוצא
+     * מהמשרד. נוצר קישור, והמתווך הוא ששולח אותו — בוואטסאפ, ב-SMS
+     * או בהקראה בטלפון.
+     */
+    id: "open_intake_link",
+    title: "קישור לטופס ללקוח חדש",
+    when: "קישור לטופס מילוי-עצמי **בלי כרטיס** — ללקוח שעדיין אינו במערכת. „תן לי קישור ללקוח חדש”. כשהלקוח כבר קיים במאגר יש „טופס פרטים ללקוח”, והוא מעדכן את הכרטיס שלו.",
+    examples: [
+      "תן לי קישור לטופס ללקוח חדש",
+      "תכין קישור פתוח למילוי פרטים",
+      "אני צריך טופס קליטה בלי לקוח מסוים",
+    ],
+    capability: "buyers.edit",
+    risk: "create",
+    fields: [],
   },
   {
     /*
@@ -2495,8 +2999,34 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
       },
     ],
   },
+  {
+    id: "mentor_practice",
+    title: "תרגול שיחה עם המנטור",
+    feature: "ai_coach",
+    when: "‎בקשה **לתרגל** שיחה — „תרגל איתי מוכר על המחיר”, „בוא נתאמן על התנגדות מחיר”. המנטור משחק את הצד השני, וההודעות שאחרי זה הן התרגול עצמו. לא שאלה על תרגול קודם (זה mentor_status).",
+    examples: [
+      "תרגל איתי שיחה עם מוכר על המחיר",
+      "בוא נתאמן על קונה שמתלבט",
+      "אני רוצה לתרגל בקשת בלעדיות",
+    ],
+    capability: "properties.view",
+    risk: "read",
+    fields: [
+      {
+        key: "scenario",
+        label: "התרחיש",
+        type: "enum",
+        /* ‏הקודים והתוויות מהרשימה עצמה — תרחיש חדש נכנס בלי לגעת כאן */
+        values: PRACTICE_SCENARIO_INFO.map((info) => info.code),
+        valueLabels: Object.fromEntries(
+          PRACTICE_SCENARIO_INFO.map((info) => [info.code, info.label]),
+        ),
+        hint: "‏על מה מתאמנים; בלעדיו הבוט מציג את הרשימה",
+      },
+    ],
+  },
   /*
-   * ==================== הפורום המקצועי (docs/14) ====================
+   * ==================== הפורום המקצועי (docs/16) ====================
    *
    * הפורום הוא קהילה בין משרדים, ולכן כל הפעולות כאן פתוחות ליכולת
    * הבסיסית ביותר ובלי פיצ'ר מסלול — כמו המסך עצמו. השדות נושאים
@@ -2664,6 +3194,8 @@ export const AGENT_ID_KEYS = [
   "listingId",
   /** חדר העסקה שמדברים בו (`post_deal_message`, `move_deal_stage`) */
   "dealId",
+  /** הנכס לגיוס שמעדכנים את הסטטוס שלו (`update_recruitment_status`) */
+  "recruitmentId",
 ] as const;
 
 const BY_ID = new Map(AGENT_ACTIONS.map((action) => [action.id, action]));
@@ -2703,6 +3235,8 @@ export function mayUseAction(
   action: AgentActionDef,
   capabilities: { has(capability: Capability): boolean },
 ): boolean {
+  /* ‏פעולה על הרשומה של הקורא עצמו — ראו ההסבר על `capability` */
+  if (action.capability === null) return true;
   if (capabilities.has(action.capability)) return true;
   return (action.capabilityAlts ?? []).some((alt) => capabilities.has(alt));
 }

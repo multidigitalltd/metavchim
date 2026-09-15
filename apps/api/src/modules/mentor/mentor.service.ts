@@ -12,13 +12,28 @@ import {
   formatJerusalemDate,
   jerusalemDayRange,
   jerusalemWeekStart,
+  jerusalemDayStart,
+  jerusalemWallParts,
+  jerusalemWallIsoToUtc,
   MENTOR_REPLY_JSON_SCHEMA,
   type MentorActivity,
   type MentorAsk,
+  type MentorAdvice,
+  MentorGoalInputSchema,
   type MentorChatContext,
+  type MentorGoalProposal,
+  type MentorPersona,
+  mentorAdvice,
   mentorFallbackReply,
+  parseGoalRequest,
+  resolveIdeaFeedback,
+  resolveMentorPersona,
+  ideaByKey,
+  IDEA_MARKS_MAX,
+  jerusalemDayLabel,
   type MentorGoalInput,
   mentorGoalLabel,
+  type MentorGoalMetric,
   type MentorGoalPeriod,
   type MentorGoalProgress,
   type MentorInsights,
@@ -27,6 +42,19 @@ import {
   type MentorPattern,
   mentorPatterns,
   mentorPeriodRange,
+  mentorStartsNewThread,
+  isMentorSubjectKind,
+  mentorSubjectTitle,
+  type MentorSubjectKind,
+  type MentorMessageVerdict,
+  mentorThreadTitle,
+  MENTOR_METRICS,
+  officeEvidenceLabel,
+  mentorOnboarding,
+  onboardingDay,
+  ONBOARDING_DAYS,
+  type MentorOnboarding,
+  type MentorMonthlyBody,
   type MentorReviewBody,
   type MentorWin,
   obstaclePlanSuggestions,
@@ -37,18 +65,27 @@ import {
 } from "@metavchim/shared";
 import { TenantContext } from "../../common/tenant-context";
 import { AgentEventsService } from "../agent/agent-events.service";
+import { MentorPracticeService } from "./mentor-practice.service";
 import { AuditService } from "../../core/audit.service";
 import { GeminiService } from "../../core/gemini.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import {
   MentorSignalsService,
   type GoalWithProgress,
+  type MentorSubjectOption,
 } from "./mentor-signals.service";
 
 /** כמה שבועות אחורה נספרים לצורך משפך ההמרה של המתווך. */
-const HISTORY_WEEKS = 13;
 /** כמה תורים אחרונים המודל רואה. */
 const CHAT_HISTORY_TURNS = 12;
+/**
+ * ‏כמה הודעות נטענות **לפני** ההודעה שנפתחה מרשימת הנעוצים. רוב
+ * ‏החלון הולך קדימה, כי משם ממשיכים לקרוא; מעט לפניה קיים כדי
+ * ‏שהמשפט יגיע עם מה שנאמר סביבו.
+ */
+const TURN_WINDOW_BEFORE = 8;
+/** ‏גודל עמוד ברשימת הנעוצים — יש סמן, ולכן זה גבול עמוד ולא גבול. */
+const PINNED_PAGE = 30;
 /** הודעות למודל ביום — מכסה, לא מגבלת מוצר: מעליה המנטור עונה מהיעדים. */
 const CHAT_DAILY_CAP = 40;
 const CHAT_TIMEOUT_MS = 20_000;
@@ -109,6 +146,42 @@ export interface MentorOverview {
   insights: MentorInsights;
   /** מה המנטור זוכר — דפוסים מהסיכומים של החודשיים האחרונים */
   patterns: MentorPattern[];
+  /** מה המנטור מציע עכשיו — עד שלוש עצות מהמספרים (docs/14 §7.1) */
+  advice: MentorAdvice[];
+  /** השם והסגנון שהמתווך בחר (docs/14 §4.1) */
+  persona: MentorPersona;
+  /** 30 הימים הראשונים — `null` למי שכבר עבר אותם (docs/14 §7.5) */
+  onboarding: MentorOnboarding | null;
+}
+
+/** מה עובד אצלנו — למנהל, ספירות בלבד (docs/14 §7.4). */
+export interface MentorOfficeDto {
+  /** כמה מתווכים תרמו עדות כלשהי */
+  agents: number;
+  proven: {
+    key: string;
+    metric: MentorGoalMetric;
+    metricLabel: string;
+    text: string;
+    helped: number;
+    dismissed: number;
+    up: number;
+    measured: number;
+    /** „עזר ל-3 · המספר עלה אצל 2” */
+    evidence: string;
+  }[];
+}
+
+/** הסיכום החודשי כפי שהמסך מקבל אותו. */
+export interface MentorMonthlyDto {
+  id: string;
+  monthStart: Date;
+  headline: string;
+  greeting: string | null;
+  paragraphs: string[];
+  /** המדד למיקוד בחודש הבא — `null` כשאין */
+  focus: MentorGoalMetric | null;
+  createdAt: Date;
 }
 
 /**
@@ -127,17 +200,50 @@ export interface MentorPulse {
   wins: MentorWin[];
 }
 
-export interface MentorTurnDto {
+/** ‏שורה ברשימת ההיסטוריה — הכול נגזר מההודעות, שום שדה אינו שמור. */
+export interface MentorThreadDto {
   id: string;
+  title: string;
+  lastAt: Date;
+  messages: number;
+}
+
+/** ‏הכרטיס המצורף כפי שהמסך מקבל אותו — מזהה וכותרת, בלי עובדות. */
+export interface MentorSubjectRef {
+  kind: MentorSubjectKind;
+  id: string;
+  title: string;
+}
+
+export interface MentorTurnDto {
+  /** ‏דירוג המתווך על התשובה — `null` כשלא דורגה, וזה הרוב */
+  feedback?: "helpful" | "not_helpful" | null;
+  /** ‏מתי נעצה, אם נעצה — המסך צובע לפי זה */
+  pinnedAt?: string | null;
+  id: string;
+  /**
+   * ‏השיחה שההודעה שייכת לה. ברשימת השיחה עצמה זו ידיעה מיותרת;
+   * ‏ברשימת הנעוצים היא **כל התכלית** — משפט שנעצת נמצא בשיחה
+   * ‏אחרת, ובלי המזהה אין מאיפה לפתוח אותה.
+   */
+  threadId: string;
   role: "user" | "mentor";
   text: string;
   createdAt: Date;
 }
 
-const ReplySchema = z.object({ reply: z.string().trim().min(1).max(1500) });
+const ReplySchema = z.object({
+  reply: z.string().trim().min(1).max(1500),
+  // המודל מציע, המתווך לוחץ, הקוד כותב — אותה סכמה כמו היעד עצמו
+  proposedGoal: MentorGoalInputSchema.pick({
+    metric: true,
+    period: true,
+    target: true,
+  }).optional(),
+});
 
 /**
- * המנטור האישי — מה שהמסך צריך (docs/13).
+ * המנטור האישי — מה שהמסך צריך (docs/14).
  *
  * הכול של **המשתמש הנוכחי**: כל שאילתה נושאת `userId` מההקשר, ואין
  * נתיב שבו מנהל קורא את היעדים או הסיכום של סוכן. הוא רואה מספרים
@@ -160,7 +266,7 @@ export class MentorService {
       const week = mentorPeriodRange("week", now);
       const user = await tx.user.findFirst({
         where: { id: userId, tenantId },
-        select: { createdAt: true },
+        select: { createdAt: true, preferences: true },
       });
       const activity = await this.signals.activity(
         tx,
@@ -221,6 +327,23 @@ export class MentorService {
         await this.pastReviews(tx, tenantId, userId),
         now,
       );
+      const funnel = await this.signals.funnelHistory(
+        tx,
+        tenantId,
+        userId,
+        now,
+      );
+      const advice = mentorAdvice({
+        goals: goals.map((g) => g.progress),
+        activity,
+        previousActivity,
+        insights,
+        funnel,
+        feedback: resolveIdeaFeedback(user?.preferences),
+        office: await this.signals.officePlaybookFor(tx, tenantId, userId, now),
+        closestDeal: await this.signals.closestDeal(tx, tenantId, userId, now),
+        now,
+      });
       return {
         weekStart: week.start,
         weekEnd: week.end,
@@ -233,7 +356,40 @@ export class MentorService {
         streakWeeks,
         chatAvailable,
         patterns,
+        advice,
+        persona: resolveMentorPersona(user?.preferences),
+        onboarding: await this.onboardingOf(
+          tx,
+          tenantId,
+          userId,
+          user?.createdAt,
+          goals.map((g) => g.progress),
+          now,
+        ),
       };
+    });
+  }
+
+  /** 30 הימים הראשונים (docs/14 §7.5) — היום, השבוע והצעד; `null` לוותיק. */
+  private async onboardingOf(
+    tx: TenantTx,
+    tenantId: string,
+    userId: string,
+    userCreatedAt: Date | undefined,
+    goals: MentorGoalProgress[],
+    now: Date,
+  ): Promise<MentorOnboarding | null> {
+    if (userCreatedAt === undefined) return null;
+    if (onboardingDay(userCreatedAt, now) > ONBOARDING_DAYS) return null;
+    const practices = await MentorPracticeService.stats(tx, tenantId, userId, {
+      start: userCreatedAt,
+      end: now,
+    });
+    return mentorOnboarding({
+      userCreatedAt,
+      now,
+      goals,
+      practices: practices.count,
     });
   }
 
@@ -292,6 +448,56 @@ export class MentorService {
             periodStart: g.progress.periodStart,
           })),
         wins,
+      };
+    });
+  }
+
+  /**
+   * מה עובד אצלנו — למנהל (docs/14 §7.4): הרעיונות שהוכיחו את עצמם
+   * במשרד, עם ספירות בלבד. אין כאן שמות ואין דרך לגזור אותם.
+   */
+  async office(now: Date = new Date()): Promise<MentorOfficeDto> {
+    const { tenantId } = TenantContext.current();
+    const office = await this.prisma.withTenant((tx) =>
+      this.signals.officePlaybook(tx, tenantId, now),
+    );
+    return {
+      agents: office.agents,
+      proven: office.proven.map((e) => ({
+        key: e.key,
+        metric: e.metric,
+        metricLabel:
+          MENTOR_METRICS.find((m) => m.code === e.metric)?.label ?? e.metric,
+        text: e.text,
+        helped: e.helped,
+        dismissed: e.dismissed,
+        up: e.up,
+        measured: e.measured,
+        evidence: officeEvidenceLabel(e),
+      })),
+    };
+  }
+
+  /** הסיכומים החודשיים — מהחדש לישן (docs/14 §3). */
+  async monthly(limit = 6): Promise<MentorMonthlyDto[]> {
+    const { tenantId, userId } = TenantContext.current();
+    const rows = await this.prisma.withTenant((tx) =>
+      tx.mentorMonthlyReview.findMany({
+        where: { tenantId, userId },
+        orderBy: { monthStart: "desc" },
+        take: limit,
+      }),
+    );
+    return rows.map((row) => {
+      const body = (row.body ?? {}) as Partial<MentorMonthlyBody>;
+      return {
+        id: row.id,
+        monthStart: row.monthStart,
+        headline: row.headline,
+        greeting: body.greeting ?? null,
+        paragraphs: Array.isArray(body.paragraphs) ? body.paragraphs : [],
+        focus: body.focus ?? null,
+        createdAt: row.createdAt,
       };
     });
   }
@@ -401,18 +607,16 @@ export class MentorService {
   ): Promise<ProcessGoalSuggestion[]> {
     const { tenantId, userId } = TenantContext.current();
     return this.prisma.withTenant(async (tx) => {
-      const start = jerusalemWeekStart(now, -HISTORY_WEEKS);
-      const history = await this.signals.activity(
+      const funnel = await this.signals.funnelHistory(
         tx,
         tenantId,
         userId,
-        { start, end: now },
         now,
       );
       return suggestProcessGoals({
         outcome: { target, period },
-        history,
-        historyWeeks: HISTORY_WEEKS,
+        history: funnel.history,
+        historyWeeks: funnel.weeks,
       });
     });
   }
@@ -552,40 +756,445 @@ export class MentorService {
 
   /* ---------------- שיחה ---------------- */
 
-  async turns(limit = 40): Promise<{ turns: MentorTurnDto[] }> {
+  /**
+   * ‏השיחה שעל המסך — הנוכחית, או זו שביקשו לפתוח מההיסטוריה.
+   *
+   * ‎**בלי `threadId` זו השיחה האחרונה ולא „ארבעים ההודעות
+   * האחרונות”.** ההבדל מתגלה בדיוק ברגע שמישהו חוזר אחרי יומיים:
+   * קודם הוא היה רואה את סוף השיחה הקודמת כאילו היא נמשכת, ועכשיו
+   * הוא רואה מסך נקי — והקודמת ממתינה בהיסטוריה.
+   *
+   * ‎`threadId` שאינו של המתווך הזה מחזיר ריק ולא שגיאה, כי הוא
+   * ‏מסונן באותה שאילתה: השיחה של עמית אינה „אסורה”, היא פשוט
+   * ‏אינה קיימת מבחינתו.
+   */
+  async turns(
+    limit = 40,
+    threadId?: string,
+    now: Date = new Date(),
+    /**
+     * ‎**הודעה שחייבת להיות במסך** — פתיחה מרשימת הנעוצים.
+     *
+     * ‏בלי זה נפתחה השיחה הנכונה ונטענו 40 האחרונות שלה, וההודעה
+     * ‏שנעצת פשוט לא הייתה שם: בשיחה ארוכה, הרשימה שקיימת כדי
+     * ‏להחזיר אליה לא החזירה אליה (ביקורת Codex, P2). המזהה כאן
+     * ‏קובע גם את השיחה — הודעה יודעת לאיזו שיחה היא שייכת.
+     */
+    from?: string,
+  ): Promise<{
+    turns: MentorTurnDto[];
+    threadId: string | null;
+    /** ‏הכרטיס המצורף לשיחה הזו — כדי שהמסך והשרת יסכימו עליו */
+    subject: MentorSubjectRef | null;
+  }> {
+    const { tenantId, userId } = TenantContext.current();
+    if (from !== undefined) return this.turnsAround(from, limit, now);
+    /*
+     * ‏השורות והכרטיס נקראים באותה טרנזקציה: שתי פתיחות היו שתי
+     * ‏תמונות מצב, ומסך שמציג שיחה אחת עם הכרטיס של רגע אחר.
+     */
+    return this.prisma.withTenant(async (tx) => {
+      let id = threadId;
+      if (id === undefined) {
+        const newest = await tx.mentorMessage.findFirst({
+          where: { tenantId, userId },
+          orderBy: { createdAt: "desc" },
+          select: { threadId: true, createdAt: true },
+        });
+        /*
+         * ‎**אותו כלל שקרוי בכתיבה, גם בקריאה.**
+         *
+         * ‏‎`ask` מכריע לפי `mentorStartsNewThread` שהודעה אחרי שש
+         * ‏שעות שקט פותחת שיחה חדשה. הקריאה כאן החזירה את השיחה
+         * ‏האחרונה **בלי קשר לגילה**, ולכן מי שחזר למחרת ראה את
+         * ‏שיחת אתמול, כתב בה — וההודעה נשמרה בשיחה חדשה בזמן שהמסך
+         * ‏הציג את שתיהן כאחת (ביקורת Codex, P1).
+         *
+         * ‏זה בדיוק מה שהקבוע המשותף נועד למנוע, ולא השתמשתי בו
+         * ‏בצד הקריאה. כלל אחד, שני קוראים.
+         */
+        id =
+          newest !== null && !mentorStartsNewThread(newest.createdAt, now)
+            ? newest.threadId
+            : undefined;
+      }
+      if (id === undefined) return { turns: [], threadId: null, subject: null };
+      const rows = await tx.mentorMessage.findMany({
+        where: { tenantId, userId, threadId: id },
+        orderBy: { createdAt: "desc" },
+        take: limit,
+      });
+      return {
+        turns: rows.reverse().map(MentorService.turnDto),
+        threadId: id,
+        subject: await this.activeSubject(tx, tenantId, userId, id, now),
+      };
+    });
+  }
+
+  /**
+   * ‎**הכרטיס הפעיל של שיחה — כפי שהשרת רואה אותו** (§7.7).
+   *
+   * ‏המסך היה מחזיק את הכרטיס בזיכרון בלבד, ולכן רענון או מעבר
+   * ‏לשיחה אחרת השאירו אותו ריק בזמן שהשרת ממשיך לגזור כרטיס
+   * ‏מההודעות — או גרוע מזה, נשאו כרטיס משיחה א׳ לשיחה ב׳ ודרסו
+   * ‏את ההקשר שלה (ביקורת Codex, P1). מקור אחד לשניהם.
+   *
+   * ‏מוחזר עם הכותרת ולא רק עם המזהה: המסך מציג „מה מצורף”, וסיבוב
+   * ‏נוסף לשרת רק כדי לתרגם מזהה לשם הוא סיבוב מיותר.
+   *
+   * ‎`null` גם כשהכרטיס נותק במפורש, גם כשהוא נמחק, וגם כשהוא של
+   * ‏עמית — שלושתם „אין כרטיס”, וזה כל מה שהמסך צריך לדעת.
+   */
+  private async activeSubject(
+    tx: TenantTx,
+    tenantId: string,
+    userId: string,
+    threadId: string,
+    now: Date,
+  ): Promise<{ kind: MentorSubjectKind; id: string; title: string } | null> {
+    const row = await tx.mentorMessage.findFirst({
+      where: { tenantId, userId, threadId, subjectKind: { not: null } },
+      orderBy: { createdAt: "desc" },
+      select: { subjectKind: true, subjectId: true },
+    });
+    if (row === null || row.subjectId === null) return null;
+    if (!isMentorSubjectKind(row.subjectKind)) return null;
+    const subject = await this.signals.subject(
+      tx,
+      tenantId,
+      userId,
+      row.subjectKind,
+      row.subjectId,
+      now,
+    );
+    return subject === null
+      ? null
+      : {
+          kind: subject.kind,
+          id: subject.id,
+          title: mentorSubjectTitle(subject),
+        };
+  }
+
+  /**
+   * ‎**חלון סביב הודעה מסוימת** — ההודעה עצמה, מעט לפניה, והמשך.
+   *
+   * ‏„מעט לפניה” אינו קישוט: משפט בלי מה שנאמר סביבו הוא ציטוט ולא
+   * ‏עצה, וזו כל הסיבה שהנעיצה מחזירה אל השיחה ולא אל הטקסט לבדו.
+   * ‏רוב החלון הולך קדימה, כי משם ממשיכים לקרוא.
+   *
+   * ‏הודעה שאינה של המתווך הזה מחזירה ריק ולא שגיאה — אותו כלל כמו
+   * ‏בשאר הקובץ, ומאותו נימוק.
+   */
+  private async turnsAround(
+    from: string,
+    limit: number,
+    now: Date,
+  ): Promise<{
+    turns: MentorTurnDto[];
+    threadId: string | null;
+    subject: MentorSubjectRef | null;
+  }> {
+    const { tenantId, userId } = TenantContext.current();
+    return this.prisma.withTenant(async (tx) => {
+      const anchor = await tx.mentorMessage.findFirst({
+        where: { id: from, tenantId, userId },
+        select: { threadId: true, createdAt: true },
+      });
+      if (anchor === null) return { turns: [], threadId: null, subject: null };
+      const before = Math.min(TURN_WINDOW_BEFORE, Math.max(0, limit - 1));
+      const [earlier, rest] = await Promise.all([
+        tx.mentorMessage.findMany({
+          where: {
+            tenantId,
+            userId,
+            threadId: anchor.threadId,
+            createdAt: { lt: anchor.createdAt },
+          },
+          orderBy: { createdAt: "desc" },
+          take: before,
+        }),
+        tx.mentorMessage.findMany({
+          where: {
+            tenantId,
+            userId,
+            threadId: anchor.threadId,
+            createdAt: { gte: anchor.createdAt },
+          },
+          orderBy: { createdAt: "asc" },
+          take: limit - before,
+        }),
+      ]);
+      return {
+        turns: [...earlier.reverse(), ...rest].map(MentorService.turnDto),
+        threadId: anchor.threadId,
+        subject: await this.activeSubject(
+          tx,
+          tenantId,
+          userId,
+          anchor.threadId,
+          now,
+        ),
+      };
+    });
+  }
+
+  /**
+   * ‎**דירוג תשובה, ונעיצה — שתי פעולות על אותה שורה.**
+   *
+   * ‏שתיהן מסוננות ב-`updateMany` על `userId`, ולכן הודעה של עמית
+   * ‏אינה „אסורה” אלא פשוט אינה נמצאת. `count === 0` הוא התשובה
+   * ‏הנכונה גם למזהה שאינו קיים וגם למזהה של מישהו אחר — שני
+   * ‏המצבים אינם צריכים להיות ניתנים להבחנה מבחוץ.
+   *
+   * ‎**רק תשובה של המנטור ניתנת לדירוג.** דירוג של השאלה שלך עצמך
+   * ‏אינו אומר דבר, והמסך אינו מציע אותו; התנאי כאן הוא מה שהופך
+   * ‏את זה לנכון גם כשמישהו קורא ל-API ישירות.
+   */
+  async rateMessage(
+    id: string,
+    verdict: MentorMessageVerdict | null,
+  ): Promise<{ ok: true }> {
+    const { tenantId, userId } = TenantContext.current();
+    const { count } = await this.prisma.withTenant((tx) =>
+      tx.mentorMessage.updateMany({
+        where: { id, tenantId, userId, role: "mentor" },
+        data: { feedback: verdict },
+      }),
+    );
+    if (count === 0) throw new NotFoundException("ההודעה לא נמצאה");
+    return { ok: true };
+  }
+
+  async pinMessage(id: string, pinned: boolean): Promise<{ ok: true }> {
+    const { tenantId, userId } = TenantContext.current();
+    const { count } = await this.prisma.withTenant((tx) =>
+      tx.mentorMessage.updateMany({
+        where: { id, tenantId, userId },
+        data: { pinnedAt: pinned ? new Date() : null },
+      }),
+    );
+    if (count === 0) throw new NotFoundException("ההודעה לא נמצאה");
+    return { ok: true };
+  }
+
+  /**
+   * ‏מה שנעצת — על פני כל השיחות, החדש ראשון.
+   *
+   * ‏זו הסיבה שנעיצה קיימת: משפט טוב נאמר בשיחה אחת ונחוץ בשיחה
+   * ‏אחרת, וחיפוש בהיסטוריה אינו תשובה למי שזוכר שהיה משהו ולא
+   * ‏זוכר מתי.
+   */
+  async pinned(
+    limit = PINNED_PAGE,
+    /**
+     * ‏סמן העמוד הבא — ה-`pinnedAt` של השורה האחרונה שהוצגה.
+     *
+     * ‏בלעדיו הרשימה נעצרה על 30 **לתמיד**: נעוץ שלושים ואחד הסתיר
+     * ‏את הישן ממנו, ולא הייתה שום דרך להגיע אליו מלבד לבטל נעיצות
+     * ‏חדשות יותר (ביקורת Codex, P2).
+     *
+     * ‎`pinnedAt` ולא מזהה: זה גם סדר הרשימה, ולכן הוא הסמן היחיד
+     * ‏שאינו יכול לסתור אותה.
+     */
+    before?: Date,
+  ): Promise<{ turns: MentorTurnDto[]; nextBefore: string | null }> {
     const { tenantId, userId } = TenantContext.current();
     const rows = await this.prisma.withTenant((tx) =>
       tx.mentorMessage.findMany({
-        where: { tenantId, userId },
-        orderBy: { createdAt: "desc" },
+        where: {
+          tenantId,
+          userId,
+          pinnedAt: before === undefined ? { not: null } : { lt: before },
+        },
+        orderBy: { pinnedAt: "desc" },
         take: limit,
       }),
     );
-    return { turns: rows.reverse().map(MentorService.turnDto) };
+    /*
+     * ‏„יש עוד” נאמר רק כשהעמוד מלא. עמוד חלקי הוא הסוף, ולהחזיר
+     * ‏סמן עליו היה מייצר כפתור „עוד” שאינו מביא דבר.
+     */
+    const last = rows.length === limit ? rows[rows.length - 1] : undefined;
+    return {
+      turns: rows.map(MentorService.turnDto),
+      nextBefore: last?.pinnedAt?.toISOString() ?? null,
+    };
+  }
+
+  /**
+   * ‎**רשימת השיחות — נגזרת, בלי טבלה ובלי כותרת שמורה.**
+   *
+   * ‏שם השיחה הוא השאלה הראשונה שנשאלה בה, והמועד הוא האחרון שנאמר
+   * ‏בה. שניהם נקראים מההודעות עצמן, ולכן אינם יכולים לחלוק עליהן:
+   * ‏עמודת כותרת הייתה יכולה להישאר על נוסח שנמחק.
+   *
+   * ‏שתי שאילתות ולא N+1: `groupBy` לשלד (מזהה, מועד אחרון, כמה),
+   * ‏ואז שליפה אחת של ההודעה הפותחת של כל שיחה מהעמוד הזה. עוד
+   * ‏שאילתה לכל שורה הייתה עשרים שאילתות על מסך שנפתח בלחיצה.
+   */
+  async threads(limit = 20): Promise<{ threads: MentorThreadDto[] }> {
+    const { tenantId, userId } = TenantContext.current();
+    return this.prisma.withTenant(async (tx) => {
+      const groups = await tx.mentorMessage.groupBy({
+        by: ["threadId"],
+        where: { tenantId, userId },
+        _max: { createdAt: true },
+        _count: { _all: true },
+        orderBy: { _max: { createdAt: "desc" } },
+        take: limit,
+      });
+      if (groups.length === 0) return { threads: [] };
+      /*
+       * ‏ההודעה הפותחת של כל שיחה היא זו שמזהה השיחה הוא המזהה שלה —
+       * ‏זו כל הסיבה שהמזהה נבחר כך. שליפה לפי מפתח ראשי, בלי מיון
+       * ‏ובלי חלון.
+       */
+      const heads = await tx.mentorMessage.findMany({
+        where: {
+          tenantId,
+          userId,
+          id: { in: groups.map((g) => g.threadId) },
+        },
+        select: { id: true, text: true, role: true },
+      });
+      const headOf = new Map(heads.map((h) => [h.id, h]));
+      return {
+        threads: groups.map((g) => {
+          const head = headOf.get(g.threadId);
+          return {
+            id: g.threadId,
+            /* ‏רק שאלה של המתווך היא כותרת; פתיח של המנטור אינו */
+            title: mentorThreadTitle(head?.role === "user" ? head.text : null),
+            lastAt: g._max.createdAt ?? new Date(0),
+            messages: g._count._all,
+          };
+        }),
+      };
+    });
+  }
+
+  /**
+   * ‎**מה מותר לצרף — הקונים והנכסים של המתווך עצמו** (§7.7).
+   *
+   * ‏האיסוף יושב ב-`MentorSignalsService` ולא כאן, כי שם כבר יושב
+   * ‏כל מה שנוגע בכרטיסים של המתווך — ושם השער בבדיקות סופר את
+   * ‏סינון הבעלות. פיצול הגישה לשני קבצים היה מוציא חצי ממנו
+   * ‏משדה הראייה של השער.
+   */
+  async subjects(
+    kind: MentorSubjectKind,
+    q: string,
+    limit = 20,
+  ): Promise<{ subjects: MentorSubjectOption[] }> {
+    const { tenantId, userId } = TenantContext.current();
+    return this.prisma.withTenant(async (tx) => ({
+      subjects: await this.signals.subjectOptions(
+        tx,
+        tenantId,
+        userId,
+        kind,
+        q,
+        limit,
+      ),
+    }));
   }
 
   /**
    * שאלה למנטור. ה-LLM מציע, הקוד מכריע: התשובה עוברת סכמה, ובלי
-   * מודל — או כשהוא נופל — המנטור עונה מהיעדים ומהסיכום (docs/13 §7).
+   * מודל — או כשהוא נופל — המנטור עונה מהיעדים ומהסיכום (docs/14 §7).
    */
   async ask(
     text: string,
     now: Date = new Date(),
     /** מאיפה השאלה הגיעה — ליומן האסימונים של הפלטפורמה בלבד */
     channel: "web" | "whatsapp" = "web",
-  ): Promise<{ turn: MentorTurnDto; source: "model" | "fallback" }> {
+    /**
+     * ‏לאיזו שיחה ההודעה שייכת, כשהמסך יודע:
+     * ‎`"new"` — „שיחה חדשה” מפורש, עוקף את כלל השקט.
+     * ‏מזהה — המשך שיחה שנפתחה מההיסטוריה.
+     * ‎`undefined` — מכריע השקט, כמו תמיד.
+     */
+    into?: "new" | string,
+    /**
+     * ‎**הכרטיס שהמתווך צירף לשאלה הזו** (§7.7) — קונה או נכס שלו
+     * ‏עצמו. נשמר על ההודעה, ולא על השיחה: מי שמצרף קונה אחר
+     * ‏באמצע השיחה אינו משכתב את ההקשר של מה שנשאל קודם.
+     */
+    attach?: { kind: MentorSubjectKind; id: string } | null,
+  ): Promise<{
+    turn: MentorTurnDto;
+    source: "model" | "fallback";
+    /** יעד שהמנטור מציע לקבוע — המסך מציג כפתור, המתווך לוחץ (docs/14 §7) */
+    proposedGoal?: MentorGoalProposal;
+  }> {
     const ctx = TenantContext.current();
     const { tenantId, userId } = ctx;
     if (ctx.billingOnly) throw new ForbiddenException("החשבון במצב חיוב בלבד");
 
+    /*
+     * ‎**באיזו שיחה ההודעה הזו יושבת** — נקבע לפני שהיא נכתבת.
+     *
+     * ‏השאלה נשאלת פעם אחת, וכל השאר נגזר ממנה: התשובה תיכתב לאותה
+     * ‏שיחה, וההיסטוריה שתיסע לפרומפט תיקרא ממנה בלבד.
+     *
+     * ‎`startNew` הוא „שיחה חדשה” מפורש מהמסך. בלעדיו מכריע השקט:
+     * ‏‎`mentorStartsNewThread` — אותו כלל בדיוק שחילק ב-SQL את מה
+     * ‏שכבר נכתב.
+     */
+    const messageId = ulid();
+    const threadId = await this.prisma.withTenant(async (tx) => {
+      if (into === "new") return messageId;
+      /*
+       * ‏המשך שיחה מההיסטוריה — אבל רק אחרי שנמצאה **אצל המתווך
+       * ‏הזה**. מזהה שהגיע מבחוץ אינו הוכחה לבעלות, ובלי הבדיקה
+       * ‏הזו אפשר היה לכתוב לתוך שיחה של עמית.
+       */
+      if (into !== undefined) {
+        const owned = await tx.mentorMessage.findFirst({
+          where: { tenantId, userId, threadId: into },
+          select: { threadId: true },
+        });
+        if (owned !== null) return owned.threadId;
+        throw new BadRequestException("השיחה הזו אינה קיימת");
+      }
+      const previous = await tx.mentorMessage.findFirst({
+        where: { tenantId, userId },
+        orderBy: { createdAt: "desc" },
+        select: { threadId: true, createdAt: true },
+      });
+      if (previous === null) return messageId;
+      return mentorStartsNewThread(previous.createdAt, now)
+        ? messageId
+        : previous.threadId;
+    });
+
     const context = await this.prisma.withTenant(
       async (tx): Promise<MentorChatContext & { overCap: boolean }> => {
         await tx.mentorMessage.create({
-          data: { id: ulid(), tenantId, userId, role: "user", text },
+          data: {
+            id: messageId,
+            tenantId,
+            userId,
+            threadId,
+            role: "user",
+            text,
+            /*
+             * ‎**שלושה מצבים, ושלושתם נכתבים מאותו מקור.**
+             *
+             * ‏‎`undefined` — ההודעה לא אמרה דבר, והכרטיס הפעיל
+             * ‏נגזר מהשיחה. `null` — ניתוק **מפורש**, שנשמר כדי
+             * ‏שהגזירה לא תדלג אחורה אל הקודם. אחרת — הכרטיס.
+             */
+            subjectKind:
+              attach === undefined ? null : attach === null ? "none" : attach.kind,
+            subjectId: attach?.id ?? null,
+          },
         });
         const user = await tx.user.findFirst({
           where: { id: userId, tenantId },
-          select: { name: true },
+          select: { name: true, createdAt: true, preferences: true },
         });
         const week = mentorPeriodRange("week", now);
         const activity = await this.signals.activity(
@@ -595,6 +1204,25 @@ export class MentorService {
           week,
           now,
         );
+        /*
+         * מול שבוע שעבר — **אותו חלק של השבוע**: שאלה ביום שני משווה
+         * ראשון–שני של השבוע לראשון–שני של שבוע שעבר, לא לשבוע שלם.
+         * אחרת כל מדד היה „פחות” ביום שני, והמודל היה מייעץ על ירידה
+         * שאינה קיימת (ביקורת Codex). אותה שעת קיר, שבוע אחורה.
+         */
+        const sameMomentLastWeek = jerusalemWallIsoToUtc(
+          `${jerusalemWallParts(jerusalemDayStart(now, -7)).date}T${jerusalemWallParts(now).time}:00.000`,
+        );
+        const previousActivity =
+          user !== null && user.createdAt < week.start
+            ? await this.signals.activity(
+                tx,
+                tenantId,
+                userId,
+                { start: jerusalemWeekStart(now, -1), end: sameMomentLastWeek },
+                sameMomentLastWeek,
+              )
+            : null;
         const goalRows = await tx.mentorGoal.findMany({
           where: { tenantId, userId, endedAt: null },
           orderBy: { createdAt: "asc" },
@@ -621,9 +1249,17 @@ export class MentorService {
           where: { tenantId, userId },
           orderBy: { weekStart: "desc" },
         });
+        /*
+         * ‎**ההיסטוריה היא של השיחה הזו, לא של הכול.**
+         *
+         * ‏קודם נלקחו שתים־עשרה ההודעות האחרונות של המתווך בלי קשר
+         * ‏למתי נאמרו — ולכן שאלה חדשה בבוקר נשענה על מה שנאמר אמש
+         * ‏על נושא אחר לגמרי. זו בדיוק המשמעות של „שיחה”: מה שנאמר
+         * ‏בתוכה שייך, ומה שמחוצה לה לא.
+         */
         const history = (
           await tx.mentorMessage.findMany({
-            where: { tenantId, userId },
+            where: { tenantId, userId, threadId },
             orderBy: { createdAt: "desc" },
             take: CHAT_HISTORY_TURNS + 1,
             select: { role: true, text: true },
@@ -653,8 +1289,117 @@ export class MentorService {
           week,
           { start: jerusalemWeekStart(now, -1), end: week.start },
         );
+        // מה שהמנטור צריך כדי לייעץ — המשפך והניתוח (docs/14 §7.1)
+        const funnel = await this.signals.funnelHistory(
+          tx,
+          tenantId,
+          userId,
+          now,
+        );
+        // מה עובד במשרד — ידע משותף לעצות ולפרומפט (§7.4)
+        const office = await this.signals.officePlaybookFor(
+          tx,
+          tenantId,
+          userId,
+          now,
+        );
+        // העסקה הקרובה ביותר — העצה הראשונה, והחריג לכלל 6 בפרומפט (§7.6)
+        const closest = await this.signals.closestDeal(
+          tx,
+          tenantId,
+          userId,
+          now,
+        );
+        /*
+         * ‎**הכרטיס הפעיל של השיחה — נגזר, ולא שמור עליה** (§7.7).
+         *
+         * ‏מה שצורף עכשיו גובר; אחרת מה שצורף לאחרונה **בשיחה הזו**.
+         * ‏כך מי שמצרף פעם אחת ואז שואל עוד שלוש שאלות אינו צריך
+         * ‏לצרף שוב בכל אחת, ומי שעובר לכרטיס אחר עובר בו-ברגע.
+         *
+         * ‏העובדות נטענות מחדש בכל שאלה ולא נשמרות עם ההודעה: כרטיס
+         * ‏זז, ותמונת מצב שמורה הייתה מזדקנת בשקט.
+         */
+        const active = await (async (): Promise<{
+          kind: MentorSubjectKind;
+          id: string;
+        } | null> => {
+          /* ‏מה שנאמר עכשיו גובר — כולל „ניתקתי”, שהוא `null` */
+          if (attach !== undefined) return attach;
+          /*
+           * ‏ההודעה האחרונה בשיחה **שאמרה משהו** על כרטיס. השאילתה
+           * ‏על `subjectKind` ולא על `subjectId` בכוונה: שורת ניתוק
+           * ‏נושאת סוג בלי מזהה, ואם היא לא תיכלל — הגזירה תדלג
+           * ‏אחורה אל הכרטיס שנותק וההודעה הבאה תישא את פרטיו
+           * ‏(ביקורת Codex, P1).
+           */
+          const row = await tx.mentorMessage.findFirst({
+            where: { tenantId, userId, threadId, subjectKind: { not: null } },
+            orderBy: { createdAt: "desc" },
+            select: { subjectKind: true, subjectId: true },
+          });
+          if (row === null || row.subjectId === null) return null;
+          if (!isMentorSubjectKind(row.subjectKind)) return null;
+          return { kind: row.subjectKind, id: row.subjectId };
+        })();
+        const subject =
+          active === null
+            ? null
+            : await this.signals.subject(
+                tx,
+                tenantId,
+                userId,
+                active.kind,
+                active.id,
+                now,
+              );
+        const advice = mentorAdvice({
+          goals,
+          activity,
+          previousActivity,
+          insights,
+          funnel,
+          feedback: resolveIdeaFeedback(user?.preferences),
+          office,
+          closestDeal: closest,
+          now,
+        });
+        // התרגול האחרון בחודש האחרון — מה המנטור אמר לנסות (§7.3)
+        const practice = await MentorPracticeService.stats(
+          tx,
+          tenantId,
+          userId,
+          {
+            start: jerusalemDayStart(now, -30),
+            end: now,
+          },
+        );
         return {
           insights,
+          activity,
+          previousActivity,
+          funnel,
+          advice,
+          onboarding: await this.onboardingOf(
+            tx,
+            tenantId,
+            userId,
+            user?.createdAt,
+            goals,
+            now,
+          ),
+          closestDeal: closest,
+          subject,
+          lastPractice:
+            practice.last === null
+              ? null
+              : {
+                  scenarioLabel: practice.last.scenarioLabel,
+                  score: practice.last.score,
+                  tryNext: practice.last.tryNext,
+                },
+          office,
+          persona: resolveMentorPersona(user?.preferences),
           firstName: (user?.name ?? "").trim().split(/\s+/u)[0] ?? "",
           nowText: MentorService.nowText(now),
           goals,
@@ -682,6 +1427,7 @@ export class MentorService {
     );
 
     let reply: string | null = null;
+    let proposedGoal: MentorGoalProposal | undefined;
     if (!context.overCap && (await this.gemini.isConfigured())) {
       const detailed = await this.gemini.generateStructuredDetailed(
         buildMentorPrompt(context),
@@ -692,7 +1438,10 @@ export class MentorService {
         },
       );
       const parsed = ReplySchema.safeParse(detailed.value);
-      if (parsed.success) reply = parsed.data.reply;
+      if (parsed.success) {
+        reply = parsed.data.reply;
+        proposedGoal = parsed.data.proposedGoal;
+      }
       /*
        * הקריאה למודל נרשמת ביומן הסוכן — גם כשהתשובה לא עברה את
        * הסכמה: האסימונים נצרכו מהמפתח של הפלטפורמה, ודוח השימוש
@@ -711,7 +1460,17 @@ export class MentorService {
       });
     }
     const source: "model" | "fallback" = reply === null ? "fallback" : "model";
-    const answer = reply ?? mentorFallbackReply(context);
+    /*
+     * בקשה מפורשת ליעד מקבלת כפתור גם בלי מודל, וגם כשהמודל ענה בלי
+     * למלא את ההצעה: הפענוח הדטרמיניסטי הוא הרשת. הכפתור אינו קובע
+     * — הוא מציע; הלחיצה של המתווך היא שכותבת.
+     */
+    proposedGoal ??= parseGoalRequest(text) ?? undefined;
+    const answer =
+      reply ??
+      (proposedGoal === undefined
+        ? mentorFallbackReply(context)
+        : `${mentorGoalLabel(proposedGoal.metric, proposedGoal.target, proposedGoal.period)} — מוכן. לחיצה על הכפתור שמתחת קובעת את היעד, ומשם אני עוקב.`);
 
     const row = await this.prisma.withTenant((tx) =>
       tx.mentorMessage.create({
@@ -719,12 +1478,135 @@ export class MentorService {
           id: ulid(),
           tenantId,
           userId,
+          // ‏התשובה יושבת בשיחה של השאלה — לא נבדקת מחדש מול השקט
+          threadId,
           role: "mentor",
           text: answer.slice(0, 4000),
         },
       }),
     );
-    return { turn: MentorService.turnDto(row), source };
+    return {
+      turn: MentorService.turnDto(row),
+      source,
+      ...(proposedGoal === undefined ? {} : { proposedGoal }),
+    };
+  }
+
+  /* ---------------- משוב על רעיונות ---------------- */
+
+  /**
+   * „עזר לי” / „לא בשבילי” על רעיון (docs/14 §7.2) — הזיכרון של המנטור
+   * לגבי מה עובד אצל המתווך הזה. נשמר ב-`preferences.mentor.ideas`
+   * של המשתמש במיזוג אטומי ב-SQL (כמו פאנלי העזרה): שני מכשירים או
+   * לשונית נגישות פתוחה אינם דורסים זה את זה. המפתח מאומת מול ספר
+   * המשחק — מפתח שאינו רעיון נדחה.
+   */
+  async ideaFeedback(
+    input: {
+      ideaKey: string;
+      verdict: "helped" | "dismissed";
+    },
+    now: Date = new Date(),
+  ): Promise<{ ok: true; text: string }> {
+    const { tenantId, userId } = TenantContext.current();
+    const idea = ideaByKey(input.ideaKey);
+    if (idea === null) throw new BadRequestException("רעיון לא מוכר");
+    const list = input.verdict === "helped" ? "liked" : "dismissed";
+    const other = input.verdict === "helped" ? "dismissed" : "liked";
+    // הסימון עם תאריך — כדי למדוד בעוד שבוע אם המספר זז (`ideaMarksDue`)
+    const mark = JSON.stringify([
+      {
+        key: input.ideaKey,
+        verdict: input.verdict,
+        date: jerusalemDayLabel(now),
+      },
+    ]);
+    await this.prisma.withTenant(
+      (tx) =>
+        /*
+         * מוסיפים לרשימה האחת ומסירים מהשנייה — משוב אחרון קובע. הרשימה
+         * נחתכת למאתיים האחרונים בקריאה (`resolveIdeaFeedback`), ולכן
+         * הכתיבה רק מוסיפה.
+         */
+        /*
+         * ‎`jsonb_set` אינו יוצר צמתי ביניים: למשתמש בלי `mentor.ideas` הוא
+         * מחזיר את הקלט בשקט. לכן בונים את `mentor` ⟵ `ideas` במפורש.
+         */
+        tx.$executeRaw`
+        UPDATE users
+        SET preferences = jsonb_set(
+          COALESCE(preferences, '{}'::jsonb),
+          '{mentor}',
+          COALESCE(preferences -> 'mentor', '{}'::jsonb) || jsonb_build_object(
+            'ideas',
+            COALESCE(preferences -> 'mentor' -> 'ideas', '{}'::jsonb) || jsonb_build_object(
+              ${list}::text,
+              (COALESCE(preferences -> 'mentor' -> 'ideas' -> ${list}::text, '[]'::jsonb) - ${input.ideaKey}::text)
+                || to_jsonb(${input.ideaKey}::text),
+              ${other}::text,
+              COALESCE(preferences -> 'mentor' -> 'ideas' -> ${other}::text, '[]'::jsonb) - ${input.ideaKey}::text,
+              'marks',
+              COALESCE((
+                SELECT jsonb_agg(m.e ORDER BY m.i)
+                FROM jsonb_array_elements(
+                  CASE
+                    WHEN jsonb_typeof(preferences -> 'mentor' -> 'ideas' -> 'marks') = 'array'
+                    THEN preferences -> 'mentor' -> 'ideas' -> 'marks'
+                    ELSE '[]'::jsonb
+                  END || ${mark}::jsonb
+                ) WITH ORDINALITY AS m(e, i)
+                WHERE m.i > (
+                  CASE
+                    WHEN jsonb_typeof(preferences -> 'mentor' -> 'ideas' -> 'marks') = 'array'
+                    THEN jsonb_array_length(preferences -> 'mentor' -> 'ideas' -> 'marks')
+                    ELSE 0
+                  END
+                ) + 1 - ${IDEA_MARKS_MAX}::int
+              ), '[]'::jsonb)
+            )
+          ),
+          true
+        )
+        WHERE id = ${userId} AND tenant_id = ${tenantId}`,
+    );
+    return {
+      ok: true,
+      text:
+        input.verdict === "helped"
+          ? "רשמתי — עוד מהסוג הזה. בעוד שבוע אגיד לך אם המספר זז."
+          : "רשמתי — הרעיון הזה לא יחזור. מחר יבוא אחר.",
+    };
+  }
+
+  /**
+   * המשוב מוואטסאפ — על רעיון הבוקר של היום, שנשמר בשליחה
+   * (`preferences.mentor.lastIdea`). בלי רעיון מהיום אין על מה לענות.
+   */
+  async ideaFeedbackFromChat(
+    verdict: "helped" | "dismissed",
+    /** הרעיון שהכפתור הוצג עליו — כשיש, המשוב עליו ולא על „האחרון” */
+    ideaKey?: string,
+    now: Date = new Date(),
+  ): Promise<string> {
+    const { tenantId, userId } = TenantContext.current();
+    if (ideaKey !== undefined) {
+      const shown = ideaByKey(ideaKey);
+      if (shown === null) return "לא זיהיתי על איזה רעיון — אפשר לענות מהמסך.";
+      const result = await this.ideaFeedback({ ideaKey, verdict });
+      return `${result.text} („${shown.text.slice(0, 80)}${shown.text.length > 80 ? "…" : ""}”)`;
+    }
+    const user = await this.prisma.withTenant((tx) =>
+      tx.user.findFirst({
+        where: { id: userId, tenantId },
+        select: { preferences: true },
+      }),
+    );
+    const last = lastIdeaOf(user?.preferences);
+    if (last === null || last.date !== jerusalemDayLabel(now)) {
+      return "אין רעיון מהבוקר של היום לתת עליו משוב — מחר בבוקר יגיע אחד, ואז הכפתורים כאן.";
+    }
+    const result = await this.ideaFeedback({ ideaKey: last.key, verdict });
+    return `${result.text} („${last.text.slice(0, 80)}${last.text.length > 80 ? "…" : ""}”)`;
   }
 
   /* ---------------- עזרים ---------------- */
@@ -863,15 +1745,50 @@ export class MentorService {
 
   static turnDto(row: {
     id: string;
+    threadId: string;
     role: string;
     text: string;
     createdAt: Date;
+    feedback?: string | null;
+    pinnedAt?: Date | null;
   }): MentorTurnDto {
     return {
       id: row.id,
+      threadId: row.threadId,
       role: row.role as "user" | "mentor",
       text: row.text,
       createdAt: row.createdAt,
+      /*
+       * ‏שדות המשוב נכתבים תמיד, גם כשהם ריקים: הודעה שנוצרה עכשיו
+       * ‏חוזרת מאותו טיפוס כמו הודעה שנטענה, והמסך אינו צריך לדעת
+       * ‏מאיזה מסלול היא הגיעה.
+       */
+      feedback:
+        row.feedback === "helpful" || row.feedback === "not_helpful"
+          ? row.feedback
+          : null,
+      pinnedAt: row.pinnedAt?.toISOString() ?? null,
     };
   }
+}
+
+/** רעיון הבוקר האחרון שנשלח — נשמר בשליחה כדי שהמשוב מוואטסאפ ידע על מה. */
+function lastIdeaOf(
+  preferences: unknown,
+): { key: string; text: string; date: string } | null {
+  const mentor =
+    typeof preferences === "object" && preferences !== null
+      ? (preferences as { mentor?: unknown }).mentor
+      : undefined;
+  const last =
+    typeof mentor === "object" && mentor !== null
+      ? (mentor as { lastIdea?: unknown }).lastIdea
+      : undefined;
+  if (typeof last !== "object" || last === null) return null;
+  const { key, text, date } = last as Record<string, unknown>;
+  return typeof key === "string" &&
+    typeof text === "string" &&
+    typeof date === "string"
+    ? { key, text, date }
+    : null;
 }

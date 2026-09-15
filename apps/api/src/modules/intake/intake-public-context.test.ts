@@ -5,6 +5,49 @@ import type { AuditService } from "../../core/audit.service";
 import type { BuyersService } from "../buyers/buyers.service";
 import type { ContactsService } from "../contacts/contacts.service";
 import type { PrismaService, TenantTx } from "../../core/prisma.service";
+import type { PropertiesService } from "../properties/properties.service";
+import type { EmailService } from "../../core/email.service";
+import type { PlanCatalogService } from "../../core/plan-catalog.service";
+import type { EmailInboxService } from "../email-inbox/email-inbox.service";
+import type { WhatsAppSendService } from "../messaging/whatsapp-send.service";
+import type { TenantLogoService } from "../../core/tenant-logo.service";
+
+/** שני התלויים שהמסלול הציבורי אינו נוגע בהם — פרט לבדיקת הלוגו. */
+const noProperties = undefined as unknown as PropertiesService;
+/*
+  ‏השליחה באימייל היא מסלול **פנימי** — סוכן שלוחץ בכרטיס. שום דבר
+  בקובץ הזה אינו מגיע אליה, ולכן `send` שזורק הוא הביטוי הנכון: אם
+  מסלול ציבורי יתחיל בכל זאת לשלוח מייל, הבדיקה תיפול במקום לעבור.
+*/
+const noEmail = {
+  send: () => {
+    throw new Error("המסלול הציבורי אינו שולח מייל");
+  },
+} as unknown as EmailService;
+/*
+  ‏אותו נימוק לוואטסאפ ולמסלול: הצד הציבורי אינו שולח דבר ואינו
+  שואל על מסלול. שירות שזורק הופך „נגענו בזה בטעות” לנפילה.
+*/
+const noWhatsApp = {
+  sendAsTenant: () => {
+    throw new Error("המסלול הציבורי אינו שולח וואטסאפ");
+  },
+  hasTenantConnection: () => {
+    throw new Error("המסלול הציבורי אינו בודק חיבור וואטסאפ");
+  },
+} as unknown as WhatsAppSendService;
+const noPlans = {
+  tenantHasFeature: () => {
+    throw new Error("המסלול הציבורי אינו בודק מסלול");
+  },
+} as unknown as PlanCatalogService;
+const noInbox = {
+  replyAddressFor: () => {
+    throw new Error("המסלול הציבורי אינו מנפיק כתובת תשובה");
+  },
+} as unknown as EmailInboxService;
+const logoOf = (has: boolean): TenantLogoService =>
+  ({ has: async () => has }) as unknown as TenantLogoService;
 
 /**
  * הצד הציבורי של טופס הלקוח רץ **בלי עוגייה**, ולכן בלי הקשר דייר.
@@ -171,6 +214,12 @@ describe("הצד הציבורי של טופס הדרישות — הקשר דיי
       { record: vi.fn() } as unknown as AuditService,
       contacts,
       { update: vi.fn() } as unknown as BuyersService,
+      noProperties,
+      logoOf(true),
+      noEmail,
+      noWhatsApp,
+      noPlans,
+      noInbox,
     );
 
     // אין `TenantContext.run` כאן בכוונה — זה בדיוק מצב הבקשה הציבורית
@@ -179,6 +228,8 @@ describe("הצד הציבורי של טופס הדרישות — הקשר דיי
     const view = await service.publicView(TOKEN);
     expect(view.officeName).toBe("נדל״ן ירוק");
     expect(view.greetingName).toBe("דנה"); // שם פרטי בלבד — בלי שם משפחה
+    // הלוגו נגזר מהדייר של הטוקן, ולכן חייב להיפתר גם כאן — בלי הקשר
+    expect(view.logoUrl).toBe(`/f/${TOKEN}/logo`);
     expect(seen).toEqual([TENANT]);
 
     // וההקשר לא דלף החוצה: הוא חי רק בתוך העבודה שאחרי הטוקן
@@ -207,6 +258,12 @@ describe("הצד הציבורי של טופס הדרישות — הקשר דיי
         getById: async () => ({ id: "c", name: "דנה", phone: "+972500000000" }),
       } as unknown as ContactsService,
       { update: vi.fn() } as unknown as BuyersService,
+      noProperties,
+      logoOf(false),
+      noEmail,
+      noWhatsApp,
+      noPlans,
+      noInbox,
     );
 
     await expect(service.submit(TOKEN, { dealType: "sale" })).resolves.toEqual({
@@ -244,6 +301,12 @@ describe("הצד הציבורי של טופס הדרישות — הקשר דיי
         getById: async () => ({ id: "c", name: "דנה", phone: "+972500000000" }),
       } as unknown as ContactsService,
       { update } as unknown as BuyersService,
+      noProperties,
+      logoOf(false),
+      noEmail,
+      noWhatsApp,
+      noPlans,
+      noInbox,
     );
 
     await expect(service.submit(TOKEN, { dealType: "sale" })).rejects.toThrow(
@@ -267,6 +330,12 @@ describe("המיזוג רץ מתחת לנעילת הכרטיס", () => {
         getById: async () => ({ id: "c", name: "דנה", phone: "+972500000000" }),
       } as unknown as ContactsService,
       buyers,
+      noProperties,
+      logoOf(false),
+      noEmail,
+      noWhatsApp,
+      noPlans,
+      noInbox,
     );
   }
 
@@ -348,6 +417,12 @@ describe("ליד שטרם הומר — שליחה חוזרת שמשנה תשוב
         getById: async () => ({ id: "c", name: "דנה", phone: "+972500000000" }),
       } as unknown as ContactsService,
       { update: vi.fn(notified) } as unknown as BuyersService,
+      noProperties,
+      logoOf(false),
+      noEmail,
+      noWhatsApp,
+      noPlans,
+      noInbox,
     );
   }
 

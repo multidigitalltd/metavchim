@@ -61,13 +61,70 @@ export function actionParamsZod(action: AgentActionDef): z.ZodTypeAny {
   return z.object(shape);
 }
 
-/** הסכימה של פעולה כפי ש-Gemini מקבל אותה. */
-export function actionJsonSchema(action: AgentActionDef): Record<string, unknown> {
-  const properties: Record<string, unknown> = {};
+/**
+ * ‎**האכיפה של ההצהרה בקטלוג — על הערכים, לא רק על המפתחות.**
+ *
+ * ## ‏החור שזה סוגר
+ *
+ * ‎`/agent/execute` צמצם את הפרמטרים **לפי שם השדה בלבד**
+ * ‏(`params[field.key] = body.params[field.key]`), ולא נגע בערך.
+ * ‏כלומר `values: ASSIGNABLE_ROLES` בקטלוג הגביל את מה שהמודל
+ * ‏**מתבקש לייצר**, ולא את מה שהנתיב **מקבל**: מי שמחובר יכול היה
+ * ‏לשלוח `memberRole: "owner"` ולפתוח חשבון בעלים עם `billing.manage`
+ * ‏— שאינו הפיך מהמסך (ביקורת Codex, P1 על #493).
+ *
+ * ‏זה מבני ונוגע ב-67 שדות `enum` ב-35 פעולות, ובעוד 167 שדות עם
+ * ‏גבולות מספריים או אורך. כל אחד מהם נשען על כך שמסלול הכתיבה
+ * ‏שלו יאמת — רובם עושים זאת, ואיש אינו מבטיח שהבא יעשה.
+ *
+ * ## ‏למה זה כאן ולא בבקר
+ *
+ * ‏הסוכן בוואטסאפ **אינו עובר בבקר**: הוא קורא ל-`execute` ישירות.
+ * ‏בדיקה בבקר הייתה סוגרת ערוץ אחד מתוך שניים — בדיוק הצורה של
+ * ‏התקלה שהיא באה למנוע.
+ *
+ * ## ‏ריק = לא נאמר
+ *
+ * ‏מחרוזת ריקה ורשימה ריקה **יורדות** ואינן נדחות: שדה חסר הוא
+ * ‏המצב הרגיל בקטלוג הזה (ראו `actionParamsZod`), והמסך שולח `""`
+ * ‏על שדה שלא נגעו בו. דחייה שלהן הייתה הופכת „לא מילאתי” לשגיאה.
+ */
+export type ParamCheck =
+  | { ok: true; params: Record<string, unknown> }
+  | { ok: false; field: string; label: string; message: string };
+
+export function checkActionParams(
+  action: AgentActionDef,
+  raw: Record<string, unknown>,
+): ParamCheck {
+  const params: Record<string, unknown> = { ...raw };
   for (const field of action.fields) {
-    properties[field.key] = fieldJsonSchema(field);
+    const value = params[field.key];
+    if (value === undefined) continue;
+    /* ‏ריק = לא נאמר — ראו ההסבר למעלה */
+    if (value === "" || (Array.isArray(value) && value.length === 0)) {
+      delete params[field.key];
+      continue;
+    }
+    const parsed = fieldZod(field).safeParse(value);
+    if (parsed.success) continue;
+    /*
+     * ‏ההודעה נוקבת ב**ערכים המותרים** ולא רק ב„ערך לא תקין”:
+     * ‏מי שקורא אותה הוא מי שמתקן את הקריאה, ורשימה סגורה היא
+     * ‏בדיוק המידע שהוא צריך.
+     */
+    const allowed =
+      field.type === "enum" || field.type === "enumList"
+        ? ` — הערכים המותרים: ${field.values.join(", ")}`
+        : "";
+    return {
+      ok: false,
+      field: field.key,
+      label: field.label,
+      message: `ערך לא חוקי בשדה „${field.label}”${allowed}`,
+    };
   }
-  return { type: "object", properties };
+  return { ok: true, params };
 }
 
 /**

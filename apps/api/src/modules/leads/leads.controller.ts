@@ -8,7 +8,7 @@ import {
   LeadSourceSchema,
   LeadIntentSchema,
   LeadStatusSchema,
-  PhoneSchema,
+  PhoneInputSchema,
   leadDeletionKeepsContact,
   type LeadDeletionScope,
   type Page,
@@ -21,8 +21,12 @@ import { LeadsService, type InteractionDto, type LeadDto } from "./leads.service
 const CreateLeadSchema = z
   .object({
     contactName: z.string().min(2).max(120),
-    contactPhone: PhoneSchema,
+    contactPhone: PhoneInputSchema,
+    /* אותו פער בדיוק כמו בקונה: השירות ידע לשמור, הסכימה לא קיבלה */
+    contactEmail: z.string().trim().email().max(254).optional(),
     source: LeadSourceSchema,
+    /* ‏רוחב העמודה (`VarChar(60)`), לא מספר שנבחר כאן */
+    sourceNote: z.string().trim().max(60).optional(),
     intent: LeadIntentSchema,
     summary: z.string().max(2000).optional(),
     requiresHuman: z.boolean().optional(),
@@ -44,7 +48,13 @@ const StatusSchema = z.object({ status: LeadStatusSchema }).strict();
  * ‎`max(20)` הוא בדיוק רוחב העמודה (`VarChar(20)`), ולא מספר שנבחר
  * כאן: ערך ארוך יותר נחתך במסד או מפיל את הכתיבה.
  */
-const SourceSchema = z.object({ source: z.string().trim().min(1).max(20) }).strict();
+const SourceSchema = z
+  .object({
+    source: z.string().trim().min(1).max(20),
+    /* ‏הטקסט של „אחר”. השירות מנקה אותו כשהמקור אינו „אחר”. */
+    sourceNote: z.string().trim().max(60).optional(),
+  })
+  .strict();
 
 /*
  * `default({})` ולא רק שדה אופציונלי: בקשת DELETE בלי גוף כלל מגיעה
@@ -62,7 +72,8 @@ const NoteSchema = z.object({ content: z.string().min(1).max(2000) }).strict();
 
 const ConvertSchema = z
   .object({
-    requirements: BuyerRequirementsSchema,
+    // ‎strict גם בפנים — ראו CreateBuyerSchema
+    requirements: BuyerRequirementsSchema.strict(),
     financing: FinancingStatusSchema.optional(),
     maturity: BuyerMaturitySchema.optional(),
   })
@@ -71,6 +82,17 @@ const ConvertSchema = z
 const ListQuerySchema = z
   .object({
     status: LeadStatusSchema.optional(),
+    /**
+     * ‎**„לטיפול” מול „טופל” — במסד, לפני העימוד** (ביקורת Codex).
+     *
+     * המסך חילק את מה ש-`/leads?limit=100` החזיר, ולכן במשרד עם יותר
+     * מ-100 לידים ליד פתוח שנדחק מחוץ לעמוד פשוט לא הופיע בתור
+     * העבודה — בלי שום סימן לכך שהוא קיים.
+     */
+    open: z
+      .enum(["true", "false"])
+      .optional()
+      .transform((v) => (v === undefined ? undefined : v === "true")),
     requiresHuman: z
       .enum(["true", "false"])
       .optional()
@@ -92,7 +114,8 @@ export class LeadsController {
   async create(
     @Body(new ZodValidationPipe(CreateLeadSchema)) body: z.infer<typeof CreateLeadSchema>,
   ): Promise<{ id: string; merged: boolean; visible: boolean }> {
-    return this.leads.create(body);
+    /* ‏מסך של סוכן מחובר — `typedBy` אינו מגיע מהגוף, וראו `create` */
+    return this.leads.create({ ...body, typedBy: "agent" });
   }
 
   @Get()
@@ -150,7 +173,7 @@ export class LeadsController {
     @Param("id", new ZodValidationPipe(IdSchema)) id: string,
     @Body(new ZodValidationPipe(SourceSchema)) body: z.infer<typeof SourceSchema>,
   ): Promise<{ ok: true }> {
-    await this.leads.updateSource(id, body.source);
+    await this.leads.updateSource(id, body.source, body.sourceNote);
     return { ok: true };
   }
 

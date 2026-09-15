@@ -3,11 +3,12 @@ import { ContactsModule } from "../contacts/contacts.module";
 import { IntakeModule } from "../intake/intake.module";
 import { MessagingModule } from "../messaging/messaging.module";
 import { VoiceIntakeModule } from "../voice-intake/voice-intake.module";
+import { PlatformRecordingsController } from "./platform-recordings.controller";
 import { RecordingFetchService } from "./recording-fetch.service";
 import { TelephonyPresenceController } from "./telephony-presence.controller";
 import { TelephonyController, TelephonyWebhookController } from "./telephony.controller";
 import { TelephonyService } from "./telephony.service";
-import { TelephonyWebhookLogService } from "./webhook-log.service";
+import { WebhookLogModule } from "../webhook-log/webhook-log.module";
 import { VirtualNumbersController } from "./virtual-numbers.controller";
 
 @Module({
@@ -18,17 +19,20 @@ import { VirtualNumbersController } from "./virtual-numbers.controller";
   // שיחה נכנסת שלא נענתה שולחת ללקוח קישור לטופס הדרישות: הבקשה
   // נוצרת ב-IntakeModule והשליחה עוברת ב-MessagingModule. שניהם
   // מודולי עלה מבחינת התלות הזו, ולכן אין כאן מעגל.
-  imports: [ContactsModule, VoiceIntakeModule, IntakeModule, MessagingModule],
+  imports: [ContactsModule, VoiceIntakeModule, IntakeModule, MessagingModule, WebhookLogModule],
   controllers: [
     TelephonyController,
     // מחוץ לשער הפיצ'ר — ראו ההסבר במחלקה
     TelephonyPresenceController,
     TelephonyWebhookController,
     VirtualNumbersController,
+    /*
+     * ‏ייבוא הקלטות בשם משרד, למנהל הפלטפורמה. מחוץ לשער הפיצ'ר
+     * ‏ומחוץ לשולחן החיבורים — ההסבר במחלקה.
+     */
+    PlatformRecordingsController,
   ],
-  providers: [TelephonyService, TelephonyWebhookLogService, RecordingFetchService],
-  // היומן מיוצא כדי שמסך הפלטפורמה יציג אותו — פנייה שנדחתה אינה
-  // שייכת לאף משרד, ולכן אין לה מקום במסך ההגדרות של המשרד
-  exports: [TelephonyService, TelephonyWebhookLogService],
+  providers: [TelephonyService, RecordingFetchService],
+  exports: [TelephonyService],
 })
 export class TelephonyModule {}

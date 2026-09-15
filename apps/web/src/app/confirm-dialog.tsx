@@ -36,6 +36,8 @@ export function ConfirmDialog({
   busy = false,
   busyLabel = "שולח…",
   confirmDisabled = false,
+  secondary,
+  dismissIcon = false,
   onConfirm,
   onClose,
   children,
@@ -59,6 +61,23 @@ export function ConfirmDialog({
    * (ביקורת Codex, P1). הביטול נשאר פעיל תמיד.
    */
   confirmDisabled?: boolean;
+  /**
+   * ‎**פעולה שנייה, לצד האישור — הדרך הבטוחה מתוך אותו חלון.**
+   *
+   * ‏„למחוק את הנכס?” היא שאלה שהתשובה השימושית לה לרוב אינה „כן”
+   * ואינה „ביטול” אלא „לא, רק להוציא אותו מהרשימה”. כשהחלופה אינה
+   * בחלון, מי שהתכוון אליה סוגר, מחפש אותה במקום אחר, ולעיתים
+   * מוותר ומוחק.
+   */
+  secondary?: { label: string; onClick: () => void } | undefined;
+  /**
+   * ‎`X` לסגירה בפינה, במקום כפתור „ביטול” בשורת הפעולות.
+   *
+   * לחלון עם שתי פעולות אמיתיות, כפתור טקסט שלישי מטשטש איזו מהן
+   * היא הפעולה: שלוש מילים באותה שורה נקראות כשלוש אפשרויות
+   * שקולות. ה-`X` אומר „לצאת” בלי להתחרות עליהן.
+   */
+  dismissIcon?: boolean;
   /** `undefined` = אין מה לאשר; הכפתור היחיד סוגר. */
   onConfirm?: (() => void) | undefined;
   onClose: () => void;
@@ -78,15 +97,29 @@ export function ConfirmDialog({
       ref={ref}
       className="mv-dialog"
       /*
-       * `cancel` הוא Escape ולחיצה על הרקע. בלי המאזין הזה הדפדפן
-       * סוגר את החלון אבל ה-state של הקורא נשאר "פתוח", והחלון לא
-       * ייפתח שוב בלחיצה הבאה.
+       * ‎`cancel` הוא **Escape בלבד**. לחיצה על הרקע אינה מפעילה
+       * ‏אותו ואינה סוגרת `dialog` מודאלי — המשפט הזה נכתב כאן
+       * ‏בטעות, הועתק ממנו לחלונית שנייה, ותוקן בשתיהן.
+       *
+       * ‏בלי המאזין הדפדפן סוגר את החלון ב-Escape אבל ה-state של
+       * ‏הקורא נשאר "פתוח", והחלון לא ייפתח שוב בלחיצה הבאה.
        */
       onCancel={(e) => {
         e.preventDefault();
         if (!busy) onClose();
       }}
     >
+      {dismissIcon ? (
+        <button
+          type="button"
+          aria-label="סגירה בלי לעשות דבר"
+          disabled={busy}
+          onClick={onClose}
+          className="mv-dialog-dismiss"
+        >
+          <span aria-hidden="true">✕</span>
+        </button>
+      ) : null}
       <h2 className="m-0 mb-2 text-[length:var(--type-metric)] font-extrabold" style={{ color: TONE_COLOR[tone] }}>
         {title}
       </h2>
@@ -99,6 +132,11 @@ export function ConfirmDialog({
         ) : (
           <Button onClick={onClose}>{confirmLabel}</Button>
         )}
+        {secondary ? (
+          <Button variant="ghost" disabled={busy} onClick={secondary.onClick}>
+            {secondary.label}
+          </Button>
+        ) : null}
         {onConfirm && cancelLabel !== null ? (
           <Button variant="ghost" disabled={busy} onClick={onClose}>
             {cancelLabel}

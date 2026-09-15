@@ -4,12 +4,13 @@ import { ulid } from "ulid";
 import {
   TELEPHONY_PROVIDERS,
   canonicalVirtualNumber,
+  INTEGRATION_DIAGNOSIS_RESET,
   mergeIntegrationSecrets,
   mergeLegacySecretsIntoConfig,
   telephonyProvider,
   telephonySecretKeys,
 } from "@metavchim/shared";
-import { TenantContext } from "../../common/tenant-context";
+import { actingPlatformAdminEmail } from "../../common/platform-admin-email";
 import { CryptoService } from "../../core/crypto.service";
 import { PrismaService } from "../../core/prisma.service";
 import type { TenantTx } from "../../core/prisma.service";
@@ -76,6 +77,18 @@ export interface DeskTelephonyStatus {
   lastEventKeys?: string;
   lastEventOk?: boolean;
   lastEventIssue?: string;
+  /**
+   * ‎**משיכת ההקלטות — חיבור שני לאותו ספק.**
+   *
+   * ‏אירועים יכולים להיכנס יפה בזמן שלחבילה במרכזייה אין הרשאה
+   * ‏למשוך הקלטות, ואז המשרד מדווח „לא מצליח למשוך הקלטות” והמסך
+   * ‏הזה מראה חיבור תקין. הקוד מגיע מ-`RECORDING_ERRORS` — רשימה
+   * ‏סגורה שנבנתה כדי שלא ידלוף דרכה נתיב, מזהה או אישור גישה.
+   */
+  lastPullAt?: Date;
+  lastPullOk?: boolean;
+  lastPullIssue?: string;
+  pullFailStreak?: number;
   /** שמות הסודות ששמורים — לעולם לא הערכים. */
   secretsSet: string[];
   config: Record<string, unknown>;
@@ -93,11 +106,16 @@ export interface DeskVirtualNumbers {
   users: { id: string; name: string }[];
 }
 
-/** שורה אחת בשמירה: מספר, שם (רשות בעדכון) והסוכן. */
+/**
+ * שורה אחת בשמירה. עם `id` — עדכון של שדות שנשלחו בלבד; בלי — יצירה.
+ * שדה שאינו מופיע (`undefined`) אינו נכתב, ולכן שינוי מקביל של
+ * המשרד בשדה השני שורד.
+ */
 export interface DeskVirtualNumberInput {
+  id?: string;
   phone: string;
-  label: string;
-  assignedToUserId: string | null;
+  label?: string;
+  assignedToUserId?: string | null;
 }
 
 @Injectable()
@@ -164,6 +182,15 @@ export class IntegrationDeskService {
       ...(row.lastEventKeys ? { lastEventKeys: row.lastEventKeys } : {}),
       ...(row.lastEventOk !== null ? { lastEventOk: row.lastEventOk } : {}),
       ...(row.lastEventIssue ? { lastEventIssue: row.lastEventIssue } : {}),
+      /*
+       * ‏אותה שורה שכבר נקראה — אין כאן שאילתה נוספת ואין מגע
+       * ‏בטבלה נוספת, ולכן גבול השולחן (`integration-desk-scope`)
+       * ‏נשאר כפי שהוא.
+       */
+      ...(row.lastPullAt ? { lastPullAt: row.lastPullAt } : {}),
+      ...(row.lastPullOk !== null ? { lastPullOk: row.lastPullOk } : {}),
+      ...(row.lastPullIssue ? { lastPullIssue: row.lastPullIssue } : {}),
+      pullFailStreak: row.pullFailStreak,
       config: provider
         ? mergeLegacySecretsIntoConfig(
             provider,
@@ -188,7 +215,7 @@ export class IntegrationDeskService {
     const agency = await this.agencyName(tenantId);
     const provider = telephonyProvider(input.provider);
     if (!provider) throw new BadRequestException("ספק לא מוכר");
-    const adminEmail = await this.adminEmail();
+    const adminEmail = await actingPlatformAdminEmail(this.prisma);
 
     await this.prisma.withExplicitTenant(tenantId, async (tx) => {
       const existing = await tx.integration.findFirst({
@@ -213,11 +240,10 @@ export class IntegrationDeskService {
             status: "active",
             config: input.config,
             secretsEncrypted,
-            // החלפת ספק מאפסת את האבחון — אחרת האירוע של הספק הקודם
-            // נקרא כהוכחה שהחדש עובד
-            ...(providerChanged
-              ? { lastEventAt: null, lastEventKeys: null, lastEventOk: null, lastEventIssue: null }
-              : {}),
+            // החלפת ספק מאפסת את כל האבחון — אחרת מה שקרה אצל הספק
+            // הקודם נקרא כבריאות של החדש. הרשימה משותפת עם מסלול
+            // השמירה שבהגדרות המשרד, שאם לא כן היא נשארת מאחור באחד.
+            ...(providerChanged ? INTEGRATION_DIAGNOSIS_RESET : {}),
           },
         });
       } else {
@@ -300,10 +326,9 @@ export class IntegrationDeskService {
   /**
    * שיוך מספרים לסוכנים בשם המשרד — **שמירה אחת לכל הרשימה.**
    *
-   * כל שורה מזוהה לפי המספר ולא לפי מזהה: מספר שכבר קיים אצל המשרד
-   * (למשל שורה שנוצרה מהשכרה) מתעדכן, ומספר שאינו קיים נוצר. כך
-   * מנהל הפלטפורמה ממלא טבלה אחת של „מספר ← סוכן” ולוחץ פעם אחת,
-   * ולא מנהל בנפרד יצירה ועדכון.
+   * שורה קיימת מזוהה לפי המזהה שלה ומתעדכנת בשדות שנשלחו בלבד;
+   * שורה חדשה (בלי מזהה) נוצרת. כך מנהל הפלטפורמה ממלא טבלה אחת
+   * של „מספר ← סוכן” ולוחץ פעם אחת, ולא מנהל בנפרד יצירה ועדכון.
    *
    * השורה כולה בטרנזקציה אחת ועם רישום אחד ביומן והתראה אחת: עשרה
    * מספרים לעשרה סוכנים הם פעולה אחת של המשרד, לא עשר.
@@ -321,13 +346,19 @@ export class IntegrationDeskService {
     entries: DeskVirtualNumberInput[],
   ): Promise<{ ok: true; saved: number }> {
     const agency = await this.agencyName(tenantId);
-    const adminEmail = await this.adminEmail();
+    const adminEmail = await actingPlatformAdminEmail(this.prisma);
 
     /*
      * הנרמול והדחייה **לפני** הטרנזקציה, על כל הרשימה: הודעה
      * ששמה את המספר הפגום עדיפה על גלגול-אחורה אחרי חצי רשימה.
+     * מספר של שורה קיימת אינו משתנה כאן, ולכן רק שורות חדשות
+     * מנורמלות ונבדקות לכפילות.
      */
-    const canonical = entries.map((entry) => {
+    const creations = entries.filter((entry) => entry.id === undefined);
+    const updates = entries.filter((entry): entry is DeskVirtualNumberInput & { id: string } =>
+      entry.id !== undefined,
+    );
+    const canonical = creations.map((entry) => {
       const phone = canonicalVirtualNumber(entry.phone);
       if (phone === "") {
         throw new BadRequestException(`המספר ${entry.phone} אינו מספר טלפון ישראלי תקין`);
@@ -350,9 +381,9 @@ export class IntegrationDeskService {
        */
       const wanted = [
         ...new Set(
-          canonical
+          entries
             .map((entry) => entry.assignedToUserId)
-            .filter((id): id is string => id !== null),
+            .filter((id): id is string => typeof id === "string"),
         ),
       ];
       const users =
@@ -368,52 +399,132 @@ export class IntegrationDeskService {
         throw new BadRequestException("אחד הסוכנים שנבחרו אינו פעיל במשרד הזה");
       }
 
+      /*
+       * **עדכון לפי מזהה, ולא לפי מספר.** שורה שהמשרד מחק בין
+       * הטעינה לשמירה אינה נוצרת מחדש בשקט עם ניתוב שהוא הסיר
+       * בכוונה — היא נדחית, והמסך נטען מחדש (ביקורת Codex).
+       *
+       * ורק השדות שנשלחו נכתבים: שם שלא נגעו בו אינו דורס שם
+       * שהמשרד שינה בינתיים, וכך גם הסוכן.
+       */
+      for (const entry of updates) {
+        const label = entry.label?.trim();
+        const data = {
+          ...(label !== undefined && label !== "" ? { label } : {}),
+          ...(entry.assignedToUserId !== undefined
+            ? { assignedToUserId: entry.assignedToUserId }
+            : {}),
+        };
+        if (Object.keys(data).length === 0) continue;
+        const changed = await tx.virtualNumber.updateMany({
+          where: { id: entry.id, tenantId },
+          data,
+        });
+        if (changed.count === 0) {
+          throw new BadRequestException(
+            `המספר ${entry.phone} כבר אינו קיים אצל המשרד — טענו את הרשימה מחדש`,
+          );
+        }
+      }
+
+      /*
+       * יצירה רק למספר שאינו קיים: מספר שכבר מוגדר אצל המשרד נדחה
+       * במקום להתעדכן בשקט מתחת לשורה שהמשרד מכיר.
+       */
       for (const entry of canonical) {
         const existing = await tx.virtualNumber.findFirst({
           where: { tenantId, phone: entry.phone },
           select: { id: true },
         });
-        const label = entry.label.trim();
         if (existing) {
-          await tx.virtualNumber.updateMany({
-            where: { id: existing.id, tenantId },
-            data: {
-              assignedToUserId: entry.assignedToUserId,
-              // שם ריק = „אל תיגע”: השם שהמשרד נתן נשאר
-              ...(label !== "" ? { label } : {}),
-            },
-          });
-        } else {
-          await tx.virtualNumber.create({
-            data: {
-              id: ulid(),
-              tenantId,
-              phone: entry.phone,
-              label: label !== "" ? label : `מספר ${entry.phone}`,
-              assignedToUserId: entry.assignedToUserId,
-              // אין משתמש של המשרד שיצר — מי שפעל רשום ביומן
-              createdBy: null,
-            },
-          });
+          throw new BadRequestException(`המספר ${entry.phone} כבר מוגדר אצל המשרד`);
         }
+        const label = entry.label?.trim() ?? "";
+        await tx.virtualNumber.create({
+          data: {
+            id: ulid(),
+            tenantId,
+            phone: entry.phone,
+            label: label !== "" ? label : `מספר ${entry.phone}`,
+            assignedToUserId: entry.assignedToUserId ?? null,
+            // אין משתמש של המשרד שיצר — מי שפעל רשום ביומן
+            createdBy: null,
+          },
+        });
       }
 
       await this.recordAssignmentsForOffice(tx, tenantId, {
         adminEmail,
         agency,
-        assignments: canonical.map((entry) => ({
+        assignments: [...updates, ...canonical].map((entry) => ({
           phone: entry.phone,
-          agent: entry.assignedToUserId === null ? null : (byId.get(entry.assignedToUserId) ?? null),
+          ...(entry.label !== undefined && entry.label.trim() !== ""
+            ? { label: entry.label.trim() }
+            : {}),
+          ...(entry.assignedToUserId !== undefined
+            ? {
+                agent:
+                  entry.assignedToUserId === null
+                    ? null
+                    : (byId.get(entry.assignedToUserId) ?? null),
+              }
+            : {}),
         })),
       });
     });
-    return { ok: true, saved: canonical.length };
+    return { ok: true, saved: entries.length };
+  }
+
+  /**
+   * מחיקת מספר וירטואלי בשם המשרד.
+   *
+   * מוציאה את ההגדרה בלבד — **ההיסטוריה שורדת**: כל שיחה מחזיקה את
+   * המספר ואת שמו כצילום, בדיוק כמו במחיקה ממסך המשרד. חיוב חודשי
+   * שנפתח על המספר אינו נסגר מכאן; הוא נסגר במסך ההשכרות.
+   */
+  async deleteVirtualNumber(tenantId: string, numberId: string): Promise<{ ok: true }> {
+    await this.agencyName(tenantId);
+    const adminEmail = await actingPlatformAdminEmail(this.prisma);
+    await this.prisma.withExplicitTenant(tenantId, async (tx) => {
+      const row = await tx.virtualNumber.findFirst({
+        where: { id: numberId, tenantId },
+        select: { phone: true, label: true },
+      });
+      if (row === null) {
+        throw new BadRequestException("המספר כבר אינו קיים אצל המשרד — טענו את הרשימה מחדש");
+      }
+      await tx.virtualNumber.deleteMany({ where: { id: numberId, tenantId } });
+      await tx.auditLog.create({
+        data: {
+          id: ulid(),
+          tenantId,
+          userId: null,
+          action: "virtual_number.platform_delete",
+          entityType: "virtual_number",
+          entityId: numberId,
+          metadata: { platformAdmin: adminEmail, phone: row.phone, label: row.label } as object,
+        },
+      });
+      await tx.notification.create({
+        data: {
+          id: ulid(),
+          tenantId,
+          userId: null,
+          type: "integration_platform_change",
+          title: "מנהל הפלטפורמה מחק מספר וירטואלי",
+          body: `${row.label} (${row.phone}) הוסר על ידי ${adminEmail}. השיחות שכבר נקלטו נשמרות.`,
+          entityType: "virtual_number",
+          entityId: tenantId,
+        },
+      });
+    });
+    return { ok: true };
   }
 
   /**
    * היומן וההתראה על שיוך — אצל המשרד, כמו על חיבור המרכזייה.
    *
-   * ה-`metadata` נושא את הרשימה עצמה (מספר ← שם סוכן): זה מה
+   * ה-`metadata` נושא את הרשימה עצמה (מספר ← מה השתנה בו): זה מה
    * שמנהל המשרד יקרא כשישאל „מי שינה את הניתוב של המספר של דוד”.
    */
   private async recordAssignmentsForOffice(
@@ -422,7 +533,8 @@ export class IntegrationDeskService {
     what: {
       adminEmail: string;
       agency: string;
-      assignments: { phone: string; agent: string | null }[];
+      /** לכל שורה: מה שהשתנה בה בלבד — שם, סוכן (null = ערימה), או שניהם. */
+      assignments: { phone: string; agent?: string | null; label?: string }[];
     },
   ): Promise<void> {
     await tx.auditLog.create({
@@ -451,15 +563,6 @@ export class IntegrationDeskService {
         entityId: tenantId,
       },
     });
-  }
-
-  /** האימייל של מי שפועל — מה שהופך "מנהל הפלטפורמה" לשם. */
-  private async adminEmail(): Promise<string> {
-    const admin = await this.prisma.user.findUnique({
-      where: { id: TenantContext.current().userId },
-      select: { email: true },
-    });
-    return admin?.email ?? "platform";
   }
 
   /**

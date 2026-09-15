@@ -11,7 +11,7 @@ import {
 } from "@nestjs/common";
 import { Throttle } from "@nestjs/throttler";
 import { z } from "zod";
-import { IdSchema, PhoneSchema } from "@metavchim/shared";
+import { IdSchema, PhoneInputSchema } from "@metavchim/shared";
 import { Public, RequireCapability } from "../../common/auth.decorators";
 import { RequireFeature } from "../../common/feature.guard";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
@@ -24,19 +24,10 @@ import { LandingService, type LandingView } from "./landing.service";
 
 const TokenSchema = z.string().regex(/^[A-Za-z0-9_-]{43}$/u);
 
-/** גולש מקליד "050-1234567" — מנרמלים ל-E.164 לפני הוולידציה. */
-function normalizePhone(raw: string): string {
-  const digits = raw.replace(/[^\d+]/gu, "");
-  if (digits.startsWith("+972")) return digits;
-  if (digits.startsWith("972")) return `+${digits}`;
-  if (digits.startsWith("0")) return `+972${digits.slice(1)}`;
-  return digits;
-}
-
 const LandingLeadSchema = z
   .object({
     name: z.string().trim().min(2).max(120),
-    phone: z.string().trim().max(25).transform(normalizePhone).pipe(PhoneSchema),
+    phone: PhoneInputSchema,
     message: z.string().trim().max(2000).optional(),
     website: z.string().max(200).optional(), // honeypot — אמור להישאר ריק
   })
@@ -66,6 +57,20 @@ export class LandingController {
   @Get("public/landing/:token")
   view(@Param("token", new ZodValidationPipe(TokenSchema)) token: string): Promise<LandingView> {
     return this.landing.publicView(token);
+  }
+
+  /** הלוגו של המשרד — נטען כתמונה רגילה מהדף הציבורי. */
+  @Public()
+  @Get("public/landing/:token/logo")
+  @Header("Cache-Control", "private, max-age=3600")
+  async logo(
+    @Param("token", new ZodValidationPipe(TokenSchema)) token: string,
+  ): Promise<StreamableFile> {
+    const obj = await this.landing.publicLogo(token);
+    return new StreamableFile(obj.body as never, {
+      type: obj.contentType,
+      ...(obj.contentLength !== undefined ? { length: obj.contentLength } : {}),
+    });
   }
 
   @Public()

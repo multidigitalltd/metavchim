@@ -6,6 +6,9 @@ import {
   stripCommandPrefix,
   taskTitleFromTranscript,
 } from "./voice-command.js";
+import { agentAction } from "../agent/actions.js";
+import { RULE_ACTION_MAP } from "../agent/rules-fallback.js";
+import { callConvertCommand } from "./call-convert-chat.js";
 
 describe("routeVoiceCommand", () => {
   it("מזהה הוספת נכס בניסוח מפורש", () => {
@@ -483,5 +486,69 @@ describe("mentorQuestionFromTranscript — השאלה בלי מילות הפני
     );
     // רק פנייה — נשלח כלשונו, לא ריק
     expect(mentorQuestionFromTranscript("מנטור")).toBe("מנטור");
+  });
+});
+
+describe("„המר ללקוח” ברצפה הדטרמיניסטית", () => {
+  /*
+   * ‎**זו הסיבה שהפעולה סווגה כקריאה.** פעולת קריאה נמצאת ברצפה,
+   * ‏ולכן הכפתור שבהתראה עובד גם כשמנוע ההבנה החכם נפול — וזה
+   * ‏בדיוק המצב שבו „לא הבנתי” על כפתור שהמערכת עצמה שלחה הוא
+   * ‏הגרוע ביותר.
+   */
+  it("מה שהכפתור שולח מזוהה — עם המצביע שבסופו", () => {
+    const said = agentAction("convert_call")!.examples[0]!;
+    const text = callConvertCommand(said, {
+      kind: "call",
+      id: "01JCAAAAAAAAAAAAAAAAAAAAAA",
+    });
+    expect(routeVoiceCommand(text).action).toBe("convert_call");
+    expect(RULE_ACTION_MAP["convert_call"]).toBe("convert_call");
+  });
+
+  /*
+   * ‎**וכל שאר הניסוחים שהקטלוג מבטיח.** דוגמה שהמנוע אינו מזהה
+   * ‏היא הבטחה שנשברת בדיוק כשההבנה החכמה נפולה והרשימה „מה שכן
+   * ‏עובד עכשיו” מציגה אותה.
+   */
+  it("וכל דוגמאות הקטלוג מגיעות לאותה פעולה", () => {
+    for (const example of agentAction("convert_call")!.examples) {
+      expect(routeVoiceCommand(example).action, example).toBe("convert_call");
+    }
+  });
+
+  /*
+   * ‎**„מי שהתקשר” הוא הענף שנופל אחרת.** ל-`add_lead` יש כלל
+   * ‏בביטחון נמוך על „התקשר”, וכל משפט שמזכיר אותו ואינו נתפס
+   * ‏בכלל של ההמרה נופל לשם — כלומר פותח ליד ריק במקום לשאול מה
+   * ‏הצד השני.
+   */
+  it("ו„מי שהתקשר” אינו נופל ל„ליד חדש”", () => {
+    for (const said of ["תמיר את מי שהתקשר ללקוח", "תוסיף את מי שהתקשר כלקוח"]) {
+      expect(routeVoiceCommand(said).action, said).toBe("convert_call");
+    }
+  });
+
+  /*
+   * ‏ושני הניסוחים הטבעיים ביותר אחרי לחיצה על הכפתור — שניהם
+   * ‏החזירו `unknown` בגרסה הראשונה של הכלל.
+   */
+  it("וגם „תמיר/המר את השיחה ללקוח”", () => {
+    for (const said of ["תמיר את השיחה ללקוח", "המר את השיחה ללקוח"]) {
+      expect(routeVoiceCommand(said).action, said).toBe("convert_call");
+    }
+  });
+
+  /*
+   * ‎**וההמרה של ליד אינה נבלעת.** „תהפוך את הליד לכרטיס קונה”
+   * ‏היא פעולה אחרת (`convert_lead`), ואינה ברצפה בכלל.
+   */
+  it("ואינו בולע את המרת הליד לקונה", () => {
+    for (const said of [
+      "תהפוך את הליד של דני לכרטיס קונה",
+      "תמיר את הליד של משפחת לוי לקונה",
+    ]) {
+      expect(routeVoiceCommand(said).action, said).not.toBe("convert_call");
+    }
   });
 });

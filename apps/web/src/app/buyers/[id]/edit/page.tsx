@@ -1,8 +1,11 @@
 "use client";
 
 import { useEffect, useState, use, type FormEvent } from "react";
+import { NeighborhoodInput } from "../../../neighborhood-input";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { buyerSharedTabuStance } from "@metavchim/shared";
+import type { FloorPreference, SharedTabuStance } from "@metavchim/shared";
 import { Button } from "@metavchim/ui";
 import { apiGet, apiPatch, ApiError } from "@/lib/api";
 import { DictateFor } from "../../../dictation-field";
@@ -12,6 +15,8 @@ import { FINANCING_LABELS, shekelsToAgorot } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
 import { EntryTimingField } from "../../../properties/entry-timing-field";
 import { FeatureRequirements } from "../../feature-requirements";
+import { FloorPreferenceField, readFloorPreference } from "../../floor-preference-field";
+import { SharedTabuField, readSharedTabuStance } from "../../shared-tabu-field";
 import { PropertyTypesField, readPropertyTypes } from "../../property-types-field";
 import { SearchAreas } from "../../search-areas";
 import type { SearchArea } from "@metavchim/shared";
@@ -50,6 +55,8 @@ interface BuyerRequirements {
   roomsMin?: number;
   roomsMax?: number;
   areaSqmMin?: number;
+  floorPreference?: FloorPreference;
+  sharedTabu?: SharedTabuStance;
   features: Record<string, "must" | "nice">;
   searchAreas?: SearchArea[];
   entryType?: string;
@@ -155,6 +162,10 @@ export default function EditBuyerPage({ params }: { params: Promise<{ id: string
           roomsMin: num("roomsMin"),
           roomsMax: num("roomsMax"),
           areaSqmMin: num("areaSqmMin"),
+          /* „לא משנה” = חסר, ולכן השדה יורד מהדרישות ואינו נשמר ריק */
+          floorPreference: readFloorPreference(f.get("floorPreference")),
+          /* ריק = טרם נשאל — היעדר, ולא סירוב שאיש לא אמר */
+          sharedTabu: readSharedTabuStance(f.get("sharedTabu")),
           /*
              ריק = "לא נבחר", ונשלח כ-undefined כדי שהשדה יוסר מהדרישות
              במקום להישמר כמחרוזת ריקה שאף בדיקה לא מזהה.
@@ -216,12 +227,12 @@ export default function EditBuyerPage({ params }: { params: Promise<{ id: string
               <label htmlFor="neighborhoods" className="mb-1 mt-3 block font-medium">
                 שכונות <span className="font-normal">(לא חובה, מופרדות בפסיק)</span>
               </label>
-              <input
+              <NeighborhoodInput
                 id="neighborhoods"
                 name="neighborhoods"
+                multi
                 defaultValue={req.neighborhoods.join(", ")}
                 placeholder="רמת אהרון, פרדס כץ"
-                className="w-full rounded-lg border px-3 py-2.5"
                 style={inputStyle}
               />
               {/*
@@ -301,6 +312,28 @@ export default function EditBuyerPage({ params }: { params: Promise<{ id: string
                 style={inputStyle}
               />
             </div>
+            <FloorPreferenceField
+              {...(req.floorPreference === undefined ? {} : { initial: req.floorPreference })}
+              disabled={submitting}
+            />
+            {/*
+              ‎**העמדה שנגזרת, ולא השדה הגולמי** (ביקורת Codex, P2).
+
+              ‏קונה מדור קודם — `propertyTypes: ["shared_tabu"]` בלי
+              ‏שדה מפורש — נחשב „מוכן” בסינון, בהתאמות ובשידוך
+              ‏השותפים, והמסך הזה אמר עליו „טרם נשאל”. המתווך היה
+              ‏רואה שאלה פתוחה על לקוח שהמערכת כבר מתייחסת אליו
+              ‏כמי שענה, ושמירת עריכה אחרת הייתה משמרת את הפער.
+
+              ‏אותה פונקציה בדיוק שכל שאר המסלולים קוראים לה.
+            */}
+            <SharedTabuField
+              {...(() => {
+                const stance = buyerSharedTabuStance(req);
+                return stance === undefined ? {} : { initial: stance };
+              })()}
+              disabled={submitting}
+            />
             {/*
               אילוץ הכניסה של הקונה — "גמיש" הוא תשובה, ולא היעדר.
             */}

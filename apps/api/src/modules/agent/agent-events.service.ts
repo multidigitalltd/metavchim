@@ -41,7 +41,7 @@ export class AgentEventsService {
   async record(event: {
     channel: "web" | "whatsapp";
     /**
-     * ‎`mentor` — שיחה עם המנטור האישי (docs/13 §7). אותו מפתח Gemini
+     * ‎`mentor` — שיחה עם המנטור האישי (docs/14 §7). אותו מפתח Gemini
      * של הפלטפורמה משלם עליה, ולכן היא נרשמת באותו יומן ונספרת
      * באותו דוח אסימונים; אינה פקודה, ולכן אינה נספרת כפירוש.
      */

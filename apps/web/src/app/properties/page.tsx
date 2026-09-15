@@ -4,22 +4,32 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button } from "@metavchim/ui";
-import { MATCHABLE_PROPERTY_STATUSES, type PropertyStatus } from "@metavchim/shared";
+import {
+  formatPropertyAddress,
+  MATCHABLE_PROPERTY_STATUSES,
+  SHARED_TABU_PROPERTY_TYPE,
+  type PropertyStatus,
+} from "@metavchim/shared";
 import { API_BASE, apiGet, apiList, apiPost } from "@/lib/api";
 import { formatDate, formatPrice, PROPERTY_TYPE_LABELS, STATUS_LABELS } from "@/lib/format";
 import { can, useRequireAuth } from "@/lib/use-auth";
 import { useFeature } from "@/lib/use-features";
 import {
   IconDoc,
+  IconGlobe,
   IconHome,
   IconMic,
   IconPlus,
   IconSearch,
+  IconSend,
   IconSheet,
+  IconTrash,
   IconUsers,
   IconX,
 } from "../icons";
 import { ExclusivityWatch } from "./exclusivity-watch";
+import { PropertyRemovalDialog } from "./property-removal-dialog";
+import { SharedTabuPending } from "./shared-tabu-pending";
 import { CapNote, FilterChips, FilterSelect, SortSelect } from "../list-controls";
 import {
   EMPTY_FILTERS,
@@ -28,6 +38,8 @@ import {
   hasActiveFilters,
   type ListFilterValues,
 } from "../list-filters";
+import { AgentTag } from "../agent-tag";
+import { IconAction } from "../icon-action";
 import { Notice } from "../notice";
 import { readinessBand } from "@/lib/readiness";
 
@@ -41,6 +53,7 @@ interface PropertyRow {
   city?: string;
   neighborhood?: string;
   street?: string;
+  houseNumber?: string;
   propertyType?: string;
   rooms?: number;
   priceAgorot?: number;
@@ -50,6 +63,8 @@ interface PropertyRow {
    */
   status: PropertyStatus;
   readinessScore: number;
+  /** הסוכן המטפל. חסר = לא משויך. */
+  agentName?: string;
   missingFields: string[];
   thumbnailUrl?: string;
   suggestedMatchCount?: number;
@@ -57,7 +72,13 @@ interface PropertyRow {
 }
 
 function addressOf(p: PropertyRow): string {
-  return [p.street, p.neighborhood].filter(Boolean).join(", ") || p.city || "ללא כתובת";
+  // ‏רחוב ומספר ושכונה; בלעדיהם העיר לבדה — כמו קודם, רק עם המספר
+  const line = formatPropertyAddress({
+    street: p.street,
+    houseNumber: p.houseNumber,
+    neighborhood: p.neighborhood,
+  });
+  return line || p.city || "ללא כתובת";
 }
 
 /** נכס שנקלט בשבוע האחרון מסומן "חדש" ומקבל רקע ירקרק, כמו בעיצוב. */
@@ -89,7 +110,38 @@ function statusDomain(status: string): string {
  * שתי שורות. העמודה האחרונה היא תאריך, לא תווית כפתור, ולכן היא
  * צרה יותר והרוחב חזר לכתובת.
  */
-const GRID = "2.4fr 0.9fr 1.4fr 1fr 1fr 0.9fr";
+/*
+ * ‎**שבע עמודות, והסוכן אחת מהן.**
+ *
+ * הוא ישב עד כה בתא הסטטוס, לצד הגלולה, וההערה שם נימקה זאת ב„רשת
+ * קבועה — עמודה שביעית הייתה דוחסת את כל השאר”. בפועל זה נקרא
+ * כבלבול: גלולת „טיוטה” וגלולת „לא משויך” בתא אחד, מתחת לכותרת
+ * שאומרת „סטטוס”, הן שתי עובדות שונות שנראות כמו אחת. בעל המוצר
+ * דיווח על כך במילים „שיוך הסוכן התערבב עם העמודה של הסטטוס”.
+ *
+ * הרוחב שהעמודה החדשה צורכת נלקח מ„נכס” ומ„מוכנות לשיווק”, ששתיהן
+ * היו רחבות מהנדרש: הכתובת נחתכת ממילא ב-`truncate`, ופס המוכנות
+ * הוא פס.
+ */
+const GRID = "2.1fr 0.85fr 1fr 1.25fr 1fr 0.95fr 0.9fr";
+
+/**
+ * ‏שני הערכים, ושניהם שאלה אמיתית: „הראה לי רק מושאע” (משקיע,
+ * ‏או קונה שמחפש מחיר) ו„הראה לי רק רישום נפרד” (מי שסירב, או מי
+ * ‏שהמימון שלו לא יאפשר). „הכל” הוא היעדר הפרמטר ולא ערך שלישי.
+ */
+const SHARED_TABU_FILTER_OPTIONS: [string, string][] = [
+  ["true", "טאבו משותף"],
+  ["false", "רישום נפרד"],
+];
+
+/*
+ * ‏מחרוזות מפורשות ולא `Boolean(value)`: השרת דוחה כל דבר שאינו
+ * ‏"true"/"false", ומחרוזת ריקה פשוט אינה מוסיפה פרמטר.
+ */
+function sharedTabuQuery(value: string): string {
+  return value === "" ? "" : `&sharedTabu=${value}`;
+}
 
 const SORTS: [string, string][] = [
   ["newest", "חדשים קודם"],
@@ -145,33 +197,68 @@ function StatTile({
   label,
   value,
   note,
+  /**
+   * ‎**אריח שיש לו יעד הופך לכפתור — ואריח שאין לו נשאר `div`.**
+   *
+   * ‏„טיוטה להשלמה” אומר למתווך שיש עבודה, ואז השאיר אותו לחפש
+   * ‏אותה בעצמו: לגלול לטבלה, לפתוח „סינון לפי סטטוס”, ולבחור
+   * ‏„טיוטה”. שלוש פעולות כדי להגיע למה שהאריח בדיוק ספר לו
+   * ‏(דיווח המשתמש).
+   *
+   * ‏`button` ולא `div` עם `onClick`: מקלדת, `Enter`, וקורא מסך —
+   * ‏שלושתם מגיעים מהאלמנט הנכון ולא מ-`role` שמודבק עליו.
+   */
+  onClick,
+  actionLabel,
 }: {
   domain: string;
   icon: ReactNode;
   label: string;
   value: number;
   note: string;
+  onClick?: () => void;
+  actionLabel?: string;
 }) {
+  if (onClick !== undefined) {
+    return (
+      <button
+        type="button"
+        className={`mv-stat-tile mv-stat-tile--sm ${domain} cursor-pointer text-right`}
+        onClick={onClick}
+        aria-label={actionLabel ?? label}
+      >
+        <span className="mv-card-head">
+          <span className="mv-tile" aria-hidden="true">
+            {icon}
+          </span>
+          <span className="mv-card-head__title">{label}</span>
+        </span>
+        <span className="mv-stat-tile__foot m-0 flex">
+          <span className="mv-stat-tile__value mv-ltr">{value}</span>
+          <span className="mv-stat-tile__note">{note}</span>
+        </span>
+      </button>
+    );
+  }
   return (
-    <div className={`mv-stat-tile ${domain}`}>
+    <div className={`mv-stat-tile mv-stat-tile--sm ${domain}`}>
       <div className="mv-card-head">
-        <span className="mv-tile mv-tile--44" aria-hidden="true">
+        <span className="mv-tile" aria-hidden="true">
           {icon}
         </span>
         <h2 className="mv-card-head__title">{label}</h2>
       </div>
-      <p
-        className="m-0 mt-2"
-        style={{
-          fontSize: "var(--type-metric)",
-          fontWeight: 900,
-          letterSpacing: "var(--type-metric-track)",
-        }}
-      >
-        {value}
-      </p>
-      <p className="m-0 mt-1" style={{ fontSize: "var(--type-caption-lg)" }}>
-        {note}
+      {/*
+        ‎**המספר וההערה באותה שורה, על קו בסיס אחד.**
+
+        קודם הם היו שתי שורות נפרדות מתחת לכותרת, ובאריח ברוחב
+        רבע-מסך זה נראה דליל; בטור 372 זה פשוט לא נכנס. ההערה לצד
+        המספר ממלאת את הרוחב שהוא הותיר, וזה מה שמאפשר לאריח
+        להצטמצם בלי להתרוקן.
+      */}
+      <p className="mv-stat-tile__foot m-0">
+        <span className="mv-stat-tile__value mv-ltr">{value}</span>
+        <span className="mv-stat-tile__note">{note}</span>
       </p>
     </div>
   );
@@ -189,9 +276,12 @@ function StatTile({
 function PropertyStats({
   items,
   truncated,
+  onShowDrafts,
 }: {
   items: PropertyRow[];
   truncated: boolean;
+  /** ‏„קחו אותי לטיוטות” — מסנן את הטבלה שמתחת, בלחיצה אחת. */
+  onShowDrafts: () => void;
 }) {
   const active = items.filter((p) => p.status === "active");
   const ready = active.filter((p) => p.missingFields.length === 0).length;
@@ -216,10 +306,28 @@ function PropertyStats({
   );
 
   return (
-    <div
-      className="mb-[18px] grid gap-3"
-      style={{ gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))" }}
-    >
+    /*
+      ‎**שתיים בשורה, שתי שורות — לצד החיפוש ולא מתחתיו** (בקשת בעל
+      המוצר).
+
+      קודם הייתה כאן שורה אחת של ארבעה אריחים ברוחב מלא
+      (`auto-fit, minmax(210px, 1fr)`), מתחת לכרטיס החיפוש ומעל
+      הטבלה. שני הבלוקים יחד דחקו את השורה הראשונה של הנכסים אל
+      מתחת לקיפול — ובמסך שכל תפקידו רשימה, זה בדיוק מה שהמתווך בא
+      לראות. עכשיו הם חולקים סקשן אחד: החיפוש בטור הרחב, האריחים
+      2×2 בטור 372 שלצדו.
+
+      ‎`justify-center` ולא מתיחה: האריחים נשארים בגובה תוכנם,
+      וכשכרטיס החיפוש נפתח („עוד סינון”) הם ממורכזים מולו במקום
+      להימתח ולפעור חלל בין התווית למספר.
+    */
+    <div className="flex flex-col justify-center">
+    {/*
+      שתיים בשורה כברירת מחדל, וארבע כשיש רוחב. `2xl` ולא `lg`:
+      מתחתיו הטור שנשאר לאריחים אחרי 560 של החיפוש צר מכדי שארבע
+      תוויות ייקראו בו, וארבעה אריחים דחוסים גרועים משתי שורות.
+    */}
+    <div className="grid items-stretch gap-3 grid-cols-2 2xl:grid-cols-4">
       <StatTile
         domain="mv-domain-blue"
         icon={<IconHome s={20} />}
@@ -251,12 +359,16 @@ function PropertyStats({
         icon={<IconDoc s={20} />}
         label="טיוטה להשלמה"
         value={drafts.length}
+        /* ‏אריח ריק אינו כפתור — אין לאן לקחת */
+        {...(drafts.length === 0
+          ? {}
+          : { onClick: onShowDrafts, actionLabel: `הצגת ${drafts.length} הטיוטות ברשימה` })}
         note={
           drafts.length === 0
             ? "אין טיוטות פתוחות"
             : drafts.length === 1
               ? addressOf(drafts[0]!)
-              : "פתחו את הרשימה כדי להשלים"
+              : "לחצו כדי להציג אותן ברשימה"
         }
       />
       {/*
@@ -278,11 +390,12 @@ function PropertyStats({
         משפט אחד על כל הארבעה, ולא סייג בכל אריח: הם נגזרים מאותה
         רשימה, ולכן ההיקף שלהם זהה.
       */}
+    </div>
+      {/* מחוץ לרשת — משפט שרץ על רוחב הטור, ולא תא חמישי בה */}
       {truncated ? (
         <p
-          className="m-0"
+          className="m-0 mt-2"
           style={{
-            gridColumn: "1 / -1",
             fontSize: "var(--type-caption)",
             color: "var(--color-text-muted)",
           }}
@@ -327,6 +440,16 @@ export default function PropertiesPage() {
   const [status, setStatus] = useState("");
   const [type, setType] = useState("");
   const [sort, setSort] = useState("newest");
+  /*
+   * ‎**„טאבו משותף” מסונן בשרת, ולא כצ׳יפ על מה שנטען.**
+   *
+   * ‏זו כל הנקודה שלו: נכסים במושאע הם מיעוט, ולכן דווקא הם נופלים
+   * ‏מחוץ למאה הראשונות. צ׳יפ מקומי היה מציג „אין נכסים בטאבו
+   * ‏משותף” למשרד שיש לו כמה, וזו תשובה גרועה משתיקה.
+   */
+  const [sharedTabu, setSharedTabu] = useState("");
+  /** ‏„גלול לרשימה ברגע שהיא שוב על המסך” — ראו `onShowDrafts`. */
+  const [scrollToList, setScrollToList] = useState(false);
   const [filters, setFilters] = useState<ListFilterValues>(EMPTY_FILTERS);
   /*
    * הנכסים שסומנו להעלאה מרוכזת לרשת — Set של מזהים, מאותה סיבה
@@ -335,6 +458,8 @@ export default function PropertiesPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
   const [bulkNote, setBulkNote] = useState<string | null>(null);
+  /** ‏חלון ההסרה — הוא שנושא את השאלה, את האזהרה ואת החלופה. */
+  const [removalOpen, setRemovalOpen] = useState(false);
 
   /*
    * הסינון רץ בשרת ולא בדפדפן.
@@ -348,14 +473,22 @@ export default function PropertiesPage() {
     if (authLoading) return;
     setItems(null);
     apiGet<{ items: PropertyRow[]; nextCursor?: string | null }>(
-      `/properties?limit=100${filtersToQuery(filters)}`,
+      `/properties?limit=100${filtersToQuery(filters)}${sharedTabuQuery(sharedTabu)}`,
     )
       .then((res) => {
         setItems(apiList(res.items, "items"));
         setTruncated(res.nextCursor !== undefined && res.nextCursor !== null);
       })
       .catch(() => setError("טעינת הנכסים נכשלה"));
-  }, [authLoading, filters]);
+  }, [authLoading, filters, sharedTabu]);
+
+  useEffect(() => {
+    if (!scrollToList || items === null) return;
+    document
+      .getElementById("properties-list")
+      ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    setScrollToList(false);
+  }, [scrollToList, items]);
 
   /* צ'יפי הערים נבנים מהנתונים עצמם — הערים שבאמת יש בהן נכסים */
   const cities = useMemo(() => {
@@ -447,81 +580,67 @@ export default function PropertiesPage() {
    * היסטוריה עסקית. הכפתור השני קיים בשביל המקרה שבשבילו הפעולה
    * נבנתה — ייבוא שגוי או כפילות שצריכים להיעלם.
    */
-  async function removeSelected(permanent: boolean): Promise<void> {
+  /**
+   * ‎**מה עוד תגרור המחיקה — נשאל בשרת, ומוצג לפני האישור.**
+   *
+   * ‏זריקה מכאן היא „לא ידוע”, והחלון חוסם את האישור. „כל מה שאינו
+   * ‏מספר = אפס” היה מבטיח שקט בדיוק כשאין לנו מושג.
+   */
+  async function bulkImpact(): Promise<number> {
+    const ids = selectedVisible.map((p) => p.id);
+    const preview = await apiPost<{ contacts: number }>(
+      "/properties/bulk-deletion-preview",
+      { ids },
+    );
+    return preview.contacts;
+  }
+
+  /**
+   * ‎**ההסרה עצמה — אחרי שהחלון שאל.**
+   *
+   * ‏השאלה הייתה `window.confirm` עם טקסט שנבנה כאן, ולכן החלופה
+   * ‏(„רק להוציא מהרשימה”) הייתה חייבת להיות כפתור נפרד בסרגל.
+   * ‏עכשיו שתיהן באותו חלון, וכאן נשארה רק הפעולה (בקשת המשתמש).
+   *
+   * ‏זריקה = מה שיוצג בחלון; הוא נשאר פתוח כדי שאפשר יהיה לנסות
+   * ‏שוב או לבחור בחלופה.
+   */
+  async function bulkRemove(permanent: boolean): Promise<void> {
     const ids = selectedVisible.map((p) => p.id);
     if (ids.length === 0) return;
 
-    /*
-     * ‎**הגילוי לפני האישור.**
-     *
-     * המחיקה לצמיתות מוחקת גם כרטיסי אדם שהנכס הזה הוא הקישור
-     * האחרון אליהם — בעלים או דייר, על שמם וטלפוניהם. מתווך שמנקה
-     * כפילות אינו מתכוון לזה, ולכן זה נאמר **לפני**.
-     *
-     * וכשהבדיקה נכשלת המחיקה **נחסמת**: „לא ידוע” לעולם אינו מוצג
-     * כ„לא יימחק”. אותה הכרעה כמו במסך הקונים.
-     */
-    let disclosure = "";
-    if (permanent) {
-      setBulkBusy(true);
-      setError(null);
-      try {
-        const preview = await apiPost<{ contacts: number }>(
-          "/properties/bulk-deletion-preview",
-          { ids },
-        );
-        disclosure =
-          preview.contacts === 0
-            ? ""
-            : preview.contacts === 1
-              ? "יימחק גם כרטיס אדם אחד שהנכס הזה הוא הקישור האחרון אליו במשרד — כולל שם, טלפונים והיסטוריית התקשורת."
-              : `יימחקו גם ${preview.contacts} כרטיסי אדם שהנכסים האלה הם הקישור האחרון אליהם במשרד — כולל שם, טלפונים והיסטוריית התקשורת.`;
-      } catch {
-        setError("בדיקת המחיקה נכשלה — לא נמחק דבר. נסו שוב.");
-        return;
-      } finally {
-        setBulkBusy(false);
-      }
-    }
-
-    const question = permanent
-      ? [
-          `למחוק לצמיתות ${ids.length} נכסים? הפעולה אינה הפיכה, וכל ההיסטוריה שלהם תימחק.`,
-          ...(disclosure === "" ? [] : [disclosure]),
-        ].join("\n")
-      : `להעביר ${ids.length} נכסים לארכיון? הם יורדו מהרשימות וההיסטוריה תישמר.`;
-    if (!window.confirm(question)) return;
-
-    setBulkBusy(true);
-    setBulkNote(null);
-    setError(null);
+    let res: { removed: number; skipped: number };
     try {
-      const res = await apiPost<{ removed: number; skipped: number }>(
+      res = await apiPost<{ removed: number; skipped: number }>(
         "/properties/bulk-delete",
         { ids, permanent },
       );
-      setBulkNote(
-        res.skipped === 0
-          ? `${res.removed} נכסים ${permanent ? "נמחקו" : "הועברו לארכיון"}`
-          : `${res.removed} ${permanent ? "נמחקו" : "הועברו לארכיון"}, ${res.skipped} דולגו — נכס של סוכן אחר, או כזה שכבר נמחק`,
-      );
-      setSelected(new Set());
     } catch {
-      setError("המחיקה נכשלה — נסו שוב");
-      setBulkBusy(false);
-      return;
+      throw new Error(
+        permanent ? "המחיקה נכשלה — נסו שוב" : "ההעברה לארכיון נכשלה — נסו שוב",
+      );
     }
 
+    setRemovalOpen(false);
+    setError(null);
+    setBulkNote(
+      res.skipped === 0
+        ? `${res.removed} נכסים ${permanent ? "נמחקו" : "הועברו לארכיון"}`
+        : `${res.removed} ${permanent ? "נמחקו" : "הועברו לארכיון"}, ${res.skipped} דולגו — נכס של סוכן אחר, או כזה שכבר נמחק`,
+    );
+    setSelected(new Set());
+
     /*
-     * ‎**הרענון בנפרד מהמחיקה, ולא באותו `try`.**
+     * ‎**הרענון בנפרד מההסרה, ולא באותו `try`.**
      *
      * כישלון של הרענון — רשת, או גוף תשובה חסר — היה מדווח „המחיקה
      * נכשלה” על מחיקה שהצליחה, ומזמין את המתווך למחוק שוב.
      */
+    setBulkBusy(true);
     setItems(null);
     try {
       const fresh = await apiGet<{ items: PropertyRow[]; nextCursor?: string | null }>(
-        `/properties?limit=100${filtersToQuery(filters)}`,
+        `/properties?limit=100${filtersToQuery(filters)}${sharedTabuQuery(sharedTabu)}`,
       );
       setItems(apiList(fresh.items, "items"));
       setTruncated(fresh.nextCursor !== undefined && fresh.nextCursor !== null);
@@ -537,13 +656,41 @@ export default function PropertiesPage() {
     city !== "הכל" ||
     status !== "" ||
     type !== "" ||
+    sharedTabu !== "" ||
     sort !== "newest";
+
+  /*
+   * ‎**ניקוי אחד לשני הכפתורים** (ביקורת Codex, P2).
+   *
+   * ‏„נקה סינון” שבראש הרשימה ו„ניקוי הסינון” שבמצב הריק היו שני
+   * ‏עותקים של אותה פעולה, ולכן המסנן החדש נוסף לאחד ולא לשני:
+   * ‏מי שסינן לפי רישום בלבד וקיבל רשימה ריקה לחץ על כפתור שמבטיח
+   * ‏לנקות — ודבר לא קרה, כי הוא לא נגע במסנן היחיד שפעל.
+   *
+   * ‏ואותה רשימת שדות בדיוק היא `filtering` מעליה: אם היא אומרת
+   * ‏„יש סינון” על שדה שהניקוי אינו מאפס, הכפתור אינו יכול לכבות.
+   */
+  function clearFilters(): void {
+    setFilters(EMPTY_FILTERS);
+    setCity("הכל");
+    setStatus("");
+    setType("");
+    setSharedTabu("");
+    setSort("newest");
+  }
 
   return (
     <>
       {/* לפני הסינון והרשימה: בלעדיות שנגמרת היא נכס שעובר למתחרה,
           וזו הידיעה היחידה במסך הזה שיש לה תאריך תפוגה */}
       <ExclusivityWatch />
+
+      {/*
+        ‏רישום משותף שלא נבדק — נכס שרשום במשותף ולא סומן ככזה מוצע
+        גם לקונים שסימנו שאינם מוכנים לכך. השורה מופיעה רק כשיש מה
+        לבדוק, ונעלמת בעצמה כשהמעבר נגמר.
+      */}
+      <SharedTabuPending />
 
       {/*
         ‎**כותרת המסך, ומה שאפשר לעשות בו — שורה אחת.**
@@ -616,42 +763,122 @@ export default function PropertiesPage() {
       </div>
 
       {/*
-        החיפוש והצ'יפים בכרטיס אחד — כך בצילום, וזה גם נכון: שניהם
-        מצמצמים את אותה רשימה, ושורה חופשית מתחת לכרטיס נראתה כמו
-        עוד אזור.
+        ‎**החיפוש והמונים בסקשן אחד — זה לצד זה, ולא זה מתחת לזה**
+        (בקשת בעל המוצר).
+
+        עד כה כרטיס החיפוש ישב ברוחב מלא, ומתחתיו שורה של ארבעה
+        אריחים ברוחב מלא. יחד הם תפסו כ-350 פיקסלים לפני השורה
+        הראשונה של הרשימה — במסך שכל תפקידו **הרשימה**. „שורת
+        החיפושים תופסת מדי הרבה מקום, וגם הקוביות”: התיקון אינו
+        להקטין כל אחד מהם בנפרד אלא להושיב אותם באותו גובה.
+
+        החלוקה היא 1fr/372, אותה חלוקה שבתחתית הדשבורד ומאותו טעם:
+        לחיפוש מגיע הרוחב (יש בו שדה, כפתורים וצ'יפים של ערים),
+        ולמונים מספיק טור צר עם 2×2. וכשהרשימה עוד לא נטענה אין
+        מונים כלל, ואז החיפוש פורש על כל הרוחב במקום להשאיר טור
+        ריק לצדו.
+
+        ‎`items-start` ולא מתיחה: „עוד סינון” מכפיל את גובה כרטיס
+        החיפוש, ואריחים שנמתחים לגובה הזה הם בדיוק החלל שהתבקשנו
+        לצמצם. הם נשארים בגודלם, והכרטיס גדל לבדו.
+
+        ‎**והיחס בין השניים התהפך** (סבב שני של אותה בקשה). בחלוקה
+        הראשונה החיפוש קיבל את הטור הרחב — ושדה הקלט, שהוא `flex-1`,
+        נמתח ל-700 פיקסלים של לובן. „את השדה של החיפוש אפשר לקצר
+        משמעותית, ואז הקוביות יוכלו להיכנס בשורה אחת”: החיפוש קיבל
+        רוחב **נקוב** שמספיק בדיוק לשורה אחת — שדה עם הדוגמה קריאה
+        בתוכו, „חפש” ו„עוד סינון” — והשאר הולך לאריחים, שנפרשים
+        ארבעה ברוחב אחד.
       */}
-      <ListFilters
-        values={filters}
-        onApply={setFilters}
-        searchLabel="חיפוש נכס"
-        searchHint="כתובת, תיאור, סוג נכס או הערה"
-        priceLabel="מחיר"
-        card={{ example: 'למשל: "3 חדרים בבני ברק עד 2.2 מיליון"' }}
+      <div
+        className={`mb-[18px] grid items-start gap-4 ${
+          items === null ? "" : "lg:[grid-template-columns:minmax(0,560px)_minmax(0,1fr)]"
+        }`}
       >
-        <div className="flex flex-wrap items-center gap-2">
-          <FilterChips
-            label="סינון לפי עיר"
-            value={city}
-            onChange={setCity}
-            options={cities.map((c) => [c, c] as [string, string])}
+        <ListFilters
+          values={filters}
+          onApply={setFilters}
+          searchLabel="חיפוש נכס"
+          searchHint="כתובת, תיאור, סוג נכס או הערה"
+          priceLabel="מחיר"
+          card={{ flush: true }}
+          /* „הכל” הוא היעדר סינון — רק עיר שנבחרה פותחת את המגירה */
+          childrenActive={city !== "הכל"}
+        >
+          <div className="flex flex-wrap items-center gap-2">
+            <FilterChips
+              label="סינון לפי עיר"
+              value={city}
+              onChange={setCity}
+              options={cities.map((c) => [c, c] as [string, string])}
+            />
+          </div>
+        </ListFilters>
+
+        {/*
+          ‎**ארבעה מונים — מה מחכה, ולא כמה שורות יש.**
+
+          כולם נגזרים מהרשימה שכבר נטענה, בלי קריאה נוספת. `null`
+          פירושו „עוד לא ידוע”, ואז אין כרטיסים בכלל: אריח שמראה „0”
+          על טעינה שטרם הסתיימה הוא בדיוק אותו שקר של רשימה ריקה.
+        */}
+        {items === null ? null : (
+          <PropertyStats
+            items={items}
+            truncated={truncated}
+            /*
+              ‎**הסינון וגם הגלילה.** האריחים יושבים לצד החיפוש,
+              ‏והרשימה מתחתיהם: סינון בלי גלילה משנה מסך שהמתווך
+              ‏אינו רואה, ונראה כאילו לא קרה דבר.
+            */
+            onShowDrafts={() => {
+              /*
+               * ‎**האריח סופר על כל הרשימה, ולכן הוא גם מנקה את כל
+               * הסינון** (ביקורת Codex).
+               *
+               * ‏המונה נגזר מ-`items` — כל מה שנטען — בעוד שהעיר,
+               * ‏הסוג והרישום מצמצמים את `visible`. עם „ירושלים”
+               * ‏מסומנת וטיוטות שכולן בתל אביב, האריח הבטיח „3
+               * ‏טיוטות” וגלל לרשימה ריקה: המספר שהמתווך לחץ עליו
+               * ‏ומה שקיבל לא היו אותו דבר.
+               *
+               * ‏הניקוי הוא התשובה הנכונה ולא צמצום המונה: האריח
+               * ‏אומר „מה מחכה לך”, וזו שאלה על כל המאגר. „מה מחכה
+               * ‏לך בירושלים” הוא מסך אחר.
+               */
+              /*
+               * ‎**המונה והיעד באותו היקף — ולכן דווקא לא כל
+               * הסינון** (ביקורת Codex, P2).
+               *
+               * ‏העיר והסוג מצמצמים את `visible` בלבד, בעוד שהמונה
+               * ‏נגזר מ-`items` — ולכן הם מנותקים ממנו וחייבים
+               * ‏להתנקות. סינון הרישום, לעומת זאת, רץ **בשרת** ולכן
+               * ‏`items` עצמו כבר מסונן בו: ניקויו היה מרחיב את
+               * ‏היעד מעבר למה שנספר. „3 טיוטות” היה פותח שש.
+               *
+               * ‏זה התיקון הקודם, מכויל: לא „נקה הכול” אלא „נקה את
+               * ‏מה שהמונה אינו מכיר”.
+               */
+              setCity("הכל");
+              setType("");
+              setStatus("draft");
+              /*
+               * ‏הגלילה מחכה לרשימה ואינה רצה מיד: ניקוי סינון
+               * ‏הרישום הוא סינון **שרת**, ולכן הוא מחזיר את
+               * ‏הרשימה ל„טוען” — ובאותו רגע עוגן הגלילה אינו
+               * ‏קיים והפעולה הייתה מתבצעת על `null` בשקט.
+               */
+              setScrollToList(true);
+            }}
           />
-        </div>
-      </ListFilters>
-
-      {/*
-        ‎**ארבעה מונים — מה מחכה, ולא כמה שורות יש.**
-
-        כולם נגזרים מהרשימה שכבר נטענה, בלי קריאה נוספת. `null`
-        פירושו „עוד לא ידוע”, ואז אין כרטיסים בכלל: אריח שמראה „0”
-        על טעינה שטרם הסתיימה הוא בדיוק אותו שקר של רשימה ריקה.
-      */}
-      {items === null ? null : <PropertyStats items={items} truncated={truncated} />}
+        )}
+      </div>
 
       {error ? (
         <Notice tone="danger">{error}</Notice>
       ) : items === null ? (
         <p aria-live="polite">טוען נכסים…</p>
-      ) : items.length === 0 && !hasActiveFilters(filters) ? (
+      ) : items.length === 0 && !hasActiveFilters(filters) && sharedTabu === "" ? (
         /*
          * **מצב „אין נכסים בכלל” יושב כאן, ולא בתוך הרשימה.**
          *
@@ -663,6 +890,15 @@ export default function PropertiesPage() {
          * הייתה קוד מת: משרד חדש קיבל את הנוסח הישן, והפעולה שהוספתי
          * („קליטה בקול”) לא הופיעה לעולם. הנוסח המשופר עבר לכאן
          * (ביקורת Codex).
+        *
+         * ‎**ו„אין נכסים” הוא לא כל סינון — רק זה שמרוקן את `items`**
+         * ‏(ביקורת Codex, P2).
+         *
+         * ‏עיר, סוג ומיון מצמצמים את `visible` בלבד, ולכן אינם
+         * ‏יכולים להביא לכאן. הרישום כן: הוא מסנן **בשרת**, ומשרד
+         * ‏בלי נכס אחד בטאבו משותף קיבל „עוד לא הוספת נכסים” —
+         * ‏מסך פתיחה שמוחק את בורר הרישום ואת „נקה סינון” יחד איתו,
+         * ‏כלומר מלכודת שיוצאים ממנה רק ברענון הדף.
          */
         <div
           className="rounded-xl border p-8 text-center"
@@ -702,8 +938,11 @@ export default function PropertiesPage() {
             הפקדים ישבו עד כה בסרגל נפרד מעל הרשימה, וסרגל הבחירה
             הופיע ונעלם בין שניהם — כלומר הרשימה „קפצה” בכל בחירה.
             בצילום הכל בכרטיס אחד, והפעולות בתחתיתו קבועות.
+
+            ‎`id` כדי שאריח „טיוטה להשלמה” יוכל לגלול לכאן: סינון
+            ‏שמשנה מסך שהמתווך אינו רואה נראה כאילו לא קרה דבר.
           */}
-          <div className="mv-card mv-card--pad">
+          <div id="properties-list" className="mv-card mv-card--pad">
             <div className="mv-card-head flex-wrap">
               <span className="mv-tile mv-tile--44 mv-domain-blue" aria-hidden="true">
                 <IconHome s={20} />
@@ -724,55 +963,186 @@ export default function PropertiesPage() {
                   : ` · מתוך ${items.length}`}
               </span>
 
+            </div>
+
+          {/*
+            ‎**סרגל הפעולות מעל הטבלה, וקבוע** (בקשת בעל המוצר).
+
+            הוא הופיע ונעלם לפי הבחירה, ולכן הרשימה קפצה בכל סימון
+            ראשון — והפעולות עצמן היו מפתיעות: איש לא ידע שהן קיימות
+            עד שסימן. לכן הוא קבוע, ומושבת עד שיש על מה להפעיל אותו:
+            „נבחרו 0” הוא מצב, לא שגיאה.
+
+            ‎**מה שהשתנה עכשיו הוא המקום.** הוא ישב בתחתית הכרטיס,
+            מתחת לשורות — וזה עבד כל עוד יש שש שורות. במשרד עם מאה
+            נכסים המתווך מסמן שורה בראש הרשימה וצריך לגלול עמוד שלם
+            כדי להגיע לכפתור שיפעל עליה, ואז לגלול חזרה כדי לסמן את
+            הבאה. הפעולה שייכת לצד הבחירה, ולא לסוף הרשימה.
+
+            ‎**והוא מעל שורת הסינונים**, כי הוא פועל על מה שסומן
+            ‏בעוד הסינונים מצמצמים את הרשימה — ומי שסימן מחפש את
+            ‏הפעולה, לא את המסננים (בקשת המשתמש). הקו המפריד עבר
+            ‏לשורת הסינונים, שהיא עכשיו האחרונה שלפני הטבלה.
+          */}
+          {maySelect && visible.length > 0 ? (
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+              <strong className="text-[length:var(--type-body-sm)]" role="status">
+                נבחרו {selectedVisible.length} נכסים
+              </strong>
+              {/*
+                ‎**מבוטל לפי `selected`, ולא לפי מה שנראה כרגע.**
+
+                סינון שמסתיר את כל מה שנבחר מאפס את `selectedVisible`
+                אבל לא את הבחירה עצמה — והכפתור היחיד שמנקה אותה היה
+                מושבת. הבחירה נתקעה, וצצה שוב כשהסינון נוקה (ביקורת
+                Codex). הסרגל הישן לא סבל מזה כי הוא כולו נעלם.
+              */}
+              <button
+                type="button"
+                className="mv-btn-plain"
+                disabled={bulkBusy || selected.size === 0}
+                onClick={() => setSelected(new Set())}
+              >
+                בטל בחירה
+                {selected.size > selectedVisible.length
+                  ? ` (${selected.size - selectedVisible.length} מוסתרים בסינון)`
+                  : ""}
+              </button>
               <span className="ms-auto flex flex-wrap items-center gap-2">
-                {maySelect ? (
-                  <label className="mv-btn-plain" style={{ cursor: "pointer" }}>
-                    <input
-                      type="checkbox"
-                      checked={allVisibleSelected}
-                      onChange={toggleAll}
-                      disabled={visible.length === 0}
-                    />
-                    בחירת הכל
-                  </label>
-                ) : null}
-                <FilterSelect
-                  label="סינון לפי סטטוס"
-                  value={status}
-                  onChange={setStatus}
-                  allLabel="כל הסטטוסים"
-                  options={Object.entries(STATUS_LABELS)}
-                />
-                <FilterSelect
-                  label="סינון לפי סוג נכס"
-                  value={type}
-                  onChange={setType}
-                  allLabel="כל הסוגים"
-                  options={Object.entries(PROPERTY_TYPE_LABELS)}
-                />
-                <SortSelect value={sort} onChange={setSort} options={SORTS} />
                 {/*
-                  ‎**ניקוי הסינון נשאר**, אף שאינו בצילום: בלעדיו
-                  מתווך שסינן לפי עיר וסטטוס צריך לאפס שלושה פקדים
-                  אחד-אחד כדי לראות שוב את כל המאגר.
+                  ‎**„שליחה לקונים” פועלת על נכס אחד.**
+
+                  בצילום היא נראית כפעולה מרוכזת, אבל שליחת הצעה היא
+                  בחירה של **קונים מתוך ההתאמות של נכס מסוים** — אין
+                  לה משמעות על חמישה נכסים יחד, וכפתור שנראה פעיל
+                  ואינו עושה דבר גרוע מכפתור מושבת. עם נכס אחד מסומן
+                  הוא פותח את ההתאמות שלו, ששם ההצעה נשלחת.
                 */}
-                {filtering ? (
+                <button
+                  type="button"
+                  className="mv-btn-plain"
+                  disabled={bulkBusy || selectedVisible.length !== 1}
+                  title={
+                    selectedVisible.length === 1
+                      ? "פתיחת ההתאמות של הנכס שנבחר"
+                      : "בחרו נכס אחד — ההצעה נשלחת לקונים של נכס מסוים"
+                  }
+                  onClick={() => {
+                    const one = selectedVisible[0];
+                    if (one) router.push(`/matches?property=${one.id}`);
+                  }}
+                >
+                  <IconSend s={15} />
+                  שליחה לקונים
+                </button>
+                {mayShare ? (
                   <button
                     type="button"
-                    className="mv-filter-clear"
-                    onClick={() => {
-                      setFilters(EMPTY_FILTERS);
-                      setCity("הכל");
-                      setStatus("");
-                      setType("");
-                      setSort("newest");
-                    }}
+                    className="mv-btn-plain"
+                    disabled={bulkBusy || selectedVisible.length === 0}
+                    onClick={() => void shareSelected()}
+                    style={{ color: "var(--color-primary)" }}
                   >
-                    <IconX s={14} /> נקה סינון
+                    <IconGlobe s={15} />
+                    {bulkBusy ? "מפרסם…" : "שיתוף לרשת"}
                   </button>
+                ) : null}
+                {/*
+                  ‎**פח, ולא שני כפתורי טקסט** (בקשת המשתמש).
+
+                  ‏„העבר לארכיון” ו„מחק לצמיתות” ישבו זה לצד זה בסרגל,
+                  ‏ושניהם פעולות הסרה — כלומר שתי מילים באותו משקל
+                  ‏שצריך לקרוא כדי לדעת מי מהן הפיכה. עכשיו הפח פותח
+                  ‏את השאלה, והחלופה הבטוחה יושבת **בתוכה** לצד
+                  ‏האזהרה: מי שהתכוון לארכיון מוצא אותו בדיוק ברגע
+                  ‏שבו הוא מגלה מה המחיקה גוררת.
+                */}
+                {mayDelete ? (
+                  /*
+                    ‎`IconAction` ולא כפתור מקומי: התווית שלו היא גם
+                    ‏הבועה וגם `aria-label`, ולכן אי אפשר שהרואים
+                    ‏יקבלו הסבר אחד וקורא המסך אחר — וזה בדיוק הכפתור
+                    ‏שבו ניחוש יקר.
+                  */
+                  <IconAction
+                    label="הסרת הנכסים שנבחרו — ארכיון או מחיקה"
+                    tone="danger"
+                    disabled={bulkBusy || selectedVisible.length === 0}
+                    onClick={() => setRemovalOpen(true)}
+                  >
+                    <IconTrash s={16} />
+                  </IconAction>
                 ) : null}
               </span>
             </div>
+          ) : null}
+
+          {/*
+            ‎**שורת הסינונים — מתחת לפעולות** (בקשת המשתמש).
+
+            ‏הסינונים ישבו בשורת הכותרת והפעולות מתחתיהם, כלומר מי
+            ‏שסימן נכסים חיפש את הכפתור **מתחת** למה שהוא לא צריך
+            ‏כרגע. הסדר התהפך: מה שפועל על הבחירה למעלה, ומה שמצמצם
+            ‏את הרשימה מתחתיו.
+
+            ‎`border-b` עבר לכאן מסרגל הפעולות: הקו מפריד בין פס
+            ‏הפקדים לטבלה שמתחתיו, וזו עכשיו השורה האחרונה מבין
+            ‏השתיים.
+          */}
+          <div
+            className="mb-4 flex flex-wrap items-center gap-2 border-b pb-4"
+            style={{ borderColor: "var(--color-border)" }}
+          >
+              <FilterSelect
+                label="סינון לפי סטטוס"
+                value={status}
+                onChange={setStatus}
+                allLabel="כל הסטטוסים"
+                options={Object.entries(STATUS_LABELS)}
+              />
+              {/*
+                ‎**בלי הסוג הוותיק** (ביקורת Codex, P2).
+
+                ‏`shared_tabu` הוא עובדה משפטית ולא סוג מבנה, ולכן
+                ‏יש לו עכשיו בורר משלו — „סינון לפי רישום”, שרץ
+                ‏בשרת. כל עוד הוא נשאר גם כאן היו שתי דרכים לסנן
+                ‏לפי אותו דבר, ואחת מהן שקרה: הסינון לפי סוג הוא
+                ‏מקומי (`p.propertyType === type`), ולכן הוא החזיר
+                ‏רק את השורות הוותיקות והסתיר נכס במושאע שנרשם
+                ‏כ„דירה” עם הדגל — כלומר בדיוק את הרוב.
+              */}
+              <FilterSelect
+                label="סינון לפי סוג נכס"
+                value={type}
+                onChange={setType}
+                allLabel="כל הסוגים"
+                options={Object.entries(PROPERTY_TYPE_LABELS).filter(
+                  ([value]) => value !== SHARED_TABU_PROPERTY_TYPE,
+                )}
+              />
+              <FilterSelect
+                label="סינון לפי רישום"
+                value={sharedTabu}
+                onChange={setSharedTabu}
+                allLabel="כל סוגי הרישום"
+                options={SHARED_TABU_FILTER_OPTIONS}
+              />
+              <SortSelect value={sort} onChange={setSort} options={SORTS} />
+              {/*
+                ‎**ניקוי הסינון נשאר**, אף שאינו בצילום: בלעדיו
+                מתווך שסינן לפי עיר וסטטוס צריך לאפס שלושה פקדים
+                אחד-אחד כדי לראות שוב את כל המאגר.
+              */}
+              {filtering ? (
+                <button
+                  type="button"
+                  className="mv-filter-clear"
+                  onClick={clearFilters}
+                >
+                  <IconX s={14} /> נקה סינון
+                </button>
+              ) : null}
+          </div>
 
           {visible.length === 0 ? (
             /*
@@ -792,12 +1162,7 @@ export default function PropertiesPage() {
               </p>
               <Button
                 variant="secondary"
-                onClick={() => {
-                  setFilters(EMPTY_FILTERS);
-                  setCity("הכל");
-                  setStatus("");
-                  setType("");
-                }}
+                onClick={clearFilters}
               >
                 ניקוי הסינון
               </Button>
@@ -940,9 +1305,36 @@ export default function PropertiesPage() {
                   עובדות בדיוק, במקום שבו קוראים אותן ממילא, והרוחב
                   שהתפנה הלך לעמודת הפעולה.
                 */}
-                <div className="mv-list-head" style={{ gridTemplateColumns: GRID }}>
+                <div
+                  /*
+                    ‎`mv-list-head--select` בדיוק כשיש תיבות סימון: הן
+                    מזיזות את תחילת השורה, והכותרת חייבת לזוז איתן.
+                  */
+                  className={`mv-list-head${maySelect ? " mv-list-head--select" : ""}`}
+                  style={{ gridTemplateColumns: GRID }}
+                >
+                  {/*
+                    ‎**„סמן הכל” בראש עמודת הסימון** (בקשת המשתמש).
+
+                    ‏היא ישבה כצ׳יפ בשורת הסינונים — כלומר פקד בחירה
+                    ‏בין פקדי סינון, רחוק מהתיבות שהוא מפעיל. עכשיו
+                    ‏היא בדיוק מעליהן, במרזב שכבר נפתח בשבילן, ותא
+                    ‏„נכס” חוזר להיות תווית בלבד. אותו דגם כמו במסך
+                    ‏הקונים.
+                  */}
+                  {maySelect ? (
+                    <input
+                      type="checkbox"
+                      checked={allVisibleSelected}
+                      onChange={toggleAll}
+                      disabled={visible.length === 0}
+                      aria-label="בחר את כל הנכסים המוצגים"
+                      title="בחר הכל"
+                    />
+                  ) : null}
                   <span>נכס</span>
                   <span>סטטוס</span>
+                  <span>סוכן מטפל</span>
                   <span>מוכנות לשיווק</span>
                   <span>מחיר</span>
                   <span>התאמות</span>
@@ -994,10 +1386,20 @@ export default function PropertiesPage() {
                             .join(" · ") || "—"}
                         </span>
                       </span>
-                      <span>
+                      <span className="min-w-0">
                         <span className={`mv-pill ${statusDomain(p.status)}`}>
                           {STATUS_LABELS[p.status] ?? p.status}
                         </span>
+                      </span>
+                      {/*
+                        ‎**הסוכן בעמודה משלו.** שתי גלולות בתא אחד
+                        מתחת לכותרת „סטטוס” קראו כמו סתירה: „טיוטה”
+                        ו„לא משויך” הן שתי תשובות לשתי שאלות שונות.
+                      */}
+                      <span className="min-w-0">
+                        <AgentTag
+                          {...(p.agentName === undefined ? {} : { name: p.agentName })}
+                        />
                       </span>
                       <span className="flex flex-col gap-1">
                         <span className="flex items-center gap-2">
@@ -1064,105 +1466,26 @@ export default function PropertiesPage() {
             </>
           )}
 
-          {/*
-            ‎**סרגל הפעולות בתחתית הכרטיס, וקבוע.**
-
-            הוא הופיע ונעלם לפי הבחירה, ולכן הרשימה קפצה בכל סימון
-            ראשון — והפעולות עצמן היו מפתיעות: איש לא ידע שהן קיימות
-            עד שסימן. עכשיו הן שם תמיד, ומושבתות עד שיש על מה להפעיל
-            אותן. „נבחרו 0” הוא מצב, לא שגיאה.
-          */}
-          {maySelect && visible.length > 0 ? (
-            <div
-              className="mt-4 flex flex-wrap items-center gap-2 border-t pt-4"
-              style={{ borderColor: "var(--color-border)" }}
-            >
-              <strong className="text-[length:var(--type-body-sm)]" role="status">
-                נבחרו {selectedVisible.length} נכסים
-              </strong>
-              {/*
-                ‎**מבוטל לפי `selected`, ולא לפי מה שנראה כרגע.**
-
-                סינון שמסתיר את כל מה שנבחר מאפס את `selectedVisible`
-                אבל לא את הבחירה עצמה — והכפתור היחיד שמנקה אותה היה
-                מושבת. הבחירה נתקעה, וצצה שוב כשהסינון נוקה (ביקורת
-                Codex). הסרגל הישן לא סבל מזה כי הוא כולו נעלם.
-              */}
-              <button
-                type="button"
-                className="mv-btn-plain"
-                disabled={bulkBusy || selected.size === 0}
-                onClick={() => setSelected(new Set())}
-              >
-                בטל בחירה
-                {selected.size > selectedVisible.length
-                  ? ` (${selected.size - selectedVisible.length} מוסתרים בסינון)`
-                  : ""}
-              </button>
-              <span className="ms-auto flex flex-wrap items-center gap-2">
-                {/*
-                  ‎**„שליחה לקונים” פועלת על נכס אחד.**
-
-                  בצילום היא נראית כפעולה מרוכזת, אבל שליחת הצעה היא
-                  בחירה של **קונים מתוך ההתאמות של נכס מסוים** — אין
-                  לה משמעות על חמישה נכסים יחד, וכפתור שנראה פעיל
-                  ואינו עושה דבר גרוע מכפתור מושבת. עם נכס אחד מסומן
-                  הוא פותח את ההתאמות שלו, ששם ההצעה נשלחת.
-                */}
-                <button
-                  type="button"
-                  className="mv-btn-plain"
-                  disabled={bulkBusy || selectedVisible.length !== 1}
-                  title={
-                    selectedVisible.length === 1
-                      ? "פתיחת ההתאמות של הנכס שנבחר"
-                      : "בחרו נכס אחד — ההצעה נשלחת לקונים של נכס מסוים"
-                  }
-                  onClick={() => {
-                    const one = selectedVisible[0];
-                    if (one) router.push(`/matches?property=${one.id}`);
-                  }}
-                >
-                  שליחה לקונים
-                </button>
-                {mayShare ? (
-                  <button
-                    type="button"
-                    className="mv-btn-plain"
-                    disabled={bulkBusy || selectedVisible.length === 0}
-                    onClick={() => void shareSelected()}
-                    style={{ color: "var(--color-primary)" }}
-                  >
-                    {bulkBusy ? "מפרסם…" : "שיתוף לרשת"}
-                  </button>
-                ) : null}
-                {mayDelete ? (
-                  <>
-                    <button
-                      type="button"
-                      className="mv-btn-plain"
-                      disabled={bulkBusy || selectedVisible.length === 0}
-                      onClick={() => void removeSelected(false)}
-                    >
-                      העבר לארכיון
-                    </button>
-                    <button
-                      type="button"
-                      className="mv-btn-plain"
-                      disabled={bulkBusy || selectedVisible.length === 0}
-                      onClick={() => void removeSelected(true)}
-                      style={{ color: "var(--color-danger)" }}
-                    >
-                      מחק לצמיתות
-                    </button>
-                  </>
-                ) : null}
-              </span>
-            </div>
-          ) : null}
           </div>
 
           <CapNote show={filtering && items.length === 100} noun="נכסים" />
+
+          {/*
+            ‎**השאלה, האזהרה והחלופה — באותו חלון** (בקשת המשתמש).
+
+            ‏הן היו `window.confirm` וכפתור „העבר לארכיון” נפרד
+            ‏בסרגל: מי שהתכוון לארכיון היה צריך לדעת מראש שהוא קיים,
+            ‏ומי שקרא את האזהרה כבר לא ראה אותו. אותו רכיב משרת גם
+            ‏את כרטיס הנכס, ולכן הניסוח והכללים אינם נכתבים פעמיים.
+          */}
+          <PropertyRemovalDialog
+            open={removalOpen}
+            count={selectedVisible.length}
+            impact={bulkImpact}
+            archive={() => bulkRemove(false)}
+            remove={() => bulkRemove(true)}
+            onClose={() => setRemovalOpen(false)}
+          />
         </>
       )}
     </>

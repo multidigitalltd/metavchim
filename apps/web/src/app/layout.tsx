@@ -14,6 +14,23 @@ export const metadata: Metadata = {
   },
   description: "המתווך סוגר עסקאות. המערכת מטפלת בכל השאר.",
   manifest: "/manifest.webmanifest",
+  /*
+   * ‎**הסמל בלשונית הדפדפן.**
+   *
+   * ‎`public/icon.svg` היה קיים מזמן, אבל רק ה-manifest הצביע עליו —
+   * וה-manifest נקרא בהתקנה כאפליקציה, לא בלשונית. Next מחבר סמל
+   * אוטומטית רק לקובץ שיושב ב-`app/icon.*`, ולכן הלשונית הציגה את
+   * ברירת המחדל של הדפדפן: דף בלי זהות, בין עשרים לשוניות אחרות.
+   *
+   * הכרזה מפורשת ולא העתקת הקובץ אל `app/`: עותק שני של אותו סמל
+   * הוא עותק שאחד משניהם יישאר מאחור בעדכון המותג הבא.
+   *
+   * ‎**SVG בלבד, ובלי רסטר.** כל הדפדפנים שהמערכת רצה בהם תומכים בו
+   * בלשונית. ‎`apple-touch-icon` של iOS אכן דורש PNG, אבל PNG הוא
+   * קובץ שני שמצויר פעם אחת ואחר כך נשאר מאחור בעדכון המותג הבא —
+   * ואת הסמל בלשונית, מה שנתבקש כאן, ה-SVG נותן במלואו.
+   */
+  icons: { icon: [{ url: "/icon.svg", type: "image/svg+xml" }] },
   robots: { index: false }, // אפליקציה פנימית — לא לאינדוקס
 };
 
@@ -46,6 +63,23 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   return (
     <html lang="he" dir="rtl">
       <head>
+        {/* שני המשקלים שכמעט כל מסך פותח בהם נטענים מיד, בלי להמתין
+            ל-CSS — מקצר את חלון ה-FOUT של font-display: swap.
+            השאר (medium/ultrabold) נטענים כרגיל לפי הצורך. */}
+        <link
+          rel="preload"
+          href="/fonts/almoni-regular-aaa.woff2"
+          as="font"
+          type="font/woff2"
+          crossOrigin="anonymous"
+        />
+        <link
+          rel="preload"
+          href="/fonts/almoni-bold-aaa.woff2"
+          as="font"
+          type="font/woff2"
+          crossOrigin="anonymous"
+        />
         {/* יישום ערכת הנושא לפני הצביעה הראשונה — בלי זה מסך כהה
             שנבחר ידנית היה מהבהב בלבן בכל טעינת דף */}
         <script nonce={nonce} dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />

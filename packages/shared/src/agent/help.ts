@@ -54,6 +54,7 @@ const GROUPS: { label: string; ids: readonly string[] }[] = [
       "show_notifications",
       "mark_notifications_read",
       "show_callbacks",
+      "convert_call",
       "show_leads",
       "show_calls",
       "log_call",
@@ -83,6 +84,7 @@ const GROUPS: { label: string; ids: readonly string[] }[] = [
       "update_task",
       "create_recurring_task",
       "assign_task",
+      "transfer_lead",
       "add_note",
       "dismiss_match",
     ],
@@ -97,12 +99,31 @@ const GROUPS: { label: string; ids: readonly string[] }[] = [
       "send_message",
       "call_contact",
       "send_intake_form",
+      "open_intake_link",
       "message_owner",
       "send_owner_update",
       "show_offers",
       "show_agreements",
       "show_retained_documents",
       "show_emails",
+    ],
+  },
+  {
+    label: "נכסים לגיוס",
+    ids: ["show_recruitment", "create_recruitment", "update_recruitment_status"],
+  },
+  {
+    label: "צוות המשרד",
+    ids: ["show_team", "add_agent"],
+  },
+  {
+    label: "ההגדרות שלי",
+    ids: [
+      "show_profile",
+      "update_profile",
+      "update_notifications",
+      "show_office_settings",
+      "update_office_policy",
     ],
   },
   {
@@ -138,7 +159,19 @@ const GROUPS: { label: string; ids: readonly string[] }[] = [
       "mentor_goal",
       "mentor_commit",
       "mentor_reflect",
+      "mentor_practice",
     ],
+  },
+  {
+    /*
+     * ‎**קבוצה משלה, ולא „עזרה”.**
+     *
+     * ‏מסונן ממילא ב-`billing.manage`, כך שרק מי שמנהל את החיוב
+     * ‏רואה אותה. מי שכן — מחפש אותה כשהמערכת בדיוק הפסיקה
+     * ‏לעבוד, וקבורה בתוך „עזרה” היא בדיוק לא הרגע לחפש.
+     */
+    label: "המנוי והחיוב",
+    ids: ["show_subscription", "renew_subscription"],
   },
   {
     label: "הפורום המקצועי",

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { IdSchema, MoneyAgorotSchema } from "./common.js";
 import { PropertyTypeSchema, DealTypeSchema } from "./property.js";
+import { FLOOR_CHOICES, FLOOR_MAX, FLOOR_MIN } from "../logic/floor-preference.js";
 import {
   MAX_SEARCH_AREAS,
   MAX_SEARCH_RADIUS_KM,
@@ -51,7 +52,46 @@ export const FINANCING_LABELS: Record<FinancingStatus, string> = {
   unknown: "לא ידוע",
 };
 
+/**
+ * ‎**הקומה הרצויה — טווח או רשימה, ולעולם לא שניהם.**
+ *
+ * מיוצא בנפרד כי הטופס במסך צריך לאמת בדיוק את מה שהשרת יקבל: שדה
+ * שנשלח כ-JSON וסונן בכללים משלו הוא כלל שני שיתיישן.
+ */
+export const FloorPreferenceSchema = z.union([
+  z.object({
+    mode: z.literal("range"),
+    min: z.number().int().min(FLOOR_MIN).max(FLOOR_MAX).optional(),
+    max: z.number().int().min(FLOOR_MIN).max(FLOOR_MAX).optional(),
+  }),
+  z.object({
+    mode: z.literal("list"),
+    floors: z
+      .array(z.number().int().min(FLOOR_MIN).max(FLOOR_MAX))
+      .min(1)
+      .max(FLOOR_CHOICES.length),
+  }),
+]);
+export type FloorPreference = z.infer<typeof FloorPreferenceSchema>;
+
 /** דרישה בודדת של קונה: חובה או עדיפות — ההבחנה מזינה ישירות את מנוע ההתאמות. */
+/**
+ * ‎**עמדת הקונה כלפי רישום בטאבו משותף (מושאע).**
+ *
+ * ‏שלושה מצבים ולא שניים, ו-`undefined` הוא המצב השלישי: **טרם
+ * ‏נשאל.** זו אינה זהירות פורמלית אלא ההבדל בין „הקונה אמר לא”
+ * ‏לבין „איש לא שאל אותו”, ושתי התשובות מובילות לפעולה הפוכה של
+ * ‏המתווך — האחת סוגרת את הנכס והשנייה פותחת שיחה.
+ *
+ * ‏אילו החוסר היה נקרא כסירוב, כל אלפי הקונים שקדמו לשדה היו
+ * ‏מפסיקים לראות נכסים בטאבו משותף באותו רגע, בלי שאיש בחר בכך.
+ * ‏אילו הוא היה נקרא כהסכמה, המערכת הייתה ממציאה הסכמה משפטית
+ * ‏בשם הלקוח. לכן הוא נשאר „לא ידוע”, מוצג ככזה, ואינו מפעיל
+ * ‏שותפויות.
+ */
+export const SharedTabuStanceSchema = z.enum(["accepts", "refuses"]);
+export type SharedTabuStance = z.infer<typeof SharedTabuStanceSchema>;
+
 export const RequirementLevelSchema = z.enum(["must", "nice"]);
 
 export const BuyerRequirementsSchema = z.object({
@@ -103,6 +143,21 @@ export const BuyerRequirementsSchema = z.object({
   roomsMin: z.number().multipleOf(0.5).optional(),
   roomsMax: z.number().multipleOf(0.5).optional(),
   areaSqmMin: z.number().int().optional(),
+  /**
+   * ‎**הקומה הרצויה — טווח או רשימה, ולעולם לא שניהם.**
+   *
+   * ‎„משלוש ומעלה” ו„קרקע או ראשונה” הן שתי דרישות שונות בצורתן, ולא
+   * רק בערכיהן: הראשונה פתוחה בקצה אחד, השנייה היא בחירה של קומות
+   * בודדות מסיבות שונות. שדה אחד שמנסה לשאת את שתיהן היה מוליד את
+   * השאלה „מה גובר”, ולכל תשובה יש מקרה שבו היא מפתיעה.
+   *
+   * ‎`union` מתויג מונע את השאלה מלהיוולד: המצבים אינם יכולים
+   * להתקיים יחד — לא במסד, לא בזיכרון ולא במסך.
+   *
+   * חסר = לא נאמר, וקונה כזה מתאים לכל קומה. ראו
+   * ‎`logic/floor-preference.ts`.
+   */
+  floorPreference: FloorPreferenceSchema.optional(),
   /** מאפיין → רמת דרישה. למשל: { hasElevator: "must", hasSafeRoom: "nice" } */
   /*
    * מפתח חופשי ולא `enum` סגור: מאז שהמשרד יכול להוסיף מאפיינים
@@ -122,6 +177,16 @@ export const BuyerRequirementsSchema = z.object({
   /** רלוונטי ל-`by_date` בלבד. */
   entryBy: z.coerce.date().optional(),
   flexibilityNotes: z.string().max(1000).optional(),
+  /**
+   * ‎**האם הקונה מוכן לרכוש נכס הרשום בטאבו משותף.**
+   *
+   * ‏כאן ולא על הכרטיס האישי, ובכוונה: `contacts.shared_tabu` אומר
+   * ‏שאדם **קשור** לרישום משותף — מוכר שהחלקה שלו כזו, שותף קיים —
+   * ‏וזו עובדה על האדם. השאלה כאן היא מה הוא מוכן **לקנות**, וזו
+   * ‏העדפה של הקונה ככל העדפה אחרת. שדה אחד שנושא את שתיהן היה
+   * ‏מציע לבעל חלקה משותפת לקנות מושאע רק משום שהוא מוכר כזה.
+   */
+  sharedTabu: SharedTabuStanceSchema.optional(),
 });
 export type BuyerRequirements = z.infer<typeof BuyerRequirementsSchema>;
 

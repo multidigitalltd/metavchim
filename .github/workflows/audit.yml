@@ -1,0 +1,42 @@
+# ‏סריקת התלויות היומית — הצד השני של ההקלה ב-`ci.yml`.
+#
+# ‏השער שרץ על כל PR אינו מפיל את הבנייה כששרת ה-audit של npm אינו
+# מגיב, כי אדום שחוזר בלי קשר לשינוי מלמד את הקוראים להתעלם ממנו.
+# המחיר הוא חלון שבו הסריקה אינה מתבצעת — והסבב הזה הוא מה שסוגר
+# אותו: פעם ביום, במצב חמור, שבו **גם** תקלת רשת היא כישלון.
+#
+# ‏למה זה עובד כאן ולא שם: סבב שרץ פעם ביום יכול לדרוש תשובה. אם
+# npm למטה בבוקר אחד, אדום אחד ביום נראה — ואיש אינו חסום בגללו.
+name: Audit
+
+on:
+  schedule:
+    # 04:10 UTC — לפני תחילת יום העבודה בישראל, ולא על השעה העגולה
+    # (שם GitHub עמוס והריצה נדחית).
+    - cron: "10 4 * * *"
+  # ‏להרצה ידנית אחרי עדכון תלויות, בלי לחכות למחר.
+  workflow_dispatch:
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # ‎`--require-report` — כאן תקלת רשת **היא** כישלון. זה ההבדל
+      # היחיד מהשער שב-`ci.yml`, והוא כל הטעם בקיומו של הסבב הזה.
+      - name: Audit dependencies (strict)
+        env:
+          npm_config_fetch_timeout: "300000"
+          npm_config_fetch_retries: "4"
+        run: pnpm audit:deps --require-report

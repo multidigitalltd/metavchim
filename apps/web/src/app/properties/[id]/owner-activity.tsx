@@ -9,8 +9,9 @@ import {
   type OwnerActivityKind,
   type OwnerActivityResult,
 } from "@metavchim/shared";
-import { API_BASE, apiGet } from "@/lib/api";
+import { API_BASE, ApiError, apiGet, apiPost } from "@/lib/api";
 import { useCopy } from "@/lib/clipboard";
+import { IconSheet } from "../../icons";
 import { Notice } from "../../notice";
 
 /**
@@ -36,7 +37,16 @@ interface ActivityReport {
   entries: ActivityEntry[];
   summary: { total: number; held: number; upcoming: number; inquiries: number; lastAt?: string };
   truncated: boolean;
+  /**
+   * ‏במה אפשר להגיע לבעל הנכס — מהשרת, כי פרטיו מוצפנים והמסך אינו
+   * מחזיק אותם. השדה אופציונלי כדי שגרסת מסך חדשה מול שרת ישן לא
+   * תקרוס; היעדרו נקרא כ„אין ערוצים”, וזו התשובה הבטוחה.
+   */
+  owner?: { name?: string; whatsapp: boolean; email: boolean };
 }
+
+/** ‏באיזה ערוץ הדוח יוצא — המתווך בוחר. */
+type SendChannel = "whatsapp" | "email";
 
 /** שלוש התקופות שמתווך באמת מבקש, ולא בורר תאריכים שאיש לא ממלא. */
 const PERIODS = [
@@ -86,10 +96,13 @@ export function OwnerActivity({
   propertyId,
   propertyLabel,
   officeName,
+  canSend,
 }: {
   propertyId: string;
   propertyLabel: string;
   officeName: string;
+  /** ‏`properties.edit` — השליחה יוצאת ללקוח בשם המשרד. */
+  canSend: boolean;
 }) {
   /*
    * התקופה **וגבול הטווח שלה יחד**, בעדכון מצב אחד.
@@ -108,6 +121,12 @@ export function OwnerActivity({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [downloading, setDownloading] = useState(false);
+  /*
+   * ‎`null` = לא נשלח כלום כרגע. שם הערוץ = הכפתור הזה בעבודה —
+   * ולא דגל בוליאני אחד, שהיה מנטרל את שני הכפתורים כשנלחץ אחד.
+   */
+  const [sending, setSending] = useState<SendChannel | null>(null);
+  const [sent, setSent] = useState<string | null>(null);
   const copy = useCopy();
   /*
    * מונה בקשות. בלעדיו החלפת תקופה מהירה משאירה שתי טעינות באוויר,
@@ -182,6 +201,44 @@ export function OwnerActivity({
     }
   }
 
+  /**
+   * ‎**השליחה בפועל — הפעולה שהמסך הזה לא ידע לעשות.**
+   *
+   * ‏עד עכשיו היו כאן „הורדת קובץ” ו„העתקת הודעה”, כלומר הדוח נבנה
+   * והמתווך היה אמור להדביק אותו בעצמו לוואטסאפ. מי שלא עשה זאת
+   * השאיר את בעל הנכס בלי דוח, ומהמסך זה נראה כאילו נשלח.
+   *
+   * ‏השגיאה מהשרת מוצגת כלשונה ולא מוחלפת ב„השליחה נכשלה”: היא
+   * אומרת **מה** חסם — אין אימייל בכרטיס, הוואטסאפ אינו מחובר,
+   * חלון 24 השעות של Meta נסגר — וזה ההבדל בין מתווך שיודע מה
+   * לעשות עכשיו לבין מתווך שלוחץ שוב.
+   */
+  async function send(channel: SendChannel): Promise<void> {
+    setSending(channel);
+    setError(null);
+    setSent(null);
+    try {
+      const periodLabel = PERIODS.find((p) => p.key === selection.period)?.label ?? "כל התקופה";
+      const result = await apiPost<{ channel: SendChannel; to: string; count: number }>(
+        `/properties/${propertyId}/activity/send${query}`,
+        { channel, periodLabel },
+      );
+      setSent(
+        channel === "whatsapp"
+          ? `הדוח נשלח בוואטסאפ אל ${result.to}`
+          : `הדוח נשלח באימייל אל ${result.to}, עם הרשימה המלאה כקובץ מצורף`,
+      );
+    } catch (err) {
+      setError(
+        err instanceof ApiError && err.message.trim() !== ""
+          ? err.message
+          : "שליחת הדוח נכשלה — אפשר להעתיק את ההודעה ולשלוח ידנית",
+      );
+    } finally {
+      setSending(null);
+    }
+  }
+
   function messageText(): string {
     const periodLabel = PERIODS.find((p) => p.key === selection.period)?.label ?? "כל התקופה";
     return ownerActivityText({
@@ -207,25 +264,64 @@ export function OwnerActivity({
   const empty = report !== null && report.entries.length === 0;
 
   return (
-    <section className="mv-list-card px-[22px] py-[18px]">
-      <h2 className="m-0 text-[length:calc(17/16*1rem)] font-bold">דוח פעילות לבעל הנכס</h2>
-      <p className="m-0 mt-[6px] text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
+    <section className="mv-card mv-card--pad">
+      {/* אריח, שם, ובקצה בורר התקופה — אותה כותרת של כל כרטיס במערכת */}
+      <div className="mv-card-head">
+        <span className="mv-tile mv-tile--44 mv-domain-green" aria-hidden="true">
+          <IconSheet s={20} />
+        </span>
+        <h2 className="mv-card-head__title">דוח פעילות לבעל הנכס</h2>
+        <div className="mv-seg ms-auto" role="group" aria-label="תקופת הדוח">
+          {PERIODS.map((option) => (
+            <button
+              key={option.key}
+              type="button"
+              aria-pressed={selection.period === option.key}
+              onClick={() => choose(option.key)}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <p
+        className="m-0 text-[length:var(--type-caption-lg)]"
+        style={{ color: "var(--color-text-muted)" }}
+      >
         ביקורים, פגישות ופניות של מתעניינים בנכס. בלי שמות, בלי מספרי טלפון ובלי תוכן השיחות.
       </p>
 
-      <div className="mt-[14px] flex flex-wrap gap-2">
-        {PERIODS.map((option) => (
-          <button
-            key={option.key}
-            type="button"
-            className="mv-chip"
-            aria-pressed={selection.period === option.key}
-            onClick={() => choose(option.key)}
-          >
-            {option.label}
-          </button>
-        ))}
-      </div>
+      {/*
+        ‎**ארבעה אריחים לפני הטבלה.**
+
+        השאלה שבעל נכס שואל היא „כמה”, והתשובה הייתה משפט אחד באמצע
+        הכרטיס. ארבעת המספרים נסרקים במבט, והטבלה שמתחתיהם היא
+        הפירוט למי שרוצה שורה־שורה. המספרים הם מה שהשרת החזיר —
+        ‎`summary` — ולא ספירה של השורות שהוצגו.
+      */}
+      {report === null ? null : (
+        <dl className="mt-[14px] grid grid-cols-2 gap-2.5 sm:gap-3 lg:grid-cols-4">
+          {[
+            { label: "מפגשים שהתקיימו", value: report.summary.held },
+            { label: "נקבעו וטרם התקיימו", value: report.summary.upcoming },
+            { label: "פניות מתעניינים", value: report.summary.inquiries },
+            { label: "סה״כ פעולות", value: report.summary.total },
+          ].map((tile) => (
+            <div
+              key={tile.label}
+              /* „אפס לעולם אינו נראה ככישלון” — אריח שערכו אפס עובר לניטרלי */
+              className={`mv-kpi mv-kpi--sm ${
+                tile.value === 0 ? "mv-domain-neutral" : "mv-domain-green"
+              }`}
+            >
+              <dt className="mv-kpi__head">
+                <span className="mv-kpi__label">{tile.label}</span>
+              </dt>
+              <dd className="mv-kpi__value">{tile.value}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
 
       {error ? <Notice tone="danger">{error}</Notice> : null}
 
@@ -243,16 +339,6 @@ export function OwnerActivity({
 
       {!loading && report !== null && report.entries.length > 0 ? (
         <>
-          <p className="m-0 mt-[14px] text-[length:var(--type-caption-lg)] font-bold">
-            {[
-              report.summary.held > 0 ? `${report.summary.held} מפגשים התקיימו` : null,
-              report.summary.upcoming > 0 ? `${report.summary.upcoming} נקבעו וטרם התקיימו` : null,
-              report.summary.inquiries > 0 ? `${report.summary.inquiries} פניות` : null,
-            ]
-              .filter((part): part is string => part !== null)
-              .join(" · ")}
-          </p>
-
           <div className="mt-[12px] max-h-[360px] overflow-auto">
             <table className="w-full border-collapse text-[length:var(--type-caption)]">
               <thead>
@@ -293,7 +379,57 @@ export function OwnerActivity({
             </Notice>
           ) : null}
 
+        </>
+      ) : null}
+
+      {/*
+        ‏פעולות המסירה מחוץ לענף „יש שורות”: תקופה בלי פעילות היא
+        דוח לגיטימי — השרת ובונה המייל שולחים עליה „לא נרשמה פעילות
+        בתקופה זו”, וזה בדיוק מה שבעל נכס ששאל „מה קורה” צריך לקבל.
+        כשהכפתורים ישבו בפנים, המצב הזה היה נתמך בשרת ובלתי אפשרי
+        מהמסך (ביקורת Codex).
+      */}
+      {!loading && report !== null ? (
+        <>
+          {sent ? <Notice tone="success">{sent}</Notice> : null}
+
+          {/*
+            ‏שתי השליחות ראשונות ומודגשות, ואחריהן ההורדה וההעתקה.
+            הסדר הוא ההבדל: עד עכשיו הפעולה הראשונה במסך הייתה
+            „הורדת קובץ”, כלומר המסך הציע למתווך לעשות את השליחה
+            בעצמו — וזה בדיוק מה שלא קרה.
+          */}
           <div className="mt-[14px] flex flex-wrap gap-2">
+            <button
+              type="button"
+              className="mv-button mv-button--primary"
+              disabled={sending !== null || !canSend || report.owner?.whatsapp !== true}
+              title={
+                !canSend
+                  ? "שליחה לבעל הנכס דורשת הרשאת עריכת נכסים"
+                  : report.owner?.whatsapp === true
+                    ? undefined
+                    : "אין טלפון בכרטיס בעל הנכס — אפשר להוסיף אותו בכרטיס"
+              }
+              onClick={() => void send("whatsapp")}
+            >
+              {sending === "whatsapp" ? "שולח…" : "שליחה בוואטסאפ"}
+            </button>
+            <button
+              type="button"
+              className="mv-button mv-button--secondary"
+              disabled={sending !== null || !canSend || report.owner?.email !== true}
+              title={
+                !canSend
+                  ? "שליחה לבעל הנכס דורשת הרשאת עריכת נכסים"
+                  : report.owner?.email === true
+                    ? undefined
+                    : "אין אימייל בכרטיס בעל הנכס — אפשר להוסיף אותו בכרטיס"
+              }
+              onClick={() => void send("email")}
+            >
+              {sending === "email" ? "שולח…" : "שליחה באימייל"}
+            </button>
             <button
               type="button"
               className="mv-btn-plain"
@@ -303,6 +439,10 @@ export function OwnerActivity({
             >
               {downloading ? "מוריד…" : "הורדת קובץ"}
             </button>
+            {/*
+              ‏ההעתקה נשארת: היא המסלול של מי שרוצה לשלוח בערוץ אחר,
+              והיא גם מה שהשגיאות מפנות אליו כשהשליחה נחסמה.
+            */}
             <button
               type="button"
               className="mv-btn-plain"

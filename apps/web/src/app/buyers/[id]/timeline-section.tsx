@@ -63,6 +63,11 @@ const KINDS: Record<string, { icon: ReactNode; label: string; fg: string; bg: st
   whatsapp: { icon: <IconChat s={14} />, label: "וואטסאפ", fg: "var(--domain-amber-fg)", bg: "var(--domain-amber-bg)" },
   status_change: { icon: <IconRefresh s={14} />, label: "שינוי סטטוס", fg: "var(--color-danger)", bg: "var(--color-danger-soft)" },
   system: { icon: <IconGear s={14} />, label: "מערכת", fg: "var(--chip-neutral-fg)", bg: "var(--chip-neutral-bg)" },
+  /*
+   * ‏הצעת נכס שיצאה לקונה. בלי השורה הזו היא נופלת ל-`FALLBACK`
+   * ‏ומוצגת כ„אירוע” — נכון אבל חסר תועלת.
+   */
+  email: { icon: <IconDoc s={14} />, label: "מייל", fg: "var(--domain-blue-fg)", bg: "var(--domain-blue-bg)" },
 };
 
 const FALLBACK = { icon: <IconDoc s={14} />, label: "אירוע", fg: "var(--chip-neutral-fg)", bg: "var(--chip-neutral-bg)" };

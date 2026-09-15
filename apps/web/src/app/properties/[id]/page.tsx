@@ -4,7 +4,6 @@ import {
   useCallback,
   useEffect,
   useMemo,
-  useRef,
   useState,
   use,
   type ReactNode,
@@ -12,17 +11,25 @@ import {
 import Link from "next/link";
 import {
   describeEntry,
+  formatPropertyAddress,
   labelOf,
+  propertyConditionLabel,
+  DEAL_STATUSES,
+  partnershipApplies,
+  pricePerSqmAgorot,
   propertyEvaluableCriteria,
+  PROPERTY_FACING_LABELS,
   PropertyStatusSchema,
   type MatchCriterion,
   type OccupancyState,
+  type PropertyCondition,
+  type PropertyFacing,
   type PropertyFields,
   type PropertyStatus,
   type ScoreComponent,
 } from "@metavchim/shared";
 import { useRouter } from "next/navigation";
-import { apiDelete, apiGet, apiList, apiPatch, apiPost, ApiError } from "@/lib/api";
+import { apiGet, apiList, apiPatch, apiPost, ApiError } from "@/lib/api";
 import { useCopy } from "@/lib/clipboard";
 import {
   formatDate,
@@ -53,8 +60,10 @@ import { DocumentsPanel } from "../../documents-panel";
 import { EntityTasks, type TaskListResponse } from "../../entity-tasks";
 import { PropertyOwner, type OwnerContact } from "../property-owner";
 import { OwnerActivity } from "./owner-activity";
+import { PartnerSuggestions } from "./partner-suggestions";
+import { PriceBenchmark } from "./price-benchmark";
 import { PropertyOccupant, type OccupantContact } from "../property-occupant";
-import { LocationPicker } from "../location-picker";
+import { LocationPicker } from "../location-picker-lazy";
 import { ExclusivityPanel } from "../exclusivity-panel";
 import { EntityNotes } from "../../entity-notes";
 import { EntityTabs, TabPanel, useEntityTab } from "../../entity-tabs";
@@ -72,7 +81,11 @@ import {
 } from "../../icons";
 import { IconAction } from "../../icon-action";
 import { LoadError } from "../../load-error";
+import { AgentPicker } from "../../agent-picker";
+import { PartnerField } from "../partner-field";
 import { Notice } from "../../notice";
+import { DeletePropertyDialog } from "../delete-property-dialog";
+import { PropertyPitchDialog } from "../../property-pitch-dialog";
 
 /**
  * כרטיס הנכס לפי קובץ העיצוב: כרטיס כותרת עם מחיר ופעולות (עריכה /
@@ -85,6 +98,7 @@ interface PropertyDetail {
   city?: string;
   neighborhood?: string;
   street?: string;
+  houseNumber?: string;
   latitude?: number;
   longitude?: number;
   /** בארכיון — רק אז מוצגת מחיקה לצמיתות. */
@@ -108,6 +122,9 @@ interface PropertyDetail {
   hasElevator?: boolean;
   hasParking?: boolean;
   hasBalcony?: boolean;
+  sharedTabu?: boolean;
+  facing?: PropertyFacing;
+  condition?: PropertyCondition;
   hasSafeRoom?: boolean;
   priceAgorot?: number;
   entryDate?: string;
@@ -121,9 +138,18 @@ interface PropertyDetail {
    */
   status: PropertyStatus;
   marketingTitle?: string;
+  /** הסוכן המטפל. חסר = לא משויך. */
+  agentName?: string;
+  agentUserId?: string;
+  partnerUserId?: string;
+  partnerName?: string;
   readinessScore: number;
   missingFields: string[];
   ownerContact?: OwnerContact;
+  /** ‏יש בעלים, והוא אינו מוצג למשתמש הזה. **לא** „אין בעלים”. */
+  ownerRedacted?: boolean;
+  /** ‏יש דייר, והוא אינו מוצג למשתמש הזה. */
+  occupantRedacted?: boolean;
   /** מי גר בנכס כשזה אינו הבעלים — דירה שמושכרת בזמן שהיא מוצעת. */
   occupantContact?: OccupantContact;
   /**
@@ -373,6 +399,17 @@ export default function PropertyDetailPage({
       .catch(() => setOpenTasks(undefined));
   }, [id]);
   const canEditOwner = can(user, "properties.edit");
+  /*
+   * ‎**הבורר נשען על `tasks.assign`, ולא על `properties.edit`.**
+   *
+   * הרשימה שהוא מציג מגיעה מ-`/tasks/assignees`, שדורש `tasks.assign`.
+   * ‎`agent` ו-`assistant` מחזיקים ב-`properties.edit` ולא בה, ולכן
+   * הבקשה חוזרת 403, הרשימה נשארת ריקה, והבורר שנפתח מציע „לא
+   * משויך” בלבד — פקד שנראה עובד ואינו יכול לשייך לאיש (ביקורת
+   * Codex). מי שאין לו את היכולת רואה את התגית, שהיא ממילא כל מה
+   * שהוא צריך: העברת נכס בין סוכנים היא פעולת מנהל.
+   */
+  const canAssignAgent = can(user, "tasks.assign");
   // אנשי הקשר של הבעלים נאכפים ב-ContactsController תחת buyers.edit
   const canEditOwnerPeople = can(user, "buyers.edit");
   const canLanding = useFeature("landing_pages");
@@ -387,26 +424,15 @@ export default function PropertyDetailPage({
    * חשובה יותר, וזו בדיוק ההחלטה שהוא רוצה לא לקבל.
    */
   const [matchFilters, setMatchFilters] = useState<Set<string>>(new Set());
-  const [archiveConfirm, setArchiveConfirm] = useState(false);
-  const [purgeConfirm, setPurgeConfirm] = useState(false);
-  /**
-   * כמה כרטיסי אדם יירדו עם הנכס — `"loading"` עד שהתשובה חוזרת,
-   * `"unknown"` כשהבדיקה עצמה נכשלה.
-   *
-   * שלושה מצבים ולא שניים, ומאותה סיבה שהבאנר של דף הנחיתה למד:
-   * „כל מה שאינו מספר = אפס” היה מבטיח „לא יימחק אף כרטיס” בדיוק
-   * כשלא ידענו.
-   */
-  const [purgeImpact, setPurgeImpact] = useState<number | "loading" | "unknown">(
-    "loading",
-  );
   /*
-   * תשובה של בדיקה שכבר בוטלה לא תכתוב על המסך. אותו מונה בדיוק
-   * שתיבת התמיכה נזקקה לו — לחיצה, ביטול, ולחיצה שנייה משאירים שתי
-   * בקשות באוויר, והישנה עלולה לחזור אחרונה.
+   * ‎**דגל אחד במקום מכונת אישורים.**
+   *
+   * כאן ישבו `archiveConfirm`, `purgeConfirm`, `purgeImpact`, מונה
+   * שמבטל תשובות ישנות ושדה שגיאה — כולם כדי לנהל אישור דו-לחיצה
+   * שהיה מפוזר על שני כפתורים בתחתית העמוד. החלון מנהל את כל אלה
+   * בתוכו, ונסגר יחד איתם.
    */
-  const purgeSeq = useRef(0);
-  const [purgeError, setPurgeError] = useState<string | null>(null);
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const [statusSaving, setStatusSaving] = useState(false);
   const [matches, setMatches] = useState<MatchRow[] | null>(null);
   /*
@@ -455,12 +481,21 @@ export default function PropertyDetailPage({
   const [bulkResult, setBulkResult] = useState<
     { text: string; ok: boolean } | null
   >(null);
+  /**
+   * תוצאת שליחה של הצעה בודדת במייל.
+   *
+   * ‎`ok: false` הוא המצב שבאמת חסר: „לקונה אין כתובת”, „הלקוח
+   * הסיר את עצמו”, „הספק דחה” — שלושתם צריכים להיאמר, כי בכל אחד
+   * מהם ההצעה **לא** יצאה.
+   */
+  const [offerSent, setOfferSentState] = useState<{ text: string; ok: boolean } | null>(null);
   /** matchId ⟵ קישור חתימה, להתאמות שנחסמו בשער ההחתמה */
   const [awaitingSignature, setAwaitingSignature] = useState<
     Record<string, string>
   >({});
   const [landingUrl, setLandingUrl] = useState<string | null>(null);
   const [landingBusy, setLandingBusy] = useState(false);
+  const [pitchOpen, setPitchOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   /*
@@ -586,6 +621,26 @@ export default function PropertyDetailPage({
     }
   }
 
+  /** שליחת ההצעה במייל — כאן „נשלח” אומר שהספק קיבל, וכישלון נראה. */
+  async function sendOfferEmail(matchId: string, offerId: string): Promise<void> {
+    setOfferSentState(null);
+    try {
+      const { sentTo } = await apiPost<{ sentTo: string }>(`/offers/${offerId}/email`, {});
+      setOffers((prev) => {
+        const current = prev[matchId];
+        return current === undefined
+          ? prev
+          : { ...prev, [matchId]: { ...current, status: "sent" } };
+      });
+      setOfferSentState({ ok: true, text: `ההצעה נשלחה לכתובת ${sentTo}.` });
+    } catch (err: unknown) {
+      setOfferSentState({
+        ok: false,
+        text: err instanceof ApiError ? err.message : "שליחת המייל נכשלה — נסו שוב",
+      });
+    }
+  }
+
   /** פותח וואטסאפ עם ההודעה והקישור מוכנים — המתווך רק לוחץ שלח (אפיון §10). */
   async function sendWhatsApp(offerId: string) {
     const { waUrl } = await apiPost<{ waUrl: string }>(
@@ -620,6 +675,38 @@ export default function PropertyDetailPage({
   }
 
   /** שינוי סטטוס (פעיל/בהמתנה/נמכר…) ישירות מהכרטיס — בלי להיכנס לעריכה. */
+  /**
+   * ‎**מי מטפל בנכס — נקבע מהכרטיס, לא ממסך עריכה.**
+   *
+   * העברת נכס בין סוכנים היא פעולה של מנהל שסורק רשימה, ולא עריכה
+   * של פרטי הנכס. אותו נימוק בדיוק שבגללו הסטטוס הוא בורר בכותרת
+   * ולא שדה בטופס.
+   */
+  async function changeAgent(agentUserId: string): Promise<void> {
+    const saved = await apiPatch<{ agentUserId?: string; agentName?: string }>(
+      `/properties/${id}`,
+      { agentUserId },
+    );
+    /*
+     * השם מגיע **מהשרת** ולא נבחר מהרשימה המקומית: הרשימה נטענה
+     * פעם אחת, והשרת הוא זה שיודע מי במשרד עכשיו. שם שנלקח מכאן
+     * היה מציג בחירה שהשרת אולי דחה.
+     */
+    setProperty((prev) =>
+      prev
+        ? {
+            ...prev,
+            ...(saved.agentUserId === undefined
+              ? { agentUserId: undefined }
+              : { agentUserId: saved.agentUserId }),
+            ...(saved.agentName === undefined
+              ? { agentName: undefined }
+              : { agentName: saved.agentName }),
+          }
+        : prev,
+    );
+  }
+
   async function changeStatus(status: PropertyStatus) {
     setStatusSaving(true);
     try {
@@ -627,56 +714,6 @@ export default function PropertyDetailPage({
       setProperty((prev) => (prev ? { ...prev, status } : prev));
     } finally {
       setStatusSaving(false);
-    }
-  }
-
-  /** ארכוב בשני שלבים — לחיצה ראשונה מבקשת אישור, שנייה מבצעת. */
-  async function archive() {
-    if (!archiveConfirm) {
-      setArchiveConfirm(true);
-      return;
-    }
-    await apiDelete(`/properties/${id}`);
-    router.replace("/properties");
-  }
-
-  /**
-   * מחיקה לצמיתות — רק מנכס שכבר בארכיון, ובשני שלבים גם כאן.
-   *
-   * הארכיון הוא ברירת המחדל כי נכס שנמכר הוא היסטוריה עסקית; זה
-   * הנתיב לנכס שנקלט בטעות או לכפילות. התמונות נמחקות איתו מהאחסון.
-   *
-   * ‎**ולפעמים גם כרטיס של אדם.** בעלים שהנכס הזה הוא העוגן היחיד
-   * שלו אינו נגיש בשום מסך אחרי המחיקה, ולכן הוא נמחק איתה. מתווך
-   * שמנקה כפילות אינו מתכוון למחוק אדם — לכן השאלה נשאלת בשרת בין
-   * שתי הלחיצות, והתשובה מוצגת לפני השנייה.
-   *
-   * כשל בשליפת התצוגה המקדימה אינו חוסם את המחיקה — הוא אומר שלא
-   * ידוע. „לא הצלחנו לבדוק” אינו „לא יימחק אף כרטיס”, וזה בדיוק
-   * ההבדל שאסור לבלוע.
-   */
-  async function purge() {
-    if (!purgeConfirm) {
-      const mine = ++purgeSeq.current;
-      setPurgeConfirm(true);
-      setPurgeImpact("loading");
-      try {
-        const preview = await apiGet<{ contacts: number }>(
-          `/properties/${id}/permanent/preview`,
-        );
-        if (purgeSeq.current === mine) setPurgeImpact(preview.contacts);
-      } catch {
-        if (purgeSeq.current === mine) setPurgeImpact("unknown");
-      }
-      return;
-    }
-    setPurgeError(null);
-    try {
-      await apiDelete(`/properties/${id}/permanent`);
-      router.replace("/properties");
-    } catch (err: unknown) {
-      setPurgeError(err instanceof ApiError ? err.message : "המחיקה נכשלה");
-      setPurgeConfirm(false);
     }
   }
 
@@ -780,9 +817,24 @@ export default function PropertyDetailPage({
   }
   if (!property) return <p aria-live="polite">טוען…</p>;
 
-  const address = [property.street, property.neighborhood, property.city]
-    .filter(Boolean)
-    .join(", ");
+  const address = formatPropertyAddress(property);
+  /*
+   * ‎**המחיר למ״ר — נגזר בקריאה, ולא שדה שממלאים.**
+   *
+   * ‏שני השדות כבר על הכרטיס, והחלוקה ביניהם היא השאלה הראשונה
+   * ‏שמתווך שואל על נכס. הכלל עצמו משותף (`pricePerSqmAgorot`), כי
+   * ‏„מתי אין מה להציג” — בלי שטח, בלי מחיר, שטח 0 — הוא החלק
+   * ‏שנשבר כשכל מסך מחשב לעצמו.
+   */
+  const perSqmAgorot = pricePerSqmAgorot(property.priceAgorot, property.areaSqm);
+  /* ‏אותו גשר של כל טבלת תוויות: ערך ריק אינו מפתח, וערך חוזר כמותו */
+  const facingLabel = labelOf(PROPERTY_FACING_LABELS, property.facing);
+  /*
+   * ‎`propertyConditionLabel` ולא `labelOf` על הקטלוג: היא מכירה גם
+   * ‏את הערך הישן `preserved`, שכרטיס הרשת כבר הציג כ„שמור” — ובלעדיה
+   * ‏אותה שורה בדיוק הייתה מציגה מצב בצד אחד ושום דבר בצד השני.
+   */
+  const conditionLabel = propertyConditionLabel(property.condition);
   const features = [
     property.hasElevator && "מעלית",
     property.hasParking && "חניה",
@@ -833,6 +885,28 @@ export default function PropertyDetailPage({
       label: "מאפיינים",
       value: features.length > 0 ? features.join(", ") : null,
     },
+    /*
+      ‎**„טאבו משותף” שורה משלו, ולא עוד מאפיין ברשימה.**
+
+      ‏מעלית ומחסן הם נוחות; רישום בטאבו משותף (מושאע) הוא עובדה
+      ‏משפטית שמשנה את כל אופן העסקה. הוא מוצג רק כשהוא מסומן — שורה
+      ‏„לא” על נכס רגיל היא רעש בכרטיס שכבר צפוף (בקשת בעל המוצר).
+    */
+    ...(property.sharedTabu === true
+      ? [{ label: "רישום", value: "טאבו משותף (מושאע)" }]
+      : []),
+    /*
+      ‎**חזית / עורף — רק כשנאמר.**
+
+      ‏אותו כלל של „רישום”: שורה על נכס שאיש לא ענה עליה היא רעש
+      ‏בכרטיס צפוף, ו„לא צוין” כבר נקרא מהיעדר השורה. השאלה עצמה
+      ‏נשאלת בטופס, ולא כאן.
+    */
+    ...(facingLabel === undefined ? [] : [{ label: "כיוון", value: facingLabel }]),
+    /* ‏אותו כלל: נכס שאיש לא ענה עליו על מצבו אינו מקבל שורה */
+    ...(conditionLabel === undefined
+      ? []
+      : [{ label: "מצב הנכס", value: conditionLabel }]),
   ];
 
   /*
@@ -987,6 +1061,58 @@ export default function PropertyDetailPage({
                 </select>
               </label>
               {/*
+                ‎**„של מי הנכס הזה?” — ומחוץ לתווית הסטטוס.**
+
+                הבורר ישב בתוך ה-`<label>` של הסטטוס, וזה HTML פסול
+                בשתי דרכים: תווית מקוננת בתוך תווית, ותווית אחת
+                שמכילה שני פקדים. קורא מסך אינו יודע איזו תווית שייכת
+                לאיזה `select`, ולחיצה על הטקסט מפעילה את הפקד הלא
+                נכון (ביקורת Codex).
+              */}
+              <AgentPicker
+                canAssign={canAssignAgent}
+                allowUnassign
+                labelText="הסוכן המטפל בנכס"
+                onChange={changeAgent}
+                {...(property.agentUserId === undefined
+                  ? {}
+                  : { agentUserId: property.agentUserId })}
+                {...(property.agentName === undefined ? {} : { agentName: property.agentName })}
+              />
+              {/*
+                ‎**השותף יושב מתחת למטפל, ורק על עסקה שנסגרה.**
+
+                ‏על נכס פעיל אין מה לתעד — השת״פ הוא עובדה שנוצרת
+                ‏ברגע הסגירה, ובורר שמופיע לפניה מזמין סימון על
+                ‏משהו שעוד לא קרה. התנאי הוא אותה הגדרת „עסקה”
+                ‏שהלוח סופר (`DEAL_STATUSES`), ולא רשימה שנייה.
+              */}
+              {(DEAL_STATUSES as readonly string[]).includes(property.status) ? (
+                <PartnerField
+                  propertyId={id}
+                  onSaved={(saved) =>
+                    setProperty((prev) =>
+                      prev
+                        ? {
+                            ...prev,
+                            partnerUserId: saved.partnerUserId,
+                            partnerName: saved.partnerName,
+                          }
+                        : prev,
+                    )
+                  }
+                  {...(property.agentUserId === undefined
+                    ? {}
+                    : { agentUserId: property.agentUserId })}
+                  {...(property.partnerUserId === undefined
+                    ? {}
+                    : { partnerUserId: property.partnerUserId })}
+                  {...(property.partnerName === undefined
+                    ? {}
+                    : { partnerName: property.partnerName })}
+                />
+              ) : null}
+              {/*
                 ‎**המחיר בשורת הכותרת, וכלום כשאין מחיר.**
 
                 בצילום אין מחיר כלל — כי לנכס שבו אין. הוא ישב עד כה
@@ -1025,7 +1151,19 @@ export default function PropertyDetailPage({
                 באוג׳ 2026” שבמסמך. הנקודה מופיעה רק כשיש לה שני צדדים —
                 כתובת ריקה הייתה משאירה „· נקלט:” פותח בנקודה.
               */}
-              {[address, `נקלט: ${formatDate(property.createdAt)}`]
+              {[
+                address,
+                /*
+                  ‎**„₪ למ״ר” נכנס לשורת המשנה ולא לצד המחיר הגדול.**
+
+                  ‏הוא נגזר מהמחיר, ולא מתחרה בו: שני מספרים גדולים
+                  ‏זה לצד זה מחייבים לקרוא איזה מהם הוא המחיר. כאן
+                  ‏הוא יושב עם שאר העובדות על הנכס, ומופיע רק כשיש
+                  ‏גם מחיר וגם שטח.
+                */
+                perSqmAgorot === null ? "" : `${formatPrice(perSqmAgorot)} למ״ר`,
+                `נקלט: ${formatDate(property.createdAt)}`,
+              ]
                 .filter(Boolean)
                 .join(" · ")}
             </p>
@@ -1057,27 +1195,19 @@ export default function PropertyDetailPage({
               <IconEdit s={19} />
             </IconAction>
             {/*
-              ‎**המחיקה חזרה לכותרת לבקשת בעל המוצר**, לצד „פעולות
-              נוספות” שבסקירה. הכפילות מכוונת ולא נשכחה: הכותרת
-              נראית בכל הלשוניות והכרטיס רק בסקירה, ומי שרוצה למחוק
-              מלשונית ההסכמים נאלץ עד כה לחזור אחורה.
+              ‎**הפח שואל, ולא גולל.**
 
-              שני המסלולים מובילים לאותו מקום בדיוק — הכפתור כאן
-              גולל אל הכרטיס, ששם יושבים האישור הדו-שלבי והגילוי
-              שסופר כמה כרטיסי אדם יימחקו. אישור מקוצר כאן היה מוחק
-              בלי אותו גילוי.
+              הכפתור הזה בחר את לשונית הסקירה וגלל אל כרטיס „פעולות
+              נוספות” שבתחתית העמוד — ומי שלוחץ על פח אשפה ומקבל
+              גלילה אינו יודע אם משהו קרה, ולכן לוחץ שוב. עכשיו
+              נפתחת השאלה עצמה, עם שתי הדרכים (מחיקה וארכיון) ועם
+              הגילוי שסופר כמה כרטיסי אדם יירדו — אותו גילוי שהיה
+              קודם בתחתית, ובלעדיו לא ניתן לאשר.
             */}
             <IconAction
-              label="מחיקת הנכס — לאישור בכרטיס „פעולות נוספות”"
+              label="מחיקת הנכס"
               tone="danger"
-              onClick={() => {
-                selectTab("overview");
-                requestAnimationFrame(() => {
-                  document
-                    .getElementById("extra-actions-heading")
-                    ?.scrollIntoView({ behavior: "smooth", block: "center" });
-                });
-              }}
+              onClick={() => setDeleteOpen(true)}
             >
               <IconTrash s={19} />
             </IconAction>
@@ -1121,8 +1251,34 @@ export default function PropertyDetailPage({
             >
               מצא לי קונים
             </button>
+            {/*
+              ‎**„שליחת הצעת נכס” — ליד „מצא לי קונים”, ולא בתוכו.**
+
+              ‏„מצא לי קונים” עונה על „למי זה מתאים”; זו עונה על
+              ‏„שלח להם”. שתי פעולות סמוכות, כי אחרי שראית את
+              ‏הרשימה זה מה שרצית לעשות איתה — אבל הבחירה כאן היא
+              ‏של הסוכן ולא של מנוע ההתאמות, ולכן היא אינה כפתור
+              ‏בתוך הרשימה ההיא.
+            */}
+            {can(user, "offers.send") ? (
+              <button
+                type="button"
+                className="mv-btn-soft"
+                style={HEADER_ACTION}
+                onClick={() => setPitchOpen(true)}
+              >
+                שליחת הצעת נכס
+              </button>
+            ) : null}
           </div>
         </div>
+
+        <PropertyPitchDialog
+          open={pitchOpen}
+          onClose={() => setPitchOpen(false)}
+          side="buyers"
+          fixedIds={[property.id]}
+        />
 
         {/*
           ‎**רצועת המוכנות צמודה לכותרת.**
@@ -1361,6 +1517,52 @@ export default function PropertyDetailPage({
               בקשה שנפלה נראית בדיוק כמו „אין התאמות”, וזו בדיוק
               התקלה ששער `verify:lists` קיים כדי למנוע.
             */}
+            {/*
+              ‏השותפויות יושבות **מעל** ההתאמות ולא בתוכן: הן עונות
+              ‏על שאלה אחרת (מי יחד, ולא מי לבד), והרשימות זרות זו
+              ‏לזו. המקטע כולו אינו קיים לנכס שאינו בטאבו משותף.
+            */}
+            {/*
+              ‎**ו„מותר לי קונים” אינו „מותר לי התאמות”** (ביקורת
+              ‏Codex, P2).
+
+              ‏הנתיב `/matches/property/:id/partners` מוגן ב-
+              ‎`@RequireCapability("matches.view")`, והתנאי כאן בדק
+              ‏את מודול הקונים בלבד. משרד שהסיר `matches.view` מסוכן
+              ‏קיבל את המקטע, וכל בקשה חזרה 403 — כלומר „טעינת
+              ‏השותפויות נכשלה” על מקטע שמעולם לא היה אמור להופיע
+              ‏אצלו. השער שמונע „ריק שנראה כמו אפס” הפך כאן לשגיאה
+              ‏שנראית כמו תקלה.
+
+              ‏התנאי מרכיב את מה שהנתיב באמת דורש: שני המודולים.
+            */}
+            {/*
+              ‎**ו„שידוך שייך לנכס הזה” הוא אותה שאלה שהשרת שואל**
+              ‏(ביקורת Codex, P2).
+
+              ‏התנאי כאן בדק `sharedTabu` בלבד, ולכן נכס שנמכר, נכס
+              ‏להשכרה או נכס בלי מחיר קיבלו את המקטע — והוא אמר „לא
+              ‏נמצאו שני לקוחות מתאימים”, בזמן שהחישוב מעולם לא רץ.
+              ‏„אין תוצאה” ו„לא רלוונטי” הם שני מסרים שונים, ורק
+              ‏אחד מהם נכון. `partnershipApplies` הוא אותה פונקציה
+              ‏שהשירות והמנוע קוראים.
+            */}
+            {/*
+              ‎**ההשוואה למ״ר יושבת לפני ההתאמות, ובכוונה.**
+
+              ‏„זה יקר או זול כאן” היא השאלה שמקדימה את „למי זה
+              ‏מתאים”: מתווך שמסתכל על מחיר הנכס שואל אותה קודם,
+              ‏ומי שראה רשימת קונים כבר עבר הלאה.
+
+              ‏הרכיב עצמו מחזיר `null` כשאין מספיק נכסים להשוואה,
+              ‏ולכן אין כאן תנאי שני שיוכל לסתור אותו.
+            */}
+            <PriceBenchmark propertyId={property.id} />
+            {partnershipApplies(property) &&
+            can(user, "matches.view") &&
+            (can(user, "buyers.view_own") || can(user, "buyers.view_all")) ? (
+              <PartnerSuggestions propertyId={property.id} />
+            ) : null}
             {matchesFailed || (matches !== null && matches.length > 0) ? (
               <section className="mv-card mv-card--pad" aria-labelledby="match-summary-heading">
                 <div className="mv-card-head">
@@ -1528,94 +1730,22 @@ export default function PropertyDetailPage({
                   שיתוף לרשת המשרדים
                 </button>
 
+                {/*
+                  ‎**נתיב אחד לשתי הפעולות ההרסניות.**
+
+                  כאן ישבו אישור דו-לחיצה משלהם, אזהרה ושגיאה — כלומר
+                  ניסוח שני לאותה שאלה בדיוק שהפח שבכותרת שואל.
+                  שני ניסוחים של מחיקה באותו מסך הם שני מקומות
+                  לתקן, ואחד מהם תמיד נשכח.
+                */}
                 <button
                   type="button"
                   className="mv-btn-plain"
-                  style={{
-                    color: archiveConfirm
-                      ? "var(--color-danger)"
-                      : "var(--color-text-muted)",
-                  }}
-                  onClick={() => void archive()}
+                  style={{ color: "var(--color-danger)" }}
+                  onClick={() => setDeleteOpen(true)}
                 >
-                  {archiveConfirm ? "לאשר העברה לארכיון?" : "העבר לארכיון"}
+                  {property.archived ? "מחיקת נכס" : "מחיקה או העברה לארכיון"}
                 </button>
-                {archiveConfirm ? (
-                  <button
-                    type="button"
-                    className="mv-btn-plain"
-                    onClick={() => setArchiveConfirm(false)}
-                  >
-                    ביטול
-                  </button>
-                ) : null}
-
-            {/*
-              מחיקה לצמיתות מוצגת רק לנכס שכבר בארכיון: שני שלבים
-              נפרדים, כדי שנכס פעיל לא ייעלם בלחיצה אחת.
-            */}
-                {property.archived ? (
-                  <>
-                    <button
-                      type="button"
-                      className="mv-btn-plain"
-                      style={{ color: "var(--color-danger)" }}
-                      onClick={() => void purge()}
-                    >
-                      {purgeConfirm
-                        ? "לאשר מחיקה לצמיתות? התמונות יימחקו גם מהאחסון"
-                        : "מחיקת נכס"}
-                    </button>
-                    {purgeConfirm ? (
-                      <button
-                        type="button"
-                        className="mv-btn-plain"
-                        onClick={() => {
-                          setPurgeConfirm(false);
-                          /*
-                            ‎**קידום המונה שייך לביטול, ולא לכפתור.**
-
-                            הוא ישב בכפתור הביטול שבכותרת, וזה שנמחק
-                            כשהמחיקה עברה לכאן. בלעדיו בדיקה שכבר
-                            באוויר כותבת `purgeImpact` אחרי הביטול,
-                            והפתיחה הבאה מציגה אזהרה של מחיקה קודמת.
-                          */
-                          purgeSeq.current += 1;
-                        }}
-                      >
-                        ביטול
-                      </button>
-                    ) : null}
-                    {/*
-                      ‎**האזהרה צמודה לכפתור שהיא מזהירה עליו.**
-
-                      היא ישבה בשורת הפעולות שבכותרת, ומרגע שהמחיקה
-                      עברה לכאן היא הייתה מופיעה במרחק מסך מהכפתור
-                      שגרם לה — כלומר גילוי שאפשר לפספס בדיוק ברגע
-                      שבו הוא נחוץ.
-                    */}
-                    {purgeConfirm && purgeImpact !== "loading" && purgeImpact !== 0 ? (
-                      <p
-                        role="status"
-                        className="m-0 rounded-lg px-3 py-2 text-sm"
-                        style={{
-                          background: "var(--color-danger-soft)",
-                          border: "1px solid var(--color-danger)",
-                          color: "var(--color-danger)",
-                        }}
-                      >
-                        {purgeImpact === "unknown"
-                          ? "לא הצלחנו לבדוק אם יימחקו גם כרטיסי לקוח — בדקו לפני המחיקה"
-                          : purgeImpact === 1
-                            ? "יימחק גם כרטיס לקוח אחד, שהנכס הזה הוא הקישור היחיד אליו — כולל שם, טלפונים והיסטוריית התקשורת"
-                            : `יימחקו גם ${purgeImpact} כרטיסי לקוח, שהנכס הזה הוא הקישור היחיד אליהם — כולל שם, טלפונים והיסטוריית התקשורת`}
-                      </p>
-                    ) : null}
-                    {purgeError !== null ? (
-                      <Notice tone="danger">{purgeError}</Notice>
-                    ) : null}
-                  </>
-                ) : null}
               </div>
             </section>
           </div>
@@ -1723,6 +1853,12 @@ export default function PropertyDetailPage({
               <Notice tone={bulkResult.ok ? "success" : "danger"}>
                 {bulkResult.ok ? "✓ " : ""}
                 {bulkResult.text}
+              </Notice>
+            ) : null}
+            {offerSent ? (
+              <Notice tone={offerSent.ok ? "success" : "danger"}>
+                {offerSent.ok ? "✓ " : ""}
+                {offerSent.text}
               </Notice>
             ) : null}
 
@@ -2109,24 +2245,41 @@ export default function PropertyDetailPage({
                         יחד עם שאר התוכן שנשען על אותה בקשה; הניסיון
                         החוזר יושב מעל הרשימה ומחזיר את שניהם.
                       */}
-                      {!offerKnown ? null : offer && canWhatsApp ? (
-                        <button
-                          type="button"
-                          className="mv-btn-action"
-                          style={{ padding: "7px 15px", fontSize: "var(--type-caption-lg)" }}
-                          onClick={() => void sendWhatsApp(offer.id)}
-                        >
-                          שלח בוואטסאפ
-                        </button>
-                      ) : offer ? null : (
+                      {!offerKnown ? null : offer === undefined ? (
                         <button
                           type="button"
                           className="mv-btn-action"
                           style={{ padding: "7px 15px", fontSize: "var(--type-caption-lg)" }}
                           onClick={() => void createOffer(m.id)}
                         >
-                          שלח הצעה
+                          הכן הצעה
                         </button>
+                      ) : (
+                        <>
+                          {/*
+                            ‎**מייל הוא הערוץ שנשאר למשרד בלי וואטסאפ.**
+                            עד כה הצעה שנוצרה אצל משרד כזה לא הייתה
+                            לה שום דרך לצאת — והמסך בכל זאת אמר
+                            „נשלחה”.
+                          */}
+                          <button
+                            type="button"
+                            className="mv-btn-plain"
+                            onClick={() => void sendOfferEmail(m.id, offer.id)}
+                          >
+                            שלח במייל
+                          </button>
+                          {canWhatsApp ? (
+                            <button
+                              type="button"
+                              className="mv-btn-action"
+                              style={{ padding: "7px 15px", fontSize: "var(--type-caption-lg)" }}
+                              onClick={() => void sendWhatsApp(offer.id)}
+                            >
+                              שלח בוואטסאפ
+                            </button>
+                          ) : null}
+                        </>
                       )}
                     </div>
                     </div>
@@ -2248,10 +2401,17 @@ export default function PropertyDetailPage({
 
       <TabPanel tab="owner" active={tab}>
         <div className="flex flex-col gap-[18px]">
+          {/*
+            ‏„בעל הנכס” ו„מי גר בנכס” זה לצד זה: שתי תשובות לאותה
+            שאלה — מי מולי בנכס הזה — ומי שקורא אחת מהן קורא גם את
+            השנייה. זו לזו מתחת הן נראו כשני נושאים שאין ביניהם קשר.
+          */}
+          <div className="mv-owner-grid">
           <PropertyOwner
             canErase={can(user, "contacts.delete")}
             propertyId={id}
             owner={property.ownerContact}
+            redacted={property.ownerRedacted === true}
             canEdit={canEditOwner}
             canEditPeople={canEditOwnerPeople}
             onChanged={loadProperty}
@@ -2266,6 +2426,7 @@ export default function PropertyDetailPage({
           <PropertyOccupant
             propertyId={id}
             occupant={property.occupantContact}
+            redacted={property.occupantRedacted === true}
             occupancy={property.occupancy}
             leaseEndsAt={property.leaseEndsAt}
             noticePeriodDays={property.noticePeriodDays}
@@ -2274,6 +2435,7 @@ export default function PropertyDetailPage({
             canErase={can(user, "contacts.delete")}
             onChanged={loadProperty}
           />
+          </div>
 
           {/*
             הכובעים האחרים של בעל הנכס — מוכר שהוא גם קונה פעיל (או
@@ -2297,6 +2459,12 @@ export default function PropertyDetailPage({
             propertyId={property.id}
             propertyLabel={property.marketingTitle ?? (address || "הנכס")}
             officeName={user?.tenantName ?? "משרד התיווך"}
+            /*
+              ‏הדוח נצפה ב-`properties.view` והשליחה דורשת
+              ‎`properties.edit`. בלי זה צופה קיבל שני כפתורים
+              שנראים פעילים ותמיד מחזירים 403 (ביקורת Codex).
+            */
+            canSend={canEditOwner}
           />
         </div>
       </TabPanel>
@@ -2354,6 +2522,20 @@ export default function PropertyDetailPage({
           suggestFrom={property.missingFields}
         />
       </TabPanel>
+
+      {/*
+        ‎**מחוץ ללשוניות, בכוונה.** ‏`dialog` שיושב בתוך פאנל לשונית
+        נעלם מה-DOM ברגע שנבחרת לשונית אחרת — והפח שבכותרת נראה בכל
+        הלשוניות. כאן הוא תמיד מורכב, ולכן תמיד ניתן לפתיחה.
+      */}
+      <DeletePropertyDialog
+        propertyId={property.id}
+        /* השדה אופציונלי בתשובה; „לא ידוע” נקרא כ„לא בארכיון” */
+        archived={property.archived === true}
+        open={deleteOpen}
+        onClose={() => setDeleteOpen(false)}
+        onDone={() => router.replace("/properties")}
+      />
     </>
   );
 }

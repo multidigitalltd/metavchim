@@ -225,46 +225,6 @@ function useAppender(value: string, onChange: (v: string) => void) {
   return { append, reset };
 }
 
-export function DictationInput({
-  value,
-  onChange,
-  label,
-  hint,
-  placeholder,
-  required,
-  name,
-  dir,
-  inputMode,
-  className,
-}: CommonProps) {
-  const id = useId();
-  const { append, reset } = useAppender(value, onChange);
-  return (
-    <div className={className}>
-      <label htmlFor={id} className="mb-1 block text-sm font-semibold">
-        {label}
-      </label>
-      {hint ? (
-        <p className="m-0 mb-1 text-sm" style={{ color: "var(--color-text-muted)" }}>
-          {hint}
-        </p>
-      ) : null}
-      <input
-        id={id}
-        name={name}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        required={required}
-        dir={dir}
-        inputMode={inputMode}
-        className="mv-field"
-      />
-      <DictationControls onAppend={append} onIdle={reset} />
-    </div>
-  );
-}
-
 export function DictationTextarea({
   value,
   onChange,

@@ -4,17 +4,30 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   formatJerusalemDate,
+  formatJerusalemTime,
   MENTOR_GOAL_TARGET_MAX,
   MENTOR_INTENTION_MAX,
   MENTOR_METRICS,
   type MentorActivity,
   MentorGoalInputSchema,
+  jerusalemDayLabel,
+  nextMentorVerdict,
+  type MentorMessageVerdict,
+  jerusalemWallParts,
   mentorGoalLabel,
+  MENTOR_NAME_MAX,
+  MENTOR_STYLE_INFO,
+  mentorHasName,
+  type MentorAdvice,
   type MentorGoalMetric,
+  type MentorGoalProposal,
+  type MentorPersona,
+  type MentorStyle,
   type MentorGoalPeriod,
   type MentorGoalProgress,
   type MentorInsights,
   mentorInsightSentences,
+  mentorMonthLabel,
   type MentorMood,
   type MentorPace,
   type MentorPattern,
@@ -22,9 +35,26 @@ import {
   mentorQuantity,
   type MentorWin,
   type ProcessGoalSuggestion,
+  PRACTICE_MAX_AGENT_TURNS,
+  PRACTICE_SCENARIO_INFO,
+  PRACTICE_TEXT_MAX,
+  practiceScoreLabel,
+  ONBOARDING_DAYS,
+  type MentorOnboarding,
+  type MentorPracticeFeedback,
+  type PracticeScenario,
+  type PracticeTurn,
 } from "@metavchim/shared";
-import { ApiError, apiDelete, apiGet, apiList, apiPost } from "@/lib/api";
-import { useRequireAuth } from "@/lib/use-auth";
+import {
+  ApiError,
+  apiDelete,
+  apiGet,
+  apiList,
+  apiPatch,
+  apiPost,
+} from "@/lib/api";
+import { can, useRequireAuth } from "@/lib/use-auth";
+import { useScrollAffordance } from "@/lib/use-scroll-affordance";
 import {
   useFeature,
   useFeaturesFailed,
@@ -35,27 +65,23 @@ import { ConfirmDialog } from "../confirm-dialog";
 import {
   IconBolt,
   IconCalendar,
-  IconChat,
   IconCheck,
   IconClock,
   IconFlame,
-  IconHandshake,
   IconHeadphones,
-  IconHome,
-  IconKey,
-  IconMail,
-  IconPhone,
+  IconGear,
   IconSend,
+  IconShield,
   IconSparkle,
   IconStar,
-  IconTarget,
   IconUsers,
 } from "../icons";
 import { LoadError } from "../load-error";
 import { Notice } from "../notice";
+import { MentorPageMenu } from "./page-menu";
 
 /*
- * המנטור האישי (docs/13) — המסך שמאחורי ההבטחה שהייתה כאן כ„בקרוב”.
+ * המנטור האישי (docs/14) — המסך שמאחורי ההבטחה שהייתה כאן כ„בקרוב”.
  *
  * ארבעה חלקים, בסדר שבו מנטור מדבר: מה קרה השבוע (המונים והצלחות),
  * מול מה שביקשת מעצמך (היעדים והקצב), מה אמרתי במוצאי שבת (הסיכום
@@ -82,6 +108,17 @@ interface GoalDto {
   intention: string | null;
   createdAt: string;
   progress: MentorGoalProgress;
+}
+
+/** הסיכום החודשי כפי שה-API מחזיר אותו (`MentorMonthlyDto`) */
+interface MonthlyDto {
+  id: string;
+  monthStart: string;
+  headline: string;
+  greeting: string | null;
+  paragraphs: string[];
+  focus: MentorGoalMetric | null;
+  createdAt: string;
 }
 
 interface ReviewDto {
@@ -121,13 +158,59 @@ interface Overview {
   streakWeeks: number;
   chatAvailable: boolean;
   patterns: MentorPattern[];
+  advice: MentorAdvice[];
+  persona: MentorPersona;
+  /** 30 הימים הראשונים — `null` למי שכבר עבר אותם (docs/14 §7.5) */
+  onboarding: MentorOnboarding | null;
+}
+
+/** ‏שורה ברשימת הבחירה — מזהה וכותרת, כמו שהשרת מחזיר */
+interface SubjectOption {
+  kind: "buyer" | "property";
+  id: string;
+  title: string;
 }
 
 interface Turn {
   id: string;
+  /** ‏השיחה שההודעה בה — מה שמאפשר לקפוץ מנעוץ אל ההקשר שלו */
+  threadId?: string;
   role: "user" | "mentor";
   text: string;
   createdAt: string;
+  /** ‏דירוג המתווך — `null`/חסר כשלא דורג, וזה הרוב */
+  feedback?: MentorMessageVerdict | null;
+  /** ‏מתי נעצה, אם נעצה */
+  pinnedAt?: string | null;
+}
+
+/**
+ * ‏שיחה קודמת ברשימת ההיסטוריה.
+ *
+ * ‏אין כאן שדה שהשרת שמר: הכותרת נגזרת מהשאלה הראשונה שנשאלה
+ * ‏בשיחה, והמועד הוא האחרון שנאמר בה. לכן הרשימה אינה יכולה
+ * ‏להציג שם של שיחה שכבר לא קיימת בצורה הזו.
+ */
+interface MentorThread {
+  id: string;
+  title: string;
+  lastAt: string;
+  messages: number;
+}
+
+/** תרגול שיחה כפי שהשרת מחזיר אותו (docs/14 §7.3) */
+interface PracticeDto {
+  id: string;
+  scenario: PracticeScenario;
+  scenarioLabel: string;
+  counterpartName: string;
+  turns: PracticeTurn[];
+  agentTurns: number;
+  /** הדמות סיימה — אין עוד תורים, רק משוב */
+  closed: boolean;
+  feedback: MentorPracticeFeedback | null;
+  createdAt: string;
+  endedAt: string | null;
 }
 
 const PACE_LABEL: Record<MentorPace, string> = {
@@ -152,46 +235,52 @@ const MOOD_ICON: Record<MentorMood, string> = {
 };
 
 /**
- * אריח לכל מדד — אייקון ותחום צבע, כמו מוני הדשבורד. אפס עובר
- * לניטרלי מהנתון (הכלל של §12), ולכן התחום כאן הוא של ערך חיובי.
+ * ‏השאלות המוכנות. האייקון הוא חלק מהצ׳יפ בקובץ העיצוב, ולכן הוא
+ * ‏יושב לצד הטקסט ולא בתוכו: הוא `aria-hidden`, והמילים לבדן הן
+ * ‏השם הנגיש של הכפתור ואת אותן מילים מקבל המנטור.
  */
-const METRIC_TILE: Record<
-  MentorGoalMetric,
-  { domain: string; icon: React.ReactNode }
-> = {
-  deals_closed: { domain: "green", icon: <IconHandshake s={16} /> },
-  offers_sent: { domain: "blue", icon: <IconSend s={16} /> },
-  viewings_held: { domain: "amber", icon: <IconKey s={16} /> },
-  leads_answered: { domain: "peach", icon: <IconBolt s={16} /> },
-  new_buyers: { domain: "violet", icon: <IconUsers s={16} /> },
-  new_properties: { domain: "green", icon: <IconHome s={16} /> },
-  calls_made: { domain: "blue", icon: <IconPhone s={16} /> },
-  calls_answered: { domain: "blue", icon: <IconHeadphones s={16} /> },
-  leads_answered_fast: { domain: "peach", icon: <IconClock s={16} /> },
-  followups_done: { domain: "amber", icon: <IconCheck s={16} /> },
-  owner_updates_sent: { domain: "violet", icon: <IconMail s={16} /> },
-};
-
-const EXAMPLE_QUESTIONS = [
-  "איך היה השבוע שלי?",
-  "מה כדאי לי לשפר קודם?",
-  "תעזור לי לבחור יעד לשבוע הבא",
+const EXAMPLE_QUESTIONS: readonly { icon: string; label: string }[] = [
+  { icon: "💡", label: "תן לי רעיון להיום" },
+  { icon: "🎯", label: "תעזור לי לבחור יעד לשבוע הבא" },
+  { icon: "📊", label: "מה כדאי לי לשפר קודם?" },
+  { icon: "🔻", label: "איפה המשפך שלי מאבד הכי הרבה?" },
 ];
+
+/** ‏„בוקר טוב ריקי” — לפי השעה בישראל, ובלי שם כשאין */
+function greetingLine(firstName: string): string {
+  const hour = Number(jerusalemWallParts(new Date()).time.slice(0, 2));
+  const part =
+    hour < 12 ? "בוקר טוב" : hour < 17 ? "צהריים טובים" : "ערב טוב";
+  return firstName === "" ? `${part} ☀️` : `${part} ${firstName} ☀️`;
+}
 
 /** מה יש לחגוג — יעדים שהושגו והצלחות השבוע, במפתחות יציבים לתקופה. */
 function celebrationEvents(overview: Overview): CelebrationEvent[] {
-  const goals = overview.goals
-    .filter((g) => g.progress.pace === "done")
-    .map((g) => ({
-      // תחילת התקופה שנמדדה — לא השבוע: יעד חודשי שהושג בשבוע שחוצה חודש הוא אירוע חדש
-      key: `goal:${g.id}:${g.progress.periodStart}`,
-      label: `היעד הושג: ${mentorGoalLabel(g.metric, g.target, g.period)}`,
-    }));
-  // מזהה השורה ולא המיקום ברשימה — הסדר משתנה כשמצטרפת הצלחה חזקה יותר
-  const wins = overview.wins.map((w, i) => ({
-    key: `win:${w.id ?? `${overview.weekStart}:${w.kind}:${w.title}:${i}`}`,
-    label: winLabel(w),
+  const done = overview.goals.filter((g) => g.progress.pace === "done");
+  const goals = done.map((g) => ({
+    // תחילת התקופה שנמדדה — לא השבוע: יעד חודשי שהושג בשבוע שחוצה חודש הוא אירוע חדש
+    key: `goal:${g.id}:${g.progress.periodStart}`,
+    label: `היעד הושג: ${mentorGoalLabel(g.metric, g.target, g.period)}`,
   }));
+  // יעד שכבר נחגג מהיעדים למעלה — ההצלחה שנרשמה עליו אינה אירוע שני.
+  // רק אותו יעד באותה תקופה: יעד שהופסק אחרי שהושג, או תקופה שהתחלפה,
+  // נשארים בהצלחות — אחרת החגיגה נעלמת (ביקורת Codex)
+  const celebrated = new Set(
+    done.map(
+      (g) => `${g.id}:${jerusalemDayLabel(new Date(g.progress.periodStart))}`,
+    ),
+  );
+  // מזהה השורה ולא המיקום ברשימה — הסדר משתנה כשמצטרפת הצלחה חזקה יותר
+  const wins = overview.wins
+    .filter(
+      (w) =>
+        w.kind !== "goal_reached" ||
+        !celebrated.has(`${w.goalId}:${w.periodKey}`),
+    )
+    .map((w, i) => ({
+      key: `win:${w.id ?? `${overview.weekStart}:${w.kind}:${w.title}:${i}`}`,
+      label: winLabel(w),
+    }));
   return [...goals, ...wins];
 }
 
@@ -211,10 +300,14 @@ export default function MentorPage() {
   const featuresFailed = useFeaturesFailed();
 
   const [overview, setOverview] = useState<Overview | null>(null);
+  // שאלה שנפתחה מכרטיס העצות — נשלחת לשיחה ברגע שהיא מוכנה
+  const [askMentor, setAskMentor] = useState<string | null>(null);
   const [overviewFailed, setOverviewFailed] = useState(false);
   const [notInPlan, setNotInPlan] = useState(false);
   const [reviews, setReviews] = useState<ReviewDto[] | null>(null);
   const [reviewsFailed, setReviewsFailed] = useState(false);
+  const [monthly, setMonthly] = useState<MonthlyDto[] | null>(null);
+  const [monthlyFailed, setMonthlyFailed] = useState(false);
 
   const load = useCallback(() => {
     setOverviewFailed(false);
@@ -238,6 +331,13 @@ export default function MentorPage() {
         if (err instanceof ApiError && err.status === 403) return;
         setReviewsFailed(true);
       });
+    setMonthlyFailed(false);
+    apiGet<MonthlyDto[]>("/mentor/monthly")
+      .then(setMonthly)
+      .catch((err: unknown) => {
+        if (err instanceof ApiError && err.status === 403) return;
+        setMonthlyFailed(true);
+      });
   }, []);
 
   useEffect(() => {
@@ -254,16 +354,19 @@ export default function MentorPage() {
 
   if (notInPlan) {
     return (
-      <div className="mx-auto max-w-2xl py-6">
-        <MentorHero streakWeeks={0} />
+      <div className="mv-mentor">
+        <MentorBar persona={null} available={false} />
+        <div className="mv-mentor__panes">
+          <div className="mv-mentor__chat">
+            <div className="mv-mentor__stream">
         <section
-          className="mv-card mv-card--pad mt-4"
+          className="mv-railcard mx-auto w-full max-w-2xl"
           aria-labelledby="mentor-plan-heading"
         >
-          <h2 id="mentor-plan-heading" className="mv-card-head__title m-0">
+          <h2 id="mentor-plan-heading" className="mv-railcard__head">
             המנטור נפתח יחד עם המאמן החכם
           </h2>
-          <p className="mv-card-sub m-0">
+          <p className="mv-railcard__text">
             מנהל המשרד יכול לשדרג את המסלול במסך המנוי.
           </p>
           <Link
@@ -273,77 +376,197 @@ export default function MentorPage() {
             למסך המנוי
           </Link>
         </section>
+            </div>
+          </div>
+        </div>
       </div>
     );
   }
 
   return (
-    // div ולא main — העטיפה של AppShell היא ה-main landmark היחיד
-    <div className="mx-auto max-w-4xl py-6">
-      <MentorHero streakWeeks={overview?.streakWeeks ?? 0} />
+    /*
+     * ‎**div ולא main** — העטיפה של AppShell היא ה-main landmark היחיד.
+     *
+     * ‎`mv-mentor` שוברת את ריפוד עמודת התוכן ולוקחת את גובה המסך:
+     * ‏שני האזורים גוללים בעצמם, ולא נגררים עם העמוד (החלטת בעל
+     * ‏המוצר: „לא יכול להיות מצב שהאזור בצד ימין נגמר ואז נגלל
+     * ‏למעלה”). הרצפה שב-CSS מחזירה את גלילת העמוד כשהמעטפת נעשית
+     * ‏נמוכה מדי — הגלילה הפנימית נשארת, והתוכן אינו נחתך.
+     */
+    <div className="mv-mentor">
+      <MentorBar
+        persona={overview?.persona ?? null}
+        available={overview?.chatAvailable ?? false}
+      />
 
       {overviewFailed ? (
-        <div className="mt-4">
-          <LoadError message="לא הצלחנו לטעון את המנטור" onRetry={load} />
+        <div className="mv-mentor__panes">
+          <div className="mv-mentor__chat">
+            <div className="mv-mentor__stream">
+              <LoadError message="לא הצלחנו לטעון את המנטור" onRetry={load} />
+            </div>
+          </div>
         </div>
       ) : overview === null ? (
-        <p aria-live="polite" className="mt-4">
-          טוען את השבוע שלך…
-        </p>
+        <div className="mv-mentor__panes">
+          <div className="mv-mentor__chat">
+            <div className="mv-mentor__stream">
+              <p aria-live="polite" className="m-0">
+                טוען את השבוע שלך…
+              </p>
+            </div>
+          </div>
+        </div>
       ) : (
-        <>
-          <div className="mt-6">
+        <div className="mv-mentor__panes">
+          {/*
+            ‎**השיחה היא המסך.** בעיצוב היא תופסת את האזור המרכזי,
+            ‏וכרטיס הפתיח היושב בראשה הוא מה שהמנטור אומר היום.
+          */}
+          <ChatSection
+            advice={overview.advice}
+            available={overview.chatAvailable}
+            firstName={firstName}
+            mentorName={overview.persona.name}
+            pending={askMentor}
+            onConsumed={() => setAskMentor(null)}
+            onGoalSet={load}
+            onAdviceFeedback={load}
+          />
+
+          <aside className="mv-mentor__rail" aria-label="הנתונים שלך">
+            {/*
+              ‏הרייל הוא מה שנמדד ונקבע, והתפריט הזה הוא התוכן שלו:
+              ‏הוא נשאל מה-DOM מי קיים ובאיזה סדר, ולכן סעיף מותנה
+              ‏שאינו מוצג אינו מופיע בו.
+            */}
+            <MentorPageMenu overview={overview} user={user} />
+
+            {/* ‏הכרטיס הכהה פותח את הרייל — כמו בקובץ העיצוב */}
+            <GoalRail overview={overview} onChanged={load} onAsk={setAskMentor} />
+            <StreakRow streakWeeks={overview.streakWeeks} />
             <Celebration
               events={celebrationEvents(overview)}
               title="🎉 כל הכבוד — הושג"
             />
-          </div>
-          <WeekSection overview={overview} />
-          <GoalsSection overview={overview} onChanged={load} />
-          {overview.patterns.length > 0 ? (
-            <section className="mt-8" aria-labelledby="mentor-memory-heading">
-              <div className="mv-card-head mv-domain-violet mb-3">
-                <span className="mv-tile" aria-hidden="true">
-                  <IconStar s={19} />
-                </span>
-                <h2
-                  id="mentor-memory-heading"
-                  className="mv-card-head__title m-0"
-                >
+            <WeekSection overview={overview} />
+
+            {overview.onboarding !== null ? (
+              <OnboardingSection
+                onboarding={overview.onboarding}
+                onGoalSet={load}
+                onAsk={setAskMentor}
+              />
+            ) : null}
+
+            {overview.patterns.length > 0 ? (
+              <section
+                className="mv-railcard"
+                aria-labelledby="mentor-memory-heading"
+              >
+                <h2 id="mentor-memory-heading" className="mv-railcard__head">
+                  <span className="mv-railcard__icon" aria-hidden="true">
+                    <IconStar s={16} />
+                  </span>
                   מה המנטור זוכר
                 </h2>
-              </div>
-              <ul className="m-0 flex list-none flex-col gap-2 p-0">
-                {overview.patterns.map((p, i) => (
-                  <li
-                    key={i}
-                    className="mv-card mv-card--pad"
-                    style={
-                      p.kind === "recurring_behind"
-                        ? { borderColor: "var(--color-warning)" }
-                        : undefined
-                    }
-                  >
-                    {mentorPatternLine(p)}
-                  </li>
-                ))}
-              </ul>
-            </section>
-          ) : null}
-          <ReviewSection
-            latest={overview.latestReview}
-            reviews={reviews}
-            reviewsFailed={reviewsFailed}
-            onRetry={load}
-            onAnswered={load}
-          />
-          <ChatSection
-            available={overview.chatAvailable}
-            firstName={firstName}
-          />
-        </>
+                <ul className="m-0 mt-3 flex list-none flex-col gap-2 p-0">
+                  {overview.patterns.map((pattern, i) => (
+                    <li
+                      key={i}
+                      className="mv-mini"
+                      style={
+                        pattern.kind === "recurring_behind"
+                          ? { borderColor: "var(--color-warning)" }
+                          : undefined
+                      }
+                    >
+                      {mentorPatternLine(pattern)}
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            ) : null}
+
+            <ReviewSection
+              latest={overview.latestReview}
+              reviews={reviews}
+              reviewsFailed={reviewsFailed}
+              onRetry={load}
+              onAnswered={load}
+            />
+            <MonthlySection
+              monthly={monthly}
+              monthlyFailed={monthlyFailed}
+              onRetry={load}
+            />
+            <PracticeSection mentorName={overview.persona.name} />
+            {can(user, "analytics.view") ? <OfficeSection /> : null}
+            <PersonaSection persona={overview.persona} onSaved={load} />
+          </aside>
+        </div>
       )}
     </div>
+  );
+}
+
+/* ====================================================================== */
+/* ‏הכותרת של העמוד — האווטאר, המצב, ושתי הפעולות                        */
+/* ====================================================================== */
+
+/**
+ * ‎**כותרת בגובה 70 שהיא חלק מהמעטפת, ולא כרטיס שנגלל.**
+ *
+ * ‏בקובץ העיצוב היא רצועה לבנה עם אווטאר סגול פועם, שם המנטור
+ * ‏ושורת מצב ירוקה. שורת המצב אינה קישוט: היא אומרת אם השיחה
+ * ‏החופשית מוגדרת — עד כה זה נאמר בשורת טקסט מתחת לכרטיס השיחה,
+ * ‏מקום שאיש לא הגיע אליו.
+ *
+ * ‎**מה אין כאן, ולמה.** בקובץ העיצוב יש גם „דבר איתו בקול”
+ * ‏ואייקון היסטוריית שיחות. בעל המוצר ביקש לא לתת את הפונקציה
+ * ‏הקולית, וההיסטוריה לא אושרה — ואלה אינם CSS אלא נתיב ומודל.
+ * ‏כפתור שנראה כמו העיצוב ואינו עושה דבר גרוע מכפתור שאינו שם.
+ */
+function MentorBar({
+  persona,
+  available,
+}: {
+  persona: MentorPersona | null;
+  available: boolean;
+}) {
+  const named = persona !== null && mentorHasName(persona);
+  return (
+    <header className="mv-mentor__bar">
+      <span className="mv-mentor__avatar" aria-hidden="true">
+        <IconSparkle s={21} />
+        <span className="mv-mentor__dot" data-off={!available} />
+      </span>
+      <div className="min-w-0">
+        <h1 className="mv-mentor__title">
+          {named ? persona.name : "המנטור האישי שלך"}
+        </h1>
+        <p className="mv-mentor__state" data-off={!available}>
+          {available
+            ? "זמין · מכיר את כל הנתונים שלך"
+            : "השיחה החופשית אינה מוגדרת · עונה מהיעדים ומהסיכום"}
+        </p>
+      </div>
+      <div className="mv-mentor__barend">
+        <button
+          type="button"
+          className="mv-mentor__icon"
+          title="השם והסגנון של המנטור"
+          aria-label="השם והסגנון של המנטור"
+          onClick={() =>
+            document
+              .getElementById("mentor-persona-heading")
+              ?.scrollIntoView({ behavior: "smooth", block: "start" })
+          }
+        >
+          <IconGear s={18} />
+        </button>
+      </div>
+    </header>
   );
 }
 
@@ -351,97 +574,185 @@ export default function MentorPage() {
 /* כותרת                                                                  */
 /* ====================================================================== */
 
-function MentorHero({ streakWeeks }: { streakWeeks: number }) {
-  return (
-    <header className="mv-hero">
-      <span className="mv-hero-icon" aria-hidden="true">
-        <IconSparkle s={26} />
-      </span>
-      <div className="min-w-0 flex-1">
-        <h1 className="m-0 text-2xl font-extrabold">
-          המנטור האישי שלך
-          <span
-            className="mx-2 inline-block rounded-full px-2.5 py-0.5 align-middle text-[length:var(--type-body-sm)] font-extrabold"
-            style={{
-              background: "var(--color-primary-soft)",
-              color: "var(--color-primary)",
-            }}
-          >
-            AI
-          </span>
-        </h1>
-        <p className="m-0 mt-1" style={{ color: "var(--color-text-muted)" }}>
-          מודד רק מולך — וחוגג כל הצלחה שלך.
-        </p>
-        {streakWeeks >= 2 ? (
-          <p
-            className="m-0 mt-2 inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[length:var(--type-body-sm)] font-bold"
-            style={{
-              background: "var(--color-success-soft)",
-              color: "var(--color-success)",
-            }}
-          >
-            <IconFlame s={16} /> {streakWeeks} שבועות רצופים שכל היעדים מושגים
-          </p>
-        ) : null}
-      </div>
-    </header>
-  );
-}
-
 /* ====================================================================== */
 /* השבוע                                                                  */
 /* ====================================================================== */
+
+/* ====================================================================== */
+/* 30 הימים הראשונים — הליווי של מתווך חדש (docs/14 §7.5)                */
+/* ====================================================================== */
+
+function OnboardingSection({
+  onboarding,
+  onGoalSet,
+  onAsk,
+}: {
+  onboarding: MentorOnboarding;
+  onGoalSet: () => void;
+  onAsk: (question: string) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const { step } = onboarding;
+
+  async function act(): Promise<void> {
+    setError(null);
+    if (step.kind === "goal" && step.goal !== undefined) {
+      if (busy) return;
+      setBusy(true);
+      try {
+        await apiPost("/mentor/goals", step.goal);
+        onGoalSet();
+      } catch (err: unknown) {
+        setError(
+          err instanceof ApiError
+            ? err.message
+            : "היעד לא נקבע — כדאי לנסות שוב",
+        );
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
+    if (step.kind === "chat" && step.question !== undefined) {
+      onAsk(step.question);
+      return;
+    }
+    if (step.kind === "practice") {
+      document
+        .getElementById("mentor-practice-heading")
+        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }
+
+  const weeks = [
+    { n: 1, title: "להכיר" },
+    { n: 2, title: "להוסיף" },
+    { n: 3, title: "להתייצב" },
+    { n: 4, title: "לסכם" },
+  ];
+  return (
+    <section aria-labelledby="mentor-onboarding-heading">
+      <h2 id="mentor-onboarding-heading" className="mv-railhead">
+        <span className="mv-railcard__icon" aria-hidden="true">
+          <IconFlame s={16} />
+        </span>
+        30 הימים הראשונים
+      </h2>
+      <div className="mv-railcard">
+        <p className="mv-card-sub m-0">
+          יום {onboarding.day} מתוך {ONBOARDING_DAYS} · השבוע —{" "}
+          {onboarding.weekTitle}
+        </p>
+        <ol
+          className="m-0 mt-2 flex list-none flex-wrap gap-2 p-0"
+          aria-label="ארבעת השבועות"
+        >
+          {weeks.map((w) => (
+            <li
+              key={w.n}
+              className="mv-chip"
+              aria-current={w.n === onboarding.week ? "step" : undefined}
+              style={
+                w.n < onboarding.week
+                  ? { color: "var(--color-text-muted)" }
+                  : w.n === onboarding.week
+                    ? { fontWeight: 700 }
+                    : undefined
+              }
+            >
+              {w.n < onboarding.week ? "✓ " : ""}
+              {w.n}. {w.title}
+            </li>
+          ))}
+        </ol>
+        <p className="m-0 mt-3">{onboarding.weekFocus}</p>
+        <div
+          className="mt-3 rounded-xl p-4"
+          style={{ background: "var(--color-surface-sunken)" }}
+        >
+          <p className="m-0 font-bold">{step.title}</p>
+          <p className="m-0 mt-1">{step.body}</p>
+          {step.kind !== "keep" ? (
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                className={
+                  step.kind === "goal" ? "mv-control-go" : "mv-btn-soft"
+                }
+                disabled={busy}
+                onClick={() => void act()}
+              >
+                {step.kind === "goal" ? "🎯 " : ""}
+                {busy ? "קובע…" : step.cta}
+              </button>
+            </div>
+          ) : null}
+          {error !== null ? (
+            <div className="mt-2">
+              <Notice tone="danger">{error}</Notice>
+            </div>
+          ) : null}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/**
+ * ‎**„השבוע במספרים” — שישה אריחים צבועים לפי משמעות** (חבילת
+ * ‏העיצוב). לא כל אחד-עשר המדדים: הרייל צר, וששת אלה הם מה שמתווך
+ * ‏מסתכל עליו. השאר לא נמחקו — הם המדדים שאפשר לקבוע עליהם יעד,
+ * ‏והם מופיעים שם.
+ *
+ * ‏הדלתא היא מול השבוע הקודם **של המתווך עצמו** ולא מול אחרים,
+ * ‏וכשאין שבוע קודם אין דלתא — ולא „0” שנראה כמו נתון.
+ */
+const WEEK_TILES: readonly {
+  code: MentorGoalMetric;
+  label: string;
+  tone: string;
+}[] = [
+  { code: "offers_sent", label: "הצעות שנשלחו", tone: "green" },
+  { code: "viewings_held", label: "סיורים שהתקיימו", tone: "violet" },
+  { code: "new_buyers", label: "קונים חדשים", tone: "blue" },
+  { code: "new_properties", label: "נכסים חדשים", tone: "amber" },
+  { code: "calls_answered", label: "שיחות שנענו", tone: "neutral" },
+  { code: "leads_answered", label: "לידים שנענו", tone: "peach" },
+];
 
 function WeekSection({ overview }: { overview: Overview }) {
   const { activity, previousActivity, wins } = overview;
   const insightLines = mentorInsightSentences(overview.insights);
   return (
-    <section className="mt-6" aria-labelledby="mentor-week-heading">
-      <div className="mv-card-head mv-domain-neutral mb-3">
-        <span className="mv-tile" aria-hidden="true">
-          <IconCalendar s={19} />
-        </span>
-        <h2 id="mentor-week-heading" className="mv-card-head__title m-0">
-          השבוע
-        </h2>
-        <span
-          className="ms-auto text-[length:var(--type-caption-lg)] font-bold"
-          style={{ color: "var(--color-text-muted)" }}
-        >
-          {weekLabel(overview.weekStart)}
-        </span>
-      </div>
+    <section aria-labelledby="mentor-week-heading">
+      <h2 id="mentor-week-heading" className="mv-railhead">
+        השבוע במספרים
+        <span className="mv-railhead__end">{weekLabel(overview.weekStart)}</span>
+      </h2>
 
-      {/*
-        אריחי ה-KPI של הדשבורד (§12), בגרסה שקטה: מציגים ולא מקשרים,
-        ונמוכים יותר כי יש אחד-עשר. אפס עובר לניטרלי מהנתון — „אין
-        עסקאות” לא אמור להיראות כמו התרעה.
-      */}
-      <dl className="m-0 grid grid-cols-2 items-stretch gap-3 sm:grid-cols-3 lg:grid-cols-4">
-        {MENTOR_METRICS.map((metric) => {
-          const now = activity[metric.code];
+      <dl className="mv-statgrid m-0">
+        {WEEK_TILES.map((tile) => {
+          const now = activity[tile.code];
           const before =
-            previousActivity === null ? null : previousActivity[metric.code];
-          const tile = METRIC_TILE[metric.code];
+            previousActivity === null ? null : previousActivity[tile.code];
+          const delta = before === null ? null : now - before;
           return (
             <div
-              key={metric.code}
-              className={`mv-kpi mv-kpi--static mv-kpi--compact ${
-                now === 0 ? "mv-domain-neutral" : `mv-domain-${tile.domain}`
-              }`}
+              key={tile.code}
+              className="mv-stat"
+              /* ‏אפס עובר לניטרלי מהנתון — „אין סיורים” אינו התרעה */
+              data-tone={now === 0 ? "neutral" : tile.tone}
             >
-              <dt className="mv-kpi__head">
-                <span className="mv-kpi__label">{metric.label}</span>
-                <span className="mv-tile" aria-hidden="true">
-                  {tile.icon}
-                </span>
-              </dt>
-              <dd className="mv-kpi__value mv-ltr m-0">{now}</dd>
-              {/* השוואה רק לעצמו, ורק כשיש שבוע קודם — ולא כשהמספרים זהים */}
-              {before !== null && before !== now ? (
-                <dd className="mv-kpi__note m-0">שבוע שעבר: {before}</dd>
-              ) : null}
+              <dt className="mv-stat__label">{tile.label}</dt>
+              <dd className="mv-stat__n m-0">
+                <b className="mv-ltr">{now}</b>
+                {delta !== null && delta !== 0 ? (
+                  <span className="mv-ltr">
+                    {delta > 0 ? `+${delta}` : delta}
+                  </span>
+                ) : null}
+              </dd>
             </div>
           );
         })}
@@ -449,16 +760,16 @@ function WeekSection({ overview }: { overview: Overview }) {
 
       {/* מהירות המענה ושיחות שמחכות — עובדות, מול השבוע שעבר של המתווך עצמו */}
       {insightLines.length > 0 ? (
-        <div className="mv-card mv-card--pad mt-3 flex items-start gap-3">
-          <span className="mv-tile mv-domain-amber" aria-hidden="true">
-            <IconClock s={19} />
-          </span>
-          <ul
-            className="m-0 min-w-0 flex-1 list-none p-0"
-            aria-label="מהירות המענה ושיחות שמחכות"
-          >
+        <div className="mv-railcard mt-4">
+          <h3 className="mv-railcard__head">
+            <span className="mv-railcard__icon" aria-hidden="true">
+              <IconClock s={16} />
+            </span>
+            מהירות המענה
+          </h3>
+          <ul className="m-0 mt-2 list-none p-0">
             {insightLines.map((line) => (
-              <li key={line} className="mt-1 leading-relaxed first:mt-0">
+              <li key={line} className="mv-railcard__text mt-1 first:mt-0">
                 {line}
               </li>
             ))}
@@ -468,12 +779,13 @@ function WeekSection({ overview }: { overview: Overview }) {
 
       {wins.length > 0 ? (
         <div
-          className="mv-card mv-card--pad mt-3"
-          style={{ background: "var(--color-success-soft)" }}
+          className="mv-railcard mt-4"
+          style={{
+            background: "var(--color-success-soft)",
+            borderColor: "var(--color-primary-accent)",
+          }}
         >
-          <h3 className="m-0 text-[length:var(--type-row-title)] font-extrabold">
-            🎉 ההצלחות שלך השבוע
-          </h3>
+          <h3 className="mv-railcard__head">🎉 ההצלחות שלך השבוע</h3>
           <ul className="m-0 mt-2 list-none p-0">
             {wins.map((win, i) => (
               <li key={`${win.kind}-${i}`} className="mv-zero-line py-1">
@@ -483,6 +795,50 @@ function WeekSection({ overview }: { overview: Overview }) {
           </ul>
         </div>
       ) : null}
+    </section>
+  );
+}
+
+/**
+ * ‎**הרצף — שבעת ימי השבוע, ומה שאפשר לומר עליהם באמת.**
+ *
+ * ‏בקובץ העיצוב הימים שחלפו ירוקים („ביעד”). אין לנו הישג יומי:
+ * ‏‎`MentorActivity` נמדד לשבוע, לא ליום, ולכן צביעת יום בירוק
+ * ‏הייתה טענה שהמערכת אינה יודעת. שלושת המצבים כאן הם מה שידוע —
+ * ‏חלף, היום, לפניך — והמספר שמימין הוא הרצף האמיתי מהסיכומים.
+ */
+function StreakRow({ streakWeeks }: { streakWeeks: number }) {
+  const days = ["א", "ב", "ג", "ד", "ה", "ו", "ש"];
+  /*
+   * ‏יום בשבוע לפי **התאריך בישראל** ולא לפי שעון המכשיר: מתווך
+   * ‏שפותח את המסך מחו״ל אחרי חצות מקומית היה רואה יום אחר מזה
+   * ‏שהמנטור מודד בו.
+   */
+  const today = new Date(
+    `${jerusalemWallParts(new Date()).date}T12:00:00Z`,
+  ).getUTCDay();
+  return (
+    <section aria-labelledby="mentor-streak-heading">
+      <h2 id="mentor-streak-heading" className="mv-railhead">
+        הרצף שלך
+        {streakWeeks > 0 ? (
+          <span className="mv-railhead__end">
+            {streakWeeks === 1 ? "שבוע ביעד" : `${streakWeeks} שבועות ביעד`} 🔥
+          </span>
+        ) : null}
+      </h2>
+      <div className="mv-streak">
+        {days.map((day, i) => (
+          <span
+            key={day}
+            className="mv-streak__day"
+            data-when={i < today ? "past" : i === today ? "today" : "ahead"}
+            title={i < today ? "חלף" : i === today ? "היום" : "לפניך"}
+          >
+            {day}
+          </span>
+        ))}
+      </div>
     </section>
   );
 }
@@ -497,6 +853,8 @@ function winLabel(win: MentorWin): string {
       return `קונה אמר „מעוניין” על ${win.title}`;
     case "coop_deal":
       return `עסקת שיתוף פעולה — ${win.title}`;
+    case "goal_reached":
+      return `היעד הושג: ${win.title}`;
   }
 }
 
@@ -504,12 +862,45 @@ function winLabel(win: MentorWin): string {
 /* יעדים                                                                  */
 /* ====================================================================== */
 
-function GoalsSection({
+/**
+ * ‏לאן ניגשים כדי לקדם כל מדד. הכפתור הראשי בכרטיס היעד מוביל לשם,
+ * ‏ולכן הוא עושה בדיוק את מה שכתוב עליו — ולא פותח דיאלוג שאינו
+ * ‏קיים. מדד שאין לו מסך משלו מקבל את המסך שבו הוא נמדד.
+ */
+const METRIC_ACTION: Record<
+  MentorGoalMetric,
+  { href: string; label: string }
+> = {
+  offers_sent: { href: "/matches", label: "שלח הצעה עכשיו" },
+  viewings_held: { href: "/calendar/new", label: "קבע סיור" },
+  new_buyers: { href: "/buyers/new", label: "הוסף קונה" },
+  new_properties: { href: "/properties/new", label: "הוסף נכס" },
+  leads_answered: { href: "/leads", label: "לרשימת הלידים" },
+  leads_answered_fast: { href: "/leads", label: "לרשימת הלידים" },
+  calls_made: { href: "/calls", label: "למסך השיחות" },
+  calls_answered: { href: "/calls", label: "למסך השיחות" },
+  followups_done: { href: "/tasks", label: "למשימות" },
+  owner_updates_sent: { href: "/properties", label: "לנכסים שלך" },
+  deals_closed: { href: "/properties", label: "לנכסים שלך" },
+};
+
+/**
+ * ‎**כרטיס היעד הכהה, ומה שמתחתיו.**
+ *
+ * ‏בקובץ העיצוב יש יעד אחד ראשי בכרטיס כהה. במערכת יכולים להיות
+ * ‏כמה — ולכן הכרטיס מציג את **הדוחק ביותר** (הרחוק ביותר מסיום,
+ * ‏ושבועי לפני חודשי), והשאר יורדים לשורות קומפקטיות מתחתיו. אף
+ * ‏יעד לא נעלם.
+ */
+function GoalRail({
   overview,
   onChanged,
+  onAsk,
 }: {
   overview: Overview;
   onChanged: () => void;
+  /** „נתחיל מהיעד” מהשיחה — ושאלה כשאין עדיין יעד */
+  onAsk: (question: string) => void;
 }) {
   const [ending, setEnding] = useState<GoalDto | null>(null);
   const [busy, setBusy] = useState(false);
@@ -520,6 +911,21 @@ function GoalsSection({
    */
   const [formOpen, setFormOpen] = useState<boolean | null>(null);
   const showForm = formOpen ?? overview.goals.length === 0;
+
+  /*
+   * ‏הדוחק ביותר: שבועי לפני חודשי, ובתוך זה הרחוק ביותר מסיום.
+   * ‏‎`ratio` ולא `remaining` — „1 מתוך 2” דוחק פחות מ„0 מתוך 3”,
+   * ‏גם כששניהם חסרים מספר דומה.
+   */
+  const ranked = [...overview.goals].sort((a, b) =>
+    a.period !== b.period
+      ? a.period === "week"
+        ? -1
+        : 1
+      : a.progress.ratio - b.progress.ratio,
+  );
+  const primary = ranked[0] ?? null;
+  const others = ranked.slice(1);
 
   async function endGoal(): Promise<void> {
     if (ending === null) return;
@@ -537,75 +943,107 @@ function GoalsSection({
   }
 
   return (
-    <section className="mt-8" aria-labelledby="mentor-goals-heading">
-      <div className="mv-card-head mv-domain-green mb-3">
-        <span className="mv-tile" aria-hidden="true">
-          <IconTarget s={19} />
-        </span>
-        <h2 id="mentor-goals-heading" className="mv-card-head__title m-0">
-          היעדים שלך
-        </h2>
-        {!showForm ? (
-          <button
-            type="button"
-            className="mv-btn-soft ms-auto"
-            onClick={() => setFormOpen(true)}
-          >
-            + יעד חדש
-          </button>
-        ) : null}
-      </div>
-
-      {overview.goals.length === 0 ? (
-        <p className="m-0 mb-3" style={{ color: "var(--color-text-muted)" }}>
-          עוד אין יעד. אחד ברור — „5 הצעות בשבוע” — שווה יותר משלושה.
-        </p>
+    <section aria-labelledby="mentor-goals-heading">
+      {primary === null ? (
+        <div className="mv-goalcard">
+          <h2 id="mentor-goals-heading" className="mv-goalcard__head">
+            אין לך יעד פעיל
+          </h2>
+          <p className="mv-goalcard__note">
+            יעד אחד שבועי הוא כל מה שצריך כדי שאמדוד איתך. אפשר לבחור
+            אותו כאן, או לבקש ממני להציע.
+          </p>
+          <div className="mv-goalcard__actions">
+            <button
+              type="button"
+              className="mv-goalcard__go"
+              onClick={() => setFormOpen(true)}
+            >
+              לקבוע יעד
+            </button>
+            <button
+              type="button"
+              className="mv-goalcard__alt"
+              onClick={() => onAsk("תעזור לי לבחור יעד לשבוע הבא")}
+            >
+              שיציע לי
+            </button>
+          </div>
+        </div>
       ) : (
-        <ul className="m-0 flex list-none flex-col gap-2 p-0">
-          {overview.goals.map((goal) => (
-            <li key={goal.id} className="mv-row mv-row--nested items-start">
-              <div className="min-w-0 flex-1">
-                <div className="mv-row__title">
+        <div className="mv-goalcard">
+          <h2 id="mentor-goals-heading" className="mv-goalcard__head">
+            {primary.period === "week" ? "היעד השבועי" : "היעד החודשי"}
+            <span className="mv-goalcard__pace">
+              {PACE_LABEL[primary.progress.pace]}
+            </span>
+          </h2>
+          <p className="mv-goalcard__n m-0">
+            <b className="mv-ltr">{primary.progress.actual}</b>
+            <span>
+              מתוך {mentorGoalLabel(primary.metric, primary.target, primary.period)}
+            </span>
+          </p>
+          <span
+            className="mv-goalcard__bar"
+            role="progressbar"
+            aria-valuemin={0}
+            aria-valuemax={primary.target}
+            aria-valuenow={primary.progress.actual}
+            aria-label={`${metricLabel(primary.metric)}: ${primary.progress.actual} מתוך ${primary.target}`}
+          >
+            <span
+              style={{
+                width: `${Math.min(100, Math.round(primary.progress.ratio * 100))}%`,
+              }}
+            />
+          </span>
+          <p className="mv-goalcard__note">{goalNote(primary)}</p>
+          <div className="mv-goalcard__actions">
+            <Link
+              href={METRIC_ACTION[primary.metric].href}
+              className="mv-goalcard__go no-underline"
+            >
+              {METRIC_ACTION[primary.metric].label}
+            </Link>
+            <button
+              type="button"
+              className="mv-goalcard__alt"
+              onClick={() => setFormOpen(true)}
+            >
+              עדכן יעד
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ‏שאר היעדים — קיימים, ולא בכרטיס הכהה שבו יושב הדוחק */}
+      {others.length > 0 ? (
+        <ul className="m-0 mt-3 flex list-none flex-col gap-2 p-0">
+          {others.map((goal) => (
+            <li key={goal.id} className="mv-mini flex items-center gap-2">
+              <span className="min-w-0 flex-1">
+                <span className="mv-mini__label block">
                   {mentorGoalLabel(goal.metric, goal.target, goal.period)}
+                </span>
+                <span className="mv-mini__n block">
+                  <span className="mv-ltr">
+                    {goal.progress.actual}/{goal.target}
+                  </span>
                   <span
-                    className="mx-2 text-[length:var(--type-body-sm)] font-bold"
-                    style={{ color: PACE_COLOR[goal.progress.pace] }}
+                    className="ms-2"
+                    style={{
+                      fontSize: "var(--type-caption-lg)",
+                      color: PACE_COLOR[goal.progress.pace],
+                    }}
                   >
                     {PACE_LABEL[goal.progress.pace]}
                   </span>
-                </div>
-                <div className="mt-2 flex items-center gap-3">
-                  <span
-                    className="mv-progress"
-                    style={{ maxWidth: 220 }}
-                    role="progressbar"
-                    aria-valuemin={0}
-                    aria-valuemax={goal.target}
-                    aria-valuenow={goal.progress.actual}
-                    aria-label={`${metricLabel(goal.metric)}: ${goal.progress.actual} מתוך ${goal.target}`}
-                  >
-                    <span
-                      style={{
-                        width: `${Math.min(100, Math.round(goal.progress.ratio * 100))}%`,
-                        background: PACE_COLOR[goal.progress.pace],
-                      }}
-                    />
-                  </span>
-                  <span className="text-[length:var(--type-body-sm)] font-bold">
-                    {mentorQuantity(goal.metric, goal.progress.actual)} מתוך{" "}
-                    {goal.target}
-                  </span>
-                </div>
-                {goal.why ? (
-                  <p className="mv-row__why m-0">בשביל: {goal.why}</p>
-                ) : null}
-                {goal.intention ? (
-                  <p className="mv-row__why m-0">התוכנית: „{goal.intention}”</p>
-                ) : null}
-              </div>
+                </span>
+              </span>
               <button
                 type="button"
-                className="mv-btn-plain mv-row__action"
+                className="mv-btn-plain shrink-0"
                 onClick={() => setEnding(goal)}
               >
                 לסיים
@@ -613,7 +1051,23 @@ function GoalsSection({
             </li>
           ))}
         </ul>
-      )}
+      ) : null}
+
+      {/*
+        ‏הפקד הזה הוא **היחיד** שמסיים את היעד הראשי: השורות שמעליו
+        ‏עובדות על `ranked.slice(1)` בלבד. התניה על `others.length`
+        ‏הסתירה אותו בדיוק כשיש כמה יעדים — כלומר כדי לסיים את
+        ‏הדוחק ביותר היה צריך למחוק קודם את כל השאר (ביקורת Codex).
+      */}
+      {primary !== null ? (
+        <button
+          type="button"
+          className="mv-railcard__link"
+          onClick={() => setEnding(primary)}
+        >
+          לסיים את {mentorGoalLabel(primary.metric, primary.target, primary.period)}
+        </button>
+      ) : null}
 
       {showForm ? (
         <GoalForm
@@ -648,6 +1102,21 @@ function GoalsSection({
       </ConfirmDialog>
     </section>
   );
+}
+
+/**
+ * ‏„עוד הצעה אחת ואתה סוגר את השבוע ביעד” — מהמספרים, לא מהעיצוב.
+ * ‏‎`remaining` הוא מה שנשאר, ו„הושג” אינו מבקש עוד דבר.
+ */
+function goalNote(goal: GoalDto): string {
+  const period = goal.period === "week" ? "השבוע" : "החודש";
+  if (goal.progress.remaining <= 0) {
+    return `היעד הושג. כל מה שמעבר לזה ${period} הוא רווח נקי.`;
+  }
+  const left = mentorQuantity(goal.metric, goal.progress.remaining);
+  return goal.progress.pace === "behind"
+    ? `נשאר ${left} כדי לסגור את ${period} ביעד — והקצב מבקש עוד קצת.`
+    : `עוד ${left} ואתה סוגר את ${period} ביעד.`;
 }
 
 function GoalForm({
@@ -766,7 +1235,7 @@ function GoalForm({
     <form
       onSubmit={(e) => void create(e)}
       noValidate
-      className="mv-card mv-card--pad mt-4"
+      className="mv-railcard mt-4"
       aria-labelledby="mentor-goal-form-heading"
       aria-describedby={error ? "mentor-goal-error" : undefined}
     >
@@ -1003,15 +1472,13 @@ function ReviewSection({
   const older =
     reviews === null ? [] : reviews.filter((r) => r.id !== latest?.id);
   return (
-    <section className="mt-8" aria-labelledby="mentor-review-heading">
-      <div className="mv-card-head mv-domain-amber mb-3">
-        <span className="mv-tile" aria-hidden="true">
-          <IconSparkle s={19} />
+    <section aria-labelledby="mentor-review-heading">
+      <h2 id="mentor-review-heading" className="mv-railhead">
+        <span className="mv-railcard__icon" aria-hidden="true">
+          <IconSparkle s={16} />
         </span>
-        <h2 id="mentor-review-heading" className="mv-card-head__title m-0">
-          הסיכום השבועי
-        </h2>
-      </div>
+        הסיכום השבועי
+      </h2>
 
       {latest === null ? (
         <p className="m-0" style={{ color: "var(--color-text-muted)" }}>
@@ -1046,6 +1513,81 @@ function ReviewSection({
         </details>
       ) : null}
     </section>
+  );
+}
+
+/**
+ * הסיכום החודשי — מה עבד ומה לא (docs/14 §3): המספרים מול החודש
+ * שעבר, כמה שבועות היעד הושג, אילו רעיונות באמת הזיזו מספר, ומיקוד
+ * אחד לחודש הבא. נכתב ב-1 בחודש; עד אז — מה יגיע.
+ */
+function MonthlySection({
+  monthly,
+  monthlyFailed,
+  onRetry,
+}: {
+  monthly: MonthlyDto[] | null;
+  monthlyFailed: boolean;
+  onRetry: () => void;
+}) {
+  const [latest, ...older] = monthly ?? [];
+  return (
+    <section aria-labelledby="mentor-monthly-heading">
+      <h2 id="mentor-monthly-heading" className="mv-railhead">
+        <span className="mv-railcard__icon" aria-hidden="true">
+          <IconCalendar s={16} />
+        </span>
+        הסיכום החודשי
+      </h2>
+      {monthlyFailed ? (
+        <LoadError
+          message="לא הצלחנו לטעון את הסיכום החודשי"
+          onRetry={onRetry}
+        />
+      ) : monthly === null ? (
+        <p aria-live="polite" className="m-0">
+          טוען…
+        </p>
+      ) : latest === undefined ? (
+        <p className="m-0" style={{ color: "var(--color-text-muted)" }}>
+          הסיכום החודשי הראשון מגיע ביום ראשון אחרי סוף החודש — מה עבד, מה לא,
+          ואיזה רעיון באמת הזיז מספר.
+        </p>
+      ) : (
+        <>
+          <MonthlyCard review={latest} />
+          {older.length > 0 ? (
+            <details className="mt-3">
+              <summary className="cursor-pointer font-bold">
+                חודשים קודמים ({older.length})
+              </summary>
+              <div className="mt-3 flex flex-col gap-3">
+                {older.map((r) => (
+                  <MonthlyCard key={r.id} review={r} />
+                ))}
+              </div>
+            </details>
+          ) : null}
+        </>
+      )}
+    </section>
+  );
+}
+
+function MonthlyCard({ review }: { review: MonthlyDto }) {
+  return (
+    <article className="mv-railcard">
+      <p className="mv-card-sub m-0">
+        {mentorMonthLabel(new Date(review.monthStart))}
+      </p>
+      <h3 className="m-0 mt-1 text-lg font-bold">{review.headline}</h3>
+      {review.greeting ? <p className="m-0 mt-2">{review.greeting}</p> : null}
+      {review.paragraphs.map((p, i) => (
+        <p key={i} className="m-0 mt-2">
+          {p}
+        </p>
+      ))}
+    </article>
   );
 }
 
@@ -1084,7 +1626,7 @@ function ReviewCard({
 
   return (
     <article
-      className="mv-card mv-card--pad"
+      className="mv-railcard"
       aria-label={`${review.headline} — ${weekLabel(review.weekStart)}`}
     >
       <p
@@ -1387,24 +1929,50 @@ function Commitment({
 /* השיחה                                                                  */
 /* ====================================================================== */
 
-function ChatSection({
-  available,
-  firstName,
-}: {
-  available: boolean;
-  firstName: string;
-}) {
-  const [turns, setTurns] = useState<Turn[] | null>(null);
+/**
+ * השם והסגנון של המנטור — של המשתמש, נשמרים בפרופיל (`preferences.mentor`)
+ * ונוסעים איתו בין מכשירים (docs/14 §4.1). הבחירה כאן, במסך המנטור;
+ * עמוד הפרופיל מציג אותה ומקשר לכאן.
+ */
+/* ====================================================================== */
+/* תרגול שיחה — המנטור משחק את הצד השני (docs/14 §7.3)                    */
+/* ====================================================================== */
+
+/**
+ * ‏אייקון לכל תרחיש — קישוט מהעיצוב, ולכן `aria-hidden` והשם הנגיש
+ * ‏נשאר הטקסט. הרשומה מלאה, ולכן תרחיש שיתווסף בחבילה לא יתקמפל
+ * ‏עד שיקבל אחד.
+ */
+const SCENARIO_EMOJI: Record<PracticeScenario, string> = {
+  seller_price: "🏷️",
+  seller_exclusive: "📝",
+  buyer_hesitant: "🤔",
+  buyer_lowball: "💰",
+  lead_cold: "👀",
+  commission: "✂️",
+};
+
+function PracticeSection({ mentorName }: { mentorName: string }) {
+  const [active, setActive] = useState<PracticeDto | null>(null);
+  const [recent, setRecent] = useState<PracticeDto[] | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
+  const [scenario, setScenario] = useState<PracticeScenario>(
+    PRACTICE_SCENARIO_INFO[0]!.code,
+  );
   const [text, setText] = useState("");
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<"start" | "reply" | "finish" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
 
   const load = useCallback(() => {
     setLoadFailed(false);
-    apiGet<{ turns: Turn[] }>("/mentor/messages")
-      .then((res) => setTurns(apiList(res.turns, "turns")))
+    apiGet<{ active: PracticeDto | null; recent: PracticeDto[] }>(
+      "/mentor/practice",
+    )
+      .then((res) => {
+        setActive(res.active);
+        setRecent(apiList(res.recent, "recent"));
+      })
       .catch(() => setLoadFailed(true));
   }, []);
 
@@ -1413,10 +1981,918 @@ function ChatSection({
   }, [load]);
 
   useEffect(() => {
-    if ((turns?.length ?? 0) > 0 || busy) {
+    if (active !== null && active.turns.length > 1) {
       endRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
     }
-  }, [turns?.length, busy]);
+  }, [active?.turns.length, active]);
+
+  const info = PRACTICE_SCENARIO_INFO.find((s) => s.code === scenario)!;
+
+  async function start(): Promise<void> {
+    if (busy !== null) return;
+    setBusy("start");
+    setError(null);
+    try {
+      const res = await apiPost<PracticeDto>("/mentor/practice", { scenario });
+      setActive(res);
+    } catch (err: unknown) {
+      setError(
+        err instanceof ApiError
+          ? err.message
+          : "התרגול לא התחיל — כדאי לנסות שוב",
+      );
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function reply(): Promise<void> {
+    const trimmed = text.trim();
+    if (active === null || trimmed === "" || busy !== null) return;
+    setBusy("reply");
+    setError(null);
+    const mine: PracticeTurn = { role: "agent", text: trimmed };
+    setActive({ ...active, turns: [...active.turns, mine] });
+    setText("");
+    try {
+      const res = await apiPost<{
+        turn: PracticeTurn;
+        closing: boolean;
+        agentTurns: number;
+      }>(`/mentor/practice/${active.id}/reply`, { text: trimmed });
+      // הסגירה נשמרת בשרת — כך גם אחרי רענון אין עוד תורים, רק משוב
+      setActive((prev) =>
+        prev === null
+          ? prev
+          : {
+              ...prev,
+              turns: [...prev.turns, res.turn],
+              agentTurns: res.agentTurns,
+              closed: res.closing,
+            },
+      );
+    } catch (err: unknown) {
+      setError(
+        err instanceof ApiError
+          ? err.message
+          : "הצד השני לא ענה — כדאי לנסות שוב",
+      );
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function finish(): Promise<void> {
+    if (active === null || busy !== null) return;
+    setBusy("finish");
+    setError(null);
+    try {
+      const res = await apiPost<PracticeDto>(
+        `/mentor/practice/${active.id}/finish`,
+        {},
+      );
+      setActive(null);
+      setRecent((prev) => [
+        res,
+        ...(prev ?? []).filter((p) => p.id !== res.id),
+      ]);
+    } catch (err: unknown) {
+      setError(
+        err instanceof ApiError
+          ? err.message
+          : "המשוב לא הגיע — כדאי לנסות שוב",
+      );
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  const latest = recent?.[0];
+  const closing = active?.closed === true;
+  const canReply =
+    active !== null &&
+    !active.closed &&
+    active.agentTurns < PRACTICE_MAX_AGENT_TURNS;
+
+  return (
+    <section aria-labelledby="mentor-practice-heading">
+      <h2 id="mentor-practice-heading" className="mv-railhead">
+        <span className="mv-railcard__icon" aria-hidden="true">
+          <IconHeadphones s={16} />
+        </span>
+        תרגול שיחה
+      </h2>
+      <div className="mv-railcard">
+        {loadFailed ? (
+          <LoadError message="לא הצלחנו לטעון את התרגול" onRetry={load} />
+        ) : recent === null ? (
+          <p aria-live="polite" className="m-0">
+            טוען…
+          </p>
+        ) : active === null ? (
+          <>
+            <p className="m-0" style={{ color: "var(--color-text-muted)" }}>
+              {mentorName} משחק את הצד השני — מוכר, קונה או ליד — ובסוף אומר מה
+              עבד, מה פספסת, ומשפט אחד לנסות בשיחה האמיתית.
+            </p>
+            {/*
+              ‎**רדיו אמיתי, ולא כפתורים עם `aria-pressed`.** בקובץ
+              ‏העיצוב זו רשימת בחירה אחת מתוך שש עם עיגול מסומן —
+              ‏כלומר קבוצת רדיו. עם רדיו אמיתי החצים עוברים בין
+              ‏התרחישים והקורא מכריז „1 מתוך 6”, וזה גם מה שהצורה
+              ‏מבטיחה לעין.
+            */}
+            <fieldset className="m-0 mt-3 flex flex-col gap-2 border-0 p-0">
+              <legend className="mv-visually-hidden">
+                בחירת תרחיש לתרגול
+              </legend>
+              {PRACTICE_SCENARIO_INFO.map((s) => (
+                <label key={s.code} className="mv-scenario" title={s.blurb}>
+                  <input
+                    type="radio"
+                    name="mentor-practice-scenario"
+                    className="flex-none"
+                    checked={s.code === scenario}
+                    onChange={() => setScenario(s.code)}
+                  />
+                  <span className="min-w-0 flex-1 truncate">{s.label}</span>
+                  <span className="mv-scenario__emoji" aria-hidden="true">
+                    {SCENARIO_EMOJI[s.code]}
+                  </span>
+                </label>
+              ))}
+            </fieldset>
+            <p className="mv-card-sub m-0 mt-3">המטרה: {info.goal}</p>
+            <button
+              type="button"
+              className="mv-scenario__go"
+              disabled={busy !== null}
+              onClick={() => void start()}
+            >
+              {busy === "start"
+                ? "מתחיל…"
+                : `התחל תרגול — ${info.counterpart.name}`}
+            </button>
+            {latest !== undefined && latest.feedback !== null ? (
+              <PracticeFeedbackCard practice={latest} compact />
+            ) : null}
+            {recent.length > 1 ? (
+              <details className="mt-3">
+                <summary className="cursor-pointer font-bold">
+                  תרגולים קודמים ({recent.length - 1})
+                </summary>
+                <ul className="m-0 mt-2 flex list-none flex-col gap-2 p-0">
+                  {recent.slice(1).map((p) => (
+                    <li key={p.id} className="mv-row">
+                      <span className="mv-row__title">{p.scenarioLabel}</span>
+                      <span className="mv-row__meta">
+                        {p.endedAt === null
+                          ? ""
+                          : `${formatJerusalemDate(new Date(p.endedAt))} · `}
+                        {p.feedback === null
+                          ? "בלי משוב"
+                          : `ציון ${practiceScoreLabel(p.feedback.score)}`}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            ) : null}
+          </>
+        ) : (
+          <>
+            <p className="mv-card-sub m-0">
+              {active.scenarioLabel} · {active.counterpartName} על הקו · תור{" "}
+              {Math.min(active.agentTurns + 1, PRACTICE_MAX_AGENT_TURNS)} מתוך{" "}
+              {PRACTICE_MAX_AGENT_TURNS}
+            </p>
+            <div className="mt-3 flex flex-col gap-3" aria-live="polite">
+              {active.turns.map((turn, i) => (
+                <div
+                  key={i}
+                  className={`mv-chat-bubble ${turn.role === "agent" ? "mv-chat-user" : "mv-chat-agent"}`}
+                >
+                  {turn.role === "counterpart" ? (
+                    <span className="mv-card-sub block">
+                      {active.counterpartName}
+                    </span>
+                  ) : null}
+                  <span style={{ whiteSpace: "pre-line" }}>{turn.text}</span>
+                </div>
+              ))}
+              {busy === "reply" ? (
+                <div className="mv-chat-bubble mv-chat-agent">
+                  <span aria-live="polite">{active.counterpartName} חושב…</span>
+                </div>
+              ) : null}
+              <div ref={endRef} />
+            </div>
+            {closing ? (
+              <Notice tone="info">
+                {active.counterpartName} סיים את השיחה — עכשיו המשוב.
+              </Notice>
+            ) : null}
+            {canReply && !closing ? (
+              <form
+                className="mt-3 flex flex-col gap-2"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  void reply();
+                }}
+              >
+                <label
+                  htmlFor="mentor-practice-text"
+                  className="mv-visually-hidden"
+                >
+                  מה אומרים ל{active.counterpartName}
+                </label>
+                <textarea
+                  id="mentor-practice-text"
+                  className="mv-input w-full"
+                  rows={2}
+                  maxLength={PRACTICE_TEXT_MAX}
+                  value={text}
+                  placeholder={`מה אומרים ל${active.counterpartName}?`}
+                  disabled={busy !== null}
+                  onChange={(e) => setText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      e.preventDefault();
+                      void reply();
+                    }
+                  }}
+                />
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="submit"
+                    className="mv-control-go"
+                    disabled={busy !== null || text.trim() === ""}
+                  >
+                    לענות
+                  </button>
+                  <button
+                    type="button"
+                    className="mv-btn-soft"
+                    disabled={busy !== null || active.agentTurns === 0}
+                    onClick={() => void finish()}
+                  >
+                    {busy === "finish" ? "המנטור קורא…" : "לסיים ולקבל משוב"}
+                  </button>
+                </div>
+              </form>
+            ) : (
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  className="mv-control-go"
+                  disabled={busy !== null || active.agentTurns === 0}
+                  onClick={() => void finish()}
+                >
+                  {busy === "finish" ? "המנטור קורא…" : "לקבל משוב"}
+                </button>
+              </div>
+            )}
+            {error !== null ? (
+              <div className="mt-2">
+                <Notice tone="danger">{error}</Notice>
+              </div>
+            ) : null}
+          </>
+        )}
+        {active === null && error !== null ? (
+          <div className="mt-2">
+            <Notice tone="danger">{error}</Notice>
+          </div>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
+/** המשוב של המנטור על תרגול — מה עבד, מה פספסת, מה לנסות, והרשימה. */
+function PracticeFeedbackCard({
+  practice,
+  compact,
+}: {
+  practice: PracticeDto;
+  compact?: boolean;
+}) {
+  const fb = practice.feedback;
+  if (fb === null) return null;
+  return (
+    <article
+      className="mt-4 rounded-xl p-4"
+      style={{ background: "var(--color-surface-sunken)" }}
+      aria-label={`המשוב על ${practice.scenarioLabel}`}
+    >
+      <p className="m-0 font-bold">
+        {compact ? "המשוב האחרון — " : ""}
+        {practice.scenarioLabel}: ציון {practiceScoreLabel(fb.score)}
+        {fb.source === "checklist"
+          ? " (לפי הרשימה בלבד — מנוע השיחה אינו זמין)"
+          : ""}
+      </p>
+      {fb.worked.length > 0 ? (
+        <ul className="m-0 mt-2 list-none p-0">
+          {fb.worked.map((w, i) => (
+            <li key={i}>✓ {w}</li>
+          ))}
+        </ul>
+      ) : null}
+      {fb.missed.length > 0 ? (
+        <ul className="m-0 mt-2 list-none p-0">
+          {fb.missed.map((m, i) => (
+            <li key={i}>✗ {m}</li>
+          ))}
+        </ul>
+      ) : null}
+      <p className="m-0 mt-3 font-bold">{fb.tryNext}</p>
+      {/* הרשימה כשבבים — רק כשהמודל דיבר; בלי מודל היא כבר ה-✓/✗ שלמעלה */}
+      {fb.source === "model" ? (
+        <ul className="m-0 mt-3 flex list-none flex-wrap gap-2 p-0">
+          {fb.checklist.map((c) => (
+            <li
+              key={c.key}
+              className="mv-chip"
+              style={
+                c.met
+                  ? undefined
+                  : {
+                      color: "var(--color-text-muted)",
+                      textDecoration: "line-through",
+                    }
+              }
+            >
+              {c.label}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </article>
+  );
+}
+
+/* ====================================================================== */
+/* מה עובד אצלנו — למנהל, ספירות בלבד (docs/14 §7.4)                      */
+/* ====================================================================== */
+
+interface OfficeDto {
+  agents: number;
+  proven: {
+    key: string;
+    metric: MentorGoalMetric;
+    metricLabel: string;
+    text: string;
+    helped: number;
+    dismissed: number;
+    up: number;
+    measured: number;
+    evidence: string;
+  }[];
+}
+
+function OfficeSection() {
+  const [office, setOffice] = useState<OfficeDto | null>(null);
+  const [failed, setFailed] = useState(false);
+  const load = useCallback(() => {
+    setFailed(false);
+    apiGet<OfficeDto>("/mentor/office")
+      .then((res) =>
+        setOffice({ ...res, proven: apiList(res.proven, "proven") }),
+      )
+      .catch(() => setFailed(true));
+  }, []);
+  useEffect(() => {
+    load();
+  }, [load]);
+  return (
+    <section aria-labelledby="mentor-office-heading">
+      <h2 id="mentor-office-heading" className="mv-railhead">
+        <span className="mv-railcard__icon" aria-hidden="true">
+          <IconUsers s={16} />
+        </span>
+        מה עובד אצלנו
+      </h2>
+      <div className="mv-railcard">
+        <p className="m-0" style={{ color: "var(--color-text-muted)" }}>
+          מה המתווכים במשרד סימנו שעזר, ואצל כמה המספר באמת עלה בשבוע שאחרי —
+          ספירות בלבד, בלי שמות. רעיון שהוכיח את עצמו כאן מוצע ראשון לכולם.
+        </p>
+        {failed ? (
+          <div className="mt-3">
+            <LoadError
+              message="לא הצלחנו לטעון את מה שעובד אצלנו"
+              onRetry={load}
+            />
+          </div>
+        ) : office === null ? (
+          <p aria-live="polite" className="m-0 mt-3">
+            טוען…
+          </p>
+        ) : office.proven.length === 0 ? (
+          <p className="m-0 mt-3">
+            עוד אין רעיון שהוכיח את עצמו — הספירה מתחילה מ„עזר לי” הראשון של
+            מישהו במשרד.
+          </p>
+        ) : (
+          <>
+            <p className="mv-card-sub m-0 mt-3">
+              {office.agents === 1
+                ? "מתווך אחד תרם עד עכשיו"
+                : `${office.agents} מתווכים תרמו עד עכשיו`}
+            </p>
+            <ul className="m-0 mt-2 flex list-none flex-col gap-2 p-0">
+              {office.proven.slice(0, 8).map((e) => (
+                <li key={e.key} className="mv-row">
+                  <span className="mv-row__title">
+                    <span className="mv-chip me-2">{e.metricLabel}</span>
+                    {e.text}
+                  </span>
+                  <span className="mv-row__meta">{e.evidence}</span>
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+      </div>
+    </section>
+  );
+}
+
+/** ‏אייקון לכל סגנון — קישוט, ולכן `aria-hidden`; המילה היא השם */
+const STYLE_EMOJI: Record<MentorStyle, string> = {
+  warm: "💚",
+  direct: "🎯",
+  challenging: "🔥",
+  analytic: "📊",
+  calm: "🌿",
+};
+
+function PersonaSection({
+  persona,
+  onSaved,
+}: {
+  persona: MentorPersona;
+  onSaved: () => void;
+}) {
+  const [name, setName] = useState(persona.name);
+  const [style, setStyle] = useState<MentorStyle>(persona.style);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    setName(persona.name);
+    setStyle(persona.style);
+  }, [persona.name, persona.style]);
+  const dirty = name.trim() !== persona.name || style !== persona.style;
+
+  async function save(): Promise<void> {
+    const trimmed = name.trim();
+    if (trimmed === "" || saving) return;
+    setSaving(true);
+    setError(null);
+    setSaved(false);
+    try {
+      await apiPatch("/auth/profile", {
+        preferences: { mentor: { name: trimmed, style } },
+      });
+      setSaved(true);
+      onSaved();
+    } catch (err: unknown) {
+      setError(
+        err instanceof ApiError ? err.message : "לא נשמר — כדאי לנסות שוב",
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <section id="mentor-persona" aria-labelledby="mentor-persona-heading">
+      <h2 id="mentor-persona-heading" className="mv-railhead">
+        <span className="mv-railcard__icon" aria-hidden="true">
+          <IconSparkle s={16} />
+        </span>
+        השם והסגנון של המנטור
+      </h2>
+      <div className="mv-railcard">
+        <p className="mv-card-sub m-0">
+          איך לקרוא למנטור, ובאיזה קול הוא מדבר. הבחירה שלך בלבד — נשמרת בפרופיל
+          ונוסעת איתך בין מכשירים.
+        </p>
+        <label
+          htmlFor="mentor-name"
+          className="mt-4 mb-1.5 block text-sm font-semibold"
+        >
+          כך תקרא לו
+        </label>
+        <input
+          id="mentor-name"
+          className="mv-input w-full"
+          value={name}
+          maxLength={MENTOR_NAME_MAX}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="המנטור"
+        />
+        <p
+          id="mentor-style-label"
+          className="mt-4 mb-1.5 text-sm font-semibold"
+        >
+          הסגנון של המנטור
+        </p>
+        {/*
+          ‎**צ׳יפים, והנבחר כהה** — כך בקובץ העיצוב. ההסבר והדוגמה
+          ‏עברו ל-`title` ולשורה שמתחת: ברייל של 352px חמש שורות עם
+          ‏ציטוט ממלאות מסך, והבחירה עצמה — חמש מילים — היא מה
+          ‏שצריך להיות גלוי.
+        */}
+        <div
+          className="flex flex-wrap gap-2"
+          role="group"
+          aria-labelledby="mentor-style-label"
+        >
+          {MENTOR_STYLE_INFO.map((info) => (
+            <button
+              key={info.code}
+              type="button"
+              aria-pressed={info.code === style}
+              className="mv-tonechip"
+              title={info.blurb}
+              onClick={() => setStyle(info.code)}
+            >
+              <span aria-hidden="true">{STYLE_EMOJI[info.code]}</span>
+              {info.label}
+            </button>
+          ))}
+        </div>
+        <p className="mv-card-sub m-0 mt-2">
+          „{MENTOR_STYLE_INFO.find((i) => i.code === style)?.sample}”
+        </p>
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            className="mv-control-go"
+            disabled={saving || !dirty || name.trim() === ""}
+            onClick={() => void save()}
+          >
+            שמור
+          </button>
+          {saved && !dirty ? (
+            <span className="mv-card-sub" aria-live="polite">
+              נשמר — מהודעה הבאה המנטור מדבר ככה.
+            </span>
+          ) : null}
+        </div>
+        {error !== null ? (
+          <div className="mt-2">
+            <Notice tone="danger">{error}</Notice>
+          </div>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
+function ChatSection({
+  advice,
+  available,
+  firstName,
+  mentorName,
+  pending,
+  onConsumed,
+  onGoalSet,
+  onAdviceFeedback,
+}: {
+  /** מה המנטור מציע עכשיו — הפתיח וכרטיסי הפעולה שמתחתיו */
+  advice: MentorAdvice[];
+  available: boolean;
+  firstName: string;
+  /** השם שהמתווך נתן למנטור — כותרת השיחה */
+  mentorName: string;
+  /** שאלה שנפתחה מכרטיס העצות — נשלחת ברגע שהשיחה פנויה */
+  pending: string | null;
+  onConsumed: () => void;
+  /** יעד נקבע מהשיחה — המסך טוען מחדש את היעדים */
+  onGoalSet: () => void;
+  /** „לא בשבילי” החליף רעיון — המסך טוען מחדש */
+  onAdviceFeedback: () => void;
+}) {
+  /* ‏„אחר כך” על כרטיס הפתיח — לשיחה הזו בלבד, ולא מצב שנשמר */
+  const [greetOpen, setGreetOpen] = useState(true);
+  const [turns, setTurns] = useState<Turn[] | null>(null);
+  /*
+   * יעד שהמנטור הציע לקבוע — כפתור מתחת לתשובה שלו. המודל מציע,
+   * המתווך לוחץ, הקוד כותב (docs/14 §7). לא נשמר: מי שלא לחץ יכול
+   * לבקש שוב.
+   */
+  const [proposal, setProposal] = useState<{
+    goal: MentorGoalProposal;
+    afterTurnId: string;
+  } | null>(null);
+  const [settingGoal, setSettingGoal] = useState(false);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  /*
+   * ‏שורת השאלות מסתירה סקרולבר, ולכן היא חייבת רמז אחר — אותו
+   * ‏הוק ואותה מסכה כמו שני סרגלי הלשוניות. החתימה קבועה כי
+   * ‏השאלות קבועות; מה שמשתנה הוא הרוחב, וההוק מודד גם אותו.
+   */
+  const chipRow = useScrollAffordance<HTMLDivElement>(
+    EXAMPLE_QUESTIONS.map((q) => q.label).join("|"),
+  );
+  const endRef = useRef<HTMLDivElement>(null);
+
+  /*
+   * ‎**איזו שיחה פתוחה.** `null` = הנוכחית, כפי שהשרת מכריע לפי
+   * ‏השקט. מזהה = שיחה שנבחרה מההיסטוריה. הבחירה יושבת כאן ולא
+   * ‏בכתובת בכוונה: היא שייכת למסך הזה, ורענון מחזיר לשיחה הנוכחית
+   * ‏— שזה מה שמישהו שחוזר לעמוד מצפה לו.
+   */
+  const [openThread, setOpenThread] = useState<string | null>(null);
+  /*
+   * ‏„שיחה חדשה” נלחצה ועדיין לא נכתבה בה מילה. זה דגל של **ההודעה
+   * ‏הבאה** ולא של המסך: שיחה נוצרת כשכותבים בה, ולא כשלוחצים —
+   * ‏אחרת רשימת ההיסטוריה הייתה מתמלאת בשיחות ריקות.
+   */
+  const [startFresh, setStartFresh] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [threads, setThreads] = useState<MentorThread[] | null>(null);
+  /*
+   * ‎**הנעוצים — הצד השני של הנעיצה.**
+   *
+   * ‏בלי רשימה, נעיצה היא סימון שאין ממנו דרך חזרה: המשפט נשמר
+   * ‏ואי אפשר להגיע אליו. שתי הרשימות נפתחות מאותה שורה ואחת
+   * ‏סוגרת את השנייה, כי שתיהן תופסות את אותו מקום מעל השיחה.
+   */
+  const [pinnedOpen, setPinnedOpen] = useState(false);
+  const [pins, setPins] = useState<Turn[] | null>(null);
+  const [pinVersion, setPinVersion] = useState(0);
+  /*
+   * ‏„יש עוד נעוצים” — הסמן שהשרת החזיר. `null` פירושו שזה הסוף,
+   * ‏ולכן הכפתור אינו מוצג: כפתור „עוד” שאינו מביא דבר גרוע מאין.
+   */
+  const [pinCursor, setPinCursor] = useState<string | null>(null);
+  /*
+   * ‎**ההודעה שנפתחה מהנעוצים** — לא רק השיחה שלה.
+   *
+   * ‏שיחה נטענת ב-40 האחרונות, ולכן נעוץ ישן פשוט לא היה על המסך:
+   * ‏הרשימה שקיימת כדי להחזיר אליו לא החזירה אליו (ביקורת Codex).
+   * ‏המזהה נוסע לשרת, שמחזיר חלון סביבו, והמסך גם גולל אליו.
+   */
+  const [anchor, setAnchor] = useState<string | null>(null);
+  /*
+   * ‎**הכרטיס שצורף לשיחה** (§7.7) — קונה או נכס של המתווך עצמו.
+   *
+   * ‏חי במסך ולא בכתובת, כמו `openThread`: הוא שייך לשיחה הפתוחה,
+   * ‏והשרת מחזיר אותו עם כל טעינת שיחה כדי ששניהם יסכימו על מה
+   * ‏מצורף.
+   */
+  const [subject, setSubject] = useState<SubjectOption | null>(null);
+  const [subjectOpen, setSubjectOpen] = useState(false);
+  const [subjectKind, setSubjectKind] = useState<"buyer" | "property">("buyer");
+  const [subjectQuery, setSubjectQuery] = useState("");
+  const [options, setOptions] = useState<SubjectOption[] | null>(null);
+
+  /*
+   * ‎**טעינה שאחרה אינה דורסת את מה שכבר על המסך.**
+   *
+   * ‏טעינת השיחה הנוכחית יכולה עדיין להיות באוויר כשמישהו בוחר
+   * ‏שיחה מההיסטוריה. בלי השמירה הזו, התשובה שמגיעה שנייה מנצחת —
+   * ‏ולכן המסך יכול להציג שיחה אחת בזמן ש-`openThread` מצביע על
+   * ‏אחרת, וההודעה הבאה נכתבת לשיחה שאינה זו שקוראים (ביקורת
+   * ‏Codex). המונה מזהה את הבקשה האחרונה, וכל מי שאינו היא — שותק.
+   */
+  /*
+   * ‎**כתיבה אחת בכל רגע על כל הודעה.**
+   *
+   * ‏דירוג ונעיצה כותבים ערך מוחלט, ולכן שתי לחיצות מהירות שולחות
+   * ‏שני עדכונים שיכולים להגיע למסד **בסדר הפוך** — והמסד נשאר על
+   * ‏מה שנלחץ קודם בזמן שהמסך מציג את מה שנלחץ אחרון (ביקורת
+   * ‏Codex). השרשור כאן שומר על הסדר בלי לחסום את המסך: העדכון
+   * ‏האופטימי מיידי, והכתיבות ממתינות זו לזו.
+   *
+   * ‏המפתח הוא ההודעה ולא המסך — לחיצה על הודעה אחת אינה מעכבת
+   * ‏פעולה על אחרת.
+   */
+  const writes = useRef(new Map<string, Promise<void>>());
+  function queueWrite(id: string, task: () => Promise<void>): Promise<void> {
+    const next = (writes.current.get(id) ?? Promise.resolve()).then(task, task);
+    writes.current.set(id, next);
+    void next.finally(() => {
+      /* ‏שחרור רק אם לא נוספה כתיבה אחרת בינתיים — אחרת דלף מפה */
+      if (writes.current.get(id) === next) writes.current.delete(id);
+    });
+    return next;
+  }
+
+  /*
+   * ‏מה שהשרת אמר שמצורף לשיחה, כפי שנטען. ההפרש בינו לבין
+   * ‎`subject` הוא מה שהמתווך שינה — וזה ההבדל בין „ניתקתי” לבין
+   * ‏„מעולם לא היה”. בלעדיו כל הודעה הייתה נושאת ניתוק מפורש,
+   * ‏ורושמת שורת „אין כרטיס” על שיחה שממילא לא היה בה.
+   */
+  const serverSubject = useRef<SubjectOption | null>(null);
+
+  const loadSeq = useRef(0);
+  const load = useCallback((thread: string | null, from?: string) => {
+    const seq = (loadSeq.current += 1);
+    setLoadFailed(false);
+    apiGet<{ turns: Turn[]; subject: SubjectOption | null }>(
+      from !== undefined
+        ? `/mentor/messages?from=${from}`
+        : thread === null
+          ? "/mentor/messages"
+          : `/mentor/messages?thread=${thread}`,
+    )
+      .then((res) => {
+        if (seq !== loadSeq.current) return;
+        setTurns(apiList(res.turns, "turns"));
+        /*
+         * ‎**הכרטיס מגיע עם השיחה, ולא נשאר בזיכרון המסך.**
+         *
+         * ‏קודם הוא חי רק כאן: רענון השאיר אותו ריק בזמן שהשרת
+         * ‏ממשיך לגזור כרטיס מההודעות, ומעבר לשיחה אחרת נשא את
+         * ‏הכרטיס של הקודמת לתוכה ודרס את ההקשר שלה (ביקורת
+         * ‏Codex, P1). עכשיו מקור אחד לשניהם.
+         */
+        setSubject(res.subject ?? null);
+        serverSubject.current = res.subject ?? null;
+      })
+      .catch(() => {
+        if (seq !== loadSeq.current) return;
+        setLoadFailed(true);
+      });
+  }, []);
+
+  useEffect(() => {
+    /* ‏„שיחה חדשה” הוא מסך ריק במכוון — טעינה הייתה ממלאת אותו חזרה */
+    if (startFresh) return;
+    load(openThread, anchor ?? undefined);
+  }, [load, openThread, anchor, startFresh]);
+
+  /*
+   * ‏רשימת השיחות נטענת כשנפתחת, ולא עם העמוד: היא מאחורי לחיצה,
+   * ‏ורוב הכניסות למנטור אינן נוגעות בה.
+   */
+  useEffect(() => {
+    if (!historyOpen) return;
+    let live = true;
+    apiGet<{ threads: MentorThread[] }>("/mentor/threads")
+      .then((res) => {
+        if (live) setThreads(apiList(res.threads, "threads"));
+      })
+      .catch(() => {
+        if (live) setThreads([]);
+      });
+    return () => {
+      live = false;
+    };
+  }, [historyOpen]);
+
+  /*
+   * ‏אותו דפוס כמו רשימת השיחות: נטענת כשנפתחת. `pinVersion` מכריח
+   * ‏טעינה מחדש אחרי נעיצה או ביטולה, אחרת הרשימה הייתה מציגה את
+   * ‏המצב שהיה כשנפתחה בפעם הקודמת.
+   */
+  useEffect(() => {
+    if (!pinnedOpen) return;
+    let live = true;
+    apiGet<{ turns: Turn[]; nextBefore: string | null }>("/mentor/messages/pinned")
+      .then((res) => {
+        if (!live) return;
+        setPins(apiList(res.turns, "turns"));
+        setPinCursor(res.nextBefore);
+      })
+      .catch(() => {
+        if (live) {
+          setPins([]);
+          setPinCursor(null);
+        }
+      });
+    return () => {
+      live = false;
+    };
+  }, [pinnedOpen, pinVersion]);
+
+  /*
+   * ‏רשימת הבחירה — נטענת כשהיא נפתחת, ומחדש בכל שינוי סוג או
+   * ‏חיפוש. השרת מחזיר מזהה וכותרת בלבד; העובדות נאספות בשאלה
+   * ‏עצמה, כי כרטיס זז ותמונת מצב שנשמרה כאן הייתה מזדקנת.
+   */
+  useEffect(() => {
+    if (!subjectOpen) return;
+    let live = true;
+    const params = new URLSearchParams({ kind: subjectKind });
+    if (subjectQuery.trim() !== "") params.set("q", subjectQuery.trim());
+    apiGet<{ subjects: SubjectOption[] }>(`/mentor/subjects?${params.toString()}`)
+      .then((res) => {
+        if (live) setOptions(apiList(res.subjects, "subjects"));
+      })
+      .catch(() => {
+        if (live) setOptions([]);
+      });
+    return () => {
+      live = false;
+    };
+  }, [subjectOpen, subjectKind, subjectQuery]);
+
+  /*
+   * ‎**גלילה להודעה חדשה — לא בטעינה הראשונה.**
+   *
+   * ‏עד כה השיחה נגללה לתחתית ברגע שנטענה, וזה היה בסדר כשהיא
+   * ‏הייתה כרטיס בתוך עמוד. עכשיו היא **המסך**, וכרטיס הפתיח יושב
+   * ‏בראשה — כלומר גלילה אוטומטית דחפה מיד מהמסך את הדבר שהמנטור
+   * ‏אומר היום. עכשיו נגללים רק כשמשהו חדש נכנס.
+   */
+  /*
+   * ‏גלילה אל ההודעה שנפתחה מהנעוצים. `contents` אינו מייצר תיבה,
+   * ‏ולכן נגללים אל הילד — הבועה עצמה — שהוא מה שרוצים לראות.
+   */
+  const anchorRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (anchor === null) return;
+    const target = anchorRef.current?.firstElementChild ?? anchorRef.current;
+    target?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [anchor, turns]);
+
+  const seen = useRef<number | null>(null);
+  useEffect(() => {
+    const count = turns?.length ?? null;
+    if (count === null) return;
+    const grew = seen.current !== null && count > seen.current;
+    seen.current = count;
+    /* ‏פתיחה על נעוץ גוללת אליו; גלילה לתחתית הייתה מבטלת אותה */
+    if (anchor !== null) return;
+    if (grew || busy) {
+      endRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+  }, [turns?.length, busy, anchor]);
+
+  // השאלה מכרטיס העצות — פעם אחת, כשהשיחה טעונה ופנויה
+  const sendRef = useRef<(q: string) => Promise<void>>(async () => {});
+  useEffect(() => {
+    if (pending === null || turns === null || busy) return;
+    onConsumed();
+    void sendRef.current(pending);
+  }, [pending, turns, busy, onConsumed]);
+
+  /*
+   * ‎**המסך מתעדכן מיד, והשרת מאשר.**
+   *
+   * ‏דירוג הוא סימן ולא פעולה שאפשר להיכשל בה בצורה שמשנה משהו:
+   * ‏עדכון אופטימי הוא הנכון כאן. אם השרת דחה — הערך חוזר למה שהיה,
+   * ‏ולא נשאר על מה שלא נשמר.
+   */
+  async function rate(turn: Turn, pressed: MentorMessageVerdict): Promise<void> {
+    const next = nextMentorVerdict(turn.feedback ?? null, pressed);
+    const before = turn.feedback ?? null;
+    setTurns((prev) =>
+      (prev ?? []).map((t) => (t.id === turn.id ? { ...t, feedback: next } : t)),
+    );
+    await queueWrite(turn.id, async () => {
+      try {
+        await apiPost(`/mentor/messages/${turn.id}/feedback`, { verdict: next });
+      } catch {
+        /*
+         * ‏החזרה רק אם המסך עדיין מציג את מה שהכתיבה **הזו** ניסתה
+         * ‏לשמור. בלי התנאי, כישלון שמאחר היה דורס בחירה חדשה
+         * ‏יותר שכבר נשמרה בהצלחה (ביקורת Codex).
+         */
+        setTurns((prev) =>
+          (prev ?? []).map((t) =>
+            t.id === turn.id && (t.feedback ?? null) === next
+              ? { ...t, feedback: before }
+              : t,
+          ),
+        );
+      }
+    });
+  }
+
+  async function pin(turn: Turn): Promise<void> {
+    const wasPinned = turn.pinnedAt !== null && turn.pinnedAt !== undefined;
+    const optimistic = wasPinned ? null : new Date().toISOString();
+    setTurns((prev) =>
+      (prev ?? []).map((t) => (t.id === turn.id ? { ...t, pinnedAt: optimistic } : t)),
+    );
+    await queueWrite(turn.id, async () => {
+      try {
+        await apiPost(`/mentor/messages/${turn.id}/pin`, { pinned: !wasPinned });
+        /* ‏הרשימה מתיישנת ברגע שנעצו — הסימון כאן מכריח טעינה מחדש */
+        setPinVersion((v) => v + 1);
+      } catch {
+        setTurns((prev) =>
+          (prev ?? []).map((t) =>
+            t.id === turn.id && (t.pinnedAt ?? null) === optimistic
+              ? { ...t, pinnedAt: turn.pinnedAt ?? null }
+              : t,
+          ),
+        );
+      }
+    });
+  }
 
   async function send(question: string): Promise<void> {
     const trimmed = question.trim();
@@ -1431,14 +2907,49 @@ function ChatSection({
     };
     setTurns((prev) => [...(prev ?? []), optimistic]);
     setText("");
+    setProposal(null);
+    /*
+     * ‏כתיבה מחזירה את המסך להתנהגות הרגילה: מכאן והלאה גוללים אל
+     * ‏ההודעה החדשה, לא אל הנעוץ שממנו נפתחה השיחה.
+     */
+    setAnchor(null);
     try {
-      const res = await apiPost<{ turn: Turn; source: "model" | "fallback" }>(
-        "/mentor/messages",
-        {
-          text: trimmed,
-        },
-      );
+      const res = await apiPost<{
+        turn: Turn;
+        source: "model" | "fallback";
+        proposedGoal?: MentorGoalProposal;
+      }>("/mentor/messages", {
+        text: trimmed,
+        /*
+         * ‏שיחה שנפתחה מההיסטוריה **נמשכת**, ולא נהפכת לרקע שההודעה
+         * ‏נוחתת מאחוריו. בלי זה מי שפותח שיחה מלפני שבוע וכותב בה
+         * ‏היה שולח לשיחה של היום — ורואה את ההודעה שלו נעלמת.
+         */
+        ...(openThread !== null
+          ? { into: openThread }
+          : startFresh
+            ? { into: "new" as const }
+            : {}),
+        /*
+         * ‎**שלושה מצבים, כמו בשרת.**
+         *
+         * ‏כרטיס מצורף — נשלח. אין כרטיס **אחרי** שהיה אחד — נשלח
+         * ‎`null`, כלומר ניתוק מפורש, כי אחרת השרת היה גוזר מההודעות
+         * ‏וממשיך לשלוח את פרטיו. ואין כרטיס ומעולם לא היה — אין מה
+         * ‏לומר, והשמטה חוסכת שורת „אין כרטיס” על כל הודעה.
+         */
+        ...(subject !== null
+          ? { attach: { kind: subject.kind, id: subject.id } }
+          : serverSubject.current !== null
+            ? { attach: null }
+            : {}),
+      });
+      setStartFresh(false);
+      serverSubject.current = subject;
       setTurns((prev) => [...(prev ?? []), res.turn]);
+      if (res.proposedGoal !== undefined) {
+        setProposal({ goal: res.proposedGoal, afterTurnId: res.turn.id });
+      }
     } catch (err: unknown) {
       setError(
         err instanceof ApiError
@@ -1449,85 +2960,597 @@ function ChatSection({
       setBusy(false);
     }
   }
+  sendRef.current = send;
+
+  async function setGoal(goal: MentorGoalProposal): Promise<void> {
+    if (settingGoal) return;
+    setSettingGoal(true);
+    setError(null);
+    const label = mentorGoalLabel(goal.metric, goal.target, goal.period);
+    try {
+      await apiPost("/mentor/goals", goal);
+      setProposal(null);
+      setTurns((prev) => [
+        ...(prev ?? []),
+        {
+          id: `local-goal-${Date.now()}`,
+          role: "mentor",
+          text: `🎯 היעד נקבע: ${label}. מכאן אני עוקב — ובבוקר נדבר על מה היום שווה.`,
+          createdAt: new Date().toISOString(),
+        },
+      ]);
+      onGoalSet();
+    } catch (err: unknown) {
+      setError(
+        err instanceof ApiError ? err.message : "היעד לא נקבע — כדאי לנסות שוב",
+      );
+    } finally {
+      setSettingGoal(false);
+    }
+  }
+
+  const opening = advice[0] ?? null;
 
   return (
-    <section className="mt-8" aria-labelledby="mentor-chat-heading">
-      <div className="mv-card-head mv-domain-blue mb-3">
-        <span className="mv-tile" aria-hidden="true">
-          <IconChat s={19} />
-        </span>
-        <h2 id="mentor-chat-heading" className="mv-card-head__title m-0">
-          לדבר עם המנטור
-        </h2>
+    <div className="mv-mentor__chat">
+      {/*
+        ‎**שתי הפעולות שהופכות שיחה לשיחה שאפשר לחזור אליה.**
+
+        ‏עד כה השיחה הייתה רצף אחד בלי התחלה ובלי סוף: לא היה איך
+        ‏לפתוח נושא חדש בלי לגרור את הקודם, ולא היה איך לחזור למה
+        ‏שנאמר לפני שבוע. השורה הזו היא שתי התשובות, והיא יושבת מעל
+        ‏השיחה כי היא **עליה** — לא בתוכה.
+      */}
+      <div className="mv-mentor__threadbar">
+        <button
+          type="button"
+          className="mv-btn-plain"
+          disabled={busy}
+          onClick={() => {
+            /*
+             * ‏„שיחה חדשה” כשכבר צופים בשיחה מההיסטוריה הוא בעצם
+             * ‏„חזרה לנוכחית”, ולכן די בניקוי הבחירה. כשכבר בנוכחית,
+             * ‏השיחה החדשה נפתחת בהודעה הבאה — השרת מכריע, ולא המסך
+             * ‏יוצר שיחה ריקה שאולי לעולם לא תיכתב בה מילה.
+             */
+            /*
+             * ‎**המסך מתרוקן כאן, ולא נשען על טעינה מחדש.**
+             *
+             * ‏כשכבר צופים בשיחה הנוכחית, `setOpenThread(null)` אינו
+             * ‏משנה דבר ולכן אינו מפעיל טעינה — והשיחה הקודמת נשארה
+             * ‏על המסך. ההודעה הבאה נשמרה נכון בשיחה חדשה, אבל
+             * ‏הצטרפה חזותית לישנה: שתי שיחות במסד, אחת במסך
+             * ‏(ביקורת Codex, P1).
+             *
+             * ‏ריקון מפורש הוא גם התיאור הנכון של מה שקורה: „שיחה
+             * ‏חדשה” פירושה מסך נקי, מיד.
+             */
+            loadSeq.current += 1;
+            setTurns([]);
+            setProposal(null);
+            setOpenThread(null);
+            setAnchor(null);
+            setStartFresh(true);
+            setHistoryOpen(false);
+            setPinnedOpen(false);
+            setSubjectOpen(false);
+            /* ‏שיחה חדשה מתחילה בלי כרטיס — היא אינה המשך של דבר */
+            setSubject(null);
+          }}
+        >
+          שיחה חדשה
+        </button>
+        <button
+          type="button"
+          className="mv-btn-plain"
+          aria-expanded={historyOpen}
+          onClick={() => {
+            setHistoryOpen((v) => !v);
+            setPinnedOpen(false);
+          }}
+        >
+          שיחות קודמות
+        </button>
+        <button
+          type="button"
+          className="mv-btn-plain"
+          aria-expanded={pinnedOpen}
+          onClick={() => {
+            setPinnedOpen((v) => !v);
+            setHistoryOpen(false);
+            setSubjectOpen(false);
+          }}
+        >
+          נעוצים
+        </button>
+        <button
+          type="button"
+          className="mv-btn-plain"
+          aria-expanded={subjectOpen}
+          onClick={() => {
+            setSubjectOpen((v) => !v);
+            setHistoryOpen(false);
+            setPinnedOpen(false);
+          }}
+        >
+          צירוף כרטיס
+        </button>
+        {/*
+          ‎**מה מצורף — כתוב, ולא רק זכור.**
+
+          ‏שיחה שנמשכת על כרטיס בלי שהמסך אומר איזה היא שיחה שבה
+          ‏„הוא” ו„היא” אינם ברורים למי שחוזר אליה מחר. הניתוק יושב
+          ‏על אותה שורה, כי „מה מצורף” ו„להסיר” הן אותה שאלה.
+        */}
+        {subject === null ? null : (
+          <span className="mv-mentor__subject">
+            <span className="mv-mentor__subjecttitle">{subject.title}</span>
+            <button
+              type="button"
+              className="mv-mentor__subjectoff"
+              onClick={() => setSubject(null)}
+              aria-label="ניתוק הכרטיס מהשיחה"
+              title="ניתוק הכרטיס מהשיחה"
+            >
+              ✕
+            </button>
+          </span>
+        )}
+        {openThread === null ? null : (
+          <span className="mv-mentor__threadnote">
+            שיחה קודמת — מה שתכתבו כאן ימשיך אותה
+          </span>
+        )}
       </div>
 
-      <div className="mv-card mv-card--pad">
+      {historyOpen ? (
+        <div className="mv-mentor__history">
+          {threads === null ? (
+            <p className="m-0">טוען שיחות…</p>
+          ) : threads.length === 0 ? (
+            <p className="m-0">עדיין אין שיחות קודמות.</p>
+          ) : (
+            <ul className="m-0 list-none p-0">
+              {threads.map((t) => (
+                <li key={t.id}>
+                  <button
+                    type="button"
+                    className="mv-mentor__historyrow"
+                    data-open={t.id === openThread}
+                    onClick={() => {
+                      setProposal(null);
+                      setOpenThread(t.id);
+                      /* ‏שיחה שנבחרה מההיסטוריה נפתחת בסופה, לא על נעוץ */
+                      setAnchor(null);
+                      setStartFresh(false);
+                      setHistoryOpen(false);
+                    }}
+                  >
+                    <span className="mv-mentor__historytitle">{t.title}</span>
+                    <span className="mv-mentor__historymeta">
+                      {jerusalemDayLabel(new Date(t.lastAt))} · {t.messages} הודעות
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      ) : null}
+
+      {/*
+        ‎**הרשימה שהופכת נעיצה לדבר שאפשר לחזור אליו.**
+
+        ‏לחיצה על שורה פותחת את השיחה שההודעה נאמרה בה — כי משפט
+        ‏בלי מה שנאמר סביבו הוא ציטוט, לא עצה. מכאן גם `threadId`
+        ‏על כל שורה.
+      */}
+      {pinnedOpen ? (
+        <div className="mv-mentor__history">
+          {pins === null ? (
+            <p className="m-0">טוען נעוצים…</p>
+          ) : pins.length === 0 ? (
+            <p className="m-0">
+              עדיין לא נעצתם משפט. הסימון 📌 שמתחת לתשובה שומר אותה כאן.
+            </p>
+          ) : (
+            <ul className="m-0 list-none p-0">
+              {pins.map((t) => (
+                <li key={t.id}>
+                  <button
+                    type="button"
+                    className="mv-mentor__historyrow"
+                    data-open={t.threadId !== undefined && t.threadId === openThread}
+                    onClick={() => {
+                      if (t.threadId === undefined) return;
+                      setProposal(null);
+                      /*
+                       * ‏גם השיחה וגם ההודעה: השיחה כדי שהכתיבה
+                       * ‏הבאה תמשיך אותה, וההודעה כדי שהיא באמת
+                       * ‏תהיה על המסך גם בשיחה ארוכה.
+                       */
+                      setOpenThread(t.threadId);
+                      setAnchor(t.id);
+                      setStartFresh(false);
+                      setPinnedOpen(false);
+                    }}
+                  >
+                    <span className="mv-mentor__historytitle mv-mentor__pintext">
+                      {t.text}
+                    </span>
+                    <span className="mv-mentor__historymeta">
+                      {jerusalemDayLabel(new Date(t.createdAt))} · פתיחת השיחה
+                    </span>
+                  </button>
+                </li>
+              ))}
+              {/*
+                ‏„עוד” מוצג רק כשהשרת אמר שיש עוד. בלי זה הרשימה
+                ‏נעצרה על שלושים לתמיד, ונעוץ ישן יותר לא היה נגיש
+                ‏מלבד בביטול נעיצות חדשות (ביקורת Codex).
+              */}
+              {pinCursor === null ? null : (
+                <li>
+                  <button
+                    type="button"
+                    className="mv-mentor__historyrow"
+                    onClick={() => {
+                      const cursor = pinCursor;
+                      setPinCursor(null);
+                      void apiGet<{ turns: Turn[]; nextBefore: string | null }>(
+                        `/mentor/messages/pinned?before=${encodeURIComponent(cursor)}`,
+                      )
+                        .then((res) => {
+                          setPins((prev) => [
+                            ...(prev ?? []),
+                            ...apiList(res.turns, "turns"),
+                          ]);
+                          setPinCursor(res.nextBefore);
+                        })
+                        .catch(() => setPinCursor(cursor));
+                    }}
+                  >
+                    <span className="mv-mentor__historytitle">עוד נעוצים</span>
+                  </button>
+                </li>
+              )}
+            </ul>
+          )}
+        </div>
+      ) : null}
+
+      {/*
+        ‎**רשימת הבחירה — הכרטיסים שלי בלבד.**
+
+        ‏מנהל רואה את כרטיסי המשרד, וכאן הרשימה צרה יותר בכוונה:
+        ‏מה שנוסע למנטור הוא מה ששלי. השרת אוכף את זה, והמסך אינו
+        ‏מציע אחרת.
+      */}
+      {subjectOpen ? (
+        <div className="mv-mentor__history">
+          <div className="mv-mentor__subjectbar">
+            <button
+              type="button"
+              className="mv-btn-plain"
+              data-on={subjectKind === "buyer"}
+              aria-pressed={subjectKind === "buyer"}
+              onClick={() => {
+                setSubjectKind("buyer");
+                setOptions(null);
+              }}
+            >
+              קונים
+            </button>
+            <button
+              type="button"
+              className="mv-btn-plain"
+              data-on={subjectKind === "property"}
+              aria-pressed={subjectKind === "property"}
+              onClick={() => {
+                setSubjectKind("property");
+                setOptions(null);
+              }}
+            >
+              נכסים
+            </button>
+            <input
+              className="mv-input mv-mentor__subjectsearch"
+              value={subjectQuery}
+              onChange={(e) => setSubjectQuery(e.target.value)}
+              placeholder={subjectKind === "buyer" ? "שם הקונה" : "רחוב או עיר"}
+              aria-label="חיפוש כרטיס"
+            />
+          </div>
+          {options === null ? (
+            <p className="m-0">טוען…</p>
+          ) : options.length === 0 ? (
+            <p className="m-0">
+              {subjectQuery.trim() === ""
+                ? "אין כרטיסים שלך לצרף."
+                : "לא נמצא כרטיס שלך בשם הזה."}
+            </p>
+          ) : (
+            <ul className="m-0 list-none p-0">
+              {options.map((o) => (
+                <li key={`${o.kind}:${o.id}`}>
+                  <button
+                    type="button"
+                    className="mv-mentor__historyrow"
+                    data-open={subject?.kind === o.kind && subject.id === o.id}
+                    onClick={() => {
+                      setSubject(o);
+                      setSubjectOpen(false);
+                    }}
+                  >
+                    <span className="mv-mentor__historytitle">{o.title}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      ) : null}
+
+      <div className="mv-mentor__stream">
+        {/*
+          ‎**כרטיס הפתיח — מה שהמנטור אומר היום.**
+
+          ‏הוא אינו טקסט חדש: הכותרת סופרת את מה שכבר חושב
+          ‏‎`MentorAdvice`, והגוף הוא העצה הראשונה. כשאין עצות אין
+          ‏כרטיס, כי אין מה לומר.
+        */}
+        {opening !== null && greetOpen ? (
+          <section className="mv-mentor__greet" aria-labelledby="mentor-advice-heading">
+            <span className="mv-mentor__greeticon" aria-hidden="true">
+              <IconSparkle s={25} />
+            </span>
+            <div className="min-w-0 flex-1">
+              <h2 id="mentor-advice-heading" className="mv-mentor__greettitle">
+                {greetingLine(firstName)}{" "}
+                {advice.length === 1
+                  ? "יש לי דבר אחד בשבילך"
+                  : `יש לי ${advice.length} דברים בשבילך`}
+              </h2>
+              <p className="mv-mentor__greetbody">{opening.body}</p>
+              <div className="mv-mentor__greetactions">
+                <button
+                  type="button"
+                  className="mv-btn-ink"
+                  disabled={busy}
+                  onClick={() => void send(opening.question)}
+                >
+                  <IconCheck s={15} />
+                  סדר לי את היום
+                </button>
+                <button
+                  type="button"
+                  className="mv-btn-violet"
+                  onClick={() =>
+                    document
+                      .getElementById("mentor-goals-heading")
+                      ?.scrollIntoView({ behavior: "smooth", block: "start" })
+                  }
+                >
+                  נתחיל מהיעד
+                </button>
+                <button
+                  type="button"
+                  className="mv-btn-plain"
+                  onClick={() => setGreetOpen(false)}
+                >
+                  אחר כך
+                </button>
+              </div>
+              {/*
+                ‎**הפקדים של העצה הפותחת יושבים כאן, לא נופלים.**
+
+                ‏הגוף שלה הוא הפסקה שמעל — אבל `link`, `ideaKey`
+                ‏ו-`proven` שייכים לה, ו-`AdviceCards` רואה רק את
+                ‏‎`slice(1)`. כלומר כשהעצה הראשונה היא „העסקה הקרובה
+                ‏ביותר”, הקישור לקונה נעלם, ורעיון פותח נשאר בלי
+                ‏משוב (ביקורת Codex, P2). אותו רכיב פקדים משרת את
+                ‏שניהם, ולכן הם אינם יכולים להיפרד שוב.
+              */}
+              <AdviceControls
+                item={opening}
+                disabled={busy}
+                onAsk={(q) => void send(q)}
+                onFeedback={onAdviceFeedback}
+              />
+
+              {/*
+                ‏שאר העצות הן כרטיסי הפעולה שבעיצוב. המשוב 👍👎 עליהן
+                ‏אינו תוספת — הוא קיים מאז §7.2 ומחליף רעיון שלא עבד;
+                ‏מה שלא נבנה הוא משוב על **הודעות בשיחה**, שלא אושר.
+              */}
+              {advice.length > 1 ? (
+                <AdviceCards
+                  advice={advice.slice(1)}
+                  disabled={busy}
+                  onAsk={(q) => void send(q)}
+                  onFeedback={onAdviceFeedback}
+                />
+              ) : null}
+            </div>
+          </section>
+        ) : null}
+
         {loadFailed ? (
-          <LoadError message="לא הצלחנו לטעון את השיחה" onRetry={load} />
+          <LoadError
+            message="לא הצלחנו לטעון את השיחה"
+            /* ‏ניסיון חוזר על אותה שיחה שנכשלה, לא על הנוכחית */
+            onRetry={() => load(openThread)}
+          />
         ) : turns === null ? (
           <p aria-live="polite" className="m-0">
             טוען את השיחה…
           </p>
         ) : (
-          <div className="flex flex-col gap-3" aria-live="polite">
-            {turns.length === 0 ? (
-              <div className="mv-chat-bubble mv-chat-agent">
-                <span>
-                  היי{firstName === "" ? "" : ` ${firstName}`} 👋 על מה נדבר?
-                </span>
-              </div>
-            ) : null}
+          <div className="flex flex-col gap-4" aria-live="polite">
             {turns.map((turn) => (
               <div
                 key={turn.id}
-                className={`mv-chat-bubble ${turn.role === "user" ? "mv-chat-user" : "mv-chat-agent"}`}
+                className="contents"
+                ref={turn.id === anchor ? anchorRef : undefined}
               >
-                <span style={{ whiteSpace: "pre-line" }}>{turn.text}</span>
+                <div
+                  className={`mv-msg ${turn.role === "user" ? "mv-msg--me" : ""}`}
+                >
+                  <div className="mv-msg__in">
+                    <div className="mv-msg__meta">
+                      <span className="mv-msg__who">
+                        {turn.role === "user" ? "את/ה" : mentorName}
+                      </span>
+                      <span>
+                        {formatJerusalemTime(new Date(turn.createdAt))}
+                      </span>
+                    </div>
+                    <div className="mv-msg__body">{turn.text}</div>
+                    {/*
+                      ‎**המשוב יושב על תשובת המנטור בלבד.**
+
+                      ‏דירוג של השאלה שלך עצמך אינו אומר דבר, ולכן
+                      ‏המסך אינו מציע אותו — והשרת אוכף את אותו כלל
+                      ‏גם למי שקורא ל-API ישירות.
+
+                      ‏הנעיצה נפרדת מהדירוג בכוונה: „זה עזר” ו„אני
+                      ‏רוצה למצוא את זה שוב” הן שתי אמירות, והודעה
+                      ‏יכולה להיות שתיהן.
+                    */}
+                    {turn.role === "mentor" && !turn.id.startsWith("local-") ? (
+                      <div className="mv-msg__acts">
+                        <button
+                          type="button"
+                          className="mv-msg__act"
+                          data-on={turn.feedback === "helpful"}
+                          aria-pressed={turn.feedback === "helpful"}
+                          aria-label="עזר לי"
+                          title="עזר לי"
+                          onClick={() => void rate(turn, "helpful")}
+                        >
+                          👍
+                        </button>
+                        <button
+                          type="button"
+                          className="mv-msg__act"
+                          data-on={turn.feedback === "not_helpful"}
+                          aria-pressed={turn.feedback === "not_helpful"}
+                          aria-label="לא עזר"
+                          title="לא עזר"
+                          onClick={() => void rate(turn, "not_helpful")}
+                        >
+                          👎
+                        </button>
+                        <button
+                          type="button"
+                          className="mv-msg__act"
+                          data-on={turn.pinnedAt !== null && turn.pinnedAt !== undefined}
+                          aria-pressed={
+                            turn.pinnedAt !== null && turn.pinnedAt !== undefined
+                          }
+                          aria-label={
+                            turn.pinnedAt ? "ביטול נעיצה" : "נעיצה — למצוא את זה שוב"
+                          }
+                          title={
+                            turn.pinnedAt ? "ביטול נעיצה" : "נעיצה — למצוא את זה שוב"
+                          }
+                          onClick={() => void pin(turn)}
+                        >
+                          📌
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+                {proposal !== null && proposal.afterTurnId === turn.id ? (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      className="mv-btn-soft"
+                      disabled={settingGoal}
+                      onClick={() => void setGoal(proposal.goal)}
+                    >
+                      🎯 לקבוע יעד:{" "}
+                      {mentorGoalLabel(
+                        proposal.goal.metric,
+                        proposal.goal.target,
+                        proposal.goal.period,
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      className="mv-btn-plain"
+                      disabled={settingGoal}
+                      onClick={() => setProposal(null)}
+                    >
+                      לא עכשיו
+                    </button>
+                  </div>
+                ) : null}
               </div>
             ))}
             {busy ? (
-              <div
-                className="mv-chat-bubble mv-chat-agent"
-                aria-label="המנטור חושב"
-              >
-                <span className="mv-chat-typing" aria-hidden="true">
-                  <span />
-                  <span />
-                  <span />
-                </span>
+              <div className="mv-msg">
+                <div className="mv-msg__in">
+                  <div className="mv-msg__body flex items-center gap-3">
+                    <span className="mv-typing" aria-hidden="true">
+                      <span />
+                      <span />
+                      <span />
+                    </span>
+                    <span
+                      style={{
+                        color: "var(--color-text-muted)",
+                        fontWeight: 700,
+                      }}
+                    >
+                      {mentorName} בודק את הנתונים שלך…
+                    </span>
+                  </div>
+                </div>
               </div>
             ) : null}
             <div ref={endRef} />
           </div>
         )}
+      </div>
 
-        {turns !== null && turns.length === 0 ? (
-          <div className="mt-3 flex flex-wrap gap-2">
+      <div className="mv-mentor__foot">
+        {/*
+          ‎**שורת השאלות המוכנות — תמיד, ולא רק בשיחה ריקה**
+          ‏(החלטת בעל המוצר). עד כה הן נעלמו אחרי ההודעה הראשונה,
+          ‏כלומר בדיוק כשאדם כבר יודע שיש עם מי לדבר ומחפש על מה.
+
+          ‏היא מסתירה סקרולבר ולכן מחוברת לאותו `useScrollAffordance`
+          ‏ולאותה מסכת `data-fade` כמו סרגלי הלשוניות.
+        */}
+        {turns !== null ? (
+          <div className="mv-chiprow pb-3" ref={chipRow}>
             {EXAMPLE_QUESTIONS.map((q) => (
               <button
-                key={q}
+                key={q.label}
                 type="button"
-                className="mv-example-chip"
+                className="mv-askchip"
                 disabled={busy}
-                onClick={() => void send(q)}
+                onClick={() => void send(q.label)}
               >
-                {q}
+                <span aria-hidden="true">{q.icon}</span>
+                {q.label}
               </button>
             ))}
           </div>
         ) : null}
 
-        <div className="mt-4">
+        <div className="mv-composer">
           <label htmlFor="mentor-chat-input" className="mv-visually-hidden">
             שאלה למנטור
           </label>
           <textarea
             id="mentor-chat-input"
-            className="mv-input w-full"
-            rows={2}
+            rows={1}
             maxLength={1000}
             value={text}
-            placeholder="שאלה למנטור… Enter שולח"
+            placeholder={`כתוב ל${mentorName}…`}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={(e) => {
               if (
@@ -1540,34 +3563,179 @@ function ChatSection({
               }
             }}
           />
-          <div className="mt-2 flex items-center gap-2">
-            <button
-              type="button"
-              className="mv-control-go"
-              disabled={busy || text.trim().length < 2}
-              onClick={() => void send(text)}
-            >
-              {busy ? "חושב…" : "שליחה"}
-            </button>
-          </div>
-          {error ? (
-            <div className="mt-2">
-              <Notice tone="danger">{error}</Notice>
-            </div>
-          ) : null}
+          <button
+            type="button"
+            className="mv-composer__send"
+            aria-label={busy ? "חושב…" : "שליחה"}
+            title={busy ? "חושב…" : "שליחה"}
+            disabled={busy || text.trim().length < 2}
+            onClick={() => void send(text)}
+          >
+            <IconSend s={19} />
+          </button>
         </div>
-      </div>
 
-      {/* שורה אחת מתחת לכרטיס, ולא פסקה מעליו: הגבול של המנטור, והחריג */}
-      <p
-        className="m-0 mt-2 text-[length:var(--type-caption-lg)]"
-        style={{ color: "var(--color-text-muted)" }}
-      >
-        על לקוח או נכס ספציפי — <Link href="/voice">הסוכן האישי</Link>.
-        {available
-          ? ""
-          : " השיחה החופשית לא מוגדרת כרגע, והמנטור עונה מהיעדים ומהסיכום."}
-      </p>
-    </section>
+        {error ? (
+          <div className="mt-2">
+            <Notice tone="danger">{error}</Notice>
+          </div>
+        ) : null}
+
+        <p className="mv-mentor__privacy">
+          <IconShield s={14} />
+          השיחות שלך פרטיות. המנטור רואה רק את הנתונים בחשבון שלך.
+          {available ? "" : " השיחה החופשית אינה מוגדרת כרגע."}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * ‎**הפקדים של עצה אחת: לאן היא מובילה, ומה היא הייתה שווה.**
+ *
+ * ‏רכיב אחד לשני המקומות — העצה הפותחת בכרטיס הפתיח, והשאר
+ * ‏בכרטיסי הפעולה. שני עותקים היו נפרדים ביום שאחד מהם מתוקן, וזה
+ * ‏בדיוק מה שקרה כאן: הפותחת נשארה בלי `link` ובלי משוב.
+ *
+ * ‏המשוב הוא הליווי של §7.2: „עזר לי” — עוד מהסוג הזה; „לא בשבילי” —
+ * ‏הרעיון אינו חוזר, ומחליף אותו אחר. אינו תוספת של ה-PR הזה.
+ */
+function AdviceControls({
+  item,
+  disabled,
+  onAsk,
+  onFeedback,
+}: {
+  item: MentorAdvice;
+  disabled: boolean;
+  onAsk: (question: string) => void;
+  /** „לא בשבילי” החליף רעיון — המסך טוען מחדש */
+  onFeedback: () => void;
+}) {
+  const [noted, setNoted] = useState<"helped" | "dismissed" | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function feedback(verdict: "helped" | "dismissed"): Promise<void> {
+    if (busy || item.ideaKey === undefined) return;
+    setBusy(true);
+    setError(null);
+    try {
+      /*
+       * ‎`ideas/feedback` ו-`ideaKey` — כך הנתיב והסכימה
+       * ‎(`MentorIdeaFeedbackSchema`), וכך זה היה לפני ה-PR הזה.
+       * ‏כשהעתקתי את הפונקציה במקום להזיז אותה כתבתי מחדש
+       * ‎`idea-feedback` ו-`key`: כל לחיצה על 👍/👎 חזרה בשגיאה ושום
+       * ‏העדפה לא נשמרה (ביקורת Codex, P1).
+       */
+      await apiPost("/mentor/ideas/feedback", {
+        ideaKey: item.ideaKey,
+        verdict,
+      });
+      setNoted(verdict);
+      if (verdict === "dismissed") onFeedback();
+    } catch (err: unknown) {
+      setError(
+        err instanceof ApiError
+          ? err.message
+          : "המשוב לא נשמר — כדאי לנסות שוב",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <>
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          className="mv-actioncard__cta"
+          disabled={disabled}
+          onClick={() => onAsk(item.question)}
+        >
+          לשאול את המנטור →
+        </button>
+        {item.link !== undefined ? (
+          <Link href={item.link.href} className="mv-link">
+            {item.link.label}
+          </Link>
+        ) : null}
+        {item.proven ? (
+          <span className="mv-chip">עבד אצל אחרים במשרד</span>
+        ) : null}
+      </div>
+      {item.ideaKey !== undefined ? (
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          {noted === null ? (
+            <>
+              <button
+                type="button"
+                className="mv-btn-plain"
+                disabled={busy}
+                onClick={() => void feedback("helped")}
+              >
+                👍 עזר לי
+              </button>
+              <button
+                type="button"
+                className="mv-btn-plain"
+                disabled={busy}
+                onClick={() => void feedback("dismissed")}
+              >
+                👎 לא בשבילי
+              </button>
+            </>
+          ) : (
+            <span className="mv-actioncard__sub" aria-live="polite">
+              {noted === "helped"
+                ? "נרשם — עוד מהסוג הזה. בעוד שבוע אבדוק אם המספר זז."
+                : "נרשם — הרעיון הזה לא יחזור."}
+            </span>
+          )}
+        </div>
+      ) : null}
+      {error !== null ? (
+        <div className="mt-2">
+          <Notice tone="danger">{error}</Notice>
+        </div>
+      ) : null}
+    </>
+  );
+}
+
+/** ‏שאר העצות — כרטיס לכל אחת, ואותם פקדים בדיוק. */
+function AdviceCards({
+  advice,
+  disabled,
+  onAsk,
+  onFeedback,
+}: {
+  advice: MentorAdvice[];
+  disabled: boolean;
+  onAsk: (question: string) => void;
+  onFeedback: () => void;
+}) {
+  return (
+    <div className="mv-msg__cards">
+      {advice.map((item) => (
+        <div key={`${item.kind}-${item.metric}`} className="mv-actioncard">
+          <div className="mv-actioncard__head">
+            <span className="mv-railcard__icon" aria-hidden="true">
+              <IconBolt s={15} />
+            </span>
+            {item.title}
+          </div>
+          <p className="mv-actioncard__sub">{item.body}</p>
+          <AdviceControls
+            item={item}
+            disabled={disabled}
+            onAsk={onAsk}
+            onFeedback={onFeedback}
+          />
+        </div>
+      ))}
+    </div>
   );
 }

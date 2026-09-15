@@ -1,0 +1,337 @@
+"use client";
+
+import { PAGE_LIMIT_MAX, PITCH_MAX_BUYERS, PITCH_MAX_PROPERTIES } from "@metavchim/shared";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { apiGet, apiPost } from "@/lib/api";
+import { ConfirmDialog } from "./confirm-dialog";
+import { Notice } from "./notice";
+
+/**
+ * ‎**„שליחת הצעת נכס” — חלון אחד לשני הכיוונים.**
+ *
+ * ‏מכרטיס הנכס בוחרים קונים; מכרטיס הקונה בוחרים נכסים. זו אותה
+ * ‏פעולה — **(נכסים × קונים) ⇐ מייל** — ולכן אותו חלון, אותו
+ * ‏חיפוש, אותו „סמן הכל”, ואותו סיכום בסוף. שני חלונות היו נפרדים
+ * ‏ביום שאחד מהם מתוקן.
+ *
+ * ‏מה שבאמת שונה בין הצדדים הוא **שורה אחת ברשימה**: לקונה יכולה
+ * ‏להיות סיבה שלא יקבל (אין מייל, הסיר את עצמו) ולנכס אין. לכן
+ * ‏השורה מיוצגת כאן כטיפוס אחד עם הערה אופציונלית, ולא כשני
+ * ‏רכיבים.
+ */
+
+/** ‏שורה לבחירה — עם הסיבה שבגללה אולי אי אפשר לבחור בה. */
+interface PickRow {
+  id: string;
+  name: string;
+  /** ‏מה שמונע בחירה, בשפת המשתמש. `null` = אפשר לבחור. */
+  blocked: string | null;
+}
+
+interface PitchResult {
+  sent: number;
+  skippedNoEmail: number;
+  skippedOptedOut: number;
+  failed: number;
+  /** ‏פסק זמן או שגיאת ספק — ייתכן שההודעה **כן** יצאה. */
+  unknown: number;
+}
+
+interface BuyerRow {
+  buyerId: string;
+  name: string;
+  state: "ready" | "no_email" | "opted_out";
+}
+
+interface PropertyRow {
+  id: string;
+  city?: string;
+  neighborhood?: string;
+  street?: string;
+  rooms?: number;
+  marketingTitle?: string;
+}
+
+/**
+ * ‎**כמה נטענים לבורר — מהתקרה שהשער מקבל, ולא ממספר שנבחר לנוחות.**
+ *
+ * ‏כאן היה `200`, והסכימה של `/properties` היא `.strict()` עם
+ * ‏`max(100)`: כל פתיחה של הבורר מצד הקונה נדחתה ב-400 ולא הגיעה
+ * ‏לשירות בכלל. המסך אמר „לא נמצאו נכסים” על משרד מלא בנכסים.
+ *
+ * ‎**וזו הפעם השנייה בדיוק.** `property-twins` נפל על אותו מספר
+ * ‏ועל אותה סכימה, ותוקן בדיוק כך — עם הערה שאומרת ש-`PAGE_LIMIT_MAX`
+ * ‏הוא מקור האמת „כדי שהשניים לא יוכלו להיפרד שוב”. הבורר הזה
+ * ‏נכתב אחריו והמציא את המספר מחדש, ולכן יש עכשיו גם שער.
+ *
+ * ‏שתי הרשימות מבקשות את אותו מספר: תקרה אחת לחלון אחד.
+ */
+const PICKER_LIMIT = PAGE_LIMIT_MAX;
+
+const BLOCKED_TEXT: Record<BuyerRow["state"], string | null> = {
+  ready: null,
+  no_email: "אין מייל בכרטיס",
+  opted_out: "הסיר את עצמו מדיוור",
+};
+
+function propertyName(row: PropertyRow): string {
+  if (row.marketingTitle !== undefined && row.marketingTitle !== "") return row.marketingTitle;
+  const where = [row.street, row.neighborhood, row.city].filter(Boolean).join(", ");
+  const rooms = row.rooms !== undefined ? `${row.rooms} חדרים` : "";
+  return [rooms, where].filter(Boolean).join(" · ") || "נכס ללא כתובת";
+}
+
+/**
+ * ‏סיכום השליחה — **מה שלא יצא נאמר, ולא רק מה שיצא.**
+ *
+ * ‏„נשלח ל-7” אחרי שסומנו עשרה הוא בדיוק הדיווח שגורם לסוכן
+ * ‏להאמין ששלושה קיבלו.
+ */
+function resultText(result: PitchResult): string {
+  const parts = [`נשלחו ${result.sent} הודעות`];
+  if (result.skippedNoEmail > 0) parts.push(`${result.skippedNoEmail} ללא מייל בכרטיס`);
+  if (result.skippedOptedOut > 0) parts.push(`${result.skippedOptedOut} הוסרו מדיוור`);
+  if (result.failed > 0) parts.push(`${result.failed} נכשלו`);
+  /*
+   * ‎**„לא ידוע” נאמר בנפרד מ„נכשלו”.** „נכשלה” מזמין לשלוח שוב;
+   * ‏כאן ייתכן שההודעה כבר הגיעה, ושליחה חוזרת תיתן ללקוח עותק
+   * ‏שני. מי שקורא צריך לבדוק לפני שהוא פועל.
+   */
+  if (result.unknown > 0) parts.push(`${result.unknown} לא ידוע אם נשלחו — בדקו לפני שליחה חוזרת`);
+  return parts.join(" · ");
+}
+
+export function PropertyPitchDialog({
+  open,
+  onClose,
+  side,
+  fixedIds,
+}: {
+  open: boolean;
+  onClose: () => void;
+  /** ‏מה בוחרים כאן. הצד השני הוא `fixedIds` — הכרטיס שממנו נפתח. */
+  side: "buyers" | "properties";
+  fixedIds: readonly string[];
+}) {
+  const [q, setQ] = useState("");
+  const [rows, setRows] = useState<PickRow[] | null>(null);
+  const [chosen, setChosen] = useState<ReadonlySet<string>>(new Set());
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<PitchResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(
+    async (term: string) => {
+      const search = term.trim();
+      const query = search === "" ? "" : `&q=${encodeURIComponent(search)}`;
+      if (side === "buyers") {
+        const items = await apiGet<BuyerRow[]>(
+          `/property-pitch/buyers?limit=${PICKER_LIMIT}${query}`,
+        );
+        return items.map((row) => ({
+          id: row.buyerId,
+          name: row.name,
+          blocked: BLOCKED_TEXT[row.state],
+        }));
+      }
+      const page = await apiGet<{ items: PropertyRow[] }>(
+        `/properties?limit=${PICKER_LIMIT}${query}`,
+      );
+      return page.items.map((row) => ({ id: row.id, name: propertyName(row), blocked: null }));
+    },
+    [side],
+  );
+
+  /*
+   * ‏החיפוש רץ בשרת, ולכן כל הקלדה טוענת מחדש. ההשהיה היא מה
+   * ‏שמונע בקשה לכל אות; הניקוי מבטל בקשה שכבר אינה רלוונטית.
+   */
+  useEffect(() => {
+    if (!open) return;
+    let live = true;
+    const timer = setTimeout(() => {
+      /* ‏חיפוש חדש מתחיל נקי — אחרת שגיאה ישנה נשארת מעל רשימה תקינה */
+      setError(null);
+      void load(q)
+        .then((items) => {
+          if (live) setRows(items);
+        })
+        .catch(() => {
+          if (live) {
+            /*
+             * ‎**כישלון טעינה אינו „רשימה ריקה”.**
+             *
+             * ‏`setRows([])` הציג „לא נמצאו נכסים” על משרד מלא
+             * ‏בנכסים: הודעת השגיאה הופיעה מעליה, אבל השורה שמתחתיה
+             * ‏אמרה במפורש שאין. הסוכן קורא את השורה הקרובה לרשימה,
+             * ‏ומסיק שהמערכת ריקה ולא שהיא נכשלה.
+             */
+            setRows(null);
+            setError("טעינת הרשימה נכשלה");
+          }
+        });
+    }, 200);
+    return () => {
+      live = false;
+      clearTimeout(timer);
+    };
+  }, [open, q, load]);
+
+  /* ‏פתיחה מחדש מתחילה נקי — סימון שנשאר מפעם קודמת נשלח בטעות */
+  useEffect(() => {
+    if (open) {
+      setQ("");
+      setChosen(new Set());
+      setResult(null);
+      setError(null);
+    }
+  }, [open]);
+
+  /*
+   * ‎**„סמן הכל” מסמן רק את מי שאפשר לשלוח אליו.** סימון של מי
+   * ‏שאין לו מייל היה מייצר בחירה שהשרת מדלג עליה ממילא, ואז
+   * ‏„נשלח ל-12 מתוך 20” בלי שהמסך אמר זאת מראש.
+   */
+  const selectable = useMemo(
+    () => (rows ?? []).filter((row) => row.blocked === null).map((row) => row.id),
+    [rows],
+  );
+  const allChosen = selectable.length > 0 && selectable.every((id) => chosen.has(id));
+
+  async function send() {
+    setBusy(true);
+    setError(null);
+    try {
+      const ids = [...chosen];
+      const body =
+        side === "buyers"
+          ? { propertyIds: [...fixedIds], buyerIds: ids }
+          : { propertyIds: ids, buyerIds: [...fixedIds] };
+      setResult(await apiPost<PitchResult>("/property-pitch/send", body));
+    } catch {
+      setError("השליחה נכשלה");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const noun = side === "buyers" ? "קונים" : "נכסים";
+  /*
+   * ‎**מה שהשרת מקבל בשליחה אחת — ולא מה שהבורר הצליח לטעון.**
+   *
+   * ‏הבורר טוען מאה, והשרת חוסם עשרים נכסים. „סמן הכל” סימן מאה,
+   * ‏הסוכן לחץ, וקיבל 400 בלי שנשלח דבר. שני מספרים שחייבים
+   * ‏להסכים — ולכן שניהם מאותו קבוע (ביקורת Codex).
+   */
+  const sendMax = side === "buyers" ? PITCH_MAX_BUYERS : PITCH_MAX_PROPERTIES;
+
+  return (
+    <ConfirmDialog
+      open={open}
+      title={side === "buyers" ? "שליחת הצעת נכס" : "הצעת נכס לקונה"}
+      confirmLabel={result === null ? `שלח ל-${chosen.size} ${noun}` : "סגור"}
+      cancelLabel={result === null ? "ביטול" : null}
+      busy={busy}
+      busyLabel="שולח…"
+      confirmDisabled={result === null && chosen.size === 0}
+      onConfirm={result === null ? () => void send() : onClose}
+      onClose={onClose}
+    >
+      {result !== null ? (
+        <Notice tone={result.failed > 0 || result.unknown > 0 ? "warning" : "success"}>{resultText(result)}</Notice>
+      ) : (
+        <div className="flex flex-col gap-2">
+          <p className="m-0 text-sm" style={{ color: "var(--color-text-muted)" }}>
+            {side === "buyers"
+              ? "כל קונה שייבחר יקבל מייל עם פרטי הנכס וקישור לדף הנחיתה למילוי פרטים."
+              : "הקונה יקבל מייל עם פרטי הנכסים שייבחרו וקישור לדף הנחיתה של כל אחד."}
+          </p>
+          <input
+            className="mv-input"
+            type="search"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder={`חיפוש ${noun}…`}
+            aria-label={`חיפוש ${noun}`}
+          />
+          {error !== null ? <Notice tone="danger">{error}</Notice> : null}
+          <label className="flex items-center gap-2 text-sm font-medium">
+            <input
+              type="checkbox"
+              checked={allChosen}
+              disabled={selectable.length === 0}
+              onChange={(e) =>
+                setChosen(new Set(e.target.checked ? selectable.slice(0, sendMax) : []))
+              }
+            />
+            סמן הכל ({Math.min(selectable.length, sendMax)})
+          </label>
+          {/*
+            ‎**„סמן הכל” חייב לומר את האמת על מה שהוא מסמן.**
+
+            ‏הרשימה נטענת עד תקרה. כשחזרו בדיוק `PICKER_LIMIT` שורות
+            ‏ייתכן שיש עוד, ואז „סמן הכל” מסמן את המאה הראשונות
+            ‏ומציג את עצמו כאילו סימן את כולם — כלומר שליחה שהסוכן
+            ‏חושב שכיסתה את כל הרשימה ולא כיסתה.
+          */}
+          {chosen.size >= sendMax ? (
+            <p className="m-0 text-sm" style={{ color: "var(--color-text-muted)" }}>
+              {`אפשר לשלוח עד ${sendMax} ${noun} בבת אחת`}
+            </p>
+          ) : null}
+          {rows !== null && rows.length >= PICKER_LIMIT ? (
+            <p className="m-0 text-sm" style={{ color: "var(--color-text-muted)" }}>
+              {`מוצגים ${PICKER_LIMIT} ${noun} הראשונים — חפשו כדי לצמצם`}
+            </p>
+          ) : null}
+          <ul
+            className="m-0 flex max-h-72 list-none flex-col gap-1 overflow-y-auto p-0"
+            style={{ borderTop: "1px solid var(--color-border)" }}
+          >
+            {rows === null ? (
+              <li className="py-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
+                {/* ‏אחרי כישלון ההודעה שמעל אומרת מה קרה; כאן אין מה להוסיף */}
+                {error === null ? "טוען…" : "—"}
+              </li>
+            ) : rows.length === 0 ? (
+              <li className="py-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
+                לא נמצאו {noun}
+              </li>
+            ) : (
+              rows.map((row) => (
+                <li key={row.id}>
+                  <label className="flex items-center gap-2 py-1 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={chosen.has(row.id)}
+                      disabled={row.blocked !== null}
+                      onChange={(e) => {
+                        const next = new Set(chosen);
+                        /* ‏גם סימון בודד אינו חוצה את מה שהשרת מקבל */
+                        if (e.target.checked) {
+                          if (next.size >= sendMax) return;
+                          next.add(row.id);
+                        } else next.delete(row.id);
+                        setChosen(next);
+                      }}
+                    />
+                    <span>{row.name}</span>
+                    {/*
+                      ‏הסיבה נאמרת **ליד השם ולפני הבחירה**, ולא
+                      ‏מתגלה בסיכום שאחריה.
+                    */}
+                    {row.blocked !== null ? (
+                      <span className="mv-chip" style={{ cursor: "default" }}>
+                        {row.blocked}
+                      </span>
+                    ) : null}
+                  </label>
+                </li>
+              ))
+            )}
+          </ul>
+        </div>
+      )}
+    </ConfirmDialog>
+  );
+}

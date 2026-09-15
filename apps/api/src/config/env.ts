@@ -32,18 +32,41 @@ const EnvSchema = z.object({
   PHONE_HASH_KEY: z.string().min(32),
   /** סודות WhatsApp Cloud API — ה-Webhook סגור עד שהם מוגדרים. */
   WHATSAPP_APP_SECRET: z.string().min(16).optional(),
+  /** ה-Secret של אפליקציית החיבור, כשהיא נפרדת מזו של קו הסוכן. */
+  WHATSAPP_CONNECT_APP_SECRET: z.string().min(16).optional(),
   WHATSAPP_VERIFY_TOKEN: z.string().min(16).optional(),
   /** הסוכן האישי בוואטסאפ — שליחת תשובות דרך Graph API. חסר = קליטה בלבד. */
   WHATSAPP_ACCESS_TOKEN: z.string().min(20).optional(),
   /** מזהה המספר העסקי אצל Meta (Phone Number ID) — גם מזהה את קו הסוכן בקליטה. */
   WHATSAPP_PHONE_NUMBER_ID: z.string().regex(/^\d{5,30}$/u).optional(),
+  /**
+   * חיבור המספר של כל משרד דרך Embedded Signup (docs/12).
+   *
+   * ‎`APP_ID` הוא מזהה האפליקציה של **הפלטפורמה** (ציבורי — הוא נשלח
+   * לדפדפן כדי לפתוח את הפופאפ), ו-`SIGNUP_CONFIG_ID` הוא מזהה
+   * הקונפיגורציה של Facebook Login for Business. חסרים = כפתור
+   * החיבור מוסתר במסך ההגדרות, וזו התנהגות תקינה ולא תקלה.
+   */
+  WHATSAPP_APP_ID: z.string().regex(/^\d{5,30}$/u).optional(),
+  WHATSAPP_SIGNUP_CONFIG_ID: z.string().regex(/^\d{5,30}$/u).optional(),
+  /**
+   * איזו זרימה הפופאפ פותח. ‎`whatsapp_business_app_onboarding` היא
+   * הדו-קיום (ברירת המחדל של המוצר) ודורשת אפליקציה שאושרה
+   * ל-Coexistence אצל Meta; `standard` (או מחרוזת ריקה) מחזיר
+   * Embedded Signup רגיל.
+   * אפליקציה שלא אושרה ומבקשת דו-קיום מקבלת את דיאלוג ההתחברות
+   * הרגיל במקום בחירת מספר — ולכן זו הגדרה ולא קבוע בקוד.
+   */
+  WHATSAPP_SIGNUP_FEATURE_TYPE: z
+    .enum(["", "standard", "whatsapp_business_app_onboarding"])
+    .optional(),
   /** סוד ה-Webhook של Kanko — קליטת ביקושים סגורה עד שהוא מוגדר. */
   KANKO_WEBHOOK_SECRET: z.string().min(16).optional(),
   /** שעות מהפתיחה הראשונה של הצעה ועד משימת פולו-אפ אם הקונה לא הגיב. */
   OFFER_FOLLOWUP_HOURS: z.coerce.number().positive().default(48),
   /** SLA לליד (docs/01 — "כל ליד מקבל מענה"): שעות עד אסקלציה על ליד ללא טיפול. */
   LEAD_SLA_HOURS: z.coerce.number().positive().default(2),
-  /** Secure cookies — חובה true בפרודקשן. */
+  /** Secure cookies — חובה true בפרודקשן (נאכף ב-superRefine למטה). */
   COOKIE_SECURE: z
     .enum(["true", "false"])
     .default("false")
@@ -145,6 +168,17 @@ const EnvSchema = z.object({
    * אימיילים (מופרדים בפסיק) של מנהלי הפלטפורמה — מי שמקים משרדים
    * חדשים מהממשק (/platform). ריק = המסך כבוי, הקמה רק ב-bootstrap.
    */
+  /**
+   * ניטור מקום בדיסק — הנתיב שנמדד, והסף שמתחתיו יוצאת התראה.
+   *
+   * ‎`/backups` הוא ה**ברירת מחדל בכוונה**: הוא מחובר בהצמדה
+   * לתיקייה על המארח (`BACKUP_DIR`), ולכן `statfs` עליו מחזיר את
+   * מצב הדיסק של השרת ולא של שכבת ה-overlay של הקונטיינר. מדידה
+   * על נתיב פנימי הייתה מדווחת מצב שאינו קיים.
+   */
+  DISK_MONITOR_PATH: z.string().default("/backups"),
+  /** ‏GB פנויים שמתחתיהם מתריעים. 0 = הניטור כבוי. */
+  DISK_MIN_FREE_GB: z.coerce.number().int().min(0).max(1024).default(10),
   PLATFORM_ADMIN_EMAILS: z
     .string()
     .default("")
@@ -154,6 +188,15 @@ const EnvSchema = z.object({
         .map((e) => e.trim().toLowerCase())
         .filter(Boolean),
     ),
+}).superRefine((env, ctx) => {
+  // עוגייה לא-Secure בפרודקשן היא טעות תפעולית, לא בחירה — מפילים בעלייה.
+  if (env.NODE_ENV === "production" && !env.COOKIE_SECURE) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["COOKIE_SECURE"],
+      message: "בפרודקשן חובה COOKIE_SECURE=true — עוגיית ה-Session לא תישלח בלי HTTPS",
+    });
+  }
 });
 
 export type Env = z.infer<typeof EnvSchema>;

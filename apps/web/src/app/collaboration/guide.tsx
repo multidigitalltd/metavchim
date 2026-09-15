@@ -65,19 +65,31 @@ export function CollaborationGuide() {
 
   if (open === null) return null;
 
+  /*
+    ‎**הכפתור בשורת הלשוניות, וההסבר בשורה שמתחתיה.**
+
+    שניהם יוצאים מאותו רכיב כדי שהמצב יישאר במקום אחד, והם נשארים
+    שני ילדים של אותו `flex` עוטף: השורה עוטפת, וההסבר תופס רוחב
+    מלא בשורה משלו (‎`.mv-tabrow > section`). כשההסבר היה ילד של
+    התא שבקצה הוא דחף את העמוד ל-2377px לרוחב.
+  */
   if (!open) {
     return (
-      <button
-        type="button"
-        className="mv-btn-plain mb-4"
-        onClick={() => setOpen(true)}
-      >
-        <IconInfo s={14} /> איך עובדת הרשת?
-      </button>
+      <div className="mv-tabrow__aside">
+        <button type="button" onClick={() => setOpen(true)}>
+          <IconInfo s={16} /> איך עובדת הרשת?
+        </button>
+      </div>
     );
   }
 
   return (
+    <>
+    <div className="mv-tabrow__aside">
+      <button type="button" onClick={() => dismiss()}>
+        <IconInfo s={16} /> איך עובדת הרשת?
+      </button>
+    </div>
     <section
       className="mb-5 rounded-xl border p-4"
       style={{
@@ -154,6 +166,7 @@ export function CollaborationGuide() {
         </Link>
       </div>
     </section>
+    </>
   );
 }
 

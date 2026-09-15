@@ -25,13 +25,27 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     await this.$disconnect();
   }
 
-  async withTenant<T>(fn: (tx: TenantTx) => Promise<T>): Promise<T> {
+  /**
+   * ‎`options` — אותן אפשרויות של `$transaction`, לקריאה שגדולה
+   * באמת.
+   *
+   * ‏ברירת המחדל (5 שניות) נכונה לרוב המוחלט של הפעולות, ומסך
+   * שחורג ממנה בדרך כלל עושה יותר מדי. יש יוצא דופן אחד אמיתי:
+   * סיכום קריאה-בלבד שסופר טווחים ארוכים בשאילתה אחת אחרי השנייה
+   * (המנטור). הפרמטר מפורש כדי שחריגה כזו תהיה **הצהרה במקום
+   * הקריאה**, ולא העלאה גורפת של הסף לכולם. אותו דגם כמו
+   * ‎`account-deletion`, שכבר מעביר `timeout` ל-`$transaction`.
+   */
+  async withTenant<T>(
+    fn: (tx: TenantTx) => Promise<T>,
+    options?: { timeout?: number; maxWait?: number },
+  ): Promise<T> {
     const { tenantId } = TenantContext.current();
     return this.$transaction(async (tx) => {
       // set_config עם is_local=true — התקף פג בסוף הטרנזקציה, אין זליגה בין בקשות.
       await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
       return fn(tx);
-    });
+    }, options);
   }
 
   /**
@@ -105,6 +119,30 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
   }
 
   /**
+   * מנוע המסלולים — קריאה וכתיבה חוצות-דיירים על `funnel_enrollments`
+   * ו-`funnel_messages` **בלבד**.
+   *
+   * אותו דפוס כמו `withSupportDesk`, ומאותו נימוק: המנוע שולח לכל
+   * המשרדים, והמסך „מי קיבל ומי פתח” הוא **כל התכלית** של המדידה.
+   * סריקה שרצה משרד-משרד תחת `withExplicitTenant` הייתה מייצרת
+   * שאילתה לכל דייר בכל סבב, ובעיקר לא הייתה יכולה לענות על השאלה
+   * שהמסך שואל — „כמה נשלחו החודש” היא שאלה חוצת-דיירים.
+   *
+   * הגבול נשמר בשלוש שכבות: הפוליסה קיימת רק על שתי הטבלאות האלה,
+   * הדגל נדלק רק כאן, וכל קורא חסום מאחורי PlatformAdminGuard או
+   * רץ כסורק פנימי בלי בקשת משתמש כלל.
+   *
+   * אין לגזור מכאן מזהה דייר ולהמשיך איתו לטבלאות אחרות — לכך יש
+   * `withExplicitTenant`, שממשיכה להיאכף ב-RLS.
+   */
+  async withFunnelAdmin<T>(fn: (tx: TenantTx) => Promise<T>): Promise<T> {
+    return this.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT set_config('app.funnel_admin', 'on', true)`;
+      return fn(tx);
+    });
+  }
+
+  /**
    * גישה ציבורית לפי טוקן הצעה (דף ההצעה ללקוח קצה): פוליסת RLS ייעודית
    * חושפת אך ורק את שורת ההצעה שהטוקן שלה הוצג — בלי הקשר דייר,
    * בלי גישה לשום טבלה אחרת.
@@ -126,6 +164,21 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
   async withPublicNudge<T>(token: string, fn: (tx: TenantTx) => Promise<T>): Promise<T> {
     return this.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT set_config('app.nudge_token', ${token}, true)`;
+      return fn(tx);
+    });
+  }
+
+  /**
+   * ‎**הסרה מדיוור לפי טוקן הכרטיס — בלי הקשר דייר.**
+   *
+   * ‏הפוליסה חושפת שורה אחת ב-`contact_optout_tokens`, טבלה שאין
+   * ‏בה דבר מלבד הקישור בין טוקן לכרטיס. הכתיבה עצמה היא על
+   * ‎`contacts`, אחרי שהוצב `app.tenant_id` מתוך אותה שורה —
+   * ‏בדיוק כמו במסלול ההצעה.
+   */
+  async withPublicContactOptOut<T>(token: string, fn: (tx: TenantTx) => Promise<T>): Promise<T> {
+    return this.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT set_config('app.contact_optout_token', ${token}, true)`;
       return fn(tx);
     });
   }

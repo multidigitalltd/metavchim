@@ -16,39 +16,81 @@ import {
   MAX_NOTICE_PERIOD_DAYS,
   OCCUPANCY_STATES,
   PAGE_LIMIT_MAX,
-  PhoneSchema,
+  PhoneInputSchema,
+  PropertyConditionSchema,
+  PropertyFacingSchema,
   PropertyFieldsSchema,
+  normalizeHouseNumber,
   PropertyStatusSchema,
   type Page,
+  type PropertyFields,
 } from "@metavchim/shared";
 import { RequireCapability } from "../../common/auth.decorators";
 import { RequireFeature } from "../../common/feature.guard";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
+import { officeMembers } from "../../common/office-members";
+import { PrismaService } from "../../core/prisma.service";
 import { MatchingService, type MatchDto } from "../matching/matching.service";
 import { FeatureCatalogueService } from "./feature-catalogue.service";
 import {
   PropertyActivityService,
   type OwnerActivityReportDto,
+  type OwnerReportSentDto,
 } from "./property-activity.service";
 import { PropertiesService } from "./properties.service";
 import type { PropertyDto } from "./property.mapper";
 
-const CreatePropertySchema = PropertyFieldsSchema.extend({
+/*
+ * ‎**מיוצאת לבדיקה, ולא רק לשימוש כאן.**
+ *
+ * הסכימה הזו היא החוזה מול המסך, והיא `.strict()` — כלומר שדה
+ * שהמסך שולח ושאינו מוצהר בה **חוסם את הבקשה כולה**. זה בדיוק מה
+ * שקרה כשטופס „נכס חדש” התחיל לשלוח `status`. בדיקה שמריצה עליה
+ * את הגוף שהמסך באמת בונה היא הדבר היחיד שתופס את זה לפני המשתמש.
+ */
+export const CreatePropertySchema = PropertyFieldsSchema.extend({
   marketingTitle: z.string().max(160).optional(),
   marketingDescription: z.string().max(4000).optional(),
   internalNotes: z.string().max(4000).optional(),
   // בעל הנכס (המוכר) — contact לפי טלפון; מזין את התיק המאוחד (docs/03)
   ownerName: z.string().min(2).max(120).optional(),
-  ownerPhone: PhoneSchema.optional(),
+  ownerPhone: PhoneInputSchema.optional(),
   /*
    * מי גר בנכס כשזה אינו הבעלים — דירה שמושכרת בזמן שהיא מוצעת.
    * הבעלים מחליט על המכירה, אבל הדלת נפתחת על ידי מי שגר שם.
    */
   occupantName: z.string().min(2).max(120).optional(),
-  occupantPhone: PhoneSchema.optional(),
+  occupantPhone: PhoneInputSchema.optional(),
+  /*
+   * ‎**הסוכן המטפל.** מזהה של משתמש במשרד, או מחרוזת ריקה לניתוק.
+   * השרת מאמת שהמזהה שייך למשרד — מסך אינו רשות לשייך נכס לאדם
+   * שאינו בו.
+   */
+  agentUserId: z.union([IdSchema, z.literal("")]).optional(),
+
+  /*
+   * ‎**הסטטוס ההתחלתי — ביצירה, ולא רק בעדכון** (ביקורת Codex, P1).
+   *
+   * ‏הוא היה קיים ב-`UpdatePropertySchema` בלבד, בזמן ש-`persist`
+   * כבר ידע לקרוא `input.status` — כלומר השירות תמך, וה-API לא
+   * חשף. ברגע שטופס „נכס חדש” התחיל לשלוח `status: "active"`,
+   * ‎`.strict()` דחה את הבקשה כולה ב-400: **אי אפשר היה לקלוט נכס
+   * מהמסך בכלל.** לא שדה שנבלע, אלא מסלול שנחסם.
+   *
+   * הסכימה מגבילה לשני מצבי פתיחה בלבד, ולא לכל `PropertyStatus`:
+   * „נמכר”, „הושכר” ו„הוקפא” הם תוצאות של מהלך ולא נקודות התחלה,
+   * ו„בארכיון” ביצירה פירושו נכס שנולד מוסתר. כל אלה עוברים דרך
+   * העדכון, ששם יש להם היסטוריה.
+   */
+  status: z.enum(["draft", "active"]).optional(),
 }).strict();
 
-const UpdatePropertySchema = CreatePropertySchema.partial()
+/*
+ * ‎**מיוצאת מאותה סיבה כמו סכימת היצירה.** היא `.strict()`, ולכן
+ * ‏שדה שטופס העריכה שולח ואינו מוצהר בה חוסם את השמירה כולה. רק
+ * ‏בדיקה שמריצה עליה את הגוף שהמסך באמת בונה תופסת את זה.
+ */
+export const UpdatePropertySchema = CreatePropertySchema.partial()
   .extend({
     status: PropertyStatusSchema.optional(),
     /*
@@ -59,6 +101,59 @@ const UpdatePropertySchema = CreatePropertySchema.partial()
      * דרך להסיר דייר אחרי שהוא עזב — והמספר שלו היה נשאר בכרטיס.
      */
     occupantCleared: z.literal(true).optional(),
+    /*
+     * ‎**מספר בית — `null` מרוקן, בניגוד לרחוב ולעיר.**
+     *
+     * ‏שדה שלא נשלח פירושו „בלי שינוי” בכל הטופס הזה, ולכן מספר
+     * ‏שנמחק במסך פשוט לא נשלח והערך הישן שרד — כתובת שגויה שאין
+     * ‏דרך לתקן מהמסך שנועד לתיקונה (דיווח המשתמש).
+     *
+     * ‏ורק הוא: רחוב ועיר אינם מקבלים `null` כאן במכוון. כתובת בלי
+     * ‏עיר אינה כתובת, ומי שרוצה לשנות רחוב מחליף אותו ולא מרוקן
+     * ‏אותו — בעוד „הבית בלי מספר” הוא מצב אמיתי בשטח (מגרש, בית
+     * ‏פרטי בלי מספור, נכס שהמספר שלו הוזן בטעות).
+     */
+    /*
+     * ‎**אותו ניקוי של `PropertyFieldsSchema`**, ולא הצהרה שנייה
+     * ‏שנשכחת: זה המסלול שבו מתקנים כתובת, כלומר בדיוק
+     * ‏המקום שבו „5.0” אמור להיעלם.
+     */
+    houseNumber: z
+      .string()
+      .max(10)
+      .transform(normalizeHouseNumber)
+      .nullable()
+      .optional(),
+    /*
+     * ‎**חזית / עורף — ו-`null` מרוקן, כמו מספר הבית.**
+     *
+     * ‏מי שסימן בטעות חייב דרך חזרה ל„לא צוין”, ובלעדיה הערך היחיד
+     * ‏שאי אפשר להגיע אליו הוא האמת. שדה שלא נשלח נשאר „בלי
+     * ‏שינוי”, ולכן הריקון חייב להיאמר במפורש.
+     */
+    facing: PropertyFacingSchema.nullable().optional(),
+    /*
+     * ‎**מצב הנכס — אותו כלל בדיוק.** הוא הגיע מ-`PropertyFieldsSchema`
+     * ‏כאופציונלי בלבד, כלומר טופס העריכה ששולח „לא צוין” היה נדחה
+     * ‏ב-400 במקום לרוקן. חמשת הערכים מוכרזים פעם אחת ב-`PROPERTY_CONDITIONS`,
+     * ‏וכאן נוספת רק היכולת לרוקן.
+     */
+    condition: PropertyConditionSchema.nullable().optional(),
+    /*
+     * ‎**הסוכן השותף — בעדכון בלבד, ובמכוון** (ביקורת Codex, P2).
+     *
+     * ‏הוא ישב קודם ב-`CreatePropertySchema`, ומסלול היצירה **זרק
+     * ‏אותו בשקט**: `create()` אינו מקבל אותו, ו-`fieldsToColumns`
+     * ‏מתעלם ממנו — כלומר הלקוח קיבל „נוצר” על נכס שהשותף שביקש
+     * ‏נמחק ממנו. זו בדיוק התקלה שכבר תועדה כאן על „מי גר בנכס”.
+     *
+     * ‏וזה גם נכון מוצרית: היצירה מרשה `draft`/`active` בלבד, ואין
+     * ‏שת״פ על עסקה שעוד לא נסגרה.
+     *
+     * ‎`null` אינו מתקבל — מחרוזת ריקה היא ערוץ הריקון היחיד, כמו
+     * ‏בשיוך הסוכן המטפל.
+     */
+    partnerUserId: z.union([IdSchema, z.literal("")]).optional(),
     /*
      * ‎**מי גר בנכס — בעדכון בלבד, ובמכוון.**
      *
@@ -99,11 +194,38 @@ const ListQuerySchema = z
     maxPrice: z.coerce.number().min(0).optional(),
     minRooms: z.coerce.number().min(0).max(30).optional(),
     maxRooms: z.coerce.number().min(0).max(30).optional(),
+    /**
+     * ‎**„טאבו משותף” — ולא `z.coerce.boolean()`.**
+     *
+     * ‏פרמטרים במחרוזת השאילתה מגיעים כמחרוזות, ו-`coerce.boolean`
+     * ‏מחיל את `Boolean(...)` — כלומר `"false"` הופך ל-`true`,
+     * ‏בשקט. המסנן היה מציג בדיוק את ההפך ממה שנבחר, ורק על אחד
+     * ‏משני הערכים.
+     *
+     * ‏שני מחרוזות מפורשות: כל דבר אחר נדחה בשער במקום להתפרש.
+     */
+    sharedTabu: z
+      .enum(["true", "false"])
+      .transform((value) => value === "true")
+      .optional(),
     cursor: z.string().max(30).optional(),
     /* התקרה מהקבוע המשותף — כדי שמסך לא יבקש יותר ממה שהשער מקבל */
     limit: z.coerce.number().int().min(1).max(PAGE_LIMIT_MAX).default(50),
   })
   .strict();
+
+/**
+ * ‎**המעבר על רישום משותף.**
+ *
+ * ‏חמישים בעמוד: זו רשימת עבודה שעוברים עליה, לא טבלה שסורקים.
+ * ‏המונה המלא חוזר לצדה ואומר כמה נשאר.
+ */
+const SharedTabuReviewQuerySchema = z
+  .object({ limit: z.coerce.number().int().min(1).max(200).default(50) })
+  .strict();
+
+/** ‏התשובה עצמה — משותף או לא, ותו לא. */
+const SharedTabuAnswerSchema = z.object({ sharedTabu: z.boolean() }).strict();
 
 /**
  * טווח הדוח לבעל הנכס. שני הקצוות רשות — בלעדיהם הדוח הוא כל
@@ -118,6 +240,23 @@ const ActivityQuerySchema = z
   .strict();
 
 type ActivityQuery = z.infer<typeof ActivityQuerySchema>;
+
+/**
+ * ‎**באיזה ערוץ, ואיזו תקופה נכתבת בגוף ההודעה.**
+ *
+ * ‏`periodLabel` מגיע מהמסך ולא נגזר מ-`from`/`to`: המסך מציג
+ * „‏30 הימים האחרונים” ולא טווח תאריכים, והדוח שנשלח צריך לומר
+ * בדיוק את מה שהמתווך בחר. גזירה שנייה כאן הייתה מייצרת ניסוח
+ * אחר מזה שעל המסך — על אותם נתונים בדיוק.
+ */
+const ActivitySendSchema = z
+  .object({
+    channel: z.enum(["whatsapp", "email"]),
+    periodLabel: z.string().trim().min(1).max(60),
+  })
+  .strict();
+
+type ActivitySend = z.infer<typeof ActivitySendSchema>;
 
 /**
  * תקרה של 500 — מכסה בחירה של „כל מה שמוצג” בכל מסך סביר, ומונעת
@@ -146,6 +285,7 @@ export class PropertiesController {
     private readonly matching: MatchingService,
     private readonly catalogue: FeatureCatalogueService,
     private readonly activityReport: PropertyActivityService,
+    private readonly prisma: PrismaService,
   ) {}
 
   /**
@@ -183,6 +323,8 @@ export class PropertiesController {
       ownerPhone,
       occupantName,
       occupantPhone,
+      agentUserId,
+      status,
       ...fields
     } = body;
     return this.properties.create({
@@ -190,6 +332,10 @@ export class PropertiesController {
       marketingTitle,
       marketingDescription,
       internalNotes,
+      /* חסר ⇒ `draft`, וזו עדיין ברירת המחדל של מי שאינו נוקב בו */
+      ...(status === undefined ? {} : { status }),
+      /* ריק ביצירה = „אני”, וזו כבר ברירת המחדל בשירות */
+      ...(agentUserId === undefined || agentUserId === "" ? {} : { agentUserId }),
       ...(ownerName !== undefined && ownerPhone !== undefined
         ? { owner: { name: ownerName, phone: ownerPhone } }
         : {}),
@@ -219,6 +365,41 @@ export class PropertiesController {
    * של הראשון במקום להמציא אותה. בלי זה, החופש להוסיף היה מייצר
    * בדיוק את פיצול המפתחות שהנרמול נלחם בו.
    */
+  /**
+   * ‎**מה שטרם נבדק על רישום משותף — המעבר החד-פעמי.**
+   *
+   * ‏מוכרח לשבת **לפני** `:id`, כמו קטלוג המאפיינים: נתיב סטטי
+   * ‏אחרי פרמטרי נבלע בו ונדחה בוולידציה.
+   *
+   * ‏הרשימה משרדית, כמו רשימת הנכסים עצמה. `remaining` הוא המונה
+   * ‏המלא ולא אורך העמוד — הוא מה שאומר למי שעובר כמה נשאר.
+   */
+  /**
+   * ‎**מי במשרד — לסימון סוכן שותף.**
+   *
+   * ‏אותה רשימה שמאחורי `/tasks/assignees`, **שער אחר**: שיוך משימה
+   * ‏הוא הטלת עבודה ודורש `tasks.assign`; סימון שותף על עסקה הוא
+   * ‏תיעוד של מה שקרה, אינו מעביר בעלות ואינו נוגע בניקוד — ולכן
+   * ‏כל מי שרשאי לערוך את הנכס רשאי לרשום אותו (הכרעת בעל המוצר).
+   *
+   * ‏השאילתה עצמה יושבת ב-`common/office-members` ונקראת משני
+   * ‏הנתיבים; עותק שני היה נפרד ביום שמישהו יוסיף לה תנאי.
+   */
+  @Get("office-agents")
+  @RequireCapability("properties.edit")
+  officeAgents(): Promise<{ id: string; name: string }[]> {
+    return officeMembers(this.prisma);
+  }
+
+  @Get("shared-tabu-review")
+  @RequireCapability("properties.view")
+  async sharedTabuReview(
+    @Query(new ZodValidationPipe(SharedTabuReviewQuerySchema))
+    query: z.infer<typeof SharedTabuReviewQuerySchema>,
+  ): Promise<Awaited<ReturnType<PropertiesService["sharedTabuReview"]>>> {
+    return this.properties.sharedTabuReview(query.limit);
+  }
+
   @Get("feature-catalogue")
   @RequireCapability("properties.view")
   async featureCatalogue(): Promise<
@@ -235,6 +416,24 @@ export class PropertiesController {
     return this.properties.getById(id);
   }
 
+  /**
+   * ‎**התשובה על רישום משותף — והדבר היחיד שמסמן „נבדק”.**
+   *
+   * ‏נתיב נפרד מ-`PATCH /properties/:id` בכוונה: טופס העריכה שולח
+   * ‏את מצבו המלא כולל התיבה, ולכן שמירה רגילה הייתה מסמנת
+   * ‏„נבדק” גם כשאיש לא הסתכל על השאלה. הנתיב הזה נקרא רק
+   * ‏כשלוחצים על התשובה עצמה.
+   */
+  @Patch(":id/shared-tabu")
+  @RequireCapability("properties.edit")
+  async confirmSharedTabu(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Body(new ZodValidationPipe(SharedTabuAnswerSchema))
+    body: z.infer<typeof SharedTabuAnswerSchema>,
+  ): Promise<{ remaining: number }> {
+    return this.properties.confirmSharedTabu(id, body.sharedTabu);
+  }
+
   @Patch(":id")
   @RequireCapability("properties.edit")
   async update(
@@ -242,9 +441,35 @@ export class PropertiesController {
     @Body(new ZodValidationPipe(UpdatePropertySchema))
     body: z.infer<typeof UpdatePropertySchema>,
   ): Promise<PropertyDto> {
-    const { ownerName, ownerPhone, occupantName, occupantPhone, ...rest } = body;
+    const {
+      ownerName,
+      ownerPhone,
+      occupantName,
+      occupantPhone,
+      houseNumber,
+      facing,
+      condition,
+      ...rest
+    } = body;
+    /*
+     * ‎`null` = „רוקן”, ולכן הוא נוסע ב-`clearFields` ולא בשדה
+     * ‏עצמו: `PropertyFieldsSchema` אינו מקבל `null`, וההפרדה הזו
+     * ‏היא בדיוק מה שמונע ריקון בכל נתיב אחר שאיש לא ביקש.
+     *
+     * ‎**רשימה אחת לכל השדות, ולא ספרד לכל אחד.** `{...{clearFields}}`
+     * ‏פעמיים כותב את אותו מפתח, והשני מוחק את הראשון בשקט —
+     * ‏כלומר ריקון שנשלח היה נבלע בלי שגיאה.
+     */
+    const clearFields: (keyof PropertyFields)[] = [];
+    if (houseNumber === null) clearFields.push("houseNumber");
+    if (facing === null) clearFields.push("facing");
+    if (condition === null) clearFields.push("condition");
     return this.properties.update(id, {
       ...rest,
+      ...(houseNumber === undefined || houseNumber === null ? {} : { houseNumber }),
+      ...(facing === undefined || facing === null ? {} : { facing }),
+      ...(condition === undefined || condition === null ? {} : { condition }),
+      ...(clearFields.length > 0 ? { clearFields } : {}),
       ...(ownerName !== undefined && ownerPhone !== undefined
         ? { owner: { name: ownerName, phone: ownerPhone } }
         : {}),
@@ -346,6 +571,21 @@ export class PropertiesController {
    * אלא מה שנעשה בנכס אחד, והוא נטול פרטי אדם. מי שרואה את הנכס
    * רואה גם מה נעשה בו.
    */
+  /**
+   * ‎**המחיר למ״ר של הנכס, מול הממוצע בשכונה ובעיר.**
+   *
+   * ‎`properties.view` ולא `properties.edit`: זו קריאה, והנתונים
+   * ‏שממנה נגזר הממוצע גלויים ממילא לכל סוכן במשרד (רשימת הנכסים
+   * ‏משרדית בכוונה).
+   */
+  @Get(":id/price-benchmark")
+  @RequireCapability("properties.view")
+  async priceBenchmark(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+  ): ReturnType<PropertiesService["priceBenchmark"]> {
+    return this.properties.priceBenchmark(id);
+  }
+
   @Get(":id/activity")
   @RequireCapability("properties.view")
   async activity(
@@ -371,5 +611,22 @@ export class PropertiesController {
     @Query(new ZodValidationPipe(ActivityQuerySchema)) query: ActivityQuery,
   ): Promise<string> {
     return this.activityReport.csv(id, query);
+  }
+
+  /**
+   * ‎**שליחת הדוח לבעל הנכס.**
+   *
+   * ‎`properties.edit` ולא `properties.view`: צפייה בדוח היא קריאה,
+   * ושליחה היא פעולה שיוצאת מהמערכת אל לקוח בשם המשרד. מי שרשאי
+   * רק להסתכל בנכס אינו רשאי לכתוב לבעליו.
+   */
+  @Post(":id/activity/send")
+  @RequireCapability("properties.edit")
+  async activitySend(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Query(new ZodValidationPipe(ActivityQuerySchema)) query: ActivityQuery,
+    @Body(new ZodValidationPipe(ActivitySendSchema)) body: ActivitySend,
+  ): Promise<OwnerReportSentDto> {
+    return this.activityReport.sendToOwner(id, query, body);
   }
 }

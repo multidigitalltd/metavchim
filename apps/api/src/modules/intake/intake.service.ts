@@ -15,6 +15,7 @@ import {
   describeIntakeChanges,
   intakeExpiryFrom,
   intakeInactiveReason,
+  intakeInviteEmail,
   intakeInviteMessage,
   intakeOpenRejectionReason,
   intakeSellerRejectionReason,
@@ -28,6 +29,7 @@ import {
   PropertyTypeSchema,
   PropertyFieldsSchema,
   type PropertyFields,
+  type EmailCardTag,
   type IntakeAnswers,
   type IntakeSellerAnswers,
   type IntakeSide,
@@ -35,13 +37,18 @@ import {
   type IntakeSubject,
 } from "@metavchim/shared";
 import { loadEnv } from "../../config/env";
-import { lockIntakeRequest } from "../../common/locks";
-import { ownershipFilter } from "../../common/ownership";
-import { TenantContext } from "../../common/tenant-context";
+import { lockContact, lockIntakeRequest } from "../../common/locks";
+import { leadOwnershipFilter, ownershipFilter } from "../../common/ownership";
+import { actingUserId, TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
+import { EmailRejectedError, EmailService, emailSendOutcome } from "../../core/email.service";
+import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import { BuyersService } from "../buyers/buyers.service";
 import { ContactsService } from "../contacts/contacts.service";
+import { EmailInboxService } from "../email-inbox/email-inbox.service";
+import { WhatsAppSendService } from "../messaging/whatsapp-send.service";
+import { TenantLogoService } from "../../core/tenant-logo.service";
 import { PropertiesService } from "../properties/properties.service";
 
 /**
@@ -73,6 +80,8 @@ import { PropertiesService } from "../properties/properties.service";
 /** מבט הלקוח. `inactive` = הקישור לא פעיל, ואז אין `prefill`. */
 export interface IntakePublicView {
   officeName: string;
+  /** נתיב ציבורי ללוגו המשרד, או `null` כשאין. */
+  logoUrl: string | null;
   /** השם הפרטי בלבד — „שלום דנה”, בלי שם משפחה ובלי טלפון. */
   greetingName: string;
   status: IntakeStatus;
@@ -123,6 +132,81 @@ export interface IntakeRequestDto {
    */
   buyerId: string | null;
 }
+
+/**
+ * ‏הרשימה **ומי יקבל אותה** — ולא מערך שורות בלבד.
+ *
+ * ## ‏למה הנמען יושב כאן ולא על השורה
+ *
+ * ‏המסך צריך לדעת אם ללקוח יש אימייל **לפני** שהוא שולח, כדי לומר
+ * „אין מייל ללקוח” במקום להציע כפתור שייכשל. על השורה זה היה חוזר
+ * זהה בכל בקשה של אותו כרטיס — ובכרטיס שעדיין לא נשלחה בו אף
+ * בקשה, כלומר בדיוק במצב הנפוץ, לא היה מגיע כלל.
+ *
+ * ## ‏למה הכתובת עצמה ולא `hasEmail`
+ *
+ * ‏חלון האישור אומר לאן זה הולך. „אתם בטוחים?” בלי הכתובת מבקש
+ * אישור על מה שלא הוצג, וסוכן שלחץ אינו יכול לדעת שהכתובת
+ * שבכרטיס שגויה. הסוכן רשאי לראות את איש הקשר של הכרטיס ממילא.
+ */
+export interface IntakeListDto {
+  recipient: {
+    name: string;
+    email: string | null;
+    /**
+     * ‎**איך וואטסאפ יישלח, לא רק אם.**
+     *
+     * ‏`office` — למשרד יש חיבור וואטסאפ ביזנס פעיל, וההודעה תצא
+     * ממנו כמו כל הודעה אחרת של המשרד. `manual` — אין חיבור (או
+     * שהמסלול אינו כולל אותו), ולכן וואטסאפ **נפתח** עם הנוסח מוכן
+     * והסוכן לוחץ „שלח”.
+     *
+     * ‏המסך צריך לדעת מראש כי שתי ההבטחות שונות, וגם כי פתיחת חלון
+     * חייבת לקרות מיד אחרי לחיצה — אחרי שתי המתנות הדפדפן חוסם.
+     */
+    whatsapp: "office" | "manual";
+  };
+  rows: IntakeRequestDto[];
+}
+
+/**
+ * ‏מה שהשליחה מדווחת בחזרה — **תוצאה לכל ערוץ בנפרד.**
+ *
+ * ‏לא חריגה אחת לשניהם: מייל שנכשל אינו מבטל וואטסאפ שיצא, ושתיקה
+ * על ערוץ שנכשל היא בדיוק ה„✓ נשלח” שאסור. ערוץ שלא התבקש הוא
+ * `null` — „לא ניסינו” אינו „הצליח” ואינו „נכשל”.
+ */
+export interface IntakeSentDto {
+  url: string;
+  email: ChannelResult | null;
+  whatsapp: ChannelResult | null;
+}
+
+/**
+ * ‏`waUrl` מוחזר רק בכישלון וואטסאפ, ובכוונה: זו הדרך החוצה. חלון
+ * 24 השעות של Meta נסגר, ההודעה נדחתה — והסוכן עדיין יכול לשלוח
+ * אותה בעצמו בלחיצה על קישור, במקום לקבל „נכשל” ולא כלום.
+ */
+export type ChannelResult =
+  | { ok: true; to: string }
+  | {
+      ok: false;
+      reason: string;
+      waUrl?: string | null;
+      /**
+       * ‎**לא ידוע אם יצא — ולא „לא יצא”.**
+       *
+       * ‏הספק לא ענה, או ענה 5xx אחרי שכבר קלט את ההודעה. שני
+       * המצבים נראים זהים מבחוץ, ולכן `EmailService` זורק בשניהם.
+       * אבל „נכשל, נסו שוב” על מצב כזה מזמין שליחה שנייה של אותו
+       * מייל ללקוח, ואין כאן מפתח ייחודיות שימנע כפילות (ביקורת
+       * Codex). לכן זה נאמר במפורש, והמסך אינו מציע לנסות שוב.
+       */
+      ambiguous?: boolean;
+    };
+
+/** ‏הערוצים שאפשר לבקש. */
+export type IntakeChannel = "email" | "whatsapp";
 
 /**
  * המיזוג נדחה בסכימה — ולכן הטרנזקציה של הכרטיס מתבטלת.
@@ -187,7 +271,35 @@ export class IntakeService {
     private readonly contacts: ContactsService,
     private readonly buyers: BuyersService,
     private readonly properties: PropertiesService,
+    private readonly logo: TenantLogoService,
+    private readonly email: EmailService,
+    private readonly whatsapp: WhatsAppSendService,
+    private readonly plans: PlanCatalogService,
+    private readonly emailInbox: EmailInboxService,
   ) {}
+
+  /**
+   * ‏האם ההודעה תצא מהמשרד או תיפתח בדפדפן.
+   *
+   * ‏שני התנאים ולא אחד: חיבור פעיל **וגם** מסלול שכולל וואטסאפ.
+   * מסך שאומר „יישלח מהמשרד” על משרד שירד ממסלול מבטיח מה שהשליחה
+   * תדחה מיד אחר כך.
+   */
+  private async officeSendsWhatsApp(tenantId: string): Promise<boolean> {
+    const [connected, allowed] = await Promise.all([
+      this.whatsapp.hasTenantConnection(tenantId),
+      this.plans.tenantHasFeature(tenantId, "whatsapp"),
+    ]);
+    return connected && allowed;
+  }
+
+  /** הלוגו של המשרד — נגזר מהשורה שהטוקן פתח, לטופס הציבורי. */
+  async publicLogo(
+    token: string,
+  ): Promise<{ body: NodeJS.ReadableStream; contentType: string; contentLength?: number }> {
+    const row = await this.resolveToken(token);
+    return this.logo.rawFor(row.tenantId);
+  }
 
   /* ================= הצד הפנימי — המתווך ================= */
 
@@ -344,23 +456,305 @@ export class IntakeService {
   async listFor(
     subject: IntakeSubject,
     subjectId: string,
-  ): Promise<IntakeRequestDto[]> {
+  ): Promise<IntakeListDto> {
     const ctx = TenantContext.current();
     return this.prisma.withTenant(async (tx) => {
-      await this.contactOf(tx, subject, subjectId);
+      const contactId = await this.contactOf(tx, subject, subjectId);
       const rows = await tx.intakeRequest.findMany({
         where: { tenantId: ctx.tenantId, subject, subjectId },
         orderBy: { createdAt: "desc" },
         take: 20,
       });
-      if (rows.length === 0) return [];
+      /*
+       * ‏איש הקשר נקרא מהכרטיס ולא מהשורה הראשונה: כרטיס שעדיין לא
+       * נשלחה ממנו אף בקשה הוא בדיוק המצב שבו המסך צריך לדעת אם יש
+       * אימייל — ושורה ראשונה אין לו.
+       */
+      const contact = await this.contacts.getById(tx, contactId);
+      const recipient = {
+        name: contact?.name ?? "",
+        email: contact?.email ?? null,
+        whatsapp: (await this.officeSendsWhatsApp(ctx.tenantId))
+          ? ("office" as const)
+          : ("manual" as const),
+      };
+      if (rows.length === 0) return { recipient, rows: [] };
       const ctxDto = await this.dtoContext(
         tx,
         ctx.tenantId,
         rows[0]!.contactId,
       );
-      return rows.map((row) => toDto(row, ctxDto));
+      return { recipient, rows: rows.map((row) => toDto(row, ctxDto)) };
     });
+  }
+
+  /**
+   * ‎**שליחת הקישור ללקוח באימייל — הערוץ שלא היה.**
+   *
+   * ## ‏מה היה
+   *
+   * ‏הכרטיס ידע ליצור קישור ולפתוח את וואטסאפ עם הנוסח מוכן, ולהעתיק
+   * את הכתובת. ללקוח בלי וואטסאפ — או למי שמעדיף מייל — לא הייתה
+   * דרך: המתווך היה אמור להעתיק את הקישור ולהדביק אותו במייל משלו,
+   * ומי שלא עשה זאת השאיר את הלקוח בלי טופס (בקשת המשתמש).
+   *
+   * ## ‏למה זה זורק ולא מחזיר „נכשל”
+   *
+   * ‏אדם לחץ כפתור ומחכה לתשובה. „✓ נשלח” על מייל שלא יצא הוא בדיוק
+   * מה שגורם לו לא לבדוק שוב — ולכן `required: true` בשליחה, וכל
+   * חסם נאמר במפורש: אין אימייל בכרטיס, או הספק דחה.
+   *
+   * ## ‏למה `ensure` ולא יצירה חדשה
+   *
+   * ‏אותו נימוק של הכפתור עצמו: שני קישורים פעילים לאותו כרטיס הם
+   * שני טפסים, ו„מי מהם קובע” אין לו תשובה טובה. מי ששולח במייל
+   * אחרי שכבר שלח בוואטסאפ שולח את **אותו** קישור.
+   */
+  async sendInvite(
+    subject: IntakeSubject,
+    subjectId: string,
+    channels: readonly IntakeChannel[],
+    /**
+     * ‎**הכתובת שהמסך הציג באישור.**
+     *
+     * ‏חלון האישור אומר „המייל יישלח אל X”, והשליחה קוראת את הכרטיס
+     * מחדש. אם מישהו שינה את הכתובת בין השניים — הסוכן עצמו בלשונית
+     * אחרת, או עמית — ההודעה הייתה יוצאת אל Y אחרי שאושר X. חלון
+     * אישור שאינו מחייב אינו אישור (ביקורת Codex).
+     *
+     * ‏רשות: קוראים ישנים ומסלולים פנימיים אינם חייבים לאשר.
+     */
+    expectedEmail?: string,
+  ): Promise<IntakeSentDto> {
+    const ctx = TenantContext.current();
+    const link = await this.ensure(subject, subjectId);
+
+    const details = await this.prisma.withTenant(async (tx) => {
+      const contactId = await this.contactOf(tx, subject, subjectId);
+      const [contact, officeName] = await Promise.all([
+        this.contacts.getById(tx, contactId),
+        this.officeName(tx, ctx.tenantId),
+      ]);
+      return { contact, officeName };
+    });
+
+    /*
+     * ‎**הכרטיס שממנו נשלח הקישור — למה זו לא נגזרת של הטופס.**
+     *
+     * ‏הקישור נשלח **לפני** שהלקוח מילא דבר, ולכן הנכס שהטופס יצור
+     * ‏עדיין לא קיים. מה שקיים הוא הכרטיס שהסוכן לחץ בו על הכפתור,
+     * ‏וזה גם מה שהוא יחפש כשהתשובה תחזור.
+     *
+     * ‎`open` הוא הקישור הציבורי הכללי — אין לו כרטיס, ואין מה
+     * ‏לתייג.
+     */
+    const card: EmailCardTag | null =
+      subject === "open" ? null : { kind: subject, id: subjectId };
+    const email = channels.includes("email")
+      ? await this.sendInviteEmail(ctx.tenantId, details, link.url, card, expectedEmail)
+      : null;
+    const whatsapp = channels.includes("whatsapp")
+      ? await this.sendInviteWhatsApp(ctx.tenantId, details, link)
+      : null;
+
+    /*
+      ‏היומן רושם **מה יצא**, לא מה התבקש. „ניסינו לשלוח” אינו אירוע
+      שכדאי לתעד; „יצא ללקוח בשם המשרד” כן, וזו גם השורה שמישהו יחפש
+      כשהלקוח יטען שלא קיבל דבר.
+    */
+    const delivered = [
+      ...(email?.ok === true ? ["email"] : []),
+      ...(whatsapp?.ok === true ? ["whatsapp"] : []),
+    ];
+    if (delivered.length > 0) {
+      await this.prisma.withTenant((tx) =>
+        this.audit.record(tx, {
+          action: "intake.sent",
+          entityType: subject,
+          entityId: subjectId,
+          metadata: { channels: delivered, requestId: link.id },
+        }),
+      );
+    }
+
+    return { url: link.url, email, whatsapp };
+  }
+
+  /**
+   * ‏האימייל.
+   *
+   * ‎`required: true` — כישלון אצל הספק חוזר אל הסוכן ואינו נרשם
+   * ביומן בלבד. „✓ נשלח” על מייל שלא יצא הוא בדיוק מה שגורם לו לא
+   * לבדוק שוב.
+   *
+   * ‏החריגה נתפסת כאן והופכת ל-`ChannelResult` ולא עולה מעלה: מייל
+   * שנכשל אינו סיבה לבטל וואטסאפ שכבר יצא.
+   */
+  private async sendInviteEmail(
+    tenantId: string,
+    details: {
+      contact: { id: string; name: string; email?: string } | null;
+      officeName: string;
+    },
+    url: string,
+    /** ‏הכרטיס שממנו יצא הקישור — `null` לקישור הציבורי הכללי. */
+    card: EmailCardTag | null,
+    expectedEmail?: string,
+  ): Promise<ChannelResult> {
+    const to = details.contact?.email;
+    if (to === undefined || to === "") {
+      return { ok: false, reason: "אין מייל ללקוח — אפשר להוסיף אותו בכרטיס ולשלוח שוב" };
+    }
+    /*
+      ‏הכתובת השתנתה מאז שהמסך הציג אותה. לא שולחים: הסוכן אישר
+      שליחה אל כתובת אחת, וההודעה אינה יוצאת אל כתובת שלא ראה.
+    */
+    if (expectedEmail !== undefined && expectedEmail !== to) {
+      return {
+        ok: false,
+        reason: `כתובת המייל בכרטיס השתנתה ל-${to} — פתחו שוב ואשרו`,
+      };
+    }
+
+    const mail = intakeInviteEmail({
+      officeName: details.officeName,
+      ...(details.contact?.name === undefined || details.contact.name === ""
+        ? {}
+        : { clientName: details.contact.name }),
+      url,
+    });
+    /*
+      ‎**כתובת התשובה — כי המייל מבטיח אחת.**
+
+      ‏הערת השוליים אומרת „אפשר להשיב למייל הזה”. בלי `replyTo`
+      התשובה הולכת אל כתובת ה-From, שיכולה להיות השולח של הפלטפורמה
+      ואינה תיבה שמישהו קורא — כלומר הבטחה שאי אפשר לקיים (ביקורת
+      Codex). זו אותה כתובת ייחודית לאיש קשר שהצעות והסכמים כבר
+      משתמשים בה, והיא מחזירה את התשובה אל תוך התיבה של הכרטיס.
+
+      ‏`null` = הצד הנכנס אינו מוגדר במשרד הזה. אז אין מה להבטיח,
+      וההודעה יוצאת בלי `replyTo` — כמו כל מייל אחר שם.
+    */
+    const replyTo =
+      details.contact === null
+        ? null
+        : await this.emailInbox.replyAddressFor(
+            tenantId,
+            details.contact.id,
+            /* ‏הסוכן ששלח את הקישור; יצא מהמערכת ולא מאדם — `null` */
+            actingUserId(),
+            card,
+          );
+    try {
+      await this.email.send(
+        to,
+        mail.subject,
+        {
+          heading: mail.heading,
+          ...(mail.greeting === undefined ? {} : { greeting: mail.greeting }),
+          paragraphs: mail.paragraphs,
+          button: mail.button,
+          footnote: mail.footnote,
+        },
+        {
+          /*
+           * ‎`null` — סוכן ששולח את הקישור שוב מבקש שהלקוח יקבל
+           * ‏אותו. מה ש-#411 תיקן הוא **המסך**: כישלון עמום אינו
+           * ‏מזמין ניסיון חוזר אוטומטי, ועכשיו הוא גם נושא סוג
+           * ‏משלו במקום להשתמע מהיעדר `EmailRejectedError`.
+           */
+          idempotency: null,
+          required: true,
+          tenantId,
+          ...(replyTo === null ? {} : { replyTo }),
+        },
+      );
+    } catch (error: unknown) {
+      /*
+        ‏אותה שאלה בדיוק כמו מצב השורה בתיבה — „ייתכן שההודעה יצאה?”
+        ‏— ולכן אותה פונקציה. ‎`emailSendOutcome` מחזירה `"unknown"`
+        ‏רק על `EmailAmbiguousError`, שהיא הידיעה החיובית היחידה שיש:
+        ‏דחייה ודאית **ותקלה אצלנו** פירושן ששום דבר לא יצא.
+
+        ‏ההבחנה חשובה כאן במיוחד: השליחה הזו יוצאת בכוונה **בלי**
+        ‏מפתח ייחודיות, ולכן „נסו שוב” על מצב עמום באמת שולח ללקוח
+        ‏מייל שני. וההפך נכון לא פחות — באג שנספר כעמום היה מציג
+        ‏„ייתכן שיצא, בדקו מול הלקוח” על קישור שמעולם לא נשלח.
+
+        ‏הנוסח לסוכן נשאר של הספק רק כשהספק אכן ענה; תקלה אצלנו
+        ‏מקבלת נוסח משלה ולא מדליפה הודעת שגיאה פנימית למסך.
+      */
+      if (emailSendOutcome(error) === "failed") {
+        return {
+          ok: false,
+          reason:
+            error instanceof EmailRejectedError
+              ? error.message
+              : "שליחת הקישור נכשלה ולא יצא דבר — אפשר לנסות שוב",
+        };
+      }
+      return {
+        ok: false,
+        ambiguous: true,
+        reason:
+          "לא התקבל אישור מספק הדואר — ייתכן שהמייל בכל זאת יצא. כדאי לוודא מול הלקוח לפני שליחה חוזרת",
+      };
+    }
+    return { ok: true, to };
+  }
+
+  /**
+   * ‎**וואטסאפ מהחיבור של המשרד.**
+   *
+   * ‏עד כה הקישור נשלח בוואטסאפ רק בכך שהדפדפן **פתח** את השיחה עם
+   * הנוסח מוכן, והסוכן לחץ „שלח”. משרד שחיבר וואטסאפ ביזנס יכול
+   * לשלוח את זה בעצמו, בדיוק כמו כל הודעה אחרת שלו (בקשת המשתמש).
+   *
+   * ## ‏מה קורה כשזה לא עובד — ולמה זה לא „נכשל”
+   *
+   * ‏שלושה חסמים אמיתיים: המסלול אינו כולל וואטסאפ, אין חיבור פעיל,
+   * או שחלון 24 השעות של Meta סגור (הלקוח לא כתב למשרד לאחרונה,
+   * וטקסט חופשי אליו נדחה). בכל אחד מהם **הדרך הישנה עדיין עובדת**,
+   * ולכן התשובה נושאת את `waUrl`: הסוכן לוחץ, וואטסאפ נפתח עם
+   * ההודעה, והלקוח מקבל. „נכשל” בלי הדרך החוצה היה מוריד תכונה
+   * שקיימת היום.
+   */
+  private async sendInviteWhatsApp(
+    tenantId: string,
+    details: { contact: { phone: string } | null; officeName: string },
+    link: IntakeRequestDto,
+  ): Promise<ChannelResult> {
+    const phone = details.contact?.phone;
+    if (phone === undefined || phone === "") {
+      return { ok: false, reason: "אין טלפון בכרטיס הלקוח", waUrl: null };
+    }
+    /*
+      ‏הזכאות נבדקת כאן ולא בדקורטור: אותו נתיב משרת גם אימייל,
+      ו-`@RequireFeature("whatsapp")` עליו היה חוסם גם אותו. בלי
+      הבדיקה, משרד שירד ממסלול והשאיר חיבור פעיל היה ממשיך לשלוח
+      דרך הנתיב הזה בזמן ששאר נתיבי הוואטסאפ חסומים בפניו.
+    */
+    if (!(await this.plans.tenantHasFeature(tenantId, "whatsapp"))) {
+      return {
+        ok: false,
+        reason: "שליחה מהוואטסאפ של המשרד אינה כלולה במסלול",
+        waUrl: link.waUrl,
+      };
+    }
+    const result = await this.whatsapp.sendAsTenant(
+      tenantId,
+      phone,
+      intakeInviteMessage({ officeName: details.officeName, url: link.url }),
+    );
+    if (result === "sent") return { ok: true, to: phone };
+    return {
+      ok: false,
+      reason:
+        result === "no_connection"
+          ? "הוואטסאפ של המשרד אינו מחובר"
+          : "ההודעה נדחתה — הודעה חופשית מותרת רק בתוך 24 שעות מפנייה של הלקוח",
+      waUrl: link.waUrl,
+    };
   }
 
   /**
@@ -416,6 +810,8 @@ export class IntakeService {
     const row = await this.resolveToken(token);
     return this.asOffice(row.tenantId, async (tx) => {
       const officeName = await this.officeName(tx, row.tenantId);
+      /* נתיב ולא הקובץ; `null` = אין לוגו, והמסך מצייר מונוגרמה */
+      const logoUrl = (await this.logo.has(row.tenantId)) ? `/f/${token}/logo` : null;
       // קישור פתוח שטרם נשלח — אין עדיין איש קשר להביא ממנו שם
       const contact =
         row.contactId === null
@@ -435,6 +831,7 @@ export class IntakeService {
       if (inactive !== null) {
         return {
           officeName,
+          logoUrl,
           greetingName: firstName(contact?.name),
           status: row.status as IntakeStatus,
           inactive,
@@ -475,6 +872,7 @@ export class IntakeService {
       if (chosen === "seller") {
         return {
           officeName,
+          logoUrl,
           greetingName: firstName(contact?.name),
           status: (full?.status ?? row.status) as IntakeStatus,
           inactive: null,
@@ -496,6 +894,7 @@ export class IntakeService {
       const current = await this.currentRequirements(tx, row, buyerId);
       return {
         officeName,
+        logoUrl,
         greetingName: firstName(contact?.name),
         status: (full?.status ?? row.status) as IntakeStatus,
         inactive: null,
@@ -856,36 +1255,59 @@ export class IntakeService {
          * ולכן מי שמגיע שני רואה אותו ויודע שהוא שליחה חוזרת. אם
          * היצירה תיכשל אחר כך, ההזמנה משוחררת — ראו `draftFor`.
          */
-        const reservedId = again.propertyId === null ? ulid() : null;
+        /*
+         * ‎**גם בצד המוכר: הקישור נשאר קישור.**
+         *
+         * ‏מה שנתפס כאן קודם על שורת הקישור — `contact_id`,
+         * ‏‎`answers`, `submitted_at` ו-`property_id` — הוא בדיוק מה
+         * ‏שעמוד הטופס קורא כדי לבנות את מה שהלקוח רואה. כלומר
+         * ‏המוכר הבא שפתח את אותו קישור קיבל ברכה בשם של הקודם,
+         * ‏טופס מלא בפרטיו, והשליחה שלו נכתבה על **טיוטת הנכס שלו**.
+         *
+         * ‏המילוי יושב עכשיו על שורה משלו, וכל השלושה נקראים ממנה:
+         * ‏„האם כבר מילאתי” ו„איזו טיוטה שלי” הם שאלות על האדם הזה,
+         * ‏ולכן נשאלות על המילויים הקודמים **שלו**.
+         */
+        const mine = await tx.intakeRequest.findFirst({
+          where: {
+            tenantId: row.tenantId,
+            channel: "open_fill",
+            side: "seller",
+            contactId,
+          },
+          orderBy: { submittedAt: "desc" },
+          select: { propertyId: true },
+        });
+        const reservedId = (mine?.propertyId ?? null) === null ? ulid() : null;
 
         const rev = ulid();
-        const claimed = await tx.intakeRequest.updateMany({
-          where: {
-            id: row.id,
-            tenantId: row.tenantId,
-            status: { not: "revoked" },
-            expiresAt: { gt: new Date() },
-          },
+        await tx.intakeRequest.create({
           data: {
+            id: ulid(),
+            tenantId: row.tenantId,
+            token: freshToken(),
+            subject: "open",
+            subjectId: null,
+            contactId,
+            side: "seller",
+            channel: "open_fill",
+            /* ‏מי ששלח את הקישור — מ-`meta`, שכבר נקרא למעלה */
+            createdBy: meta?.createdBy ?? null,
+            expiresAt: row.expiresAt,
             status: "submitted",
             submittedAt: new Date(),
             submissionRev: rev,
-            side: "seller",
-            contactId,
-            ...(reservedId === null ? {} : { propertyId: reservedId }),
+            propertyId: reservedId ?? mine?.propertyId ?? null,
             answers: answers as unknown as Prisma.InputJsonValue,
           },
         });
-        if (claimed.count === 0) {
-          throw new BadRequestException("הקישור אינו פעיל עוד");
-        }
 
         const contact = await this.contacts.getById(tx, contactId);
         return {
           contactId,
-          propertyId: again.propertyId,
+          propertyId: mine?.propertyId ?? null,
           reservedId,
-          resubmit: again.submittedAt !== null,
+          resubmit: mine !== null,
           ownerName: contact?.name ?? (answers.fullName ?? "").trim(),
           ownerPhone: contact?.phone ?? normalizePhone(answers.phone ?? ""),
         };
@@ -935,6 +1357,20 @@ export class IntakeService {
   ): Promise<{ propertyId: string | null; created: boolean; note: string | null }> {
     const raw = sellerPropertyFields(answers);
     const fields = PropertyFieldsSchema.partial().parse(raw);
+    /**
+     * ‎**האם הבעלים נשאל — עובדה אחת לשני המסלולים** (ביקורת Codex, P2).
+     *
+     * ‏היא נמסרה רק ליצירה. בעלים שהשאיר את שאלת הרישום המשותף
+     * ‏ריקה בשליחה הראשונה וענה עליה בשליחה חוזרת קיבל את התשובה
+     * ‏שמורה בשדה הבוליאני — אבל הנכס נשאר בתור הסקירה הידנית,
+     * ‏כלומר החותמת סתרה את מה שהיא אמורה לתאר.
+     *
+     * ‎`answers.sharedTabu` ולא `fields.sharedTabu`: אחרי הסכימה
+     * ‏שניהם בוליאניים, ו„הבעלים ענה שלא” נראה זהה ל„השדה לא
+     * ‏נשלח”. השאלה היחידה שאפשר לענות עליה כאן היא האם הגיעה
+     * ‏תשובה.
+     */
+    const sharedTabuAnswered = answers.sharedTabu !== undefined;
 
     /* ---------- שליחה ראשונה: המזהה כבר נתפס, נותר ליצור ---------- */
     if (claim.reservedId !== null) {
@@ -945,6 +1381,8 @@ export class IntakeService {
           fields,
           owner: { name: claim.ownerName, phone: claim.ownerPhone },
           internalNotes: sellerSummaryLines(answers).join("\n"),
+          /* ‏הבעלים עצמו נשאל — ראו `sharedTabuAnswered` למעלה */
+          sharedTabuAnswered,
         });
         return { propertyId, created: true, note: null };
       } catch (error: unknown) {
@@ -984,6 +1422,12 @@ export class IntakeService {
         ...fields,
         // ‏„הורדתי את הסימון” = אין, ולא „לא השתנה”. ראו התיעוד למעלה.
         clearFields: clearedSellerFields(raw),
+        /*
+         * ‏ותשובה שהגיעה עכשיו היא תשובה, גם אם היא איחרה. שליחה
+         * ‏חוזרת **בלי** תשובה אינה מוחקת חותמת קיימת: `update`
+         * ‏כותב רק על `true`.
+         */
+        sharedTabuAnswered,
         // התנאי נאכף מתחת לנעילת הנכס, לא כאן
         expectStatus: "draft",
       });
@@ -1166,6 +1610,17 @@ export class IntakeService {
         row.tenantId,
         async (tx) => {
           await lockIntakeRequest(tx, row.tenantId, row.id);
+          /*
+           * ‎**נעילת השורה לפני שקוראים את מצבה, ולא אחרי.**
+           *
+           * ‏‎`revoke` אינו נוטל את הנעילה המייעצת של `lockIntakeRequest`
+           * ‏— הוא פשוט מעדכן את השורה. לכן ביטול שנכנס בין הקריאה
+           * ‏לבין נטילת `FOR UPDATE` לא היה נראה, והמסלול היה ממשיך
+           * ‏ליצור קונה מקישור מבוטל. ה-`UPDATE` המותנה שהיה כאן קודם
+           * ‏דחה את המרוץ הזה, ובלעדיו הסדר הוא מה שמחליף אותו:
+           * ‏נועלים, ורק אז קוראים (ביקורת Codex, P1).
+           */
+          await tx.$queryRaw`SELECT id FROM intake_requests WHERE id = ${row.id} AND tenant_id = ${row.tenantId} FOR UPDATE`;
           const again = await tx.intakeRequest.findUnique({
             where: { id: row.id },
             select: {
@@ -1200,61 +1655,29 @@ export class IntakeService {
               stillInactive === "expired" ? "הקישור פג תוקף" : "הקישור בוטל",
             );
           }
-          // שליחה מקבילה הקדימה — הכרטיס שלה הוא הכרטיס
-          if (again.subjectId !== null && again.contactId !== null) {
-            /*
-             * בלי תפיסה: היא כבר נעשתה על ידי מי שהקדים, והמסלול
-             * הרגיל שאחרי כאן יתפוס את השליחה הזו כשליחה חוזרת.
-             */
-            return {
-              subjectId: again.subjectId,
-              contactId: again.contactId,
-              preClaim: null,
-            };
-          }
-
           /*
-           * **התפיסה כאן, ולפני שנוצר משהו.**
+           * ‎**הקישור הפתוח נשאר קישור, ואינו נהפך לשליחה.**
            *
-           * הבדיקה שמעל אינה מספיקה: `revoke` אינו נוטל את הנעילה
-           * הזו, ובין הבדיקה לבין הכתיבה — ואחר כך גם בין סיום
-           * הטרנזקציה הזו לבין התפיסה שהייתה בטרנזקציה נפרדת —
-           * הקישור יכול היה להתבטל. התוצאה הייתה הגרועה משני
-           * העולמות: הלקוח מקבל „הקישור אינו פעיל”, והמשרד מקבל
-           * קונה שנולד מקישור מבוטל (ביקורת Codex, P1).
+           * ‏זה הלב של „קישור אחד לכל הלקוחות”. קודם השליחה נתפסה
+           * ‏על שורת הקישור עצמה — `status: "submitted"`, התשובות,
+           * ‏ו-`subjectId` שהצביע על הכרטיס שנוצר. התוצאה: הלקוח
+           * ‏השני שמילא את אותו קישור נחת על **הכרטיס של הראשון**
+           * ‏ודרס את התשובות שלו. מתווך שרצה לשלוח קישור אחד לכל
+           * ‏הלקוחות שלו היה חייב לייצר קישור לכל אחד (דיווח
+           * ‏המשתמש).
            *
-           * `UPDATE ... WHERE status <> 'revoked' AND expires_at > now`
-           * הוא הכרעה אטומית, והיא נעשית מעתה **באותה טרנזקציה**
-           * שיוצרת את הכרטיס. או ששניהם קרו, או ששום דבר לא קרה.
-           * ביטול שמגיע אחריה מאחר — השליחה כבר התקבלה.
+           * ‏מעתה כל מילוי מייצר **שורת שליחה משלו**, וזו שנושאת
+           * ‏את התשובות ואת הכרטיס. שורת הקישור אינה נוגעת: היא
+           * ‏נשארת `active` עם `subjectId: null`, ולכן המילוי הבא
+           * ‏מתחיל מאותה נקודה בדיוק.
+           *
+           * ‎**האטומיות מול `revoke` נשמרת** — היא פשוט עברה
+           * ‏מ-`UPDATE` מותנה לנעילת השורה. `revoke` מעדכן את אותה
+           * ‏שורה, ולכן הוא ממתין לנעילה הזו; הבדיקה שמעליה רצה
+           * ‏תחתיה, וקישור שבוטל בדיוק עכשיו נתפס לפני שנוצר
+           * ‏כרטיס. זו אותה הבטחה, בלי לכתוב על הקישור.
            */
-          const before = await tx.intakeRequest.findUnique({
-            where: { id: row.id },
-            select: { submittedAt: true, answers: true },
-          });
           const rev = ulid();
-          const claimed = await tx.intakeRequest.updateMany({
-            where: {
-              id: row.id,
-              tenantId: row.tenantId,
-              status: { not: "revoked" },
-              expiresAt: { gt: new Date() },
-            },
-            data: {
-              status: "submitted",
-              submittedAt: new Date(),
-              submissionRev: rev,
-              answers: answers as unknown as Prisma.InputJsonValue,
-            },
-          });
-          if (claimed.count === 0) {
-            throw new BadRequestException("הקישור אינו פעיל עוד");
-          }
-          const preClaim: PreClaim = {
-            rev,
-            resubmit: before?.submittedAt !== null && before?.submittedAt !== undefined,
-            previousAnswers: asRecord(before?.answers),
-          };
 
           /*
            * הכרטיס הקיים גובר: יצירה לפי טלפון הייתה מוצאת אותו
@@ -1304,8 +1727,37 @@ export class IntakeService {
             select: { id: true },
           });
           if (existing !== null) {
-            await this.link(tx, row, existing.id, contact.id);
-            return { subjectId: existing.id, contactId: contact.id, preClaim };
+            /*
+             * ‏אותו אדם ממלא שוב את הקישור הכללי — תיקון או הרחבה
+             * ‏של מה שמסר. זו שליחה חוזרת **שלו**, ולכן היא נכתבת
+             * ‏על הכרטיס שלו; לקוח אחר לעולם אינו מגיע לכאן, כי
+             * ‏הכרטיס נמצא לפי איש הקשר שנפתר מהטלפון שהוא הקליד.
+             */
+            const submission = await this.recordOpenSubmission(tx, row, {
+              buyerId: existing.id,
+              contactId: contact.id,
+              rev,
+              answers,
+            });
+            return {
+              subjectId: existing.id,
+              contactId: contact.id,
+              requestId: submission.id,
+              preClaim: {
+                rev,
+                /*
+                 * ‎**„שלח שוב” נמדד במילוי קודם, לא בקיום הכרטיס.**
+                 *
+                 * ‏לאיש קשר יכול להיות כרטיס קונה מסיבה אחרת לגמרי —
+                 * ‏הסוכן פתח לו אחד, או שהוא הגיע מליד. אם דיווחנו
+                 * ‏„שליחה חוזרת” על המילוי הראשון שלו, ו-`notify`
+                 * ‏מצא שהתשובות זהות למה שכבר בכרטיס, ההתראה נבלעה
+                 * ‏והסוכן לא שמע שהלקוח מילא (ביקורת Codex).
+                 */
+                resubmit: submission.hadPrior,
+                previousAnswers: submission.previousAnswers,
+              },
+            };
           }
 
           /*
@@ -1314,6 +1766,12 @@ export class IntakeService {
            * הרצות התאמה, והראשונה מהן על כרטיס שאין בו דבר.
            */
           const buyerId = await this.buyers.createWithin(tx, {
+            /*
+             * ‏הלקוח מילא את הטופס בעצמו ומסר את המספר שלו: אין כאן
+             * ‏סוכן שאפשר לבדוק מולו הרשאה, ומיחזור הכרטיס הקיים הוא
+             * ‏בדיוק מה שנדרש — כרטיס שני לאותו אדם הוא הבאג.
+             */
+            typedBy: "office",
             contactName: identity.name,
             contactPhone: identity.phone,
             requirements: BuyerRequirementsSchema.parse(
@@ -1323,34 +1781,105 @@ export class IntakeService {
             ownerUserId: owner === "" ? undefined : owner,
           });
           fresh.push(buyerId);
-          await this.link(tx, row, buyerId, contact.id);
-          return { subjectId: buyerId, contactId: contact.id, preClaim };
+          const submission = await this.recordOpenSubmission(tx, row, {
+            buyerId,
+            contactId: contact.id,
+            rev,
+            answers,
+          });
+          return {
+            subjectId: buyerId,
+            contactId: contact.id,
+            requestId: submission.id,
+            /* ‏לקוח חדש בקישור הכללי — תמיד שליחה ראשונה, לא חוזרת */
+            preClaim: { rev, resubmit: false, previousAnswers: {} },
+          };
         },
       );
 
       for (const id of fresh) await this.buyers.afterCreate(id);
-      return { ...row, ...linked };
+      /*
+       * ‎**מה שחוזר הוא שורת השליחה, לא שורת הקישור.**
+       *
+       * ‏כל מה שאחרי `materializeOpen` — התפיסה, `applyToBuyer`,
+       * ‏היומן וההתראה — עובד על „הבקשה”. בקישור כללי הבקשה היא
+       * ‏המילוי הזה ולא הקישור, אחרת השני היה דורס את הראשון.
+       * ‏‎`subject: "buyer"` כי מכאן והלאה זו בקשה של כרטיס לכל
+       * ‏דבר, וזה בדיוק מה שמפעיל את המסלול הקיים בלי ענף נוסף.
+       */
+      const { requestId, ...rest } = linked;
+      return { ...row, ...rest, id: requestId, subject: "buyer" };
     });
   }
 
   /**
-   * שורת הבקשה מצביעה על הכרטיס — **רק אם עוד לא הצביעה.**
+   * ‎**שורת שליחה לכל מילוי של קישור כללי.**
    *
-   * `updateMany` עם `subjectId: null` בתנאי ולא `update`: הנעילה
-   * מסדרת את השליחות זו אחר זו, והתנאי הוא מה שמוודא שהשנייה אינה
-   * מסיטה את הבקשה לכרטיס אחר אם משהו בכל זאת חמק.
+   * ‏שורת הקישור נשארת פתוחה ואינה נוגעת; כל לקוח שממלא מקבל שורה
+   * ‏משלו, ועליה יושבות התשובות שלו והכרטיס שנוצר לו. זה מה שהופך
+   * ‏„קישור אחד לכל הלקוחות” לאפשרי.
+   *
+   * ‏השורה נושאת טוקן משלה כי העמודה ייחודית — אך הוא לעולם אינו
+   * ‏נשלח לאיש: מה שנשלח ללקוחות הוא הטוקן של הקישור. טוקן שאינו
+   * ‏מגיע לידיים אינו נתיב כניסה, והשורה נולדת `submitted` ולכן
+   * ‏אינה מקבלת מילוי נוסף.
    */
-  private async link(
+  private async recordOpenSubmission(
     tx: TenantTx,
-    row: TokenRow,
-    buyerId: string,
-    contactId: string,
-  ): Promise<void> {
-    await tx.intakeRequest.updateMany({
-      where: { id: row.id, tenantId: row.tenantId, subjectId: null },
-      data: { subjectId: buyerId, contactId },
+    link: TokenRow,
+    input: {
+      buyerId: string;
+      contactId: string;
+      rev: string;
+      answers: IntakeAnswers;
+    },
+  ): Promise<{
+    id: string;
+    previousAnswers: Record<string, unknown>;
+    /** ‏האם כבר היה מילוי קודם של אותו אדם — זה מה שמגדיר „שלח שוב” */
+    hadPrior: boolean;
+  }> {
+    /*
+     * ‏שליחה חוזרת של אותו אדם דורסת את השליחה הקודמת **שלו**, ולכן
+     * ‏„מה היה קודם” נקרא מהשורה שלו ולא מהקישור. בלי זה השוואת
+     * ‏השינויים הייתה מול מה שלקוח אחר מילא.
+     */
+    const previous = await tx.intakeRequest.findFirst({
+      where: {
+        tenantId: link.tenantId,
+        subject: "buyer",
+        subjectId: input.buyerId,
+        channel: "open_fill",
+      },
+      orderBy: { submittedAt: "desc" },
+      select: { answers: true },
     });
+    const row = await tx.intakeRequest.create({
+      data: {
+        id: ulid(),
+        tenantId: link.tenantId,
+        token: freshToken(),
+        subject: "buyer",
+        subjectId: input.buyerId,
+        contactId: input.contactId,
+        /* ‏„מילוי של קישור כללי” — מבדיל אותה מבקשה שנשלחה לכרטיס */
+        channel: "open_fill",
+        createdBy: null,
+        expiresAt: link.expiresAt,
+        status: "submitted",
+        submittedAt: new Date(),
+        submissionRev: input.rev,
+        answers: input.answers as unknown as Prisma.InputJsonValue,
+      },
+      select: { id: true },
+    });
+    return {
+      id: row.id,
+      previousAnswers: asRecord(previous?.answers),
+      hadPrior: previous !== null,
+    };
   }
+
 
   /**
    * הדרישות החדשות → כרטיס הקונה, **דרך `BuyersService.update`.**
@@ -1489,15 +2018,37 @@ export class IntakeService {
     tx: TenantTx,
     tenantId: string,
     subject: IntakeSubject,
-    subjectId: string,
+    /** `null` בקישור פתוח — אין כרטיס לתלות בו לפני שהלקוח ממלא. */
+    subjectId: string | null,
     contactId: string,
   ): Promise<{ url: string; message: string } | null> {
     const now = new Date();
+    /*
+     * ‎**נעילת הכרטיס לפני הבדיקה — אחרת ההבטחה נכונה רק ברצף.**
+     *
+     * ‏שתי שיחות שלא נענו מאותו לקוח מגיעות עם `providerCallId`
+     * שונה, ולכן `lockProviderCall` **אינה** מסדרת ביניהן: שתי
+     * הטרנזקציות קוראות „אין בקשה בתוקף”, שתיהן יוצרות, והלקוח
+     * מקבל שתי הודעות — בדיוק מה שהמנגנון הזה קיים כדי למנוע
+     * (ביקורת Codex).
+     *
+     * אין אילוץ ייחודיות על „בקשה פעילה לכרטיס”, ולכן המסד אינו
+     * תופס את זה במקומנו. הנעילה היא מה שהופך את הקרא-ואז-כתוב
+     * לאטומי, בדיוק כמו במסלולים האחרים כאן.
+     */
+    await lockContact(tx, contactId);
+    /*
+     * ‎**הכפילות נמדדת לפי איש הקשר, לא לפי הכרטיס.**
+     *
+     * ההבטחה היא „לקוח שהתקשר שלוש פעמים אינו מקבל שלוש הודעות”,
+     * והיא על **אדם**. סינון לפי `subjectId` קיים אותה רק כל עוד
+     * העוגן היה תמיד ליד; קישור פתוח נושא `subjectId: null`, ושתי
+     * שיחות שלא נענו היו מייצרות שתי בקשות ושתי הודעות.
+     */
     const existing = await tx.intakeRequest.findFirst({
       where: {
         tenantId,
-        subject,
-        subjectId,
+        contactId,
         status: { not: "revoked" },
         expiresAt: { gt: now },
       },
@@ -1631,7 +2182,7 @@ export class IntakeService {
       where: {
         id: subjectId,
         tenantId,
-        ...ownershipFilter("leads.view_all", "assignedToUserId"),
+        ...leadOwnershipFilter(),
       },
       select: { contactId: true },
     });

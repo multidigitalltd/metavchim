@@ -2,12 +2,16 @@ import { Module } from "@nestjs/common";
 import { CardcomService } from "../../core/cardcom.service";
 import { AuthModule } from "../auth/auth.module";
 import { BillingModule } from "../billing/billing.module";
+import { FunnelModule } from "../funnel/funnel.module";
 import { MessagingModule } from "../messaging/messaging.module";
 import { TelephonyModule } from "../telephony/telephony.module";
+import { WebhookLogModule } from "../webhook-log/webhook-log.module";
 import { AccountDeletionService } from "../settings/account-deletion.service";
 import { AgentUsageController } from "./agent-usage.controller";
 import { AgentUsageService } from "./agent-usage.service";
 import { BackupsService } from "./backups.service";
+import { DiskSpaceService } from "./disk-space.service";
+import { FunnelCopyController } from "./funnel-copy.controller";
 import { IntegrationDeskController } from "./integration-desk.controller";
 import { IntegrationDeskService } from "./integration-desk.service";
 import { PlatformController } from "./platform.controller";
@@ -24,14 +28,21 @@ import { ServiceVersionsService } from "./service-versions.service";
   // עם מפתח לא מוכר אינה שייכת לאף משרד, וזו בדיוק הפנייה שמחפשים
   // MessagingModule — בדיקת חיבור הוואטסאפ של הסוכן האישי מהמסך
   // BillingModule — יצירת הצעות מנוי בלינק (SubscriptionOfferService)
-  imports: [AuthModule, TelephonyModule, MessagingModule, BillingModule],
+  // FunnelModule — פתיחה מחדש של רישום כשמנהל מחזיר למשרד ניסיון
+  imports: [AuthModule, TelephonyModule, MessagingModule, BillingModule, FunnelModule, WebhookLogModule],
   /*
    * שולחן החיבורים בקונטרולר משלו: הגבול שלו הוא שהוא נוגע בטבלת
    * החיבורים בלבד, ומבחן מבני קורא בדיוק את שני הקבצים האלה.
    */
-  controllers: [PlatformController, AgentUsageController, IntegrationDeskController],
+  controllers: [
+    PlatformController,
+    AgentUsageController,
+    IntegrationDeskController,
+    FunnelCopyController,
+  ],
   providers: [
     BackupsService,
+    DiskSpaceService,
     IntegrationDeskService,
     CardcomService,
     AccountDeletionService,

@@ -113,6 +113,14 @@ jobs:
       - name: Tab strip scroll affordance
         run: pnpm --filter @metavchim/web verify:scroll
 
+      # שם מחלקה שכבר תפוס. כרטיס הפתיח של המנטור נקרא `.mv-greet`,
+      # שם שנראה פנוי — וכבר שייך לברכת הבוקר בדשבורד; ובאותה מכה
+      # `.mv-privacy` של באנר השת״פים. שתי ההגדרות חיות באותו קובץ
+      # והמאוחרת גוברת, כלומר עמוד אחד עוצב ושניים אחרים נשברו
+      # בשקט — בלי שגיאה, בלי אזהרה, ובלי סימן בעמוד שנגעו בו.
+      - name: One owner per class name
+        run: pnpm --filter @metavchim/web verify:namespace
+
       # רשימה שחזרה חסרה מהשרת היא **כשל טעינה, לא רשימה ריקה.**
       # ‎`apiGet<{ coupons: Coupon[] }>` הוא הצהרת טיפוס בלבד, ותשובה
       # פגומה שנורמלה ל-`[]` הציגה „עדיין אין קופונים” — מנהל
@@ -135,6 +143,41 @@ jobs:
       # את זה: הטיפוגרפיה חוקית, הניגודיות חוקית, וה-TypeScript מרוצה.
       - name: Cards are padded
         run: pnpm --filter @metavchim/web verify:cards
+
+      # פעולה הרסנית נשאלת, ולא נגללים אליה. אייקון הפח בכרטיס הנכס
+      # גלל אל כרטיס בתחתית העמוד במקום למחוק — ומי שלוחץ על פח
+      # אשפה ומקבל תזוזה אינו יודע אם משהו קרה, ולוחץ שוב. השער
+      # שומר בעיקר על מה שקל לאבד בהעברה: הגילוי שסופר כמה כרטיסי
+      # אדם יירדו עם הנכס, והאישור שחסום עד שהוא מגיע.
+      - name: Destructive actions ask before they act
+        run: pnpm --filter @metavchim/web verify:destructive
+
+      # הכרעות פריסה של בעל המוצר, מסך אחר מסך: המונים והסוכן בתחתית
+      # הדשבורד (§24 של חבילת העיצוב מתארת את ההפך, וההערה שישבה על
+      # הפאנל נימקה את המיקום הישן — כלומר מי שיקרא אותם יחזיר את
+      # הסדר בתום לב), הפעולות מעל טבלת הנכסים, ו„הבנתי” שמסתיר שורה
+      # עד מחר ולא לתמיד. אף שער אחר אינו רואה סדר: הוא נראה, וזהו.
+      - name: Layout decisions hold
+        run: pnpm --filter @metavchim/web verify:layout
+
+      # ‏עמדת „טאבו משותף” של קונה נגזרת ולא נקראת מהשדה: קונה מדור
+      # ‏קודם מבטא אותה דרך `propertyTypes`. הסינון, ההתאמות והשידוך
+      # ‏עברו לגזירה וטופס העריכה נשאר מאחור — כלומר על אותו קונה
+      # ‏המערכת פעלה כ„מוכן” והמסך אמר „טרם נשאל”. אין ב-web בדיקות
+      # ‏יחידה, והחתימה זהה בשני המקרים, ולכן זה נראה רק כאן.
+      - name: Buyer stance is derived, not read raw
+        run: pnpm --filter @metavchim/web verify:stance
+
+      # מסך שמבקש יותר מ-PAGE_LIMIT_MAX נדחה ב-400 ומציג „לא נמצאו”
+      # על מאגר מלא. זה קרה פעמיים בשני בוררים שונים.
+      - name: Screens never ask for more than the gate accepts
+        run: pnpm --filter @metavchim/web verify:limits
+
+      # ההדרכות והתיעוד הם בית אחד, והבית הוא הציבורי. השער מוודא
+      # ש-`/guides` נשאר הפניה ולא חוזר להיות מסך שני שמצייר את אותו
+      # תוכן — הפיצול הזה כבר ייצר כאן שתי גרסאות שנפרדו זו מזו.
+      - name: Docs are the single home
+        run: pnpm --filter @metavchim/web verify:docs
 
       # עליית ה-API על הפלט המהודר. חייב לרוץ אחרי הבנייה ולא כבדיקת
       # יחידה: רק `tsc` פולט את מטא-דאטת הבנאי ש-Nest צריך כדי לפתור
@@ -159,37 +202,63 @@ jobs:
       - name: IaC template matches env example
         run: pnpm verify:iac
 
-  # סריקת התלויות — משימה נפרדת, ובכוונה.
-  #
-  # ‎`pnpm audit` שואל את נקודת ה-audit של רישום npm, והיא נתקעת מדי
-  # פעם (שורש הרישום עונה, ה-audit תולה ונכשל ב-`ERR_SOCKET_TIMEOUT`).
-  # כשהיא ישבה בסוף `verify`, תקלה כזאת צבעה באדום שבע דקות של lint,
-  # typecheck, בדיקות, בנייה ושמונה שערים שעברו — שלוש פעמים על אותו
-  # קומיט, בלי שום קשר לקוד — והרצה חוזרת עלתה שוב שבע דקות.
-  #
-  # כאן היא עומדת לבד: אינה מתקינה דבר (`pnpm audit` קורא את
-  # ‎`pnpm-lock.yaml` בלבד), רצה במקביל ל-`verify`, וכשהרישום לא עונה
-  # רק היא אדומה — ואפשר להריץ אותה מחדש בחצי דקה. הסקריפט מנסה שוב
-  # בהמתנה גדלה, ומבחין בין „יש פגיעות” ל„הרישום לא ענה” — כדי שמי
-  # שקורא את הכישלון יידע אם לחפש CVE או להריץ שוב. הסף נשאר high.
-  audit:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v4
+      - name: Every service ships the same commit
+        run: pnpm verify:release
 
-      - uses: pnpm/action-setup@v4
+      # ‏פעולה ארוכה שהכישלון שלה נשאר ב-`console.error` נראית מהמסך
+      # ‏בדיוק כמו הצלחה. `runUpdate` הייתה כזו, והלקוח לחץ „עדכן”
+      # ‏שוב ושוב מול הודעה שאמרה „הופעל” בכל פעם.
+      - name: Every updater operation reports its outcome
+        run: pnpm verify:updater
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
+      # ארכיון מדיה משלים מחזיק רק את מה שהשתנה. run.sh, restore.sh
+      # ו-backup-file.ts חייבים להסכים על כך; אם לא — השחזור פורס
+      # ארכיון חלקי לתוך אחסון שנמחק זה עתה, בלי שגיאה אחת בדרך.
+      - name: Media backup chain is consistent
+        run: pnpm verify:backup
 
-      # השער של השער — הסיווג „נקי / פגיע / לא ענה” נבדק בלי רשת
-      - name: Audit script self-test
-        run: pnpm test:audit-script
+      # לאן נוחתת לחיצה על התראה. הטבלה היא מחרוזות, ולכן נתיב
+      # שאינו קיים עובר טיפוסים ובדיקות: שלוש ישויות קישרו ל-404,
+      # ו-`coop_deal` לא הייתה בה כלל — כלומר ההודעה בוואטסאפ
+      # בישרה שנפתח חדר עסקה בלי לומר איפה הוא.
+      - name: Notifications land on screens that exist
+        run: pnpm verify:notify
 
+      # רמז אוצר המילים הוא הדבר היחיד שמטה את מודל התמלול לטובת
+      # „ממ״ד” על פני „ממד”. ההכתבה שלחה אותו, תמלול השיחות לא —
+      # כלומר האודיו הגרוע ביותר היה היחיד בלי הקשר, בשקט מוחלט.
+      - name: Every /transcribe caller sends the vocabulary hint
+        run: pnpm verify:stt
+
+      # ‏תפקיד הוא נקודת פתיחה, לא הרשאה: מעליו יושבים חריגים
+      # פר-משתמש וחסימת מודולים. גזירה מהתפקיד בלבד מציעה פעולה
+      # שהשרת ידחה — או מסתירה יכולת שניתנה במפורש — בשקט מוחלט.
+      - name: Action permissions come from effective capabilities
+        run: pnpm verify:caps
+
+      # ‏השער של השער: סיווג תוצאת הסריקה נבדק בלי רשת, כי טעות בו
+      # שקטה בשני הכיוונים — ממצא שנקרא ככשל רשת עובר בשקט, וכשל
+      # לא-מוכר שנקרא ככשל רשת פותח את השער לכל דבר.
+      - name: Audit gate self-test
+        run: pnpm test:audit-gate
+
+      # ‏נכשל על **ממצא**, לא על הרשת.
+      #
+      # ‏התקרה הארוכה למטה נוספה אחרי ש-ERR_SOCKET_TIMEOUT הפיל ריצה
+      # ירוקה, והיא עדיין נכונה — אבל היא מטפלת באיטיות ולא בהשבתה.
+      # ב-3 בספטמבר נקודת הקצה `audits/quick` לא הגיבה שעתיים וחצי
+      # וחזרה ליפול למחרת בבוקר: שבע ריצות אדומות על PR-ים שלא נגעו
+      # ב-`package.json` ולא ב-`pnpm-lock.yaml`. אדום שחוזר בלי קשר
+      # לשינוי מלמד להתעלם ממנו, ושער שמתעלמים ממנו אינו שער.
+      #
+      # ‏הסף לא זז — high/critical עדיין מפילים. מה שהשתנה הוא שכשל
+      # רשת מזוהה ככזה ויוצא באזהרה, ו-`audit.yml` סורק כל בוקר במצב
+      # חמור כדי שחלון כזה לא יבלע פגיעות בשקט.
       - name: Audit dependencies (fail on high)
-        run: pnpm verify:audit
+        env:
+          npm_config_fetch_timeout: "300000"
+          npm_config_fetch_retries: "4"
+        run: pnpm audit:deps
 
   # ה-Playbook שמקים את השרת — נטען ומתפרש.
   #
@@ -283,13 +352,16 @@ jobs:
         run: pnpm --filter @metavchim/api test:rls
 
   # בניית תמונות הפרודקשן ודחיפה ל-GHCR — רק על מיזוג ל-main.
-  # כפתור "עדכן גרסה" במסך ההגדרות מושך את :latest מכאן (docs/10).
-  # ‎`audit` ב-`needs`: הסריקה יצאה מ-`verify` למשימה משלה, והשער על
-  # הפרסום חייב לצאת איתה — אחרת פגיעות high/critical הייתה מפילה
-  # את `audit` בזמן ש-`docker` דוחף תמונות פגיעות ל-GHCR (ביקורת Codex).
+  #
+  # ‎**התג הזז כאן הוא הקומיט בלבד, ולא `:latest`.** כל יעד נבנה
+  # בג'וב נפרד ומסיים בזמן אחר — ב-2c2fd8e היה הפרש של 4.5 דקות בין
+  # web לבין api — ולכן הזזת `:latest` כאן פירושה שבחלון הזה
+  # ‎`:latest` של השירותים מצביע על שני קומיטים שונים. „עדכן גרסה”
+  # שנלחץ בתוכו מושך חצי גרסה, והמערכת רצה בשתי גרסאות במקביל.
+  # ההזזה עברה ל-`publish` שלמטה, אחרי שכולם נבנו.
   docker:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [verify, cross-tenant, iac, audit]
+    needs: [verify, cross-tenant, iac]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -314,11 +386,108 @@ jobs:
           file: infra/docker/Dockerfile
           target: ${{ matrix.target }}
           push: true
-          tags: |
-            ghcr.io/${{ github.repository }}-${{ matrix.target }}:latest
-            ghcr.io/${{ github.repository }}-${{ matrix.target }}:${{ github.sha }}
+          tags: ghcr.io/${{ github.repository }}-${{ matrix.target }}:${{ github.sha }}
           build-args: |
             APP_VERSION=${{ github.sha }}
             NEXT_PUBLIC_API_URL=
           cache-from: type=gha,scope=${{ matrix.target }}
           cache-to: type=gha,scope=${{ matrix.target }},mode=max
+
+  # ‎**`:latest` זז לכל השירותים יחד, ורק אחרי שכולם נבנו.**
+  #
+  # ‎`needs: docker` הוא כל העניין: כישלון בבנייה של יעד אחד מונע את
+  # ההזזה **מכולם**, במקום להשאיר שלושה מעודכנים ואחד מאחור לצמיתות
+  # — כי `:latest` של מי שנכשל היה נשאר על הקומיט הקודם, ומשיכה
+  # חוזרת הייתה מביאה אותו שוב ושוב.
+  #
+  # ‎`imagetools create` מזיז תג על המניפסט בצד ה-Registry: אין כאן
+  # משיכה, בנייה או בחירת ארכיטקטורה, ולכן ארבע ההזזות לוקחות שניות
+  # ולא דקות. חלון אי-ההסכמה מצטמצם לזה, במקום לאורך הבנייה.
+  publish:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: docker
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    # ‎**שחרור אחד בכל רגע** (ביקורת Codex, P1).
+    #
+    # ‏ה-`concurrency` של ה-workflow כולל את ה-SHA — בכוונה, כדי
+    # ‏ששני מיזוגים סמוכים לא יבטלו זה את הבנייה של זה — ולכן שני
+    # ‎`publish` של שני קומיטים היו רצים **במקביל** וכותבים לאותם
+    # ‏ארבעה תגים. שתי לולאות שמשתלבות זו בזו משאירות בדיוק את המצב
+    # ‏שה-PR הזה בא למנוע, ולצמיתות.
+    #
+    # ‏קבוצה בלי ה-SHA מסדרת אותם בתור. `cancel-in-progress: false`
+    # ‏כי שחרור באמצע אינו דבר שמבטלים — ביטול בין הזזה שנייה
+    # ‏לשלישית הוא בדיוק הפיצול.
+    concurrency:
+      group: publish-latest
+      cancel-in-progress: false
+    steps:
+      # ‏התור מסדר, אבל אינו קובע מי אחרון: ריצה ישנה שממתינה מאחורי
+      # ‏חדשה הייתה מחזירה את `:latest` אחורה כשתגיע תורה. מי שאינו
+      # ‏ראש `main` אינו משחרר — הריצה של הקומיט החדש כבר עשתה זאת.
+      - name: Publish only if this commit is still the tip of main
+        id: tip
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tip="$(gh api "repos/${{ github.repository }}/commits/main" --jq .sha)"
+          if [ "$tip" != "${{ github.sha }}" ]; then
+            echo "מדלג: ראש main הוא $tip, וזו הריצה של ${{ github.sha }}"
+            echo "stale=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: docker/login-action@v3
+        if: steps.tip.outputs.stale != 'true'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # הרשימה זהה למטריצה שמעל — `verify:release` אוכף את זה, כי
+      # יעד שנוסף שם ולא כאן היה נשאר עם `:latest` קפוא לנצח.
+      #
+      # ‏ניסיון חוזר ולא הזזה אחת: ארבע כתיבות ל-Registry אינן
+      # ‏אטומיות, וכשל ברביעית אחרי ששלוש עברו הוא פיצול (ביקורת
+      # ‏Codex, P1). גלגול אחורה אינו פתרון — הוא עוד ארבע כתיבות עם
+      # ‏אותה בעיה בדיוק. לכן: ניסיון חוזר, ואז אימות שאומר את האמת.
+      - name: Move :latest to this commit — every service at once
+        if: steps.tip.outputs.stale != 'true'
+        run: |
+          for target in api web workers updater; do
+            image="ghcr.io/${{ github.repository }}-${target}"
+            for attempt in 1 2 3; do
+              if docker buildx imagetools create -t "${image}:latest" "${image}:${{ github.sha }}"; then
+                break
+              fi
+              if [ "$attempt" = 3 ]; then
+                echo "::error::הזזת ${target}:latest נכשלה שלוש פעמים"
+                exit 1
+              fi
+              sleep "$((attempt * 5))"
+            done
+          done
+
+      # ‏הצהרה על מה שבאמת יש ב-Registry, ולא על מה שהפקודות החזירו.
+      # ‏פיצול שנשאר אחרי הניסיונות החוזרים חייב להיות בנייה אדומה
+      # ‏ולא הודעה בלוג: זה המצב שמפיל את המערכת לשתי גרסאות, והוא
+      # ‏אינו מתקן את עצמו.
+      - name: Every :latest points at this commit
+        if: steps.tip.outputs.stale != 'true'
+        run: |
+          split=""
+          for target in api web workers updater; do
+            image="ghcr.io/${{ github.repository }}-${target}"
+            want="$(docker buildx imagetools inspect --format '{{.Manifest.Digest}}' "${image}:${{ github.sha }}")"
+            got="$(docker buildx imagetools inspect --format '{{.Manifest.Digest}}' "${image}:latest")"
+            if [ "$want" != "$got" ]; then
+              echo "::error::${target}:latest הוא ${got}, ואמור להיות ${want}"
+              split="yes"
+            fi
+          done
+          if [ -n "$split" ]; then
+            echo "::error::‏`:latest` מפוצל בין שירותים — אין לעדכן עד שיתוקן"
+            exit 1
+          fi

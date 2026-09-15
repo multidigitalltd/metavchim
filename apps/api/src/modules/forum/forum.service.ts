@@ -29,7 +29,7 @@ import { PrismaService } from "../../core/prisma.service";
 import { ForumNotifyService } from "./forum-notify.service";
 
 /**
- * הפורום המקצועי (docs/14) — השירות.
+ * הפורום המקצועי (docs/16) — השירות.
  *
  * ## למה `this.prisma` ישירות, ולא `withTenant`
  *

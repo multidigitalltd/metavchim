@@ -78,6 +78,18 @@ export function jerusalemWallIsoToUtc(wallIso: string): Date {
 }
 
 /**
+ * ‏תחילת החודש הישראלי הנוכחי, כערך UTC לשאילתה.
+ *
+ * ‎„נסגרו החודש” הוא חודש **בשעון ישראל**: תהליך שרץ ב-UTC ומחשב
+ * ‎`setDate(1)` מקבל את ה-1 בחודש ב-UTC, ובשעתיים שבין חצות
+ * המקומית לחצות ה-UTC בראשון לחודש הוא סופר את החודש הקודם.
+ */
+export function jerusalemMonthStart(now: Date): Date {
+  const month = jerusalemWallParts(now).date.slice(0, 7);
+  return jerusalemWallIsoToUtc(`${month}-01T00:00:00.000`);
+}
+
+/**
  * גבולות היום הישראלי הנוכחי, כערכי UTC לשאילתות.
  *
  * `setHours(23,59,59)` על תהליך שרץ ב-UTC מגדיר את סוף היום ה-UTC —
@@ -242,8 +254,16 @@ export function jerusalemWallErrorMessage(reason: "missing" | "nonexistent"): st
     : "השעה שנבחרה אינה קיימת בתאריך הזה: בליל המעבר לשעון קיץ השעון מדלג מ-02:00 ל-03:00. בחרו שעה אחרת.";
 }
 
-/** התאריך הישראלי כתווית `YYYY-MM-DD` — הבסיס לכל חשבון הלוח כאן. */
-function jerusalemDayLabel(at: Date): string {
+/**
+ * התאריך הישראלי כתווית `YYYY-MM-DD` — הבסיס לכל חשבון הלוח כאן.
+ *
+ * ‎**מיוצא** כדי שמסך שצריך „איזה יום היום אצל המתווך” יקרא את אותה
+ * תשובה. הדשבורד שומר בדפדפן אילו שורות המתווך סימן „הבנתי”, והן
+ * חוזרות למחרת; „מחרת” חייב להיות היום הישראלי ולא היום של שעון
+ * המכשיר, אחרת מי שפותח את המערכת מחו״ל מקבל את השורות בחזרה
+ * באמצע יום העבודה שלו — או לא מקבל אותן בבוקר.
+ */
+export function jerusalemDayLabel(at: Date): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone: JERUSALEM_TZ }).format(at);
 }
 

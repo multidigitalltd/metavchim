@@ -6,20 +6,24 @@ import {
   buyerProfileCompleteness,
   describeEntryNeed,
   priceInWordsWithCurrency,  labelOf } from "@metavchim/shared";
-import type { BuyerRequirements } from "@metavchim/shared";
+import type { BuyerRequirements, FloorPreference } from "@metavchim/shared";
+import { floorPreferenceText } from "@metavchim/shared";
+import { activeOfficeStatuses, officeStatusById } from "@metavchim/shared";
 import { apiGet, apiPatch, apiPost } from "@/lib/api";
 import {
   DEAL_TYPE_LABELS,
   FINANCING_LABELS,
   formatBuyerSource,
   formatDate,
+  formatDateTime,
   formatPrice,
   MATURITY_LABELS,
+  lastActivityText,
   PROPERTY_TYPE_LABELS,
   waMeUrl,
 } from "@/lib/format";
 import { can, useRequireAuth } from "@/lib/use-auth";
-import { IconCalendar, IconChat, IconEdit, IconPhone } from "../../icons";
+import { IconCalendar, IconChat, IconClock, IconEdit, IconPhone } from "../../icons";
 import { NetworkShareSection } from "../../network-share-section";
 import { NetworkPropertyMatches } from "../network-property-matches";
 import { TimelineSection } from "./timeline-section";
@@ -34,10 +38,14 @@ import { AgreementsPanel } from "../../agreements-panel";
 import { DocumentsPanel } from "../../documents-panel";
 import { EntityNotes } from "../../entity-notes";
 import { SelectMenu } from "../../select-menu";
+import { useOfficeStatuses } from "../../use-office-statuses";
 import { EntityTabs, TabPanel, useEntityTab } from "../../entity-tabs";
 import { IntakePanel } from "../../intake-panel";
+import { MoreActions } from "../../more-actions";
 import { LoadError } from "../../load-error";
+import { AgentPicker } from "../../agent-picker";
 import { Notice } from "../../notice";
+import { PropertyPitchDialog } from "../../property-pitch-dialog";
 
 /**
  * כרטיס הקונה.
@@ -77,6 +85,7 @@ interface BuyerDetail {
     }[];
     budgetMinAgorot?: number;
     budgetMaxAgorot?: number;
+    floorPreference?: FloorPreference;
     roomsMin?: number;
     roomsMax?: number;
     areaSqmMin?: number;
@@ -87,11 +96,30 @@ interface BuyerDetail {
   };
   financing: string;
   maturity: string;
+  /** מזהה סטטוס המשרד — התווית נפתרת מול הרשימה שנטענת בנפרד. */
+  officeStatus?: string;
+  /** הסוכן שהכרטיס שלו — שם ה-DTO, ולכן נקרא ישירות מה-GET. */
+  ownerUserId?: string;
+  agentName?: string;
   source: string;
   agentNotes?: string;
   /** מתי הכרטיס נקלט — היה בשרת מאז ומתמיד ולא הוצהר כאן */
   createdAt: string;
+  /**
+   * ‏מתי נגעו בלקוח לאחרונה — אותו שדה בדיוק שהרשימה מציגה, מאותה
+   * ‏הגדרה בשרת (`lastActivityOf`). לעולם אינו ריק: בלי אף
+   * ‏אינטראקציה הוא העדכון האחרון של הכרטיס עצמו.
+   */
+  lastActivityAt: string;
 }
+
+/**
+ * ‏מעל כמה ימים „לפני X ימים” הוא סימן ולא עובדה.
+ *
+ * ‏שבוע: מתחתיו הלקוח בטיפול, ומעליו הוא נשכח — וזה בדיוק מה
+ * שהשורה בכותרת אמורה להגיד במבט אחד, בלי לחשב תאריכים.
+ */
+const STALE_DAYS = 7;
 
 interface MatchRow {
   id: string;
@@ -130,6 +158,15 @@ function offerChip(o: OfferInfo): { label: string; fg: string; bg: string } {
     return { label: "מעוניין ✓", fg: "var(--color-success)", bg: "var(--color-success-soft)" };
   if (o.status === "declined")
     return { label: "לא מתאים", fg: "var(--chip-neutral-fg)", bg: "var(--chip-neutral-bg)" };
+  /*
+   * ‎**„נשלחה” הייתה גם ברירת המחדל של הצעה שלא נשלחה.** הצעה
+   * ידנית נולדת `pending_approval` — נוצר לה קישור ואף ערוץ לא
+   * הוציא אותה — והגלולה הזו טענה עליה שהיא בדרך אל הלקוח.
+   */
+  if (o.status === "pending_approval")
+    return { label: "ממתינה לשליחה", fg: "var(--domain-amber-fg)", bg: "var(--domain-amber-bg)" };
+  if (o.status === "email_failed")
+    return { label: "המייל נכשל", fg: "#8a3b21", bg: "#fbe9e1" };
   if (o.openCount >= 3)
     return { label: "מתלבט — שווה טלפון", fg: "var(--domain-amber-fg)", bg: "var(--domain-amber-bg)" };
   if (o.openCount > 0) return { label: "נפתחה", fg: "var(--color-text-muted)", bg: "var(--domain-neutral-tile)" };
@@ -150,7 +187,39 @@ export default function BuyerDetailPage({
   // היכולת נגזרת מטבלת התפקידים המשותפת ולא מרשימת תפקידים מקומית —
   // שינוי הרשאות במקום אחד לא ישאיר כאן כפתור שהשרת ידחה
   const canEditPeople = can(user, "buyers.edit");
+  /*
+   * ‎**העברת קונה בין סוכנים נשענת על `tasks.assign`** — היכולת
+   * שהנתיב `/tasks/assignees` דורש, ובמשמעותה „הטלת עבודה על סוכן
+   * אחר”. `buyers.edit` היא עריכת הכרטיס, לא העברת בעלות עליו.
+   */
+  const canAssignAgent = can(user, "tasks.assign");
+
+  /**
+   * ‎**העברה שגם מעבירה גישה.**
+   *
+   * ‎`ownerUserId` בקונה מסנן ראייה: הסוכן הקודם מפסיק לראות את
+   * הכרטיס (אלא אם יש לו `buyers.view_all`). התשובה מגיעה מהשרת
+   * ולא מהרשימה המקומית — הרשימה נטענה פעם אחת, והשרת הוא זה
+   * שיודע מי במשרד עכשיו.
+   */
+  async function changeAgent(ownerUserId: string): Promise<void> {
+    if (ownerUserId === "") return;
+    const saved = await apiPatch<{ ownerUserId?: string; agentName?: string }>(
+      `/buyers/${id}`,
+      { ownerUserId },
+    );
+    setBuyer((prev) =>
+      prev === null
+        ? prev
+        : {
+            ...prev,
+            ownerUserId: saved.ownerUserId,
+            agentName: saved.agentName,
+          },
+    );
+  }
   const [buyer, setBuyer] = useState<BuyerDetail | null>(null);
+  const { statuses: officeStatuses } = useOfficeStatuses();
   const [matches, setMatches] = useState<MatchRow[] | null>(null);
   /*
    * „אין עדיין נכסים מתאימים במאגר” הוא משפט על המאגר, לא על הרשת.
@@ -159,7 +228,22 @@ export default function BuyerDetailPage({
    */
   const [matchesFailed, setMatchesFailed] = useState(false);
   const [offers, setOffers] = useState<Record<string, OfferInfo>>({});
+  /*
+   * ‎**„עוד לא יודעים” אינו „לא נשלח”.**
+   *
+   * „ההצעות שכבר נשלחו” מגיעות בבקשה שנייה, אחרי ההתאמות, ועד שהיא
+   * חוזרת `offers` ריק — ומי שיגזור מזה „הכול מחכה לשליחה” יכריז על
+   * נכס שכבר נשלח.
+   *
+   * ‎`true` רק כשהבקשה **הצליחה**. הניסוח הראשון סימן אותו גם
+   * בכישלון, מתוך רצון שהבאנר יסכים עם הלשונית שמתחתיו — אבל מפה
+   * ריקה שלא הגיעה מהשרת אינה עדות לכלום, ובאנר שסופר לפיה חוזר
+   * בדיוק לבאג שנפתח בו (ביקורת Codex). כשלא יודעים, אין „הפעולה
+   * הבאה”.
+   */
+  const [offersKnown, setOffersKnown] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [pitchOpen, setPitchOpen] = useState(false);
   const [sending, setSending] = useState<string | null>(null);
   /*
    * מונה המשימות הפתוחות. הוא נטען כאן ולא רק בתוך `EntityTasks`,
@@ -200,6 +284,42 @@ export default function BuyerDetailPage({
    * שני מצבים ולא דגל נפרד, כדי שלא ייווצר מצב שבו התיבה פתוחה
    * בלי ערך או סגורה עם ערך שנשמר בצד.
    */
+  /*
+   * ‎**„מחכות לשליחה” הן ההתאמות שעוד לא נשלחה עליהן הצעה.**
+   *
+   * ‏באנר הפעולה הבאה מבקש מהסוכן לשלוח; התאמה שכבר נשלחה עליה הצעה
+   * ‏אינה פעולה שממתינה לו, וספירת כל ההתאמות הייתה מציגה עבודה
+   * ‏שנעשתה — ואף מציעה כ„הגבוהה ביותר” נכס שהקונה כבר קיבל
+   * ‏(ביקורת Codex, P2). זה אותו סינון שהלשונית עצמה עושה לכל שורה.
+   *
+   * ‎`reduce` ולא `sort`: מיון היה משנה את סדר התצוגה של הלשונית,
+   * ‏שהוא הסדר שהשרת החזיר.
+   */
+  /**
+   * ‎„פעילות אחרונה” לשורת המטא — הטקסט והאם הוא כבר סימן.
+   *
+   * ‏שתי התשובות נגזרות מאותו תאריך במקום אחד: ניסוח שאומר „לפני
+   * ‏12 ימים” בצבע רגיל, או צבע אזהרה על טקסט שאומר „אתמול”, הם
+   * שתי גרסאות של אותה עובדה שנפרדו זו מזו.
+   */
+  const lastActivity =
+    buyer === null
+      ? null
+      : {
+          text: lastActivityText(buyer.lastActivityAt),
+          stale:
+            Date.now() - new Date(buyer.lastActivityAt).getTime() >
+            STALE_DAYS * 86_400_000,
+        };
+
+  const waitingMatches = (matches ?? []).filter(
+    (row) => offers[row.id] === undefined,
+  );
+  const topMatch = waitingMatches.reduce<MatchRow | undefined>(
+    (best, row) => (best === undefined || row.score > best.score ? row : best),
+    undefined,
+  );
+
   const [renaming, setRenaming] = useState<string | null>(null);
   const [renameFailed, setRenameFailed] = useState(false);
   const [renameBusy, setRenameBusy] = useState(false);
@@ -234,10 +354,29 @@ export default function BuyerDetailPage({
     }
   }
 
-  /** עדכון בשלות במקום — הקונה "התחמם"? בחירה אחת והמערכת מסונכרנת. */
-  async function changeMaturity(maturity: string) {
-    await apiPatch(`/buyers/${id}`, { maturity });
-    setBuyer((prev) => (prev ? { ...prev, maturity } : prev));
+  /**
+   * ‎**שתי השכבות עוברות דרך אותה פונקציה, והשרת הוא שמכריע.**
+   *
+   * בחירת סטטוס משרד גוררת דרגה, ושינוי דרגה עשוי להפיל סטטוס סותר
+   * ‎(ראו `statusAfterMaturityChange`). מסך שהיה מעדכן רק את השדה
+   * שנשלח היה מציג „במשא ומתן” לצד „לא בשל” עד לרענון — כלומר מראה
+   * מצב שאינו קיים במסד.
+   *
+   * ולכן התשובה נכתבת כמו שהיא: הכרטיס המעודכן חוזר מה-PATCH ממילא.
+   */
+  async function changeStatus(patch: {
+    maturity?: string;
+    officeStatus?: string | null;
+  }) {
+    const saved = await apiPatch<{ maturity: string; officeStatus?: string }>(
+      `/buyers/${id}`,
+      patch,
+    );
+    setBuyer((prev) =>
+      prev === null
+        ? prev
+        : { ...prev, maturity: saved.maturity, officeStatus: saved.officeStatus },
+    );
   }
 
   async function saveNotes(next: string): Promise<void> {
@@ -258,17 +397,22 @@ export default function BuyerDetailPage({
   /* אותה טעינה חוזרת כמו בכרטיס הנכס — ראו ההסבר שם. */
   const loadMatches = useCallback((): void => {
     setMatchesFailed(false);
+    setOffersKnown(false);
     apiGet<MatchRow[]>(`/buyers/${id}/matches`)
       .then((rows) => {
         setMatches(rows);
-        if (rows.length > 0) {
-          const ids = rows.map((m) => m.id).join(",");
-          apiGet<Record<string, OfferInfo>>(
-            `/offers/for-matches?matchIds=${ids}`,
-          )
-            .then(setOffers)
-            .catch(() => undefined);
+        /* אין התאמות ⇒ אין הצעות, וזו ידיעה ולא היעדר תשובה */
+        if (rows.length === 0) {
+          setOffersKnown(true);
+          return;
         }
+        const ids = rows.map((m) => m.id).join(",");
+        apiGet<Record<string, OfferInfo>>(`/offers/for-matches?matchIds=${ids}`)
+          .then((sent) => {
+            setOffers(sent);
+            setOffersKnown(true);
+          })
+          .catch(() => undefined);
       })
       .catch(() => setMatchesFailed(true));
   }, [id]);
@@ -294,6 +438,7 @@ export default function BuyerDetailPage({
   const musts = Object.entries(buyer.requirements.features).filter(
     ([, l]) => l === "must",
   );
+  const floorNeed = floorPreferenceText(buyer.requirements.floorPreference);
   const entryNeed = describeEntryNeed({
     entryType: buyer.requirements.entryType as Parameters<
       typeof describeEntryNeed
@@ -306,6 +451,25 @@ export default function BuyerDetailPage({
     ([, l]) => l === "nice",
   );
   const pill = MATURITY_PILL[buyer.maturity] ?? MATURITY_PILL["not_ripe"]!;
+  /*
+   * ‎**הסטטוס ששמור על הכרטיס נכנס לרשימה גם כשהוא הוסר משימוש.**
+   *
+   * בלעדיו הבורר לא היה מוצא התאמה לערך שלו ומציג את הפריט הראשון —
+   * כלומר כרטיס שנראה כאילו הוא בסטטוס אחר לגמרי, בלי שאיש שינה
+   * אותו. הבחירה בו אינה אפשרית מחדש אחרי שיוצאים ממנו, וזה בסדר:
+   * הוא מתעד מה היה.
+   */
+  const current = officeStatusById(officeStatuses, buyer.officeStatus);
+  const statusOptions = [
+    { value: "", label: "בלי סטטוס" },
+    ...activeOfficeStatuses(officeStatuses).map((entry) => ({
+      value: entry.id,
+      label: entry.label,
+    })),
+    ...(current !== null && current.archived
+      ? [{ value: current.id, label: `${current.label} (הוסר)` }]
+      : []),
+  ];
   const sentOffers = Object.entries(offers);
   const isHotNoOffers =
     (buyer.maturity === "very_hot" || buyer.maturity === "hot") &&
@@ -334,18 +498,8 @@ export default function BuyerDetailPage({
         className="mv-list-card mb-3 flex flex-wrap items-center gap-4 px-6 py-5"
         style={{ overflow: "visible" }}
       >
-        <span
-          aria-hidden="true"
-          className="grid flex-none place-items-center rounded-full"
-          style={{
-            width: 48,
-            height: 48,
-            background: "var(--color-primary-soft)",
-            color: "var(--color-primary)",
-            fontWeight: 800,
-            fontSize: "19px",
-          }}
-        >
+        {/* ‏ריבוע מעוגל ולא עיגול: אין כאן תמונה, יש כאן ישות */}
+        <span aria-hidden="true" className="mv-avatar mv-avatar--lg flex-none">
           {initials(buyer.contact.name)}
         </span>
         <div className="min-w-0">
@@ -395,13 +549,26 @@ export default function BuyerDetailPage({
               {DEAL_TYPE_LABELS[buyer.requirements.dealType] ?? buyer.requirements.dealType}
             </span>
             {/*
+              ‎„של מי הכרטיס הזה?” — והעברה בין סוכנים למי שרשאי.
+              ‎`allowUnassign` כבוי: קונה בלי בעלים אינו „של כולם”
+              אלא בלתי נראה לכל סוכן שאין לו `buyers.view_all`.
+            */}
+            <AgentPicker
+              canAssign={canAssignAgent}
+              allowUnassign={false}
+              labelText="הסוכן המטפל בקונה"
+              onChange={changeAgent}
+              {...(buyer.ownerUserId === undefined ? {} : { agentUserId: buyer.ownerUserId })}
+              {...(buyer.agentName === undefined ? {} : { agentName: buyer.agentName })}
+            />
+            {/*
               רשימה מעוצבת ולא `select` נייטיב: הגלולה נראתה נכון
               סגורה, ובפתיחה נפתחה רשימת מערכת עם הדגשה כחולה שאינה
               שייכת לשום מקום במערכת.
             */}
             <SelectMenu
               value={buyer.maturity}
-              onChange={(next) => void changeMaturity(next)}
+              onChange={(next) => void changeStatus({ maturity: next })}
               options={Object.entries(MATURITY_LABELS).map(
                 ([value, label]) => ({ value, label }),
               )}
@@ -409,6 +576,28 @@ export default function BuyerDetailPage({
               minWidth={128}
               tone={{ fg: pill.fg, bg: pill.bg }}
             />
+            {/*
+              ‎**שכבה ב׳ — הסטטוס של המשרד, לצד הדרגה ולא במקומה.**
+
+              הדרגה נשארת גלויה כי היא מה שכל שאר המערכת פועלת לפיו
+              (דשבורד, התאמות, התראות), והמתווך יכול לשנות גם אותה
+              ישירות. הסטטוס הוא המילים של המשרד עליה.
+
+              הבורר אינו מוצג כשהמשרד לא הגדיר סטטוסים **ולכרטיס אין
+              אחד** — שדה ריק שאין בו מה לבחור הוא רעש. משרד שהגדיר
+              ואז מחק רואה עדיין את מה ששמור על הכרטיס.
+            */}
+            {statusOptions.length > 1 ? (
+              <SelectMenu
+                value={buyer.officeStatus ?? ""}
+                onChange={(next) =>
+                  void changeStatus({ officeStatus: next === "" ? null : next })
+                }
+                options={statusOptions}
+                label="סטטוס המשרד"
+                minWidth={150}
+              />
+            ) : null}
           </div>
           {/*
             ‎**התיבה נפתחת מתחת לשם, ולא במקומו.**
@@ -480,54 +669,122 @@ export default function BuyerDetailPage({
             <span style={{ color: "var(--color-text)" }}>
               {formatDate(buyer.createdAt)}
             </span>
+            {/*
+              ‎---- מתי נגעו בו לאחרונה ---- (קובץ העיצוב)
+
+              ‏זו השאלה שמתווך שואל את עצמו לפני שהוא מתקשר, והיא
+              ‏הייתה מחייבת מעבר ללשונית ציר הזמן וקריאת התאריך
+              ‏העליון. „לפני 6 ימים” היא התשובה עצמה.
+
+              ‏מעל שבוע הוא נצבע — אותו כתום של שאר האזהרות הרכות
+              ‏במערכת — כי אז המספר אינו נתון אלא סימן. הצבע אינו
+              ‏לבדו: השעון והניסוח נושאים את אותה משמעות למי שאינו
+              ‏מבחין בגוונים.
+            */}
+            {lastActivity !== null ? (
+              <>
+                {" · "}
+                <span
+                  className="inline-flex items-center gap-1 align-middle"
+                  style={
+                    lastActivity.stale
+                      ? { color: "var(--color-warning)", fontWeight: 800 }
+                      : undefined
+                  }
+                  title={formatDateTime(buyer.lastActivityAt)}
+                >
+                  <IconClock s={14} /> פעילות אחרונה {lastActivity.text}
+                </span>
+              </>
+            ) : null}
           </p>
         </div>
-        <div className="ms-auto flex flex-wrap items-center gap-2">
-          <a
-            href={waMeUrl(buyer.contact.phone)}
-            target="_blank"
-            rel="noreferrer"
-            className="mv-btn-plain"
-            style={{ minHeight: 36, paddingInline: 13, fontSize: "var(--type-caption-lg)" }}
-          >
-            <IconChat s={14} /> וואטסאפ
-          </a>
-          <a
-            href={`tel:${buyer.contact.phone}`}
-            className="mv-btn-plain"
-            style={{ minHeight: 36, paddingInline: 13, fontSize: "var(--type-caption-lg)" }}
-          >
-            <IconPhone s={14} /> חייג
-          </a>
-          <ClickToDial
-            contactId={buyer.contact.id}
-            phone={buyer.contact.phone}
-            label="מהמרכזייה"
-          />
+        <div className="mv-cardactions ms-auto">
           {/*
-            ‎**קביעת סיור מצד הלקוח.**
+            ‎**הכיוון ההפוך של „שליחת הצעת נכס”.**
 
-            עד כה הכפתור היה קיים רק בכרטיס הנכס, ולכן הסיור נקבע
-            תמיד מהכיוון של „איזה נכס” — בזמן שהעבודה היומית של
-            מתווך מתחילה מ„עם מי”. מכאן הלקוח כבר מקושר, וטופס
-            הפגישה מבקש רק את הנכס (או פותח נכס חדש ומחזיר לכאן).
+            ‏מכרטיס הנכס בוחרים קונים; כאן בוחרים נכסים. אותה
+            ‏פעולה, אותו חלון, אותו שירות — הצד הקבוע הוא הקונה
+            ‏שכרטיסו פתוח.
+
+            ‎**ראשון בשורה, וירוק** — לפי קובץ העיצוב: הוא הפעולה
+            ‏הראשית של הכרטיס, והשאר משניות. קודם הוא ישב אחרון
+            ‏ובסגנון משני, כלומר נראה כמו עוד אחד מחמישה.
+
+            ‎**מי שאינו יכול לשלוח אינו רואה אותו** (ביקורת Codex,
+            ‏P2). עוזר או צופה פותחים כרטיסים אבל אין להם
+            ‎`offers.send`: מכאן הם היו בוחרים נכסים ומקבלים 403
+            ‏בסוף. השרת ממילא חוסם — זה מה שמונע להציע תהליך שאינו
+            ‏קיים.
           */}
-          <Link
-            href={`/calendar/new?buyerId=${id}&kind=viewing`}
-            className="mv-btn-plain"
-            style={{ minHeight: 36, paddingInline: 13, fontSize: "var(--type-caption-lg)" }}
-          >
-            <IconCalendar s={14} /> קביעת סיור
-          </Link>
-          <Link
-            href={`/buyers/${id}/edit`}
-            className="mv-btn-plain"
-            style={{ minHeight: 36, paddingInline: 13, fontSize: "var(--type-caption-lg)" }}
-          >
-            <IconEdit s={14} /> ערוך דרישות
-          </Link>
+          {can(user, "offers.send") ? (
+            <button
+              type="button"
+              className="mv-btn-primary"
+              style={{ minHeight: 36, paddingInline: 16, fontSize: "var(--type-caption-lg)" }}
+              onClick={() => setPitchOpen(true)}
+            >
+              הצע נכס לקונה
+            </button>
+          ) : null}
+          <MoreActions>
+            <Link
+              href={`/buyers/${id}/edit`}
+              className="mv-btn-plain mv-act"
+              style={{ minHeight: 36, paddingInline: 13, fontSize: "var(--type-caption-lg)" }}
+            >
+              <IconEdit s={14} /> ערוך דרישות
+            </Link>
+            {/*
+              ‎**קביעת סיור מצד הלקוח.**
+
+              עד כה הכפתור היה קיים רק בכרטיס הנכס, ולכן הסיור נקבע
+              תמיד מהכיוון של „איזה נכס” — בזמן שהעבודה היומית של
+              מתווך מתחילה מ„עם מי”. מכאן הלקוח כבר מקושר, וטופס
+              הפגישה מבקש רק את הנכס (או פותח נכס חדש ומחזיר לכאן).
+            */}
+            <Link
+              href={`/calendar/new?buyerId=${id}&kind=viewing`}
+              className="mv-btn-plain mv-act"
+              style={{ minHeight: 36, paddingInline: 13, fontSize: "var(--type-caption-lg)" }}
+            >
+              <IconCalendar s={14} /> קביעת סיור
+            </Link>
+            <a
+              href={`tel:${buyer.contact.phone}`}
+              className="mv-btn-plain mv-act"
+              style={{ minHeight: 36, paddingInline: 13, fontSize: "var(--type-caption-lg)" }}
+            >
+              <IconPhone s={14} /> חייג
+            </a>
+            <a
+              href={waMeUrl(buyer.contact.phone)}
+              target="_blank"
+              rel="noreferrer"
+              className="mv-btn-plain mv-act"
+              style={{ minHeight: 36, paddingInline: 13, fontSize: "var(--type-caption-lg)" }}
+            >
+              <IconChat s={14} /> וואטסאפ
+            </a>
+            {/*
+              ‏„מהמרכזייה” אינו בקובץ העיצוב — הוא יכולת שקיימת רק
+              ‏כשהטלפוניה מחוברת, ולכן הוא אחרון ולא בין הארבעה.
+            */}
+            <ClickToDial
+              contactId={buyer.contact.id}
+              phone={buyer.contact.phone}
+              label="מהמרכזייה"
+            />
+          </MoreActions>
         </div>
       </div>
+
+      <PropertyPitchDialog
+        open={pitchOpen}
+        onClose={() => setPitchOpen(false)}
+        side="properties"
+        fixedIds={[id]}
+      />
 
       {/* ---- לשוניות ---- */}
       <EntityTabs
@@ -548,8 +805,82 @@ export default function BuyerDetailPage({
           סקירה — מה שסוכן קורא לפני שיחה
           ============================================================ */}
       <TabPanel tab="overview" active={tab}>
-        <div className="grid items-start gap-[18px] lg:[grid-template-columns:340px_1fr]">
-          <div className="grid gap-[18px]">
+        {/*
+          ‎---- הפעולה הבאה ---- ‏על פני כל הרוחב, מעל הטורים
+
+          ‏קובץ העיצוב מציב אותה מעל שלושת הטורים ולא בתוך אחד
+          ‏מהם: היא משפט על **הכרטיס** כולו, לא כרטיסייה שמתחרה
+          ‏עם השכנות שלה על אותה עמודה.
+
+          ‏משפט אחד ופעולה אחת, בראש הלשונית: יש כאן N התאמות
+          ‏שממתינות, וזו הגבוהה שבהן. הסוכן שפותח את הכרטיס אינו
+          ‏צריך לגלול ולהסיק — הדבר שכדאי לעשות עכשיו כתוב.
+
+          ‏מוצג רק כשבאמת נשארה שליחה: כשאין התאמה שלא נשלחה
+          ‏(`topMatch` ריק) אין פעולה, ובאנר שאומר „0 מחכים” הוא
+          רעש בראש הכרטיס. וגם רק כשידוע מה כבר נשלח — לא לפני
+          שההצעות חזרו, וגם לא כששליפתן נכשלה: מפה ריקה שלא הגיעה
+          מהשרת אינה „לא נשלח כלום”.
+        */}
+        {offersKnown && topMatch !== undefined ? (
+          <div className="mv-nextaction mv-domain-violet">
+            <span
+              aria-hidden="true"
+              className="mv-tile mv-tile--44 mv-domain-violet flex-none"
+            >
+              <svg
+                width="20"
+                height="20"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.9"
+              >
+                <circle cx="9" cy="12" r="5.5" />
+                <circle cx="15" cy="12" r="5.5" />
+              </svg>
+            </span>
+            <div className="min-w-0">
+              <div
+                className="font-black"
+                style={{ fontSize: "calc(17 / 16 * 1rem)" }}
+              >
+                {waitingMatches.length === 1
+                  ? "נכס מתאים אחד מחכה לשליחה"
+                  : `${waitingMatches.length} נכסים מתאימים מחכים לשליחה`}
+              </div>
+              <div
+                className="mt-0.5 text-[length:var(--type-body-sm)]"
+                style={{ color: "var(--domain-violet-fg)" }}
+              >
+                ההתאמה הגבוהה ביותר — {topMatch.score}% ·{" "}
+                {topMatch.property.address}
+              </div>
+            </div>
+            <button
+              type="button"
+              className="mv-btn-primary ms-auto flex-none"
+              onClick={() => selectTab("matches")}
+            >
+              צפה בהתאמות
+            </button>
+          </div>
+        ) : null}
+
+        {/*
+          ‎---- שלושה טורים ---- (קובץ העיצוב)
+
+          ‏מה הוא מחפש · מה שולחים ומה כתוב עליו · מי אנשי הקשר.
+          ‏שלוש שאלות שסוכן שואל לפני שיחה, ואף אחת מהן אינה המשך
+          ‏של השנייה — ולכן הן זו לצד זו ולא זו מתחת לזו. בטלפון
+          ‏הרשת מתקפלת לטור אחד באותו סדר.
+
+          ‏עד כאן זה היה טור צר של 340px ולידו רחב: „מה הוא מחפש”,
+          ‏הכרטיסייה הארוכה בעמוד, הייתה נדחסת לצר בזמן שהערות
+          ‏ואנשי הקשר קיבלו את הרחב.
+        */}
+        <div className="grid items-start gap-[18px] lg:grid-cols-3">
+          <div className="grid content-start gap-[18px]">
             {/*
               ---- שלמות פרופיל החיפוש ----
               כרטיס חצי-מלא נראה בדיוק כמו כרטיס מלא, ולכן סוכן מריץ
@@ -568,22 +899,26 @@ export default function BuyerDetailPage({
                 >
                   פרטי חיפוש
                 </h2>
+                {/*
+                  ‎**המונה נצבע לפי המצב, ולא רק נספר.**
+
+                  ‏„1 מתוך 7” באפור נקרא כמידע; באותו כתום של שאר
+                  ‏האזהרות במערכת הוא נקרא כמשהו שצריך לעשות איתו
+                  ‏משהו. פרופיל מלא חוזר לירוק — סיום, לא אזהרה.
+                */}
                 <span
-                  className="ms-auto text-[length:var(--type-caption)] font-bold"
-                  style={{ color: "var(--color-text-muted)" }}
+                  className={`mv-pill ms-auto ${
+                    profile.missing.length === 0 ? "mv-domain-green" : "mv-domain-amber"
+                  }`}
                 >
-                  {profile.filled} מתוך {profile.total}
+                  {profile.filled} מתוך {profile.total} מולא
                 </span>
               </div>
-              <div
-                className="mb-3 overflow-hidden rounded-full"
-                style={{ height: 6, background: "var(--color-progress-track)" }}
-              >
-                <div
+              <div className="mv-progress mb-3.5" style={{ maxWidth: "none", height: 8 }}>
+                <span
                   style={{
                     width: `${Math.round((profile.filled / profile.total) * 100)}%`,
-                    height: "100%",
-                    background: "var(--color-primary)",
+                    background: "linear-gradient(90deg, #3fbf63, #7df39c)",
                   }}
                 />
               </div>
@@ -595,28 +930,38 @@ export default function BuyerDetailPage({
                   הפרופיל מלא — ההתאמות רצות על כל מה שהלקוח אמר.
                 </p>
               ) : (
-                <div className="flex flex-wrap gap-1.5">
+                /*
+                  ‎**שורה מקווקוות לכל חוסר, ולא צ׳יפ.**
+
+                  ‏הצ׳יפים נקראו כתגיות — כלומר כתיאור של הכרטיס —
+                  ‏בזמן שהם למעשה **הזמנה למלא**. שורה ברוחב מלא עם
+                  ‏מסגרת מקווקוות אומרת „כאן חסר משהו” בלי מילה,
+                  ‏וההשלמה יושבת בשורה עצמה.
+                */
+                <div className="flex flex-col gap-2.5">
                   {profile.missing.map((f) => (
                     <Link
                       key={f.key}
                       href={`/buyers/${id}/edit`}
-                      className="mv-chip no-underline"
-                      style={{ color: "var(--color-text-soft)" }}
+                      className="mv-fieldrow mv-fieldrow--missing no-underline"
                     >
-                      + {f.label}
+                      <span
+                        className="text-[length:var(--type-caption-lg)] font-bold"
+                        style={{ color: "var(--color-text-muted)" }}
+                      >
+                        {f.label}
+                      </span>
+                      <span
+                        className="ms-auto text-[length:var(--type-caption)] font-black"
+                        style={{ color: "var(--color-primary)" }}
+                      >
+                        + השלמה
+                      </span>
                     </Link>
                   ))}
                 </div>
               )}
             </section>
-
-            {/*
-              ---- הלקוח ממלא בעצמו ----
-              מיד אחרי „פרטי חיפוש”, וזה לא מקרי: הכרטיס שמעל אומר
-              מה חסר, וזה אומר איך להשלים את זה בלי להקליד. הלקוח
-              יודע את התשובות טוב יותר, וממלא כשנוח לו.
-            */}
-            <IntakePanel subject="buyer" entityId={id} canEdit={canEditPeople} />
 
             {/* ---- מה הוא מחפש ---- */}
             <section
@@ -704,7 +1049,23 @@ export default function BuyerDetailPage({
                       .join(" · ")}
                   </div>
                 </>
-              ) : null}
+              ) : (
+                /*
+                 * ריק כאן אינו „כל הסוגים”: המנוע מסמן התאמה בלי סוג
+                 * נכס כ„אין מספיק פרטים” ואינו מציע דבר — בניגוד לרשימת
+                 * ערים ריקה, שכן פירושה „בלי מגבלה”. הטופס דורש סוג,
+                 * אבל קונה שנקלט בייבוא או דרך ה-API מגיע בלעדיו, ואז
+                 * המסך הראה „אין התאמות” בלי להגיד למה.
+                 */
+                <div className="mb-3.5">
+                  <Notice tone="warning">
+                    לא נבחר סוג נכס — בלי סוג נכס מנוע ההתאמות לא מציע דבר לקונה הזה.{" "}
+                    <Link href={`/buyers/${buyer.id}/edit`} className="underline">
+                      להשלים בדרישות
+                    </Link>
+                  </Notice>
+                </div>
+              )}
 
               {buyer.requirements.roomsMin !== undefined ||
               buyer.requirements.roomsMax !== undefined ? (
@@ -732,6 +1093,22 @@ export default function BuyerDetailPage({
                   <div className="mb-3.5 text-[length:var(--type-body)] font-bold">
                     {buyer.requirements.areaSqmMin} מ&quot;ר
                   </div>
+                </>
+              ) : null}
+              {/*
+                ‎**הקומה מוצגת כמשפט ולא כמספרים.** „קרקע, קומה 1” ו„קומה
+                3 ומעלה” הן שתי דרישות שונות בצורתן, וזוג מספרים לא היה
+                יכול לשאת את שתיהן.
+              */}
+              {floorNeed !== undefined ? (
+                <>
+                  <div
+                    className="mb-1.5 text-[length:var(--type-caption-lg)] font-semibold"
+                    style={{ color: "var(--color-text-muted)" }}
+                  >
+                    קומה רצויה
+                  </div>
+                  <div className="mb-3.5 text-[length:var(--type-body)] font-bold">{floorNeed}</div>
                 </>
               ) : null}
               {/* "גמיש" ו"מיידי" הם אילוץ בדיוק כמו תאריך — ולכן מוצגים */}
@@ -841,8 +1218,14 @@ export default function BuyerDetailPage({
             </section>
           </div>
 
-          <div className="grid gap-[18px]">
-            {/* ---- הערות הסוכן ---- */}
+          <div className="grid content-start gap-[18px]">
+            {/*
+              ---- הערות הסוכן ----
+
+              ‏בראש הטור, בהחלטת בעל המוצר. מה שהסוכן כתב ביד אחרי
+              ‏השיחה הקודמת הוא מה שנקרא לפני הבאה, ולכן הוא מעל
+              ‏ההזמנה למילוי עצמי ולא מתחתיה.
+            */}
             <EntityNotes
               value={buyer.agentNotes}
               fieldId="agentNotes"
@@ -851,22 +1234,39 @@ export default function BuyerDetailPage({
               onSave={saveNotes}
             />
 
+            {/*
+              ---- הלקוח ממלא בעצמו ----
+
+              ‏מתחת להערות. קודם ישב כאן ראשון, בנימוק שהכרטיס שמעל
+              ‏אומר „מה חסר” וזה אומר „איך להשלים בלי להקליד” —
+              ‏נימוק תקף, וההערה נשארת כאן כדי שלא יוחזר בתום לב.
+              ‏הוא נדחה מפני זה: ההערות נקראות בכל פתיחה של הכרטיס,
+              ‏וההזמנה נשלחת פעם אחת.
+            */}
+            <IntakePanel subject="buyer" entityId={id} canEdit={canEditPeople} />
+          </div>
+
+          <div className="grid content-start gap-[18px]">
             {/* `canErase={false}`: מחיקת הלקוח ירדה לאזור המחיקות
                 בתחתית הכרטיס, יחד עם מחיקת הכרטיס */}
             <ContactPeople
               contactId={buyer.contact.id}
               canEdit={canEditPeople}
             />
-
-            <RelatedEntities
-              contactId={buyer.contact.id}
-              exclude={{ kind: "buyer", id: buyer.id }}
-            />
           </div>
         </div>
 
         {/*
-          שתי המחיקות יחד, מתחת לשני הטורים ומקופלות.
+          ‏„מה עוד קשור לאדם הזה” אינו אחד משלושת הטורים — הוא
+          ‏מסקנה עליהם, ולכן מתחתיהם ועל פני כל הרוחב.
+        */}
+        <RelatedEntities
+          contactId={buyer.contact.id}
+          exclude={{ kind: "buyer", id: buyer.id }}
+        />
+
+        {/*
+          שתי המחיקות יחד, מתחת לטורים ומקופלות.
           מחיקת הכרטיס נפרדת ממחיקת הלקוח, ובכוונה: הכרטיס הוא
           הביקוש, והאדם נשאר עם הלידים וההיסטוריה שלו — וזו בדיוק
           הבחירה שהמשתמש לא ראה כשהשתיים ישבו בשני מקומות שונים.
@@ -1111,6 +1511,43 @@ export default function BuyerDetailPage({
           {...(buyer.agentNotes ? { defaultNote: buyer.agentNotes } : {})}
         />
       </TabPanel>
+
+      {/*
+        ‎---- ניווט תחתון — מובייל בלבד ---- (בקשת המשתמש)
+
+        ‏ארבע הלשוניות שסוכן עובר ביניהן בשטח, במרחק אגודל. הן
+        ‏**אותן** לשוניות של הפס העליון ואותו `selectTab` — לא ניווט
+        ‏שני שצריך לזכור לסנכרן, אלא אותו מצב בשתי נקודות מגע.
+        ‏„מסמכים” ו„שיתופי פעולה” נשארים בפס העליון: הם נפתחים במשרד,
+        ‏לא בין פגישות.
+
+        ‎`aria-current` ולא צבע בלבד — במצב ניגודיות גבוהה שני
+        ‏הגוונים נופלים לאותו שחור.
+
+        ‏הפס מרחף מעל התוכן (`fixed`), ולכן לפניו מרווח בגובהו:
+        ‏בלעדיו הכפתור האחרון בלשונית היה יושב מתחתיו ולא ניתן
+        ‏ללחיצה.
+      */}
+      <div className="mv-bottomnav-space" aria-hidden="true" />
+      <nav className="mv-bottomnav" aria-label="לשוניות הכרטיס">
+        {(
+          [
+            ["overview", "כרטיס"],
+            ["matches", "התאמות"],
+            ["tasks", "משימות"],
+            ["timeline", "ציר זמן"],
+          ] as const
+        ).map(([key, label]) => (
+          <button
+            key={key}
+            type="button"
+            aria-current={tab === key}
+            onClick={() => selectTab(key)}
+          >
+            {label}
+          </button>
+        ))}
+      </nav>
     </>
   );
 }

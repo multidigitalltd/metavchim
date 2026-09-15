@@ -23,6 +23,7 @@ import {
   safeDiagnosticKeys,
   telephonyParseIssue,
   telephonyProvider,
+  INTEGRATION_DIAGNOSIS_RESET,
   mergeIntegrationSecrets,
   mergeLegacySecretsIntoConfig,
   telephonySecretKeys,
@@ -37,23 +38,31 @@ import {
   type SoftphoneConfig,
   type SoftphoneGap,
   type VirtualNumberRule,
+  OPEN_LEAD_STATUSES,
+  type Capability,
+  canReceiveWhatsapp,
 } from "@metavchim/shared";
 import { lockContactPhone, lockProviderCall } from "../../common/locks";
 import { notifyOnce } from "../../common/notify-once";
-import { assertContactAccess } from "../../common/ownership";
+import {
+  assertContactAccess,
+  loadContactOwnerSources,
+  notifiableContactOwner,
+  officeRestrictsContactVisibility,
+} from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
 import { CryptoService } from "../../core/crypto.service";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PlatformSettingsService } from "../../core/platform-settings.service";
-import { PrismaService } from "../../core/prisma.service";
+import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import { ContactsService } from "../contacts/contacts.service";
 import { IntakeService } from "../intake/intake.service";
 import { WhatsAppSendService } from "../messaging/whatsapp-send.service";
 import {
-  TelephonyWebhookLogService,
-  type TelephonyWebhookOutcome,
-} from "./webhook-log.service";
+  WebhookLogService,
+  type WebhookHitOutcome,
+} from "../webhook-log/webhook-log.service";
 import { loadEnv } from "../../config/env";
 
 /**
@@ -76,6 +85,98 @@ const ROUTING_RETENTION_MS = 12 * 60 * 60 * 1000;
  * ההחלטה מה לעשות עם כל אירוע יושבת ב-packages/shared (telephony.ts)
  * ומכוסה בבדיקות; כאן רק הביצוע.
  */
+/**
+ * ‎**קהל ההתראה המשרדית — השם, מי הבעלים, והאם הוסתר.**
+ *
+ * ‏`redacted` הוא שדה משלו ולא נגזר מ-`name === null`, כי שני
+ * ‏מצבים שונים נופלים לשם: לקוח שהוסתר מהמשרד, ומספר שאינו מוכר.
+ */
+interface NotificationAudience {
+  name: string | null;
+  ownerUserId: string | null;
+  redacted: boolean;
+}
+
+/**
+ * ‎**השורה המשרדית — כלל אחד לזהות, למצביע ולמפתח שמוביל אליהם**
+ * ‏(ביקורת Codex, P1).
+ *
+ * ‏ההתראה המשרדית נכתבת ל-`userId: null`, והעובד מעשיר אותה
+ * ‏פר-נמען: `entityType: "contact"` הופך לשם ולטלפון מפוענחים, ו-
+ * ‏`"lead"` לאותו אדם דרך הליד שלו. ההרשאה לכך נבחנת ב-
+ * ‏`canSeeNotifyDetail` מול הרשאות **הקונים והלידים** — ולא מול
+ * ‏הרשאת הנכסים שההסתרה כאן נשענת עליה.
+ *
+ * ‏כלומר מנהל סניף שנחסם מבעלי נכסים קיבל את הזהות דרך המצביע,
+ * ‏אף שהשם עצמו הוסתר מהכותרת. השם ירד, המצביע נשאר, והדליפה
+ * ‏עברה דרך הדלת השנייה.
+ *
+ * ‏ענף הצלצול כבר עשה את הדבר הנכון וענף „לא נענתה” לא, ולכן זו
+ * ‏פונקציה אחת: שני ניסוחים של אותו כלל הם שני כללים שביום מן
+ * ‏הימים אינם מסכימים — וכאן הם כבר לא הסכימו.
+ *
+ * ‏גם מצביע הליד יורד, ולא רק זה של הלקוח: הליד מוביל לאותו אדם
+ * ‏בדיוק, תחת הרשאה שלישית. מספר שאינו מוכר אינו „מוסתר”, ולכן
+ * ‏ליד שנפתח ממנו נשאר מקושר.
+ *
+ * ## ‏ולמה גם הגוף, ולא רק המצביע
+ *
+ * ‏זו אותה דליפה בפעם השלישית, בשדה שלישי. „הצע טופס אחרי שיחה
+ * ‏שלא נענתה” מחזיר, כשאין תבנית מאושרת או כשהשליחה נכשלה, את
+ * ‏**נוסח ההודעה עצמו** — ובתוכו כתובת `‎/f/:token` חיה. הנוסח נכתב
+ * ‏ל-`body` של השורה המשרדית, ו-`NotificationsService.visible()`
+ * ‏מחזירה `body` כמות שהוא לכל מי שהשורה נראית לו, בלי שום שער
+ * ‏פר-נמען. כלומר האסימון — שפותח את הטופס, חושף את שם הפנייה של
+ * ‏הלקוח, ומאפשר לכתוב לכרטיס הקונה שלו — הגיע לכל המשרד דווקא
+ * ‏כשהלקוח מוסתר ממנו (ביקורת Codex, P1).
+ *
+ * ‏הכלל אינו „לסנן את הקישור מהטקסט”: זה היה מחייב לסווג חמישה
+ * ‏נוסחים שונים, ולתחזק את הסיווג הזה ליד כל `return` חדש. הכלל
+ * ‏הוא זה שכבר כתוב ב-`notifiableContactOwner`: **בעלים `null`
+ * ‏פירושו „התראה משרדית בלי תוכן”.** מוסתר — הכול יורד יחד, והשורה
+ * ‏האישית של הבעלים היא זו שנושאת את הנוסח המלא.
+ */
+export function publicNotification(
+  redacted: boolean,
+  row: {
+    /*
+     * ‎**והכותרת בתוך אותה הכרעה** (ביקורת Codex, P1).
+     *
+     * ‏המצביע והגוף ירדו, והכותרת נשארה בחוץ — ושתי בוניות הכותרת
+     * ‏משבצות לתוכה את **המספר הגולמי**. כלומר השם הוסתר והטלפון
+     * ‏של אותו לקוח בדיוק המשיך לצאת לכל המשרד, ומשם גם למנסח
+     * ‏הוואטסאפ. „מוסתר — הכול יורד יחד” נכתב כאן במפורש, והכותרת
+     * ‏פשוט לא הייתה חלק מה„הכול”.
+     *
+     * ‏עכשיו היא כן: הקורא מוסר את חומרי הגלם, וההכרעה מרכיבה.
+     */
+    kind: "incoming" | "missed";
+    contactName: string | null;
+    peerPhone: string;
+    leadId: string | null;
+    contactId: string | null;
+    body: string | null;
+  },
+): {
+  title: string;
+  entityType: "lead" | "contact" | null;
+  entityId: string | null;
+  body: string | null;
+} {
+  const build = row.kind === "incoming" ? incomingCallTitle : missedCallTitle;
+  /* ‏מוסתר: לא שם, **ולא מספר** — וממילא לא מצביע ולא גוף */
+  if (redacted) {
+    return { title: build(null, null), entityType: null, entityId: null, body: null };
+  }
+  const title = build(row.contactName, row.peerPhone);
+  const body = row.body;
+  if (row.leadId !== null) return { title, entityType: "lead", entityId: row.leadId, body };
+  if (row.contactId !== null) {
+    return { title, entityType: "contact", entityId: row.contactId, body };
+  }
+  return { title, entityType: null, entityId: null, body };
+}
+
 @Injectable()
 export class TelephonyService {
   private readonly logger = new Logger(TelephonyService.name);
@@ -86,7 +187,7 @@ export class TelephonyService {
     private readonly audit: AuditService,
     private readonly plans: PlanCatalogService,
     private readonly contacts: ContactsService,
-    private readonly webhookLog: TelephonyWebhookLogService,
+    private readonly webhookLog: WebhookLogService,
     private readonly intake: IntakeService,
     private readonly waSend: WhatsAppSendService,
     private readonly platformSettings: PlatformSettingsService,
@@ -266,9 +367,7 @@ export class TelephonyService {
             status: "active",
             config: input.config,
             secretsEncrypted,
-            ...(providerChanged
-              ? { lastEventAt: null, lastEventKeys: null, lastEventOk: null, lastEventIssue: null }
-              : {}),
+            ...(providerChanged ? INTEGRATION_DIAGNOSIS_RESET : {}),
           },
         });
       } else {
@@ -670,6 +769,7 @@ export class TelephonyService {
      */
     if (!TelephonyService.WEBHOOK_KEY_SHAPE.test(key)) {
       await this.webhookLog.record({
+        source: "telephony",
         outcome: "unknown_key",
         tenantId: null,
         key,
@@ -704,6 +804,7 @@ export class TelephonyService {
      */
     if (!integration || integration.status !== "active") {
       await this.webhookLog.record({
+        source: "telephony",
         outcome: integration ? "disabled" : "unknown_key",
         tenantId: integration?.tenantId ?? null,
         key,
@@ -731,6 +832,7 @@ export class TelephonyService {
        * שגויה, ובלי השורה הזו אין שום דרך להבדיל.
        */
       await this.webhookLog.record({
+        source: "telephony",
         outcome: "no_feature",
         tenantId: integration.tenantId,
         key,
@@ -800,7 +902,7 @@ export class TelephonyService {
      * ה-`return` המוקדם של אירוע שלא זוהה. `record` בולעת שגיאות
      * בעצמה, ולכן היא אינה יכולה להסתיר את החריגה המקורית.
      */
-    let outcome: TelephonyWebhookOutcome =
+    let outcome: WebhookHitOutcome =
       event === null ? "unparsed" : willLogCall ? "accepted" : "preliminary";
     try {
       const tenantId = integration.tenantId;
@@ -831,7 +933,7 @@ export class TelephonyService {
           where: { id: integration.id, tenantId },
           data: {
             lastEventAt: new Date(),
-            lastEventKeys: diagnosticFields(payload),
+            lastEventKeys: diagnosticFields(payload, "telephony"),
             lastEventOk: event !== null,
             lastEventIssue: issue,
           },
@@ -867,7 +969,61 @@ export class TelephonyService {
               select: { contact: { select: { id: true, nameEncrypted: true } } },
             });
         const contact = primary ?? secondary?.contact ?? null;
-        const contactName = contact ? this.crypto.decrypt(contact.nameEncrypted) : null;
+        const decryptedName = contact ? this.crypto.decrypt(contact.nameEncrypted) : null;
+        /*
+         * ‎**זהות בהתראה משרדית — רק כשאין במשרד הפרדה בכלל.**
+         *
+         * ‏ההתראה נכתבת ל-`userId: null` בכוונה (ראו הנימוק אצל
+         * ‏`action.notify`), ולכן היא PII שיושב בטקסט חופשי בלי שער
+         * ‏לפי לקוח: סוכן שנחסם מבעלי הנכסים של המשרד קיבל דרכה את
+         * ‏שמו של בעל נכס של עמית, ובהתראת „לא נענתה” גם את המספר
+         * ‏(ביקורת Codex, P1).
+         *
+         * ‏„אין הפרדה” פירושו שכל מי שיראה את ההתראה רשאי לראות כל
+         * ‏לקוח — ולא „איש לא כיוון חסימה”. ההבדל אינו תיאורטי: תפקיד
+         * ‏`agent` מקבל `buyers.view_own` בלבד, ולכן משרד ברירת-מחדל
+         * ‏עם סוכנים **כן** מפריד, בלי שאיש נגע בדבר (ביקורת Codex,
+         * ‏P1). השאלה על החריגים בלבד החזירה שם „מותר לכולם”.
+         *
+         * ‏במשרד שבו כולם רואים הכול — משרד של בעלים ומנהלים — שום
+         * ‏דבר לא משתנה. במשרד שמפריד, ההתראה המשרדית נראית כמו שיחה
+         * ‏ממספר לא מוכר (המספר עצמו מוצג ממילא, אחרת אי אפשר לענות),
+         * ‏ומי שהלקוח שייך לו מקבל התראה **אישית** עם השם.
+         */
+        /*
+         * ‎**נפתר רק כשיש התראה — ונפתר פעם אחת.**
+         *
+         * ‏שיחה אחת מייצרת כמה אירועים, ורובם אינם מתריעים כלל:
+         * ‏`Answer` חוזר מיד למטה. חישוב היכולות המשרדיות ושלוש
+         * ‏שאילתות הבעלות על **כל** אירוע היו עבודת הרשאה על אירועים
+         * ‏שאינם שולחים דבר (ביקורת Codex). הפונקציה נקראת בענפי
+         * ‏הצלצול והשיחה שלא נענתה בלבד, ושומרת את תשובתה.
+         */
+        let audience: NotificationAudience | undefined;
+        const notificationAudience = async (): Promise<NotificationAudience> => {
+          if (audience === undefined) {
+            const restricted = await officeRestrictsContactVisibility(tx, tenantId);
+            audience = {
+              name: restricted ? null : decryptedName,
+              /*
+               * ‎**„הוסתר” אינו „אין שם”** (ביקורת Codex, P1).
+               *
+               * ‏שני מצבים שונים מגיעים כ-`name: null`: לקוח שהוסתר
+               * ‏מהמשרד, ומספר שאינו מוכר בכלל. הראשון דורש שגם
+               * ‏**המצביע** יירד — אחרת העובד מפענח ממנו שם וטלפון —
+               * ‏והשני אינו דורש דבר, ולידים שנפתחים ממנו צריכים
+               * ‏להישאר מקושרים. דגל אחד מבדיל, במקום ששני הענפים
+               * ‏ינחשו מ-`name === null`.
+               */
+              redacted: restricted && contact !== null,
+              ownerUserId:
+                contact === null || !restricted
+                  ? null
+                  : await this.contactOwner(tx, tenantId, contact.id),
+            };
+          }
+          return audience;
+        };
 
         /*
          * שתי הגנות שונות מפני אותו אירוע שמגיע פעמיים, כי הן מגינות
@@ -943,16 +1099,38 @@ export class TelephonyService {
            * לנו מיפוי אמין ממנה למשתמש. עדיף שכולם יראו מי מתקשר מאשר
            * שההתראה תגיע לאדם הלא נכון.
            */
+          const {
+            name: contactName,
+            ownerUserId: contactOwnerUserId,
+            redacted,
+          } = await notificationAudience();
           await notifyOnce(tx, {
             tenantId,
             dedupeKey: `incoming_call:${event.providerCallId}`,
             userId: null,
             type: "incoming_call",
-            title: incomingCallTitle(contactName, event.peerPhone),
-            body: contact ? null : "מספר שאינו מוכר במערכת",
-            entityType: contact ? "contact" : null,
-            entityId: contact?.id ?? null,
+            /* ‏לקוח שהוסתר — הכותרת, המצביע והגוף יורדים יחד. ראו `publicNotification`. */
+            ...publicNotification(redacted, {
+              kind: "incoming",
+              contactName,
+              peerPhone: event.peerPhone,
+              leadId: null,
+              contactId: contact?.id ?? null,
+              body: contact ? null : "מספר שאינו מוכר במערכת",
+            }),
           });
+          if (contactOwnerUserId !== null) {
+            await notifyOnce(tx, {
+              tenantId,
+              dedupeKey: `incoming_call_owner:${event.providerCallId}`,
+              userId: contactOwnerUserId,
+              type: "incoming_call",
+              title: incomingCallTitle(decryptedName, event.peerPhone),
+              body: null,
+              entityType: "contact",
+              entityId: contact?.id ?? null,
+            });
+          }
           return;
         }
 
@@ -983,6 +1161,25 @@ export class TelephonyService {
 
         const outcome = callOutcomeOf(event, scratch.answerObserved);
         const occurredAt = event.startedAt ?? new Date();
+        /*
+         * ‎**מי קיבל את השיחה — נשמר, במקום להישאל בדיעבד.**
+         *
+         * ‏השלוחה שענתה קודמת לניתוב שנצפה: שיחה שנותבה לאחד וענה
+         * ‏עליה אחר **הגיעה** לשני, וזו השאלה שהמנהל שואל. הניתוב
+         * ‏הוא הכוונה; השלוחה היא מה שקרה.
+         *
+         * ‏שתי העמודות נכתבות גם כשאין סוכן מוכר: „שלוחה 203” היא
+         * ‏תשובה שימושית בהרבה מכלום, והיא גם מה שיאפשר להשלים את
+         * ‏ההתאמה אחר כך בלי לנחש בדיעבד.
+         */
+        const extension = event.extension?.trim() ?? "";
+        const answeredBy =
+          extension === ""
+            ? null
+            : await tx.user.findFirst({
+                where: { tenantId, sipUsername: extension },
+                select: { id: true },
+              });
         await tx.call.create({
           data: {
             id: ulid(),
@@ -1017,6 +1214,29 @@ export class TelephonyService {
              */
             propertyId:
               event.direction === "outbound" ? null : (virtualNumber?.propertyId ?? null),
+            /*
+             * ‏הצילום של „למי זה הגיע”, מאותו רגע ומאותו מקור כמו
+             * ‏הנכס. שיחה יוצאת נושאת את השלוחה של מי שחייג —
+             * ‏אותה עובדה בדיוק, מהצד השני.
+             *
+             * ‎**שלוחה שדווחה ולא זוהתה אינה נופלת לניתוב** (ביקורת
+             * ‏Codex, P1). הנפילה הקודמת הפכה „איננו יודעים מי זה”
+             * ‏ל„זו רותם”: שיחה שנותבה אליה ונענתה על שלוחה שאינה
+             * ‏מוגדרת נשמרה **על שמה**, וגם הסתירה את השלוחה שכן
+             * ‏נצפתה — כי המסך מעדיף שם על פני שלוחה.
+             *
+             * ‏זו הפרה של הכלל שה-PR הזה עצמו מכריז: מי שענה מנצח.
+             * ‏אם המרכזייה אמרה מי ענה ואיננו יודעים לתרגם — זו
+             * ‏התשובה, והמסך יאמר „שלוחה 203”. הניתוב הוא הנפילה
+             * ‏רק כשלא דווחה שלוחה כלל.
+             */
+            agentUserId:
+              extension === ""
+                ? event.direction === "outbound"
+                  ? null
+                  : (virtualNumber?.assignedToUserId ?? null)
+                : (answeredBy?.id ?? null),
+            agentExtension: extension === "" ? null : extension.slice(0, 20),
             /*
              * שעת השיחה כפי שהמרכזייה דיווחה, ורק בהיעדרה שעת הקליטה.
              *
@@ -1065,11 +1285,15 @@ export class TelephonyService {
          * עצמה: דיברו איתו. בלי זה הליד נשאר „לא נענה” במדדי המנטור
          * ובתזכורת ה-SLA, אף שהשיחה היא הראיה הכי חזקה שיש למענה.
          * אותו כלל של `CallsService.create` (ביקורת Codex).
+         *
+         * החותמת היא **עכשיו** ולא שעת השיחה: הליד נוצר בטרנזקציה הזו,
+         * והשיחה התחילה לפניו — חותמת לפי `occurredAt` הייתה מענה
+         * שלילי. ליד שנפתח משיחה שנענתה נענה ברגע שנפתח.
          */
         if (leadId !== null && outcome === "answered") {
           await tx.lead.updateMany({
             where: { id: leadId, tenantId, firstResponseAt: null },
-            data: { firstResponseAt: occurredAt },
+            data: { firstResponseAt: new Date() },
           });
         }
 
@@ -1105,13 +1329,38 @@ export class TelephonyService {
            * בתוך אותה טרנזקציה של קליטת האירוע: בקשה שנוצרה בלי
            * שהשיחה נרשמה היא קישור שאיש לא יודע למה נשלח.
            */
-          const pending = await this.offerIntakeAfterMissedCall(
+          const offered = await this.offerIntakeAfterMissedCall(
             tx,
             tenantId,
             leadId,
             contactId,
+            event.peerPhone,
+            event.callerName,
           );
+          const pending = offered.pending;
+          /*
+           * ‎**איש הקשר שנוצר זה עתה נתפר לשיחה ולהתראה.**
+           *
+           * שורת השיחה נכתבה למעלה עם `contact_id` ריק — היא נכתבת
+           * לפני הענף הזה. בלי התפירה כאן נוצר כרטיס שהשיחה שיצרה
+           * אותו אינה בהיסטוריה שלו, וההתראה „התקשר ולא נענה”
+           * מצביעה לשום מקום (ביקורת Codex, P1).
+           *
+           * באותה טרנזקציה, ולכן או ששניהם נכתבים או שאף אחד.
+           */
+          const callContactId = contactId ?? offered.contactId;
+          if (contactId === null && offered.contactId !== null) {
+            await tx.call.updateMany({
+              where: { tenantId, providerCallId: event.providerCallId },
+              data: { contactId: offered.contactId },
+            });
+          }
 
+          const {
+            name: contactName,
+            ownerUserId: contactOwnerUserId,
+            redacted,
+          } = await notificationAudience();
           await notifyOnce(tx, {
             tenantId,
             /*
@@ -1124,17 +1373,47 @@ export class TelephonyService {
             // כמו התראת הצלצול: אין מיפוי אמין משלוחה למשתמש
             userId: null,
             type: "call_missed",
-            title: missedCallTitle(contactName, event.peerPhone),
             /*
              * נוסח ההזמנה נכנס לגוף ההתראה כשלא נשלח אוטומטית ואין
              * למי לשייך משימה. התראה שאומרת „לא נשלח” בלי לצרף את
              * מה שצריך לשלוח מחייבת חיפוש, וזו בדיוק העבודה
              * שהאוטומציה נועדה לחסוך.
+             *
+             * ‏אלא כשהלקוח הוסתר: הנוסח הזה נושא את כתובת הטופס על
+             * ‏האסימון שלה, וגוף ההתראה המשרדית נקרא בלי שער
+             * ‏פר-נמען. אז הכול יורד — והנוסח המלא נשאר בשורה
+             * ‏האישית של הבעלים, שמופיעה מיד למטה.
              */
-            body: pending ?? (leadId ? "נפתח ליד חדש מהשיחה" : null),
-            entityType: leadId ? "lead" : contactId ? "contact" : null,
-            entityId: leadId ?? contactId,
+            /*
+             * ‏זה היה החור: השם הוסתר והמצביע נשאר, והעובד מפענח
+             * ‏ממנו שם וטלפון תחת הרשאה **אחרת** לגמרי. ראו
+             * ‏`publicNotification`.
+             */
+            ...publicNotification(redacted, {
+              kind: "missed",
+              contactName,
+              peerPhone: event.peerPhone,
+              leadId,
+              contactId: callContactId,
+              body: pending ?? (leadId ? "נפתח ליד חדש מהשיחה" : null),
+            }),
           });
+          /*
+           * ‏ובמשרד שהפעיל הפרדה — ההתראה המשרדית ירדה לשם ולמספר
+           * ‏של „לא מוכר”, ומי שהלקוח שלו מקבל אותה במלואה.
+           */
+          if (contactOwnerUserId !== null) {
+            await notifyOnce(tx, {
+              tenantId,
+              dedupeKey: `call_missed_owner:${event.providerCallId}`,
+              userId: contactOwnerUserId,
+              type: "call_missed",
+              title: missedCallTitle(decryptedName, event.peerPhone),
+              body: pending ?? (leadId ? "נפתח ליד חדש מהשיחה" : null),
+              entityType: leadId ? "lead" : callContactId ? "contact" : null,
+              entityId: leadId ?? callContactId,
+            });
+          }
         }
       });
     } catch (error) {
@@ -1147,12 +1426,28 @@ export class TelephonyService {
       throw error;
     } finally {
       await this.webhookLog.record({
+        source: "telephony",
         outcome,
         issue,
         tenantId: integration.tenantId,
         key,
         method,
         payload,
+        /*
+         * ‏האירוע שנותח — מה שמחבר את השורה לשיחה שהיא יצרה.
+         * ‏המספר נמסר בנפרד: הוא עובדה על הפונה ולא על אירוע
+         * ‏השיחה, ולטופס ליד יש אותו בלי שלושת השדות האחרים.
+         */
+        ...(event === null
+          ? {}
+          : {
+              event: {
+                type: event.type,
+                direction: event.direction,
+                providerCallId: event.providerCallId,
+              },
+              peerPhone: event.peerPhone,
+            }),
       });
     }
   }
@@ -1174,14 +1469,81 @@ export class TelephonyService {
    * כל השרשרת עטופה: תקלה כאן לא תפיל את קליטת האירוע, שאם תיכשל
    * תגרור שליחה חוזרת מהמרכזייה ורישום כפול של השיחה.
    */
+  /**
+   * ‏מי הסוכן שהלקוח הזה שייך לו — קונה, ליד, ואז נכס.
+   *
+   * ‎`notifiableContactOwner` הוא אותו כלל בדיוק שהתיבה משתמשת בו,
+   * ‏ולכן הוא יושב ב-`ownership.ts` ולא בשירות: שני עותקים של „למי
+   * ‏שייך הלקוח” כבר נפרדו כאן פעם אחת.
+   *
+   * ‏והוא גם מוודא שהנמען **רשאי** לראות את הלקוח: שיוך על השורה
+   * ‏אינו הרשאה, וסוכן שהמודול חסום אצלו היה מקבל התראה אישית עם
+   * ‏השם והטלפון על לקוח שאינו יכול לפתוח (ביקורת Codex, P1).
+   *
+   * ‏נשאל רק כשיש במשרד הפרדה — אחרת ההתראה המשרדית נושאת את השם
+   * ‏ממילא ואין למי לשלוח בנפרד.
+   */
+  private async contactOwner(
+    tx: TenantTx,
+    tenantId: string,
+    contactId: string,
+  ): Promise<string | null> {
+    /*
+     * ‎**שלושת המקורות תמיד, וכל השיוכים בכל מקור.**
+     *
+     * ‏הקיצור על „כבר נמצא בעלים” נשבר פעם אחת: מרגע שהשאלה היא
+     * ‏„מי משויך **ורשאי**”, מקור שנפסל חייב להוריש את התור לבא
+     * ‏אחריו. אותו כשל חזר שכבה פנימה — שורה אחת לכל מקור — ולכן
+     * ‏השליפה עצמה ירדה ל-`loadContactOwnerSources`, שהתיבה קוראת
+     * ‏לה גם היא. שני עותקים של השאלה הזו כבר נפרדו כאן פעם.
+     */
+    return notifiableContactOwner(
+      tx,
+      tenantId,
+      await loadContactOwnerSources(tx, tenantId, contactId),
+    );
+  }
+
   private async offerIntakeAfterMissedCall(
     tx: Parameters<Parameters<PrismaService["withExplicitTenant"]>[1]>[0],
     tenantId: string,
     leadId: string | null,
     contactId: string | null,
-  ): Promise<string | null> {
-    // בלי ליד אין כרטיס לתלות בו את הדרישות, ובלי איש קשר אין למי לשלוח
-    if (leadId === null || contactId === null) return null;
+    phone: string,
+    callerName: string | undefined,
+  ): Promise<{ pending: string | null; contactId: string | null }> {
+    /*
+     * ‎**הקשר דייר מפורש — הנתיב הזה ציבורי.**
+     *
+     * ‏`ingest` נכנס ל-`withExplicitTenant` בלבד, שמזריק את
+     * ‎`app.tenant_id` לטרנזקציה ואוכף את ה-RLS — אבל **אינו** ממלא
+     * את `TenantContext`. `ContactsService` קורא `TenantContext
+     * .current()`, שזורק כשאין הקשר, ולכן גם יצירת איש הקשר וגם
+     * קריאתו היו נופלות — נבלעות ב-`catch` שלמטה, ומחזירות את
+     * הפיצ'ר בדיוק למקום שממנו בא: שקט (ביקורת Codex, P1).
+     *
+     * וגרוע מכך אצל מתקשר מוכר: הבקשה כבר נוצרה לפני הנפילה, והיא
+     * נשמרת עם הטרנזקציה — כלומר מניעת הכפילות חוסמת גם את כל
+     * הניסיונות הבאים.
+     *
+     * זה אותו דפוס בדיוק שכבר מתועד ב-`IntakeService`: שתי השכבות —
+     * ה-RLS וההקשר — חייבות להיות מוגדרות יחד.
+     */
+    return TenantContext.run(
+      { tenantId, userId: "", capabilities: new Set<Capability>(), billingOnly: false },
+      () => this.intakeForMissedCall(tx, tenantId, leadId, contactId, phone, callerName),
+    );
+  }
+
+  /** הגוף עצמו — ראו את ההקשר שנפתח ב-`offerIntakeAfterMissedCall`. */
+  private async intakeForMissedCall(
+    tx: Parameters<Parameters<PrismaService["withExplicitTenant"]>[1]>[0],
+    tenantId: string,
+    leadId: string | null,
+    contactId: string | null,
+    phone: string,
+    callerName: string | undefined,
+  ): Promise<{ pending: string | null; contactId: string | null }> {
     try {
       const tenant = await tx.tenant.findUnique({
         where: { id: tenantId },
@@ -1190,20 +1552,98 @@ export class TelephonyService {
       });
       const raw = (tenant?.settings ?? {}) as Record<string, unknown>;
       if (!resolveAutomationSettings(raw["automations"])["missed_call_intake"].enabled) {
-        return null;
+        return { pending: null, contactId };
       }
+
+      /*
+       * ‎**איש הקשר נוצר כאן כשאין כזה — אחרת אין למי לשלוח.**
+       *
+       * שיחה שלא נענתה אינה פותחת ליד: `callAction.createLead` דורש
+       * ‎`type === "ended"` **ושמישהו דיבר**, ושניהם שקריים בהגדרה
+       * בענף הזה. לכן גם איש הקשר לא נוצר — הוא נוצר רק בתוך
+       * ‎`openLeadForUnknownCaller`. התוצאה הייתה ששני השדות ריקים
+       * תמיד, והשומר הישן („בלי ליד ובלי איש קשר”) הפיל את הפונקציה
+       * בשורתה הראשונה **בכל שיחה שלא נענתה, מאז ומעולם**.
+       *
+       * כלומר הפיצ'ר ששמו „הצע טופס אחרי שיחה שלא נענתה” מעולם לא
+       * שלח דבר (דיווח מהשטח, ייצור).
+       *
+       * ‎`findOrCreateByPhone` ולא יצירה ישירה: הוא נועל את המספר,
+       * מכיר גם מספר משני, ולכן מתקשר חוזר אינו מקבל כרטיס שני.
+       */
+      /*
+       * ‎**מי שאי אפשר לשלוח לו — לא נוגעים בו בכלל.**
+       *
+       * ‏`ISRAELI_PHONE` מקבל גם קו נייח, ושיחה נכנסת ממנו היא שיחה
+       * לכל דבר. אבל הודעת וואטסאפ לקו נייח אינה נכשלת ברעש: Meta
+       * מקבלת את הבקשה, איש אינו מקבל את ההודעה, והמערכת סבורה
+       * ש„נשלח”.
+       *
+       * הבדיקה **לפני** יצירת איש הקשר, וזו כל הנקודה (שאלת
+       * המשתמש: „למה צריך ליצור איש קשר?”). כרטיס נפתח רק כשהוא
+       * קונה משהו — מישהו שבאמת מקבל את הקישור, ואם ימלא אותו
+       * ייפתח לו כרטיס קונה. מספר שאי אפשר להגיע אליו אינו מייצר
+       * כלום: לא כרטיס, לא בקשה, ולא רעש ברשימת אנשי הקשר.
+       */
+      if (!canReceiveWhatsapp(phone)) {
+        return { pending: "לא נשלחה הודעה — המספר אינו נייד ישראלי", contactId };
+      }
+
+      const person =
+        contactId === null
+          ? await this.contacts.findOrCreateByPhone(tx, {
+              name: callerName ?? phone,
+              phone,
+            })
+          : null;
+      const targetContactId = contactId ?? person?.id ?? null;
+      if (targetContactId === null) return { pending: null, contactId: null };
+
+      /*
+       * ‎**העוגן: ליד פתוח אם יש, ואחרת קישור פתוח.**
+       *
+       * לליד אין דרישות משלו — הן שדה של קונה — ולכן הגשה על ליד
+       * נכתבת לכרטיס הקונה של אותו איש קשר (`targetBuyerId`). כשאין
+       * ליד, `subject: "open"` מתממש לכרטיס קונה חדש בהגשה
+       * (`materializeOpen`), והוא כבר יודע לדלג על שאלת הזהות
+       * כשהבקשה נושאת `contactId` — כלומר מי שאנחנו מכירים אינו
+       * ממלא את שמו מחדש.
+       */
+      const openLead =
+        leadId ??
+        (
+          await tx.lead.findFirst({
+            where: {
+              tenantId,
+              contactId: targetContactId,
+              status: { in: [...OPEN_LEAD_STATUSES] },
+            },
+            select: { id: true },
+            orderBy: { createdAt: "desc" },
+          })
+        )?.id ??
+        null;
 
       const created = await this.intake.ensureForMissedCall(
         tx,
         tenantId,
-        "lead",
-        leadId,
-        contactId,
+        openLead === null ? "open" : "lead",
+        openLead,
+        targetContactId,
       );
-      // כבר יש קישור בתוקף — לקוח שהתקשר שלוש פעמים אינו מקבל שלוש הודעות
-      if (created === null) return null;
+      /*
+       * כבר יש קישור בתוקף — לקוח שהתקשר שלוש פעמים אינו מקבל שלוש
+       * הודעות. נאמר במפורש ולא בשתיקה: „לא קיבל” ו„כבר קיבל
+       * אתמול” הן שתי מסקנות שונות למתווך (בקשת המשתמש).
+       */
+      if (created === null) {
+        return {
+          pending: "הלקוח כבר קיבל לאחרונה קישור למילוי הפרטים — לא נשלח שוב",
+          contactId: targetContactId,
+        };
+      }
 
-      const contact = await this.contacts.getById(tx, contactId);
+      const contact = await this.contacts.getById(tx, targetContactId);
       const template = await this.platformSettings.get("whatsappIntakeTemplate");
       const lang =
         (await this.platformSettings.get("whatsappIntakeTemplateLang")) ?? "he";
@@ -1230,7 +1670,12 @@ export class TelephonyService {
             )
           : false;
 
-      if (sent) return "נשלחה ללקוח הודעה עם קישור למילוי מה הוא מחפש";
+      if (sent) {
+        return {
+          pending: "✅ נשלחה ללקוח הודעה בוואטסאפ עם קישור למילוי הפרטים",
+          contactId: targetContactId,
+        };
+      }
 
       /*
        * לא נשלח — ההודעה המוכנה חוזרת לגוף ההתראה.
@@ -1240,7 +1685,10 @@ export class TelephonyService {
        * עצמה נוצרת בלי `userId`. משימה שהייתה מוצמדת למישהו
        * שרירותי הייתה נוחתת אצל מי שלא ענה לשיחה ולא יודע עליה.
        */
-      return `לא נשלח אוטומטית (אין תבנית מאושרת). שלחו ללקוח:\n${created.message}`;
+      return {
+        pending: `לא נשלח אוטומטית (אין תבנית מאושרת). שלחו ללקוח:\n${created.message}`,
+        contactId: targetContactId,
+      };
     } catch (error: unknown) {
       /*
        * בלוע במתכוון, וברמת `warn` ולא `error`: השיחה נרשמה,
@@ -1252,7 +1700,7 @@ export class TelephonyService {
           error instanceof Error ? error.message : "שגיאה לא ידועה"
         }`,
       );
-      return null;
+      return { pending: null, contactId };
     }
   }
 

@@ -1,0 +1,624 @@
+import { readFileSync } from "node:fs";
+import { describe, expect, it } from "vitest";
+
+/**
+ * ‎**דו-קיום: הקו של המשרד, והמתווך שממשיך לענות מהטלפון** (docs/12).
+ *
+ * ## למה הבדיקות כאן מבניות
+ *
+ * מה שנשבר בפיצ'ר הזה אינו חישוב — אין כאן פונקציה טהורה להאכיל.
+ * מה שנשבר הוא **סדר** ו**נוכחות** בזרימת הוובהוק: ענף שהוזז אחרי
+ * הענף שבולע הכול, קריאה שנשמטה, שדה שלא נקרא. כל אחד מהם משאיר
+ * מערכת שעולה, עוברת קומפילציה, ונכשלת **בשקט** — בדיוק סוג הכשל
+ * שהמשתמש חווה כ„זה פשוט לא עובד” ואנחנו כ„אין שגיאה בלוג”.
+ *
+ * הצד השני (Meta) אינו בריפו ואי אפשר להריץ אותו, ולכן מה שאפשר
+ * לקבע הוא שהקוד שלנו מרכיב את הזרימה כפי שהיא הוגדרה.
+ */
+
+const read = (relative: string): string =>
+  readFileSync(new URL(relative, import.meta.url), "utf8");
+
+const INBOUND = read("./whatsapp-inbound.service.ts");
+const CONNECTION = read("./whatsapp-connection.service.ts");
+const WEBHOOK = read("./whatsapp-webhook.controller.ts");
+
+/**
+ * ‎**אפליקציית חיבור נפרדת מזו של קו הסוכן.**
+ *
+ * הפרדה לגיטימית ואף רצויה ב-Meta: חסימה של אפליקציה אחת אינה מפילה
+ * את השנייה. אבל אז שתי אפליקציות מצביעות על אותו Webhook וכל אחת
+ * חותמת בסוד משלה, ו-Meta מחליפה `code` לטוקן רק מול הצמד
+ * ‎`app_id`+`app_secret` של אותה אפליקציה. שתי הנקודות האלה נכשלות
+ * **בשקט**: הראשונה כ-401 על כל הודעה מהאפליקציה השנייה, השנייה
+ * כשגיאת אימות של Meta שאינה מרמזת על הסיבה.
+ */
+describe("אפליקציית חיבור נפרדת", () => {
+  /*
+   * ‎`find` ולא `some`, ובכוונה: הערבות כאן זהה — הנתיב הישן ממשיך
+   * לנסות את שני הסודות ולכן התקנה שהפנתה אליו את שתי האפליקציות
+   * אינה נשברת — אבל מי שהתאים נשמר, כי הוא זה שקובע **בשם מי**
+   * הבקשה פועלת. `some` היה מאבד את המידע הזה, וזה מה שאִפשר לסוד
+   * של אפליקציית החיבור להפעיל את הסוכן האישי (ביקורת Codex).
+   */
+  it("אימות החתימה מנסה את שני הסודות ולא אחד", () => {
+    expect(WEBHOOK).toContain('this.platformSettings.get("whatsappConnectAppSecret")');
+    expect(WEBHOOK).toContain('this.platformSettings.get("whatsappAppSecret")');
+    expect(WEBHOOK).toMatch(/candidates\.find\(/u);
+    // הנתיב הישן מקבל את הרשימה המלאה, ולא סוד יחיד
+    const receive = WEBHOOK.slice(
+      WEBHOOK.indexOf("async receive(@Req() req: Request)"),
+      WEBHOOK.indexOf("async receiveConnect("),
+    );
+    expect(receive).toContain("await this.candidates()");
+  });
+
+  it("הסוד לנפילה חוזרת הוא של אפליקציה אחת, כך שהתקנה קיימת אינה נשברת", () => {
+    const connect = WEBHOOK.indexOf('"whatsappConnectAppSecret"');
+    const shared = WEBHOOK.indexOf('"whatsappAppSecret"');
+    expect(connect).toBeGreaterThan(0);
+    expect(shared).toBeGreaterThan(0);
+  });
+
+  /*
+   * ‎`appId` בא מ-`whatsappAppId` — של אפליקציית החיבור. צירופו עם
+   * הסוד של האפליקציה השנייה נדחה ב-Meta, ולכן הסוד הייעודי חייב
+   * להיקרא **לפני** המשותף.
+   */
+  it("המרת הקוד מעדיפה את הסוד של אפליקציית החיבור", () => {
+    const connect = CONNECTION.indexOf('"whatsappConnectAppSecret"');
+    const shared = CONNECTION.indexOf('"whatsappAppSecret"');
+    expect(connect).toBeGreaterThan(0);
+    expect(shared).toBeGreaterThan(connect);
+  });
+});
+
+describe("ניתוב הודעה נכנסת לקו של משרד", () => {
+  /*
+   * ‎`phone_number_id` הוא מפתח יציב על אינדקס ייחודי, וזו הדרך
+   * היחידה שבה הודעה מגיעה למשרד. המסלול הישן — מספר משרדי שהוקלד
+   * בהגדרות ונרשם ב-WABA של הפלטפורמה — הוסר בכוונה: קו משותף של
+   * הפלטפורמה אינו מוצר שמציעים ללקוחות (החלטת בעל המוצר), והשדה
+   * שהזמין אותו הציג „מחובר” על מספר שמעולם לא חובר.
+   */
+  it("הניתוב הוא לפי מזהה הקו בלבד", () => {
+    expect(INBOUND).toContain("this.connections.byPhoneNumberId(");
+    expect(INBOUND).toMatch(/const tenantId = connection\?\.tenantId \?\? null;/u);
+  });
+
+  /*
+   * ‎**המסלול הישן לא יחזור בשקט.** ניתוב לפי `settings.whatsappNumber`
+   * היה אומר שיש דרך שנייה, ידנית, לחבר מספר — והמסך שמזין אותה כבר
+   * אינו קיים. אם מישהו מחזיר את ה-Fallback, שיחזיר איתו גם את
+   * ההחלטה.
+   */
+  it("ואין ניתוב לפי מספר שהוקלד ידנית", () => {
+    expect(INBOUND).not.toContain("resolveTenant(");
+    expect(INBOUND).not.toContain('"whatsappNumber"');
+  });
+
+  /*
+   * הקו נבחר לפי החיבור, ולכן השיחה שנפתחת חייבת להיות של אותו קו:
+   * חלון 24 השעות הוא פר-קו-ופר-לקוח, ולא פר-משרד.
+   */
+  it("וחלון 24 השעות נפתח על השיחה של אותו קו", () => {
+    const ingest = INBOUND.slice(INBOUND.indexOf("private async ingestMessage("));
+    expect(ingest).toContain("whatsAppConversation.upsert");
+    expect(ingest).toContain("lastInboundAt");
+  });
+});
+
+describe("הד — המתווך ענה מהאפליקציה בטלפון", () => {
+  /*
+   * ‎**הענף חייב לקדום ללולאת ההודעות.** מתחתיו יושב ענף הסוכן
+   * האישי שמסתיים ב-`continue` על כל מה שמגיע לקו שלו, ולולאת
+   * ההודעות שמתחתיו מדלגת על כל מה שאינו `messages`. הד שהיה מגיע
+   * לשם היה נבלע — בדיוק התקלה שכבר קרתה פעם עם לחיצות כפתור.
+   */
+  it("ההדים מטופלים לפני ניתוב הקווים ולולאת ההודעות", () => {
+    const echoes = INBOUND.indexOf("value.message_echoes?.length");
+    const assistant = INBOUND.indexOf("assistantCreds !== null &&");
+    const loop = INBOUND.indexOf("for (const message of value.messages)");
+    expect(echoes).toBeGreaterThan(0);
+    expect(echoes).toBeLessThan(assistant);
+    expect(echoes).toBeLessThan(loop);
+  });
+
+  /*
+   * ‎**שתי הפעולות, ושתיהן.** רישום בלי השתקה = הבוט עונה על גבי
+   * המתווך; השתקה בלי רישום = ההיסטוריה במערכת חסרה בדיוק את מה
+   * שהמתווך כתב. אחת בלי השנייה היא חצי פיצ'ר שנראה שלם.
+   */
+  it("ההד נרשם בציר הזמן ומשתיק את הבוט", () => {
+    const handler = INBOUND.slice(
+      INBOUND.indexOf("private async handleEchoes("),
+      INBOUND.indexOf("private async handleHistory("),
+    );
+    expect(handler).toContain('provider: "coexistence_echo"');
+    expect(handler).toContain("botPausedUntil");
+    expect(handler, "הד חוזר פעמיים מ-Meta כמו כל מטען אחר").toContain("providerMessageId: echoId");
+  });
+
+  /*
+   * הד הוא הודעה **יוצאת** של המשרד. סימונה כנכנסת היה הופך כל
+   * תשובה של המתווך לפנייה חדשה של הלקוח בציר הזמן.
+   */
+  it("ונרשם ככיוון יוצא", () => {
+    const handler = INBOUND.slice(
+      INBOUND.indexOf("private async handleEchoes("),
+      INBOUND.indexOf("private async handleHistory("),
+    );
+    expect(handler).toContain('direction: "out"');
+  });
+});
+
+describe("עדכון חשבון מ-Meta", () => {
+  /*
+   * מתווך יכול לנתק את החיבור מהטלפון בכל רגע. בלי הענף הזה החיבור
+   * היה נשאר „מחובר” אצלנו לנצח, והמסך היה משקר.
+   */
+  it("ניתוק שהמתווך עשה מהטלפון מעדכן את החיבור", () => {
+    expect(INBOUND).toContain('change.field === "account_update"');
+    expect(INBOUND).toContain("this.connections.applyAccountUpdate(");
+  });
+
+  it("והטוקן נמחק כשהקו כבר אינו שלנו", () => {
+    const apply = CONNECTION.slice(
+      CONNECTION.indexOf("async applyAccountUpdate("),
+      CONNECTION.indexOf("async markHistory("),
+    );
+    expect(apply).toContain("accessTokenEncrypted: null");
+    expect(apply).toContain("DISABLED_UPDATE");
+  });
+});
+
+describe("חיבור המספר", () => {
+  /*
+   * ‎**ההרשמה ל-Webhooks היא מה שמפנה את ההודעות אלינו.** המרה
+   * מוצלחת לבדה נותנת טוקן ולא ניתוב, ולכן חיבור שנשמר בלי הקריאה
+   * הזו מציג „מחובר” ואף הודעה לא מגיעה — הכשל השקט המרכזי של
+   * הזרימה הזו.
+   */
+  it("ההרשמה ל-Webhooks נקראת, וכישלונה אינו נבלע", () => {
+    const complete = CONNECTION.slice(
+      CONNECTION.indexOf("async complete("),
+      CONNECTION.indexOf("async disconnect("),
+    );
+    expect(complete).toContain("this.subscribeApp(");
+    expect(complete).toContain('status: subscribed ? "pending_history" : "error"');
+    expect(complete, "חיבור בלי ניתוב אינו מדווח כהצלחה").toMatch(/if \(!subscribed\)/u);
+  });
+
+  /*
+   * מתווך שלחץ פעמיים, או רענן באמצע, אינו אמור לייצר שני קווים
+   * זהים — וקו של משרד אחר אינו אמור להיחטף בלחיצה.
+   */
+  it("חיבור חוזר מעדכן, וקו של משרד אחר נדחה", () => {
+    const complete = CONNECTION.slice(
+      CONNECTION.indexOf("async complete("),
+      CONNECTION.indexOf("async disconnect("),
+    );
+    expect(complete).toContain("existing.tenantId !== tenantId");
+    expect(complete).toMatch(/existing\s*\n?\s*\?\s*await this\.prisma\.whatsAppBusinessConnection\.update/u);
+  });
+
+  /*
+   * ‎**ניתוק מוחק את הסוד ומשאיר את השורה.** מחיקת השורה הייתה
+   * מציגה „מעולם לא חובר”; החזקת טוקן חי של עסק שכבר אינו איתנו
+   * היא בדיוק מה שהעמודה נעשתה Nullable כדי למנוע.
+   */
+  it("ניתוק מוחק את הטוקן ומשאיר את הסטטוס", () => {
+    const disconnect = CONNECTION.slice(
+      CONNECTION.indexOf("async disconnect("),
+      CONNECTION.indexOf("async byPhoneNumberId("),
+    );
+    expect(disconnect).toContain("accessTokenEncrypted: null");
+    expect(disconnect).toContain('status: "disconnected"');
+    expect(disconnect).toContain("disconnectReason");
+    expect(disconnect, "השורה נשמרת — „היה ונותק” הוא מידע").not.toContain("delete({");
+  });
+
+  /*
+   * ה-App Secret נדרש להמרה, ולכן ההמרה בשרת. `code` בפרונט הוא
+   * ערך חד-פעמי שאין בו נזק; Secret בפרונט הוא Secret שדלף.
+   */
+  it("והמרת הקוד נעשית בשרת עם ה-App Secret", () => {
+    expect(CONNECTION).toContain("client_secret");
+    expect(CONNECTION).toContain("oauth/access_token");
+  });
+});
+
+describe("מה בתשלום ומה לא", () => {
+  /*
+   * ‎**הגבול הכלכלי, ולא רק המסחרי.** הודעות נכנסות אינן עולות לנו
+   * דבר, ולכן החיבור והלידים פתוחים; תשובת בוט היא קריאת LLM
+   * שאנחנו משלמים עליה, ולכן היא נגבית. שער שיזלוג על החיבור היה
+   * גובה על מה שחינם, ושער חסר על הבוט היה מחלק חינם מה שעולה.
+   */
+  it("הבוט מאחורי שער פיצ'ר, והחיבור אינו", () => {
+    expect(CONNECTION).toContain("async botAllowed(");
+    expect(CONNECTION).toContain('tenantHasFeature(tenantId, "whatsapp_bot")');
+
+    const complete = CONNECTION.slice(
+      CONNECTION.indexOf("async complete("),
+      CONNECTION.indexOf("async disconnect("),
+    );
+    expect(complete, "חיבור המספר אינו נגבה").not.toContain("tenantHasFeature");
+  });
+
+  /*
+   * קליטת הליד היא הערך שמגיע לכל מסלול. שער שייכנס לנתיב הזה
+   * יהפוך „פנייה שנכנסת כליד” לפיצ'ר בתשלום בלי שאיש יתכוון לכך.
+   */
+  it("וקליטת הפניות בוובהוק אינה נבדקת מול מסלול", () => {
+    const ingest = INBOUND.slice(INBOUND.indexOf("private async ingestMessage("));
+    expect(ingest).not.toContain("tenantHasFeature");
+    expect(ingest).not.toContain("botAllowed");
+  });
+});
+
+describe("הסוד אינו זולג ליומן", () => {
+  /*
+   * כל השירות הזה מטפל בטוקנים של לקוחות. שורת לוג אחת שמדפיסה
+   * טוקן הופכת את היומן למאגר מפתחות — וזה בדיוק סוג השורה שנוספת
+   * „רק כדי לבדוק משהו” ונשארת.
+   */
+  it("אין הדפסה של טוקן או של סוד", () => {
+    const logLines = CONNECTION.split("\n").filter((line) => line.includes("this.logger."));
+    for (const line of logLines) {
+      expect(line, `שורת לוג חושפת סוד: ${line.trim()}`).not.toMatch(
+        /\$\{\s*(token|app\.appSecret|creds\.token|secret)\b/u,
+      );
+    }
+  });
+});
+
+/**
+ * ‎**הקו שייך לסוכן, לא למשרד** (docs/12).
+ *
+ * ההבחנה הזו היא כל ההבדל בין „חיברתי את הטלפון שלי” לבין „חיברתי
+ * את הטלפון שלי והלידים שלי הלכו לעמיתים”. היא נשענת על שרשרת של
+ * ארבע חוליות, וכל חוליה שנשמטת שוברת אותה **בשקט**: השאילתה
+ * שאינה בוחרת `userId`, הניתוב שאינו מעביר אותו, היצירה שאינה
+ * משייכת, והסינון שאינו מגביל. אף אחת מהן אינה מייצרת שגיאה.
+ */
+describe("הקו שייך לסוכן", () => {
+  const CONTROLLER = read("./whatsapp-connection.controller.ts");
+
+  it("שאילתת הניתוב בוחרת את בעל הקו — בלעדיו אין את מי לשייך", () => {
+    const fn = CONNECTION.slice(CONNECTION.indexOf("async byPhoneNumberId"));
+    expect(fn.slice(0, 600)).toContain("userId: true");
+  });
+
+  it("הוובהוק מעביר את בעל הקו לקליטה", () => {
+    expect(INBOUND).toContain("ownerUserId: connection.userId");
+  });
+
+  it("הליד נוצר משויך לסוכן, ולא נופל למאגר לא-משויך", () => {
+    expect(INBOUND).toMatch(/assignedToUserId: msg\.ownerUserId/u);
+  });
+
+  /*
+   * המסלול הישן (מספר שהוקלד בהגדרות המשרד) אינו יודע של מי הקו,
+   * ושם ליד לא-משויך הוא ההתנהגות הנכונה. השיוך חייב להישאר מותנה
+   * ולא קבוע, אחרת קליטה ישנה הייתה נשברת.
+   */
+  it("השיוך מותנה — קליטה ללא חיבור ממשיכה כשהייתה", () => {
+    expect(INBOUND).toMatch(/\.\.\.\(msg\.ownerUserId \? \{ assignedToUserId/u);
+  });
+
+  it("רשימת הקווים מסוננת לסוכן", () => {
+    const fn = CONNECTION.slice(CONNECTION.indexOf("async list("));
+    expect(fn.slice(0, 400)).toMatch(/userId \? \{ userId \}/u);
+  });
+
+  it("ניתוק מוגבל לקו של הסוכן כשנמסר מזהה", () => {
+    const fn = CONNECTION.slice(CONNECTION.indexOf("async disconnect("));
+    expect(fn.slice(0, 700)).toMatch(/userId \? \{ userId \}/u);
+  });
+
+  /*
+   * שני סוכנים על אותו מכשיר הוא תרחיש אמיתי. „חיבור” של קו שכבר
+   * שייך לעמית היה מעביר אליו בשקט שיחות שכבר רצות, ולכן זו דחייה
+   * מפורשת ולא עדכון.
+   */
+  it("קו שכבר מחובר לסוכן אחר באותו משרד נדחה", () => {
+    expect(CONNECTION).toContain("existing.userId !== userId");
+    expect(CONNECTION).toContain("כבר מחובר לסוכן אחר במשרד");
+  });
+
+  /*
+   * חיבור הטלפון של הסוכן עצמו אינו הגדרת משרד. אם הנתיבים האישיים
+   * יידרשו `settings.manage`, רק בעל המשרד יוכל לחבר — כלומר
+   * הפיצ'ר מת עבור כל השאר.
+   */
+  it("הנתיבים האישיים פתוחים לכל סוכן מחובר", () => {
+    const personal = CONTROLLER.slice(0, CONTROLLER.indexOf('@Get("office")'));
+    expect(personal).toContain("@AnyAuthenticated()");
+    expect(personal).not.toContain('@RequireCapability("settings.manage")');
+  });
+
+  /*
+   * ומנגד: תצוגת המשרד וניתוק קו של אחר הם נתוני משרד, ולכן חייבים
+   * יכולת. בלי הנתיב הזה קו של סוכן שעזב נשאר מחובר לנצח.
+   */
+  it("תצוגת המשרד וניתוק קו של אחר דורשים יכולת ניהול", () => {
+    const office = CONTROLLER.slice(CONTROLLER.indexOf('@Get("office")'));
+    expect(office).toContain('@RequireCapability("settings.manage")');
+    expect(office).not.toContain("@AnyAuthenticated()");
+  });
+});
+
+/**
+ * ‎**ייבוא ההיסטוריה וסנכרון אנשי הקשר** (docs/12 §5.3–5.4).
+ *
+ * שני מטענים שמגיעים פעם אחת בחיי החיבור, ואי אפשר לבקש אותם שוב:
+ * ‏Meta אינה שולחת נתח מחדש אחרי 200. לכן כל טעות כאן היא אובדן
+ * חד-פעמי של חצי שנה של שיחות — וכולן שקטות.
+ */
+describe("היסטוריה ואנשי קשר", () => {
+  it("ההיסטוריה נכתבת כ-Message ולא כ-Interaction", () => {
+    const fn = INBOUND.slice(INBOUND.indexOf("private async importThread"));
+    const body = fn.slice(0, 3000);
+    expect(body).toContain("tx.message.createMany");
+    // ‏`interaction_exactly_one_parent` דורש ליד או קונה, ולמיובא אין
+    expect(body).not.toContain("tx.interaction.create");
+  });
+
+  it("מיובא מסומן כמקורו, כדי שציר הזמן יבחין בין נקלט חי למיובא", () => {
+    expect(INBOUND).toContain('provider: "coexistence_history"');
+  });
+
+  /*
+   * החותמת המקורית היא כל הערך: היסטוריה שנכתבת בזמן הייבוא נראית
+   * כאילו כל חצי השנה קרתה היום, וציר הזמן מאבד משמעות.
+   */
+  it("החותמת המקורית נשמרת ולא זמן הייבוא", () => {
+    expect(INBOUND).toMatch(/createdAt: m\.timestamp \? new Date\(Number\(m\.timestamp\) \* 1000\)/u);
+  });
+
+  it("כיוון ההודעה נגזר מ-`to`, שקיים רק בהד של המתווך", () => {
+    expect(INBOUND).toMatch(/direction: m\.to \? "out" : "in"/u);
+  });
+
+  /*
+   * נתח נושא מאות הודעות. בדיקה פר הודעה הייתה מייצרת מאות
+   * הלוך-ושוב על שיחה אחת — ולכן הסינון הוא שאילתה אחת.
+   */
+  it("סינון הכפילויות הוא שאילתה אחת ולא בדיקה פר הודעה", () => {
+    const fn = INBOUND.slice(INBOUND.indexOf("private async importThread"));
+    expect(fn.slice(0, 3000)).toContain("providerMessageId: { in: ids }");
+  });
+
+  /*
+   * משרד פעיל שמחבר קו היה מקבל מאות „לידים חדשים” ביום החיבור,
+   * וכולם ישנים — כלומר רשימת העבודה שלו נהרסת ברגע שהוא מצטרף.
+   */
+  it("ייבוא אינו פותח לידים", () => {
+    const fn = INBOUND.slice(
+      INBOUND.indexOf("private async importThread"),
+      INBOUND.indexOf("private async handleStateSync"),
+    );
+    expect(fn).not.toContain("tx.lead.create");
+    expect(fn).not.toContain("lead.created");
+  });
+
+  /*
+   * „לא הגיעה היסטוריה” ו„המתווך בחר לא לשתף” הם מצבים שונים:
+   * הראשון תקלה, השני החלטה. בלי ההבחנה המסך נתקע על „מסתנכרן”.
+   */
+  it("סירוב לשתף מסיים את ההמתנה במקום להיתקע על מסתנכרן", () => {
+    const fn = INBOUND.slice(INBOUND.indexOf("private async handleHistory"));
+    expect(fn.slice(0, 2500)).toContain("{ shared: false, done: true }");
+  });
+
+  it("כישלון ייבוא מסמן את החיבור, כי אין ניסיון חוזר מול Meta", () => {
+    const fn = INBOUND.slice(INBOUND.indexOf("private async handleHistory"));
+    expect(fn.slice(0, 2500)).toContain("{ failed: true }");
+    expect(CONNECTION).toMatch(/state\.failed \? \{ status: "error" \}/u);
+  });
+
+  /*
+   * ‎**זו ההחלטה החשובה ביותר בסנכרון אנשי הקשר.** מחיקה מפנקס
+   * הכתובות בטלפון היא ניקוי אישי, לא הצהרה שהלקוח יצא מהמערכת —
+   * ומחיקה אוטומטית הייתה מוחקת איש קשר שתלויים בו לידים והצעות.
+   */
+  it("מחיקה מפנקס הכתובות אינה מוחקת איש קשר מהמערכת", () => {
+    const fn = INBOUND.slice(INBOUND.indexOf("private async handleStateSync"));
+    const body = fn.slice(0, 2500);
+    expect(body).toContain('entry.action === "remove"');
+    expect(body).not.toContain("tx.contact.delete");
+    expect(body).not.toContain("deleteMany");
+  });
+
+  it("נתח שמגיע אחרי ניתוק אינו מחייה את החיבור", () => {
+    const fn = CONNECTION.slice(CONNECTION.indexOf("async markHistory"));
+    expect(fn.slice(0, 900)).toContain("disconnectedAt: null");
+  });
+});
+
+/**
+ * ‎**הבוט שעונה ללקוחות** (docs/12 §6).
+ *
+ * הכללים הטהורים נבדקים ב-`bot-policy.test.ts` על קלט אמיתי. מה
+ * שנשאר כאן הוא **הסדר והחיווט** — שער שהוזז, קו שגוי לשליחה,
+ * ‏`await` שנשכח. כל אחד מהם משאיר בוט שנראה עובד.
+ */
+describe("הבוט על הקו של הסוכן", () => {
+  const BOT = read("./whatsapp-bot.service.ts");
+
+  /*
+   * לקוח שביקש „הסר” וקיבל במקום זה שאלת אפיון הוא בדיוק התלונה
+   * שמורידה דירוג איכות — ולכן השער הזה ראשון, גם לפני בדיקת מסלול.
+   */
+  it("„הסר” נבדק לפני כל שער אחר", () => {
+    const optOut = BOT.indexOf("isOptOut(input.text)");
+    const paused = BOT.indexOf("conversation.botPausedUntil");
+    const plan = BOT.indexOf("botAllowed(input.tenantId)");
+    const enabled = BOT.indexOf("settings.enabled");
+    expect(optOut).toBeGreaterThan(0);
+    expect(optOut).toBeLessThan(paused);
+    expect(optOut).toBeLessThan(plan);
+    expect(optOut).toBeLessThan(enabled);
+  });
+
+  it("השתקה אחרי מענה ידני גוברת על הגדרות הבוט", () => {
+    expect(BOT.indexOf("conversation.botPausedUntil")).toBeLessThan(
+      BOT.indexOf("settings.enabled"),
+    );
+  });
+
+  /*
+   * הלקוח כתב למספר של המתווך. תשובה שתצא מקו הפלטפורמה נראית לו
+   * כהודעה ממספר זר — ובמקרה הטוב מתעלמים ממנה.
+   */
+  it("התשובה יוצאת מקו הסוכן ולא מקו הפלטפורמה", () => {
+    expect(BOT).toContain("credentialsFor(input.connectionId)");
+    expect(BOT).toContain("sendTextAs(");
+    expect(BOT).not.toContain("this.sender.sendText(");
+  });
+
+  it("הבוט חסום כשהתוסף אינו במסלול", () => {
+    expect(BOT).toContain("botAllowed(input.tenantId)");
+    expect(BOT).toContain('return "not_in_plan"');
+  });
+
+  /*
+   * בלי ההשתקה הבוט היה ממשיך לענות בהודעה הבאה — בדיוק כשהלקוח
+   * כבר ביקש אדם.
+   */
+  it("אסקלציה משתיקה את הבוט ומתריעה לסוכן", () => {
+    const fn = BOT.slice(BOT.indexOf("private async escalate"));
+    const body = fn.slice(0, 1800);
+    expect(body).toContain("botPausedUntil");
+    expect(body).toContain("tx.notification.create");
+    expect(body).toContain("input.ownerUserId");
+  });
+
+  it("תשובת הבוט נרשמת בציר הזמן, כדי שהמתווך יראה מה נאמר בשמו", () => {
+    expect(BOT).toContain('provider: "coexistence_bot"');
+    expect(BOT).toContain("tx.interaction.create");
+  });
+
+  /* בלי המדידה אין דרך לתמחר תוסף שכל תשובה בו היא קריאת LLM */
+  it("כל תשובה נרשמת לצריכה", () => {
+    expect(BOT).toContain("tx.agentEvent.create");
+    expect(BOT).toContain('actionId: "bot.reply"');
+  });
+
+  /* הוובהוק חייב 200 מהר; תשובה שלמה היא שניות */
+  it("הבוט נקרא בלי await מנתיב הוובהוק", () => {
+    expect(INBOUND).toMatch(/void this\.bot\.maybeReply\(/u);
+  });
+
+  /*
+   * במסלול הישן (מספר שהוקלד ידנית) אין חיבור ולכן אין קו לענות
+   * ממנו. הקליטה חייבת להמשיך לעבוד — הבוט פשוט לא רץ.
+   */
+  it("בלי חיבור הבוט אינו רץ והקליטה ממשיכה", () => {
+    expect(INBOUND).toMatch(/if \(ingested && connection\)/u);
+  });
+
+  it("כישלון של הבוט אינו מפיל את הוובהוק", () => {
+    const fn = BOT.slice(BOT.indexOf("async maybeReply"));
+    expect(fn.slice(0, 800)).toContain("catch");
+  });
+});
+
+/**
+ * ‎**שמות השדות ב-`extras` הם חוזה עם Meta, לא סגנון.**
+ *
+ * ‏זה הפרט היחיד בזרימה שאין לו כשל גלוי: מפתח שאינו מוכר ל-Meta
+ * נבלע בשקט, הפופאפ נפתח, והמתווך מקבל את דיאלוג ההתחברות הרגיל של
+ * פייסבוק („להמשיך בתור…”) במקום בחירת מספר. אין שגיאה בלוג, אין
+ * שגיאה בקונסולה, ואין דרך לאבחן את זה מהקוד — ולכן יש כאן בדיקה.
+ *
+ * כך בדיוק ישב כאן `version: "v3"` במקום `sessionInfoVersion: "3"`.
+ */
+describe("הפרמטרים שהפרונט מוסר לפופאפ", () => {
+  const SECTION = read("../../../../web/src/app/settings/whatsapp-business-section.tsx");
+
+  it("מבקש את גרסת ה-session info בשם שבו Meta מכירה", () => {
+    expect(SECTION).toContain('sessionInfoVersion: "3"');
+    /*
+     * המפתח השגוי שהחליף אותה — אסור שיחזור. עוגן לתחילת שורה, כדי
+     * שההסבר בהערה (שמצטט אותו) לא ייחשב חזרה שלו.
+     */
+    expect(SECTION).not.toMatch(/^\s*version:\s*"v3"/mu);
+  });
+
+  /*
+   * זרימת הדו-קיום פתוחה רק לאפליקציה שאושרה ל-Coexistence אצל
+   * Meta. קיבועה בקוד פירושו שהתקנה שלא אושרה תקועה עד גרסה חדשה,
+   * ובדיוק ברגע שבו אי אפשר לחבר אף מספר.
+   */
+  it("סוג הזרימה מגיע מהשרת ואינו מקובע בפרונט", () => {
+    expect(SECTION).toContain("featureType: data.signup.featureType");
+    expect(CONNECTION).toContain("whatsappSignupFeatureType");
+  });
+
+  /*
+   * ‏`code` בלי מזהים אינו כשל: מסלול „להמשיך עם ההגדרות הקודמות”
+   * מדלג על בחירת המספר ולכן אינו משדר אירוע. חסימה בפרונט הייתה
+   * מחזירה את המתווך למסך שאין ממנו מוצא.
+   */
+  it("קוד בלי מזהים נשלח לשרת ואינו נעצר בדפדפן", () => {
+    expect(SECTION).toContain("...(assets ?? {})");
+    expect(CONNECTION).toContain("this.resolveAssets(app, issued.token)");
+  });
+
+  /*
+   * ‎**ההסכמה חייבת לתאר את מה שבאמת יקרה למספר.**
+   *
+   * ‏המסך הזה הוא מה שהסוכן קורא לפני שהוא מוסר את המספר שבכיסו.
+   * בדו-קיום המספר ממשיך לעבוד באפליקציה; במסלול הרגיל הוא **עובר**
+   * לניהול המערכת ומפסיק לעבוד שם. נוסח הדו-קיום שמוצג למי שמריץ
+   * את המסלול הרגיל הוא הסכמה שניתנה על סמך מידע שגוי (ביקורת
+   * Codex) — ולכן שתי רשימות, ולכן בדיקה.
+   */
+  it("רשימת „מה משתנה” מותנית במסלול, ואומרת שהמספר עוזב את הטלפון", () => {
+    expect(SECTION).toContain("LIMITATIONS_STANDARD");
+    expect(SECTION).toContain("BENEFITS_STANDARD");
+    expect(SECTION).toContain("coexistence ? LIMITATIONS_COEXISTENCE : LIMITATIONS_STANDARD");
+    const standard = SECTION.slice(
+      SECTION.indexOf("const LIMITATIONS_STANDARD"),
+      SECTION.indexOf("const STATUS_LABELS"),
+    );
+    expect(standard).toContain("מפסיק לעבוד באפליקציית");
+  });
+
+  /*
+   * ‏„רגיל” נשמר כמילה: `""` בנתיב ההגדרות פירושו „מחק את השורה”,
+   * והבחירה הייתה נמחקת בשמירה — הבורר במסך היה נראה עובד בזמן
+   * שהדו-קיום חוזר בשקט (ביקורת Codex).
+   */
+  /*
+   * ‎**הקו הוא של הסוכן — ולכן המסך אינו מסונן לבעל המשרד.**
+   *
+   * ‏הסינון `role === "owner"` נכתב עבור `WhatsAppStatusSection`,
+   * סטטוס משרדי שהוסר מאז; סעיף החיבור ירש אותו וירש איתו בדיוק את
+   * ההפך ממה שהוא: כל סוכן מחבר את המספר שבכיס שלו. התוצאה בשטח
+   * הייתה „נעלמה האפשרות לחבר” אצל מי שמנהל את המשרד אך אינו
+   * ה-owner — הוא רואה את כל שאר החיבורים ואת זה לא, בלי שגיאה.
+   *
+   * השרת מעולם לא חשב אחרת, ולכן שני הצדדים נבדקים יחד.
+   */
+  it("סעיף החיבור אינו מסונן לפי תפקיד, והנתיב פתוח לכל מחובר", () => {
+    const page = read("../../../../web/src/app/settings/page.tsx");
+    const at = page.indexOf("<WhatsAppBusinessSection");
+    expect(at).toBeGreaterThan(0);
+    // מה שעוטף את הסעיף — ולא כל הקובץ, שבו „owner” מופיע לגיטימית
+    expect(page.slice(Math.max(0, at - 700), at)).not.toContain('role === "owner"');
+
+    const controller = read("./whatsapp-connection.controller.ts");
+    const list = controller.slice(controller.indexOf("@Get()"), controller.indexOf("async list("));
+    expect(list).toContain("@AnyAuthenticated()");
+  });
+
+  it("הבחירה ב„רגיל” נשמרת כערך ולא כמחרוזת ריקה", () => {
+    const settings = read("../../../../web/src/app/platform/platform-settings-section.tsx");
+    expect(settings).toContain('<option value="standard">');
+    expect(settings).not.toMatch(/whatsappSignupFeatureType:\s*\n?\s*.*:\s*"",/u);
+    expect(CONNECTION).toContain('const STANDARD_FEATURE = "standard"');
+  });
+});

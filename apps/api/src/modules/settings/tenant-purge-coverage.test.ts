@@ -146,6 +146,29 @@ describe("מחיקת משרד — כיסוי הטבלאות", () => {
     expect(missing).toEqual([]);
   });
 
+  /**
+   * ‎**הפטור עצמו נבדק — ולא רק מי נהנה ממנו.**
+   *
+   * ‏הבדיקה שמעל מוותרת על `deleteMany` לכל טבלה ש-`cascadingFromTenants`
+   * מכריזה עליה. כלומר גזירה ש**מגזימה** מוחקת את הבדיקה מבפנים:
+   * אם היא תחזיר „הכול מנותק”, כל טבלה תיפטר, ושורות של לקוח שביקש
+   * להימחק יישארו — בדיוק הדליפה שהקובץ הזה קיים כדי למנוע.
+   *
+   * ‏המוטציה הזאת עברה בשקט. העוגן כאן אינו גזירה נוספת מאותו טקסט
+   * ‏(שהיה חוזר על אותה טעות) אלא **עובדה ידועה על הסכימה**:
+   * ‏`users` ו-`properties` מוגדרות `ON DELETE RESTRICT`, ולכן הן
+   * חייבות להימחק במפורש — וכך הן אכן נמחקות. גזירה שמכריזה עליהן
+   * כמנותקות שגויה בהגדרה.
+   */
+  it("הגזירה של „נופל ב-CASCADE” אינה כוללת טבלאות RESTRICT", () => {
+    const cascading = cascadingFromTenants(PRISMA_DIR);
+    const restricted = ["users", "properties"];
+    expect(restricted.filter((table) => cascading.has(table))).toEqual([]);
+    // ‏ולא ריקה מדי: מי שכן מנותק חייב להופיע, אחרת הבדיקה שמעל
+    // ‏הייתה דורשת מחיקות מיותרות בלי שאיש ישים לב
+    expect(cascading.has("sessions")).toBe(true);
+  });
+
   it("הרשימה של „נשמר בכוונה” אינה מכילה טבלה שכבר אינה תחת RLS", () => {
     const tables = rlsTables(PRISMA_DIR);
     const stale = Object.keys(KEPT_ON_PURPOSE).filter((table) => !tables.has(table));

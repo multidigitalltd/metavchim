@@ -16,6 +16,7 @@ import {
 } from "@metavchim/shared";
 import { apiGet, apiPost, ApiError } from "@/lib/api";
 import { can, useRequireAuth } from "@/lib/use-auth";
+import { reloadWithFreshSession } from "@/lib/session-cache";
 import { formatDate, formatNumber } from "@/lib/format";
 import { Notice } from "../notice";
 
@@ -147,17 +148,41 @@ export function BillingSection({ expired = false }: { expired?: boolean }): Reac
    * מעבר למסלול חינמי — בלי דף תשלום ובלי נציג (בקשת המשתמש: מסלול
    * השת"פ היה כתוב "פנו אלינו" בלי סיבה). השרת מאמת שהמסלול באמת
    * חינמי; מסלול בתשלום שנשלח לכאן נדחה שם.
+   *
+   * ‎**ומיד אחרי — לדשבורד, בטעינה מלאה** (דיווח המשתמש: „אחרי
+   * שבוחרים מסלול לא עוברים מיד לדשבורד”). מסלול חינמי מבטל את
+   * התפוגה בשרת, כלומר משרד שתקופתו נגמרה **כבר פתוח** ברגע
+   * שהבקשה חזרה — אבל המעטפת עוד נושאת `billingOnly: true`
+   * מהסשן שנשלף פעם אחת, ולכן היא המשיכה לצייר מסך חסום בלי
+   * תפריט. רענון הכרטיס בלבד תיקן את הכרטיס ולא את הכלוב.
+   *
+   * `reloadWithFreshSession` ולא `router.replace`: ה-`AppShell`
+   * שורד ניווט פנימי יחד עם ה-`me` הישן שלו.
    */
   async function switchFree(planCode: string): Promise<void> {
     setBusy(planCode);
     setError(null);
     try {
       await apiPost<{ ok: true }>("/billing/switch-free", { plan: planCode });
-      const fresh = await apiGet<Overview>("/billing");
-      setData(fresh);
+      /*
+       * ‎**לאן** — לפי מה שהיה, לא לפי מה שיהיה. מי שהיה חסום עבר
+       * עכשיו את החומה, וזה הרגע לפתוח לו את המערכת. מי שרק החליף
+       * מסלול מתוך ההגדרות נשאר איפה שהיה — אבל עדיין בטעינה מלאה,
+       * כי המסלול קובע גם את רשימת הפיצ׳רים שהמעטפת מחזיקה.
+       *
+       * ‎**„איפה שהיה” כולל את המחרוזת, לא רק את הנתיב** (ביקורת
+       * ‏Codex): הרכיב הזה מוצג גם כלשונית בתוך `‎/settings`, והלשונית
+       * ‏הנבחרת חיה ב-`?tab=billing`. `pathname` לבדו היה מחזיר את
+       * ‏המנהל ללשונית „צוות” — כלומר בדיוק ההזזה שהסעיף הזה נועד
+       * ‏למנוע.
+       */
+      reloadWithFreshSession(
+        user?.billingOnly === true
+          ? "/"
+          : `${window.location.pathname}${window.location.search}${window.location.hash}`,
+      );
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "המעבר נכשל");
-    } finally {
       setBusy(null);
     }
   }

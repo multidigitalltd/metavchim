@@ -1,4 +1,12 @@
-import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
+import {
+  BadRequestException,
+  GoneException,
+  Injectable,
+  Logger,
+  NotFoundException,
+  OnModuleDestroy,
+  OnModuleInit,
+} from "@nestjs/common";
 import { randomBytes } from "node:crypto";
 import { ulid } from "ulid";
 import {
@@ -8,7 +16,8 @@ import {
   OfferPresentationSchema,
   type OfferEmailItem,
 } from "@metavchim/shared";
-import { TenantContext } from "../../common/tenant-context";
+import { ownershipFilter } from "../../common/ownership";
+import { actingUserId, TenantContext } from "../../common/tenant-context";
 import { loadEnv } from "../../config/env";
 import { AuditService } from "../../core/audit.service";
 import { EmailRejectedError, EmailService } from "../../core/email.service";
@@ -714,9 +723,129 @@ export class OfferEmailService implements OnModuleInit, OnModuleDestroy {
       first.buyerName,
       first.contactId,
       created,
+      /* ‏הסבב אוטומטי ואין לו סוכן ששלח — הסדר הרגיל הוא הנכון */
+      null,
     );
     // דחייה ודאית — ההצעות קיימות כ-`email_failed`, אבל מייל לא יצא
     return outcome === "sent" ? created.length : 0;
+  }
+
+  /**
+   * ‎**שליחה ידנית של הצעה אחת במייל — ה„שלח” שלא היה.**
+   *
+   * ## מה היה חסר
+   *
+   * ‎`POST /offers` יצר קישור וסימן „נשלח”, ומעולם לא שלח דבר. הערוץ
+   * היחיד שבאמת יצא ללקוח היה וואטסאפ, וגם הוא רק מכרטיס הנכס. משרד
+   * שלקוחותיו עובדים במייל ראה „ההצעה נשלחה” על כל הצעה, ואף לקוח לא
+   * קיבל דבר — וזו בדיוק התלונה.
+   *
+   * ## למה כאן ולא ב-`OffersService`
+   *
+   * בניית המייל, ההסרה לפי §30א, כתובת התשובה, סימון `email_failed`
+   * בדחייה ודאית ואישור ה-`sent` — כולם כבר כתובים ב-`deliver`,
+   * ונבדקו בסבב האוטומטי. שליחה ידנית שהייתה בונה מייל משלה הייתה
+   * מייל שני שמתיישן בנפרד.
+   *
+   * ## מה נדחה, ובמפורש
+   *
+   * לקוח בלי כתובת, לקוח שהסיר את עצמו, ספק דואר שאינו מוגדר —
+   * שלושתם **שגיאה שהמתווך רואה**, לא כישלון שקט. הודעת השגיאה
+   * מפנה לוואטסאפ, כי זה מה שנשאר לעשות.
+   */
+  async sendOne(offerId: string): Promise<{ sentTo: string }> {
+    const tenantId = TenantContext.current().tenantId;
+    /*
+     * שער ההחתמה — אותו שער בדיוק שבשליחה בוואטסאפ. הסכם יכול
+     * להידחות בין יצירת ההצעה לשליחתה, וזו הנקודה שבה היא באמת
+     * יוצאת ללקוח (חוק המתווכים §9).
+     */
+    await this.offers.assertSignatureSatisfied(offerId);
+
+    const ready = await this.prisma.withTenant(async (tx) => {
+      const offer = await tx.offer.findFirst({ where: { id: offerId, tenantId } });
+      if (!offer) throw new NotFoundException("הצעה לא נמצאה");
+      if (offer.tokenExpires < new Date()) {
+        throw new GoneException("תוקף קישור ההצעה פג — צרו הצעה חדשה");
+      }
+      const match = await tx.match.findFirst({
+        where: { id: offer.matchId, tenantId },
+        select: { buyerId: true, propertyId: true },
+      });
+      if (!match) throw new NotFoundException("התאמה לא נמצאה");
+      const buyer = await tx.buyer.findFirst({
+        where: {
+          id: match.buyerId,
+          tenantId,
+          deletedAt: null,
+          // הפעולה מחזירה כתובת של אדם — אותו פילטר בעלות כמו בוואטסאפ
+          ...ownershipFilter("buyers.view_all", "ownerUserId"),
+        },
+        select: { contactId: true },
+      });
+      if (!buyer) throw new NotFoundException("הצעה לא נמצאה");
+      const consent = await tx.contact.findFirst({
+        where: { id: buyer.contactId, tenantId },
+        select: { optedOutAt: true },
+      });
+      if (consent === null || consent.optedOutAt !== null) {
+        throw new BadRequestException(
+          "הלקוח ביקש להפסיק לקבל הצעות במייל — אפשר לשלוח בוואטסאפ",
+        );
+      }
+      const contact = await this.contacts.getById(tx, buyer.contactId);
+      if (!contact?.email) {
+        throw new BadRequestException("לקונה אין כתובת אימייל בכרטיס — שלחו בוואטסאפ");
+      }
+      const tenant = await tx.tenant.findFirst({ where: { id: tenantId }, select: { name: true } });
+      const presentation = OfferPresentationSchema.parse(offer.presentation);
+      return {
+        officeName: tenant?.name ?? "משרד התיווך",
+        to: contact.email,
+        buyerName: contact.name,
+        contactId: buyer.contactId,
+        row: {
+          offerId: offer.id,
+          token: offer.publicToken,
+          title: presentation.title,
+          ...(presentation.priceAgorot === undefined
+            ? {}
+            : { priceAgorot: presentation.priceAgorot }),
+          propertyId: match.propertyId,
+          buyerId: match.buyerId,
+        } satisfies OutgoingOffer,
+      };
+    });
+
+    if (!(await this.email.isConfigured())) {
+      throw new BadRequestException("שליחת אימייל אינה מוגדרת במערכת — שלחו בוואטסאפ");
+    }
+    const outcome = await this.deliver(
+      tenantId,
+      ready.officeName,
+      ready.to,
+      ready.buyerName,
+      ready.contactId,
+      [ready.row],
+      /*
+       * ‎**סוכן לחץ „שלח במייל”, ולכן התשובה חוזרת אליו** (ביקורת
+       * ‏Codex, P1). בלי זה, הצעה שסוכן ב׳ שלח על כרטיס הקונה שלו
+       * ‏הייתה מחזירה את תשובת הלקוח — ואת שמו ואת תמצית ההודעה —
+       * ‏לסוכן א׳, שכרטיסו על אותו לקוח חדש יותר.
+       */
+      actingUserId(),
+    );
+    /*
+     * דחייה ודאית של הספק — ההצעה סומנה `email_failed` ב-`deliver`,
+     * והמתווך חייב לדעת שהמייל לא יצא. בסבב האוטומטי זו החזרה שקטה
+     * כי אין מי שמסתכל; כאן יש.
+     */
+    if (outcome === "unsent") {
+      throw new BadRequestException(
+        "ספק הדואר דחה את הכתובת — בדקו אותה בכרטיס הלקוח, או שלחו בוואטסאפ",
+      );
+    }
+    return { sentTo: ready.to };
   }
 
   /** בניית המייל, שליחה, ואישור `sent` — או סימון הכישלון. */
@@ -726,8 +855,45 @@ export class OfferEmailService implements OnModuleInit, OnModuleDestroy {
     to: string,
     buyerName: string,
     contactId: string,
-    rows: OutgoingOffer[],
+    unordered: OutgoingOffer[],
+    /**
+     * ‎**מי שלח — וזו שאלה של הקורא, לא של העוזר הזה** (ביקורת Codex, P1).
+     *
+     * ‏הנחתי כאן `null` בנימוק „הסבב אוטומטי”. זה נכון לשני קוראים
+     * ‏מתוך שלושה: `sendOne` הוא ‎`POST /offers/:id/email`, כלומר
+     * ‏סוכן שלוחץ „שלח במייל”. סוכן ב׳ ששלח הצעה על כרטיס הקונה
+     * ‏שלו ללקוח שיש עליו גם כרטיס חדש יותר של סוכן א׳ — והתשובה,
+     * ‏ואיתה שם הלקוח ותמצית ההודעה, הייתה נוחתת אצל א׳ לפי הסדר
+     * ‏הרגיל. בדיוק הדליפה שה-PR הזה סוגר, פתוחה בנתיב הידני.
+     *
+     * ‏העוזר משרת שלושה זרימות ורק הקורא יודע מה הזהות של שלו,
+     * ‏ולכן זה פרמטר — וחובה, כדי שקורא רביעי לא ישכח.
+     */
+    sentByUserId: string | null,
   ): Promise<"sent" | "unsent"> {
+    /*
+     * ‎**המנה מסודרת כאן, פעם אחת** (ביקורת Codex, P2).
+     *
+     * ‏`first` קובע שני דברים: את טוקן ההסרה שבמייל, ואת מפתח
+     * ‏האידמפוטנטיות. שניהם חייבים להיות **אותו דבר בניסיון החוזר**,
+     * ‏אחרת מייל שיצא בכישלון עמום נשלח שוב: `retryPending` שולף
+     * ‏בלי `orderBy`, ולכן „הראשון” היה יכול להיות שורה אחרת בכל
+     * ‏סבב, המפתח היה משתנה, והשאלה לספק הייתה מחפשת מחרוזת שאינה
+     * ‏קיימת.
+     *
+     * ‏מזהי ההצעות הם ULID, ולכן מיון לקסיקוגרפי הוא מיון לפי זמן
+     * ‏יצירה: „הראשון” הוא הוותיק במנה, וזו תכונה של הקבוצה ולא של
+     * ‏סדר השליפה.
+     *
+     * ‏כאן ולא אצל הקוראים: שלושה קוראים שממיינים בנפרד הם שלוש
+     * ‏הזדמנויות לשכוח.
+     *
+     * ‎**ומה זה עדיין אינו מכסה:** מנה שאיבדה דווקא את הוותיקה שבה
+     * ‏(פגה, נמשכה, או אין עליה הזמנה חתומה) מקבלת מפתח חדש. זהות
+     * ‏מלאה למשלוח דורשת עמודה שנשמרת על ההצעה, וזו הרחבה שאינה
+     * ‏בתחום ה-PR הזה.
+     */
+    const rows = [...unordered].sort((a, b) => a.offerId.localeCompare(b.offerId));
     const first = rows[0];
     // מנה ריקה — הגנה בלבד; שני הקוראים כבר סיננו. לא יצא מייל
     if (first === undefined) return "unsent";
@@ -747,9 +913,34 @@ export class OfferEmailService implements OnModuleInit, OnModuleDestroy {
 
     const offerIds = rows.map((row) => row.offerId);
     // תשובת הלקוח ("אפשר לתאם ביקור?") חוזרת לתיבה הפנימית ולציר
-    const replyTo = await this.emailInbox.replyAddressFor(tenantId, contactId);
+    /*
+     * ‎**הקונה, ולא הנכס.** במנה אחת יש כמה נכסים, ולכן „נכס” כאן
+     * ‏היה מחייב לבחור אחד מהם — כלומר לנחש. כרטיס הקונה הוא מה
+     * ‏שהמייל באמת עוסק בו, והוא מחזיק את כל ההצעות שבמנה.
+     *
+     * ‎**והוא נקרא מהשורות ולא מפרמטר נוסף.** `buyerId` כבר נוסע
+     * ‏על כל `OutgoingOffer`; פרמטר שני לאותה עובדה הוא מקור שני
+     * ‏שיכול לסתור אותה. שלושת הקוראים מקבצים לפי קונה, אבל
+     * ‏„מקבצים” הוא מוסכמה ולא כלל אכיף — ולכן הוא **נבדק**: מנה
+     * ‏שיש בה יותר מקונה אחד אינה מתויגת כלל. תג שגוי שנראה
+     * ‏סמכותי גרוע מהיעדר תג, וזו כל התכונה הזאת בשורה אחת.
+     */
+    const buyerIds = new Set(rows.map((row) => row.buyerId));
+    const onlyBuyer = buyerIds.size === 1 ? [...buyerIds][0] : undefined;
+    const replyTo = await this.emailInbox.replyAddressFor(
+      tenantId,
+      contactId,
+      sentByUserId,
+      onlyBuyer === undefined ? null : { kind: "buyer", id: onlyBuyer },
+    );
     try {
       await this.email.send(to, subject, content, {
+        /*
+         * ‎**כאן ההגנה נחוצה יותר מכל מקום אחר.** הסבב אוטומטי,
+         * ‏רץ שוב ושוב, וכישלון עמום מחזיר את ההצעות למחזור —
+         * ‏כלומר הלקוח מקבל את אותה רשימת נכסים פעמיים.
+         */
+        idempotency: { key: `offeremail:${first.offerId}`, purpose: "offer" },
         tenantId,
         required: true,
         ...(replyTo === null ? {} : { replyTo }),
@@ -1073,6 +1264,12 @@ export class OfferEmailService implements OnModuleInit, OnModuleDestroy {
               buyerId: offer.buyerId,
             };
           }),
+          /*
+           * ‎`null` — הניסיון החוזר רץ בסבב, ולשורה הממתינה אין
+           * ‏עמודה שאומרת מי הנפיק אותה. „לא ידוע” הוא התשובה
+           * ‏הכנה, והסדר הרגיל הוא מה שהיה קורה ממילא.
+           */
+          null,
         );
         if (outcome === "sent") emails += 1;
       } catch (error: unknown) {

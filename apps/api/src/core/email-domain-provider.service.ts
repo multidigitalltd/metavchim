@@ -37,7 +37,7 @@ export interface ProviderDomain {
  * Postmark אחר לגמרי. מוחזר כשגיאת קלט ולא כתקלה: זה מצב שהמנהל
  * יכול להבין ולפעול לגביו (לפנות לתמיכה), לא באג.
  */
-export class DomainAlreadyClaimedError extends BadRequestException {}
+class DomainAlreadyClaimedError extends BadRequestException {}
 
 /**
  * הדומיין אינו קיים אצל הספק — 404, ורק 404.

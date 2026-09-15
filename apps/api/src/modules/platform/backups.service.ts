@@ -9,10 +9,11 @@ import {
 import { readFile, readdir, stat, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import {
+  backupDeleteBlock,
   backupKind,
   isSafeBackupName,
   NEVER_RAN,
-  protectedBackupName,
+  protectedBackupNames,
   summarizeBackups,
   type BackupFile,
   type BackupHealth,
@@ -47,8 +48,11 @@ export interface BackupsOverview {
    * הדאמפ האחרון למסד זמני וסופר בו טבלאות.
    */
   drill: RestoreDrill;
-  /** הדאמפ האחרון של המסד — מוגן ממחיקה מהממשק. */
-  protectedName: string | null;
+  /**
+   * שמות שאסור למחוק מהממשק: הדאמפ האחרון של המסד, וכל ארכיון מדיה
+   * מלא שארכיונים משלימים עדיין נשענים עליו.
+   */
+  protectedNames: string[];
   /** האם סוכן העדכון מוגדר; בלעדיו אין שחזור מהמסך. */
   restoreAvailable: boolean;
 }
@@ -97,7 +101,7 @@ export class BackupsService {
       health: summarizeBackups(files ?? [], new Date()),
       offsite: await this.offsiteStatus(),
       drill: await this.restoreDrill(),
-      protectedName: protectedBackupName(files ?? []),
+      protectedNames: protectedBackupNames(files ?? []),
       restoreAvailable,
     };
   }
@@ -145,8 +149,9 @@ export class BackupsService {
 
   /**
    * מחיקת גיבוי. שני שערים: שם מרשימת ההיתר (חוסם יציאה מהתיקייה),
-   * ואיסור על מחיקת הדאמפ האחרון של המסד — כדי שלא תיווצר מצב שבו
-   * רצף לחיצות משאיר את המערכת בלי רשת ביטחון מקומית.
+   * ו-`backupDeleteBlock` — שחוסם את מה שרצף לחיצות היה משאיר בלי
+   * דרך חזרה: הדאמפ האחרון של המסד, וארכיון מדיה מלא שהמשלימים
+   * שאחריו נשענים עליו.
    */
   async remove(name: string): Promise<void> {
     if (!isSafeBackupName(name)) throw new BadRequestException("שם קובץ לא חוקי");
@@ -154,11 +159,8 @@ export class BackupsService {
     const files = await this.listFiles();
     if (files === null) throw new ServiceUnavailableException("תיקיית הגיבויים אינה זמינה");
     if (!files.some((f) => f.name === name)) throw new NotFoundException("הגיבוי לא נמצא");
-    if (protectedBackupName(files) === name) {
-      throw new ConflictException(
-        "זהו הגיבוי האחרון של מסד הנתונים — לא ניתן למחוק אותו מהממשק",
-      );
-    }
+    const blocked = backupDeleteBlock(name, files);
+    if (blocked !== null) throw new ConflictException(blocked);
 
     await unlink(join(this.dir, name));
     this.logger.warn(`גיבוי נמחק ידנית ממסך הפלטפורמה: ${name}`);

@@ -6,9 +6,10 @@ import { usePathname } from "next/navigation";
 import { apiGet, apiPost } from "@/lib/api";
 import { resetA11ySync } from "@/lib/a11y-sync";
 import { clearSessionCache, fetchMe } from "@/lib/session-cache";
-import type { AuthUser } from "@/lib/use-auth";
+import { can, type AuthUser } from "@/lib/use-auth";
 import { FeaturesProvider } from "@/lib/use-features";
 import { isPublicPath } from "@/lib/public-paths";
+import { IconChevronDown, IconUsers } from "./icons";
 import { NotificationsBell } from "./notifications-bell";
 import { TopbarSearch } from "./topbar-search";
 import { WhatsNewBanner } from "./whats-new-banner";
@@ -16,7 +17,7 @@ import { TrialBanner } from "./trial-banner";
 import { SoftphoneProvider } from "./softphone-bar";
 import { SupportButton } from "./support-button";
 import { SingleSessionGuard } from "./single-session-guard";
-import { roleLabel } from "@metavchim/shared";
+import { canSeeOfficeBoard, roleLabel } from "@metavchim/shared";
 import { IconMenu, LogoMark } from "./icons";
 import { OfficeLogoMark } from "./office-logo-mark";
 
@@ -63,9 +64,9 @@ const SCREEN_TITLES: [prefix: string, title: string][] = [
   ["/search", "חיפוש"],
   ["/profile", "הפרופיל שלי"],
   ["/tasks", "משימות"],
-  ["/guides", "הדרכות"],
-  ["/mentor", "המנטור האישי"],
   ["/forum", "הפורום המקצועי"],
+  ["/mentor", "המנטור האישי שלך"],
+  ["/media", "רכש מדיה"],
 ];
 
 function screenTitle(pathname: string): string {
@@ -227,6 +228,14 @@ const ICONS = {
       <path d="M17.5 15.5a2 2 0 0 0-2.8 0l-.7.7-.7-.7a2 2 0 1 0-2.8 2.8l3.5 3.5 3.5-3.5a2 2 0 0 0 0-2.8z" />
     </Icon>
   ),
+  /* רכש מדיה — מגה-פון: מסר שיוצא החוצה, לא עוד מסך נתונים */
+  media: (
+    <Icon>
+      <path d="M3 10.5v3a1.5 1.5 0 0 0 1.5 1.5H7l6 4.5V6L7 10.5H4.5A1.5 1.5 0 0 0 3 12z" />
+      <path d="M17 9.5a4 4 0 0 1 0 5" />
+      <path d="M19.5 7a7.5 7.5 0 0 1 0 10" />
+    </Icon>
+  ),
   platform: (
     <Icon>
       <path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z" />
@@ -259,8 +268,19 @@ const ICONS = {
  *
  * נתיב שאינו כאן (דשבורד, הדרכות, פרופיל) אינו שייך לאף מודול.
  */
+/**
+ * ‏אילו נתיבים שייכים לתת-התפריט של כל קבוצה.
+ *
+ * ‏משמש להכרעה אחת: האם לפתוח את הקבוצה מאליה כשהמשתמש כבר נמצא
+ * ‏בתוכה. מופרד מ-`NAV_MODULE` כי זו שאלה על **מיקום**, לא על הרשאה.
+ */
+const NAV_GROUP_PATHS: Record<string, readonly string[]> = {
+  properties: ["/properties/recruitment"],
+};
+
 const NAV_MODULE: Record<string, readonly string[]> = {
   "/properties": ["properties"],
+  "/properties/recruitment": ["properties"],
   "/buyers": ["buyers"],
   "/leads": ["leads"],
   /*
@@ -313,6 +333,15 @@ export function AppShell({ children }: { children: ReactNode }) {
    */
   const [featuresFailed, setFeaturesFailed] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  /*
+   * ‎**קבוצה פתוחה בתפריט — `null` = טרם נגעו בה.**
+   *
+   * ‏שלוש מצבים ולא שניים, בכוונה: כל עוד המשתמש לא לחץ על החץ,
+   * ‏הפתיחה **נגזרת מהמסך שבו הוא נמצא** — מי שנכנס ל„נכסים לגיוס”
+   * ‏מקישור חיצוני היה רואה תפריט סגור בלי שום רמז לאן הגיע. אחרי
+   * ‏לחיצה, הבחירה שלו גוברת.
+   */
+  const [navGroupOpen, setNavGroupOpen] = useState<Record<string, boolean>>({});
   const drawerRef = useRef<HTMLElement>(null);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
 
@@ -326,6 +355,24 @@ export function AppShell({ children }: { children: ReactNode }) {
    *
    * דגל cancelled ב-cleanup ולא AbortController: אותה תוצאה, בלי
    * לשנות את חתימת apiGet לכל הקוראים.
+   */
+  /*
+   * ‎**והזהות נשאלת מחדש בכל ניווט, לא פעם אחת לכל הסשן.**
+   *
+   * ‏התלות הייתה `[isPublic]` בלבד. ה-AppShell נשאר טעון לאורך כל
+   * ‏הניווט הפנימי, ולכן `me` נתפס פעם אחת ולא התעדכן לעולם
+   * ‏עד רענון מלא — כלומר **תפוגת הדקה של מטמון ה-Session פשוט
+   * ‏לא הגיעה לכאן** (ביקורת Codex). המטמון נבנה בדיוק כדי
+   * ‏ששינוי שמנהל עושה ייכנס לתוקף תוך דקה (ראו `session-cache`),
+   * ‏והצרכן הבולט ביותר שלו הוא הסרגל הזה.
+   *
+   * ‏זה אינו רק הדגל של „המשרד שלנו”: אותה קפיאה חלה על
+   * ‎`capabilities`, על שם המשרד ועל מצב החיוב — כל מה שהסרגל
+   * ‏מציג על סמך `me`.
+   *
+   * ‏הקריאה אינה בקשת רשת בכל מעבר: `fetchMe` מחזיר את הערך
+   * ‏הממוטמן מיד (ואת **אותו** אובייקט, כך ש-`setMe` אפילו אינו
+   * ‏מרנדר), ויוצא לרשת לכל היותר פעם בדקה.
    */
   useEffect(() => {
     if (isPublic) return;
@@ -341,7 +388,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [isPublic]);
+  }, [isPublic, pathname]);
 
   /*
    * לשונית ההקמה נעלמת ברגע שהמשרד סיים.
@@ -509,6 +556,15 @@ export function AppShell({ children }: { children: ReactNode }) {
     label: string,
     icon: ReactNode,
     end?: ReactNode,
+    /**
+     * ‏נתיבי משנה שיושבים תחת הפריט הזה בתפריט.
+     *
+     * ‎`aria-current="page"` פירושו „זה העמוד הנוכחי”, ויכול להיות
+     * נכון על פריט אחד בלבד. בלי זה, `startsWith` היה מסמן גם את
+     * „נכסים” וגם את „נכסים לגיוס” — שני פריטים ירוקים, ואף אחד
+     * מהם לא מדויק.
+     */
+    subPaths?: readonly string[],
   ): ReactNode => {
     /*
      * מודול חסום — הפריט יורד מהסרגל, ולא מוצג ומוביל ל-403. פריט
@@ -518,7 +574,11 @@ export function AppShell({ children }: { children: ReactNode }) {
     const modules = NAV_MODULE[href];
     const blocked = counts?.blockedModules ?? [];
     if (modules !== undefined && modules.every((m) => blocked.includes(m))) return null;
-    const active = href === "/" ? pathname === "/" : pathname.startsWith(href);
+    const active =
+      href === "/"
+        ? pathname === "/"
+        : pathname.startsWith(href) &&
+          !(subPaths ?? []).some((sub) => pathname.startsWith(sub));
     return (
       <Link
         key={href}
@@ -527,11 +587,120 @@ export function AppShell({ children }: { children: ReactNode }) {
         aria-current={active ? "page" : undefined}
       >
         {icon}
-        <span>{label}</span>
+        {/* מחלקה מפורשת: התווית היא הילד היחיד שאמור לעטוף, והתגים
+            שאחריה הם `span` גם הם — בורר מיקום היה שביר */}
+        <span className="mv-sidebar-label">{label}</span>
         {end}
       </Link>
     );
   };
+
+  /**
+   * ‏פריט משנה — יושב תחת פריט אב ומוסט פנימה.
+   *
+   * ‏אין לו סמל משלו: הסמל שייך לקטגוריה, וחזרה עליו בשורה מתחתיה
+   * הייתה אומרת „עוד נכסים” במקום „סוג אחר של נכסים”. ההסטה היא מה
+   * שמראה את ההיררכיה.
+   */
+  const navSubLink = (href: string, label: string): ReactNode => {
+    const modules = NAV_MODULE[href];
+    const blocked = counts?.blockedModules ?? [];
+    if (modules !== undefined && modules.every((m) => blocked.includes(m))) return null;
+    return (
+      <Link
+        key={href}
+        href={href}
+        className="mv-sidebar-link mv-sidebar-link--sub"
+        aria-current={pathname.startsWith(href) ? "page" : undefined}
+      >
+        <span className="mv-sidebar-label">{label}</span>
+      </Link>
+    );
+  };
+
+  /**
+   * ‎**קבוצה: פריט אב, חץ, ותת-פריטים שנפתחים.**
+   *
+   * ## ‏למה החץ הוא כפתור נפרד ולא חלק מהקישור
+   *
+   * ‏כפתור בתוך עוגן אינו HTML תקין, ובעיקר: לחיצה על „נכסים”
+   * ‏חייבת להמשיך **לנווט** לנכסים. אילו כל השורה הייתה מתג, הפריט
+   * ‏הראשי היה מאבד את תפקידו — ומי שרוצה להגיע לנכסים היה נאלץ
+   * ‏לפתוח תפריט ואז ללחוץ שוב.
+   *
+   * ## ‏קבוצה בלי תת-פריטים גלויים אינה מקבלת חץ
+   *
+   * ‏תת-הפריטים יורדים מהסרגל כשהמודול שלהם חסום. חץ שנשאר במקומו
+   * ‏היה נפתח אל ריק — הבטחה שהמסך אינו מקיים.
+   */
+  const navGroup = (
+    id: string,
+    label: string,
+    main: ReactNode,
+    subs: readonly ReactNode[],
+  ): ReactNode => {
+    if (main === null) return null;
+    const shown = subs.filter((sub) => sub !== null);
+    if (shown.length === 0) return main;
+
+    const onSubPath = (NAV_GROUP_PATHS[id] ?? []).some((sub) => pathname.startsWith(sub));
+    const open = navGroupOpen[id] ?? onSubPath;
+    const listId = `nav-group-${id}`;
+
+    return (
+      <div key={id} className="mv-sidebar-group">
+        <div className="mv-sidebar-group-row">
+          {main}
+          <button
+            type="button"
+            className="mv-sidebar-toggle"
+            aria-expanded={open}
+            aria-controls={listId}
+            aria-label={`${open ? "סגירת" : "פתיחת"} תת-התפריט של ${label}`}
+            onClick={() => setNavGroupOpen((prev) => ({ ...prev, [id]: !open }))}
+          >
+            <span className={`mv-sidebar-chev${open ? " is-open" : ""}`} aria-hidden="true">
+              <IconChevronDown s={14} />
+            </span>
+          </button>
+        </div>
+        {/*
+          ‎`hidden` ולא הסרה מה-DOM: `aria-controls` חייב להצביע על
+          אלמנט שקיים, ואחרת קורא מסך שומע על תפריט שאי אפשר למצוא.
+        */}
+        <div id={listId} hidden={!open}>
+          {shown}
+        </div>
+      </div>
+    );
+  };
+
+  /**
+   * פריט שמוביל אל מחוץ למערכת — נפתח בלשונית חדשה.
+   *
+   * ‎`rel="noopener"` אינו קישוט: בלעדיו העמוד שנפתח מקבל
+   * ‎`window.opener` אל האפליקציה. `noreferrer` איתו, כי מה
+   * שנפתח אינו צריך לדעת מאיזה מסך במערכת יצאו.
+   *
+   * הסימן ליד התווית מוסתר מקורא מסך — השם הנגיש כבר אומר
+   * „נפתח בלשונית חדשה”, ואייקון שמוכרז אחריו חוזר על עצמו.
+   */
+  const navExternal = (href: string, label: string, icon: ReactNode): ReactNode => (
+    <a
+      key={href}
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="mv-sidebar-link"
+      aria-label={`${label} — נפתח בלשונית חדשה`}
+    >
+      {icon}
+      <span className="mv-sidebar-label">{label}</span>
+      <span aria-hidden="true" className="mv-nav-external">
+        ↗
+      </span>
+    </a>
+  );
 
   const count = (n: number | undefined): ReactNode =>
     n !== undefined && n > 0 ? <span className="mv-nav-count">{n}</span> : null;
@@ -563,13 +732,20 @@ export function AppShell({ children }: { children: ReactNode }) {
           וכל משרד הוא דייר בה, והחלפת המותג הראשי הייתה מבלבלת
           בדיוק את מי שעובר בין שני משרדים. נעלם בשקט למי שלא העלה.
         */}
-        <OfficeLogoMark />
+        <OfficeLogoMark present={me?.tenantHasLogo === true} />
         <div className="mv-sidebar-sub">{me?.tenantName ?? " "}</div>
       </div>
 
       <nav aria-label="ניווט ראשי" className="mv-sidebar-nav">
         {navLink("/", "דשבורד", ICONS.dashboard)}
-        {navLink("/properties", "נכסים", ICONS.properties, count(counts?.properties))}
+        {navGroup(
+          "properties",
+          "נכסים",
+          navLink("/properties", "נכסים", ICONS.properties, count(counts?.properties), [
+            "/properties/recruitment",
+          ]),
+          [navSubLink("/properties/recruitment", "נכסים לגיוס")],
+        )}
         {navLink("/buyers", "קונים · שוכרים", ICONS.buyers, count(counts?.buyers))}
         {navLink(
           "/leads",
@@ -627,11 +803,10 @@ export function AppShell({ children }: { children: ReactNode }) {
         {seesReports && hasFeature("analytics")
           ? navLink("/reports", "דוחות", ICONS.reports)
           : null}
-        {navLink("/guides", "הדרכות", ICONS.guides)}
-        {/* הפורום המקצועי — קהילה בין משרדים, בשם או בעילום שם (docs/14) */}
+        {/* הפורום המקצועי — קהילה בין משרדים, בשם או בעילום שם (docs/16) */}
         {navLink("/forum", "פורום", ICONS.forum)}
         {/*
-          המנטור האישי — יעדים, סיכום שבועי ושיחה (docs/13).
+          המנטור האישי — עמוד "בקרוב" עד ההשקה (בקשת המשתמש).
           התג AI מסמן שזה פיצ'ר של בינה מלאכותית ולא עוד מסך נתונים.
         */}
         {navLink(
@@ -640,6 +815,23 @@ export function AppShell({ children }: { children: ReactNode }) {
           ICONS.mentor,
           <span className="mv-nav-ai">AI</span>,
         )}
+        {/* רכש מדיה — עמוד "בקרוב" עד ההשקה (בקשת המשתמש) */}
+        {navLink(
+          "/media",
+          "רכש מדיה",
+          ICONS.media,
+          <span className="mv-nav-soon">בקרוב</span>,
+        )}
+        {/*
+          „הדרכות” מפנה לתיעוד הציבורי ואינו מסך במערכת.
+
+          התוכן אחד, והבית שלו הוא `/docs` — פתוח לקריאה בלי חשבון,
+          ולכן גם מי ששוקל להצטרף ומודל שפה שנשאל עליו מגיעים אליו.
+          לשונית חדשה ולא ניווט במקום: מתווך שלוחץ „הדרכות” באמצע
+          עבודה לא אמור לאבד את המסך שהוא עמד בו, ו-`/docs` הוא
+          עמוד ציבורי בלי סרגל צד — כלומר בלי דרך חזרה.
+        */}
+        {navExternal("/docs", "הדרכות", ICONS.guides)}
         {managesOffice ? navLink("/settings", "ניהול משרד", ICONS.office) : null}
         {managesOffice && !setupDone ? navLink("/setup", "הקמה", ICONS.setup) : null}
         {me?.isPlatformAdmin ? navLink("/platform", "פלטפורמה", ICONS.platform) : null}
@@ -709,6 +901,41 @@ export function AppShell({ children }: { children: ReactNode }) {
 
           <div className="mv-topbar-end">
             <NotificationsBell user={me} />
+
+          {/*
+            ‎**„המשרד שלנו” — להנהלה, ולצוות אם המשרד פתח.**
+
+            ‏המסך מציג את הביצועים של **כל הסוכנים בשמם**, ולכן הוא
+            ‏היה פתוח ל-`users.manage` בלבד. עכשיו בעל הסוכנות מסמן
+            ‏בעצמו אם הצוות רואה אותו, והתנאי המלא יושב ב-
+            ‎`canSeeOfficeBoard` — אותה פונקציה שהשרת אוכף בה.
+
+            ‎**וגם למי שמגדיר את המשרד, גם כשהמסך סגור בפניו.**
+            ‏זה הקישור **היחיד** ל-`/office` בכל המערכת, ותיבת הסימון
+            ‏שפותחת אותו יושבת שם. משתמש שנשללה לו `users.manage` בחריג
+            ‏אישי (#80) ושמר על `settings.manage` היה צריך לנחש כתובת
+            ‏כדי להגיע אל הפקד שהשרת מאשר לו להפעיל (ביקורת Codex).
+
+            ‏התנאי השני נשאר מחוץ ל-`canSeeOfficeBoard` ובכוונה: הפונקציה
+            ‏עונה על „מי רשאי לראות את הנתונים”, והשרת אוכף בה. „מי
+            ‏רשאי לקבוע את המדיניות” היא שאלה אחרת, וערבוב של השתיים
+            ‏היה מרחיב את הכלל שהשרת נשען עליו.
+
+            ‏וגם בפיצ'ר `analytics`, מאותו נימוק של הסוכן הקולי
+            ‏שמתחת: קישור ל-403 גרוע מקישור שלא קיים — וכאן אין 403:
+            ‏העמוד נפתח ונושא את הפקד שלו.
+          */}
+          {hasFeature("analytics") &&
+          (canSeeOfficeBoard({
+            managesTeam: can(me, "users.manage"),
+            openToAgents: me?.officeBoardOpen === true,
+          }) ||
+            can(me, "settings.manage")) ? (
+            <Link href="/office" className="mv-board-link" title="המשרד שלנו">
+              <IconUsers s={16} />
+              <span className="mv-topbar-label">המשרד שלנו</span>
+            </Link>
+          ) : null}
 
           {/* קליטה קולית נחסמת בשרת בלי הפיצ'ר — קישור ל-403 גרוע
               מקישור שלא קיים */}

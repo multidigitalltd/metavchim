@@ -15,38 +15,44 @@
  * בלי מסד ובלי Meta. טעות כאן שקטה: התראה שלא נשלחה אינה מתלוננת.
  */
 
+import { ideaKeyInText } from "./mentor-playbook.js";
+import {
+  NOTIFY_CATEGORY_LABELS,
+  type WhatsAppNotifyCategory,
+} from "./notify-categories.js";
+import { agentAction, type AgentActionId } from "../agent/actions.js";
+import {
+  canSeeNotifyDetail,
+  notifyDetailLines,
+  type DetailViewer,
+  type NotifyDetail,
+} from "./notify-details.js";
+import {
+  CALL_CONVERT_REF_KINDS,
+  callConvertCommand,
+} from "./call-convert-chat.js";
 import { notificationUrl, type PushableNotification } from "./web-push.js";
 import type { WhatsAppButton } from "./whatsapp-buttons.js";
 import { FORUM_QUICK_COMMANDS } from "./forum.js";
 
 /* ==================== קטגוריות ==================== */
 
-/**
- * קיבוץ סוגי ההתראות לקטגוריות שהמתווך מכיר.
+/*
+ * ‎**הקטגוריות יושבות במודול עלה** (`notify-categories.ts`) ולא כאן.
  *
- * המתווך אינו אמור להכיר שנים-עשר קודי התראה כדי לכבות רעש. הוא
- * חושב במונחים של „שיחות” ו„לידים”, וזו גם היחידה שבה הוא מכבה.
+ * ‏קטלוג הפעולות צריך את הרשימה — המתווך מכבה קטגוריה מהשיחה —
+ * ‏והקובץ הזה כבר מייבא את הקטלוג. ייבוא חוזר הוא **מעגל**, ובזמן
+ * ‏ריצה הרשימה חוזרת `undefined` בצד שנטען ראשון: קריסה בטעינה,
+ * ‏לא שגיאת קומפילציה. מודול בלי ייבואים משלו אינו יכול להיות
+ * ‏חלק במעגל.
+ *
+ * ‏הייצוא מכאן נשאר, כדי שאיש מהקוראים הקיימים לא יידע מזה.
  */
-export type WhatsAppNotifyCategory =
-  | "calls"
-  | "leads"
-  | "tasks"
-  | "matches"
-  | "network"
-  | "forum"
-  | "digests"
-  | "system";
-
-export const NOTIFY_CATEGORY_LABELS: Record<WhatsAppNotifyCategory, string> = {
-  calls: "שיחות ותמלולים",
-  leads: "לידים",
-  tasks: "משימות, פגישות ותזכורות",
-  matches: "התאמות, קונים ונכסים",
-  network: "רשת השיתופים והתשלומים",
-  forum: "הפורום המקצועי",
-  digests: "סיכומים יומיים ושבועיים",
-  system: "הודעות מערכת",
-};
+export {
+  NOTIFY_CATEGORIES,
+  NOTIFY_CATEGORY_LABELS,
+  type WhatsAppNotifyCategory,
+} from "./notify-categories.js";
 
 /** סוג ההתראה → הקטגוריה שלו. סוג שאינו כאן נחשב הודעת מערכת. */
 const TYPE_CATEGORY: Record<string, WhatsAppNotifyCategory> = {
@@ -55,12 +61,20 @@ const TYPE_CATEGORY: Record<string, WhatsAppNotifyCategory> = {
   call_transcribed: "calls",
   call_follow_up: "calls",
   call_transcribe_failed: "calls",
+  /* המרכזייה עצמה — אותה קטגוריה, כי מי שכיבה „שיחות” אינו רוצה גם את זה */
+  pbx_silent: "calls",
 
   lead: "leads",
   lead_sla: "leads",
   lead_stale: "leads",
   lead_repeat_inquiry: "leads",
+  /* ‏טופס שאדם זר מילא — אתר, פייסבוק, או דף נחיתה של נכס */
+  lead_form_inquiry: "leads",
   lead_returned: "leads",
+  lead_requires_human: "leads",
+  intake_submitted: "leads",
+  email_reply: "leads",
+  whatsapp_bot_escalation: "leads",
 
   task: "tasks",
   task_reminder: "tasks",
@@ -68,12 +82,33 @@ const TYPE_CATEGORY: Record<string, WhatsAppNotifyCategory> = {
   viewing_followup: "tasks",
   offer_followup: "tasks",
   custom_automation: "tasks",
+  appointment_scheduled: "tasks",
+  /*
+   * ‏תזכורת ממשימה חוזרת (`apps/workers`). היחיד ששמו נושא נקודה,
+   * ולכן במרכאות — וזה בדיוק מה שהחביא אותו: השער שנוסף כאן סינן
+   * נקודות ולכן דילג עליו, והוא נפל ל-`system` כלומר הגיע גם למי
+   * שכיבה „משימות” (ביקורת Codex).
+   */
+  "task.due": "tasks",
 
   buyer: "matches",
   property: "matches",
   property_delisted: "matches",
   matches_refreshed: "matches",
   match_weights_calibrated: "matches",
+  /*
+   * ‎**ההצעות וההתאמות — הסוגים ששקטו.**
+   *
+   * ‏שישה סוגים שנוצרים בפועל לא היו ברשימה, ולכן נפלו ל-`system`:
+   * אייקון ℹ️ במקום 🎯, משפט סיום כללי במקום „יש התאמה”, וכפתור
+   * שאינו קשור למה שכתוב מעליו. גרוע מכך — מי שכיבה „התאמות,
+   * קונים ונכסים” המשיך לקבל אותם, כי הם נספרו כהודעת מערכת
+   * שאי אפשר לכבות. סוג שאינו כאן אינו ניטרלי; הוא פשוט לא נשלט.
+   */
+  offer_opened: "matches",
+  offer_interested: "matches",
+  matches_found: "matches",
+  opportunity_opened: "matches",
 
   coop_deal: "network",
 
@@ -82,13 +117,55 @@ const TYPE_CATEGORY: Record<string, WhatsAppNotifyCategory> = {
   mentor_weekly: "digests",
   mentor_win: "digests",
   mentor_nudge: "digests",
+  mentor_daily: "digests",
+  mentor_monthly: "digests",
   coop_offer: "network",
+  coop_offer_received: "network",
   coop_offer_declined: "network",
   payout_decision: "network",
+  shared_lead_sold: "network",
+  /*
+   * ‏„נכנס נכס שמתאים לביקוש שאתה עוקב אחריו” — רשת, לא מערכת.
+   * בלי השורה הזו הוא נפל ל-`system`, כלומר מי שכיבה „רשת” המשיך
+   * לקבל אותו כהודעה שאי אפשר לכבות (ביקורת Codex) — בדיוק הכשל
+   * שההערה על ההצעות למעלה מתארת, שוב.
+   */
+  coop_demand_match: "network",
+  /*
+   * ‏והכיוון השני — „נכנס קונה שמתאים לנכס שאתה עוקב אחריו”.
+   * ‏אותה קטגוריה בדיוק: שורה שנשכחת כאן נופלת ל-`system`, כלומר
+   * ‏מי שכיבה „רשת” ממשיך לקבל אותה כהודעה שאי אפשר לכבות.
+   */
+  coop_listing_match: "network",
 
   daily_brief: "digests",
   weekly_summary: "digests",
 
+  /*
+   * ‏„סוכן סגר את היעד” הוא סיכום ביצועים ולא משימה: הוא אינו דורש
+   * פעולה בשנייה הבאה, והוא שייך לאותה משפחה של הדוח היומי — מנהל
+   * שכיבה „סיכומים” לא רוצה גם את זה.
+   *
+   * ‏הפידבק לסוכן, לעומת זאת, הוא **הודעה מאדם**: מנהל כתב לו משהו,
+   * וזה מגיע גם למי שהשאיר רק את ההודעות החשובות דלוקות.
+   */
+  mentor_goal_reached: "digests",
+  mentor_feedback: "system",
+
+  /*
+   * ‎**„החיבור של הוואטסאפ שלך פג” — `system` בכוונה, לא `leads`.**
+   *
+   * ‏התוצאה של הכשל היא שלידים מפסיקים להיכנס, ולכן `leads` נראה
+   * המתבקש. אבל מי שכיבה „לידים” כיבה **התראות על לידים**, ולא
+   * הסכים לאבד אותם בשקט: זו בדיוק ההתראה שאסור שתהיה ניתנת
+   * להשתקה, כי בלעדיה אין שום סימן אחר שהקו מת — Meta אינה שולחת
+   * דבר, והמסך ממשיך להראות ✓.
+   *
+   * ‏הרישום כאן מפורש ולא נשען על נפילת ברירת המחדל ל-`system`:
+   * זו בדיוק ההבחנה שהשער `verify:notify` אוכף — סוג שאינו ברשימה
+   * הוא סוג שאיש לא החליט עליו.
+   */
+  whatsapp_token_expired: "system",
   // הפורום המקצועי — תגובה בשרשור שעוקבים אחריו, שרשור חדש למי
   // שעוקב אחרי הכול, ותגובה שסומנה כתשובה. קטגוריה משלו, כי זה
   // הרעש היחיד כאן שאינו על העבודה של המתווך אלא על הקהילה.
@@ -241,6 +318,8 @@ export function inQuietHours(
 
 export interface NotifyItem extends PushableNotification {
   createdAt?: Date;
+  /** מזהה השורה — המפתח שהפרטים נטענים תחתיו. חסר = בלי פרטים. */
+  id?: string;
 }
 
 /** אייקון לפי קטגוריה — סריקה מהירה של הודעה עם כמה פריטים. */
@@ -266,12 +345,24 @@ const TYPE_ICON: Record<string, string> = {
   lead_sla: "⏳",
   lead_stale: "🥶",
   lead_repeat_inquiry: "🔁",
+  lead_form_inquiry: "📝",
   task_reminder: "⏰",
   appointment_reminder: "📅",
   viewing_followup: "🚪",
   offer_followup: "📨",
   buyer: "🙋",
   property: "🏠",
+  offer_opened: "👀",
+  offer_interested: "👍",
+  matches_found: "🎯",
+  opportunity_opened: "🚪",
+  lead_requires_human: "🙋‍♂️",
+  intake_submitted: "📥",
+  email_reply: "✉️",
+  whatsapp_bot_escalation: "🆘",
+  coop_offer_received: "🤝",
+  shared_lead_sold: "💰",
+  appointment_scheduled: "📅",
   property_delisted: "🚫",
   matches_refreshed: "🎯",
   coop_deal: "🤝",
@@ -283,6 +374,8 @@ const TYPE_ICON: Record<string, string> = {
   mentor_weekly: "🧭",
   mentor_win: "🎉",
   mentor_nudge: "🎯",
+  mentor_daily: "🌅",
+  mentor_monthly: "📅",
   forum_reply: "💬",
   forum_thread: "📝",
   forum_accepted: "🏅",
@@ -313,7 +406,7 @@ const CATEGORY_CALL_TO_ACTION: Record<WhatsAppNotifyCategory, string> = {
  * ולכן הן מקבלות משפט פעולה משלהן וכפתורים משלהן: הסיכום השבועי
  * מבקש מחויבות ותשובה, הדחיפה והחגיגה מזמינות להסתכל על היעדים.
  * הכפתורים נושאים **פקודות שהשיחה כבר מבינה** (`cmd`) — אותו מסלול
- * הבנה⟵אישור כמו משפט שהוקלד, בלי מסלול ביצוע שני (docs/13 §9).
+ * הבנה⟵אישור כמו משפט שהוקלד, בלי מסלול ביצוע שני (docs/14 §9).
  */
 
 /**
@@ -326,14 +419,11 @@ export const MENTOR_QUICK_COMMANDS = {
   mentor_status: "מה המצב ביעדים שלי?",
   mentor_commit: "מתחייב לשבוע הבא",
   mentor_reflect: "לענות למנטור",
+  // משוב על רעיון הבוקר — המנטור לומד מה עובד אצל המתווך (docs/14 §7.2)
+  mentor_idea_helped: "הרעיון עזר לי",
+  mentor_idea_skip: "הרעיון לא בשבילי",
 } as const;
 export type MentorQuickCommand = keyof typeof MENTOR_QUICK_COMMANDS;
-
-/** הכפתורים על כל התראה שאינה של המנטור — לא השתנו. */
-export const NOTIFY_DEFAULT_BUTTONS: readonly WhatsAppButton[] = [
-  { action: "cmd", arg: "urgent", title: "📋 מה דחוף היום?" },
-  { action: "snooze", arg: "120", title: "🔕 שקט לשעתיים" },
-];
 
 const MENTOR_STATUS_BUTTON: WhatsAppButton = {
   action: "cmd",
@@ -342,11 +432,57 @@ const MENTOR_STATUS_BUTTON: WhatsAppButton = {
 };
 
 /**
- * הכפתורים לפי מה שבהודעה.
+ * הכפתורים של המנטור — ורק שלו.
  *
  * רק כשההודעה **כולה** של המנטור: אגד שמערבב ליד חם עם סיכום שבועי
- * מקבל את כפתורי ברירת המחדל — „מתחייב” מתחת לליד היה מבלבל.
+ * הוא הודעה רגילה, ו„מתחייב” מתחת לליד היה מבלבל. להודעה רגילה
+ * הפונקציה מחזירה `null`, לא רשימה: הכפתור שלה נגזר ממה שכתוב בה
+ * (`notifyFollowUp`), וזו הכרעה של הקורא — לא ברירת מחדל שנצמדת
+ * לכל הודעה.
  */
+/**
+ * פקודת המשוב עם הרעיון בתוכה — „הרעיון עזר לי [offers_sent:2]”. הכפתור
+ * קשור לרעיון **שהוצג**, לא ל„האחרון”: לחיצה על כפתור של אתמול אחרי
+ * שהבוקר של היום כבר יצא נותנת משוב על הרעיון של אתמול (ביקורת Codex).
+ * הסוכן מפענח את הסוגריים; בלעדיהם — הרעיון האחרון של היום.
+ */
+export function mentorIdeaCommand(
+  verdict: "helped" | "dismissed",
+  ideaKey: string,
+): string {
+  const base =
+    verdict === "helped"
+      ? MENTOR_QUICK_COMMANDS.mentor_idea_helped
+      : MENTOR_QUICK_COMMANDS.mentor_idea_skip;
+  return `${base} [${ideaKey}]`;
+}
+
+/** „מה דחוף היום?” — הכפתור השלישי כשהבוקר מגיע יחד עם התראות רגילות. */
+const URGENT_BUTTON: WhatsAppButton = {
+  action: "cmd",
+  arg: "urgent",
+  title: "📋 מה דחוף היום?",
+};
+
+/** כפתורי המשוב על רעיון הבוקר — רק כשההודעה באמת נושאת רעיון. */
+function ideaFeedbackButtons(items: readonly NotifyItem[]): WhatsAppButton[] {
+  const daily = items.find((item) => item.type === "mentor_daily");
+  const key = daily === undefined ? null : ideaKeyInText(daily.body);
+  if (key === null) return [];
+  return [
+    {
+      action: "cmd",
+      arg: mentorIdeaCommand("helped", key),
+      title: "👍 עזר לי",
+    },
+    {
+      action: "cmd",
+      arg: mentorIdeaCommand("dismissed", key),
+      title: "👎 לא בשבילי",
+    },
+  ];
+}
+
 /**
  * כפתורי הפורום — כשההודעה כולה מהפורום. „להשיב” פותח מצב שבו
  * ההודעה הבאה היא התגובה (כמו „לענות למנטור”), ו„להפסיק לעקוב”
@@ -360,22 +496,61 @@ const FORUM_BUTTONS: readonly WhatsAppButton[] = [
 
 export function notifyQuickReplies(
   items: readonly NotifyItem[],
-): WhatsAppButton[] {
+  details?: NotifyDetailsLookup,
+): WhatsAppButton[] | null {
   const types = new Set(items.map((item) => item.type));
   if (items.length > 0 && [...types].every((type) => type.startsWith("forum_"))) {
     return [...FORUM_BUTTONS];
   }
   const mentorOnly =
     items.length > 0 && [...types].every((type) => type.startsWith("mentor_"));
-  if (!mentorOnly) return [...NOTIFY_DEFAULT_BUTTONS];
-  if (types.has("mentor_weekly")) {
+  /*
+   * הבוקר באגד מעורב — ליד, משימה ושיחה יחד עם הרעיון: המשוב על הרעיון
+   * הוא הליווי, ולכן הכפתורים שלו נשארים גם כאן, עם „מה דחוף היום?” של
+   * ההודעה הרגילה כשלישי (ביקורת Codex). בלי רעיון — הודעה רגילה.
+   */
+  if (!mentorOnly) {
+    const feedback = ideaFeedbackButtons(items);
+    return feedback.length === 0 ? null : [...feedback, URGENT_BUTTON];
+  }
+  const weekly = items.find((item) => item.type === "mentor_weekly");
+  if (weekly !== undefined) {
+    /*
+     * רק מה שיש בסיכום: „מתחייב” כשיש בקשה לשבוע הבא, „לענות למנטור”
+     * כשיש שאלה. בלי פרטים (ההעשרה נכשלה) — „היעדים שלי” בלבד: כפתור
+     * שמוביל ל„אין בקשה” גרוע מכפתור שחסר, והטקסט ממילא אומר מה אפשר
+     * לכתוב.
+     */
+    const detail =
+      weekly.id === undefined
+        ? undefined
+        : details?.byNotificationId.get(weekly.id);
+    const review = detail?.kind === "mentor_review" ? detail : undefined;
     return [
-      { action: "cmd", arg: "mentor_commit", title: "💪 מתחייב" },
-      { action: "cmd", arg: "mentor_reflect", title: "✍️ לענות למנטור" },
+      ...(review?.ask
+        ? [{ action: "cmd", arg: "mentor_commit", title: "💪 מתחייב" } as const]
+        : []),
+      ...(review?.reflection
+        ? [
+            {
+              action: "cmd",
+              arg: "mentor_reflect",
+              title: "✍️ לענות למנטור",
+            } as const,
+          ]
+        : []),
       MENTOR_STATUS_BUTTON,
     ];
   }
-  return [MENTOR_STATUS_BUTTON, ...NOTIFY_DEFAULT_BUTTONS];
+  /*
+   * הבוקר נושא רעיון — ושני כפתורי משוב: „עזר לי” ו„לא בשבילי”. זה
+   * מה שהופך רעיון לליווי: המנטור לומד מה עובד אצל המתווך הזה, ורעיון
+   * שנדחה אינו חוזר (docs/14 §7.2). שלושה כפתורים — התקרה של וואטסאפ.
+   */
+  if (types.has("mentor_daily")) {
+    return [...ideaFeedbackButtons(items), MENTOR_STATUS_BUTTON];
+  }
+  return [MENTOR_STATUS_BUTTON];
 }
 
 /** משפט הפעולה כשכל הפריטים הם של המנטור — לפי הסוג, לא הקטגוריה. */
@@ -386,6 +561,10 @@ const MENTOR_CALL_TO_ACTION: Record<string, string> = {
     "🎯 אפשר לכתוב לי „מה המצב ביעדים שלי?” ואראה לך איפה זה עומד מול השבוע.",
   mentor_win:
     "🎉 כל הכבוד לך! אפשר לכתוב לי „מה המצב ביעדים שלי?” לראות איך זה מזיז את השבוע.",
+  mentor_daily:
+    "🎯 אפשר לכתוב לי „מה המצב ביעדים שלי?” — ואם משהו מפריע, „מנטור, מה כדאי לי לשפר?”.",
+  mentor_monthly:
+    "🎯 אפשר לכתוב לי „מנטור, מה כדאי לי לשפר?” — ונדבר על המיקוד לחודש הבא.",
 };
 
 function callToAction(shown: readonly NotifyItem[]): string {
@@ -421,6 +600,44 @@ function dominantCategory(
 export const NOTIFY_ITEMS_PER_MESSAGE = 6;
 
 /**
+ * הקטגוריה ששולטת בהודעה — ממנה נגזרים משפט הסיום והכפתור.
+ *
+ * מיוצאת כדי שהעובד יזהה **תקציר** בלי טקסונומיה שנייה: „מה דחוף
+ * היום?” הוא הכפתור הנכון לתקציר בוקר ורק לו, וכל שאר ההודעות
+ * מקבלות את הכפתור של הקטגוריה שלהן — או אף אחד.
+ */
+export function dominantNotifyCategory(
+  items: readonly NotifyItem[],
+): WhatsAppNotifyCategory {
+  return dominantCategory(items.slice(0, NOTIFY_ITEMS_PER_MESSAGE));
+}
+
+/**
+ * הפרטים של כל התראה, לפי מזהה ההתראה, יחד עם מי קורא אותם.
+ *
+ * ‏המפה נבנית פעם אחת לכל הנמענים של המשרד (טעינה אחת), והצופה
+ * מוחלף פר-נמען — כך אותה התאמה מגיעה מלאה לסוכן שהכרטיס שלו,
+ * וכותרת בלבד למי שאינו רשאי לראות אותו.
+ */
+export interface NotifyDetailsLookup {
+  viewer: DetailViewer;
+  byNotificationId: ReadonlyMap<string, NotifyDetail>;
+}
+
+function detailLinesFor(
+  item: NotifyItem,
+  details: NotifyDetailsLookup | undefined,
+): readonly string[] {
+  if (details === undefined || item.id === undefined) return [];
+  const detail = details.byNotificationId.get(item.id);
+  if (detail === undefined) return [];
+  // ההרשאה נבדקת כאן ולא בטעינה: אותה שורה, נמענים שונים
+  if (!canSeeNotifyDetail(detail, details.viewer)) return [];
+  // הצופה עובר הלאה: פריט אחד יכול לשאת כרטיסים בבעלויות שונות
+  return notifyDetailLines(detail, details.viewer);
+}
+
+/**
  * הודעה אחת לכל מה שהצטבר, ולא הודעה לכל התראה.
  *
  * מתווך שהיה בפגישה חוזר לשבע התראות; שבע הודעות וואטסאפ ברצף הן
@@ -430,6 +647,7 @@ export const NOTIFY_ITEMS_PER_MESSAGE = 6;
 export function formatNotifyMessage(
   items: readonly NotifyItem[],
   webOrigin: string,
+  details?: NotifyDetailsLookup,
 ): string {
   if (items.length === 0) return "";
   const shown = items.slice(0, NOTIFY_ITEMS_PER_MESSAGE);
@@ -447,6 +665,15 @@ export function formatNotifyMessage(
       : `${TYPE_ICON[item.type] ?? CATEGORY_ICON[notifyCategory(item.type)]} `;
     lines.push(`${icon}*${item.title}*`);
     if (item.body !== null && item.body !== "") lines.push(item.body);
+    /*
+     * ‎**מי ומה — מעל הקישור, לא במקומו.**
+     *
+     * הפרטים באים אחרי הגוף ולפני הקישור, כי זה סדר הקריאה: מה
+     * קרה, על מי, ורק אז „לאן ללחוץ אם רוצים עוד”. הקישור נשאר —
+     * הוא עדיין הדרך לפעולה מלאה — אבל הוא כבר לא התנאי לדעת
+     * במה מדובר.
+     */
+    for (const line of detailLinesFor(item, details)) lines.push(line);
     const url = notificationUrl(item);
     // "/" הוא הדשבורד — קישור כללי אינו מוסיף דבר להתראה
     if (url !== "/") lines.push(`👈 ${webOrigin}${url}`);
@@ -459,6 +686,147 @@ export function formatNotifyMessage(
   }
   lines.push(callToAction(shown));
   return lines.join("\n").trim();
+}
+
+/* ==================== הכפתור שמתחת להודעה ==================== */
+
+/**
+ * ‎**הפעולה שכל קטגוריה מזמינה — ומה שהיה כאן קודם.**
+ *
+ * ## הבעיה
+ *
+ * לכל הודעת התראה הוצמדו אותם שני כפתורים בדיוק: „מה דחוף היום?”
+ * ו„שקט לשעתיים”. השני הוא פקד השתקה ומתאים תמיד; הראשון נכון
+ * לתקציר בוקר, ומוזר מתחת להתראה על שיחה שלא נענתה או על פנייה
+ * שממתינה ברשת. שאלה שאינה קשורה למה שכתוב מעליה מלמדת להתעלם
+ * מהכפתורים (דיווח מהשטח).
+ *
+ * ## למה דווקא הקטגוריה
+ *
+ * ‏משפט הסיום של ההודעה כבר נגזר מ-`dominantCategory` — אותה
+ * הודעה כבר יודעת על מה היא. הכפתור פשוט לא נשען על זה. אין כאן
+ * טקסונומיה שנייה, ולכן גם אין שתיים שיכולות להיפרד.
+ *
+ * ## ולמה המשפט מגיע מהקטלוג
+ *
+ * מה שהכפתור שולח נכנס למנוע **כאילו הוקלד**, ולכן משפט שהמנוע
+ * אינו מזהה הופך כפתור ל„לא הבנתי”. `examples[0]` של הפעולה הוא
+ * בדיוק הניסוח שהמערכת מבטיחה שהיא מכירה — אותו מקור שממנו נבנית
+ * רשימת „מה שכן עובד עכשיו” כשההבנה החכמה למטה. ניסוח שנכתב כאן
+ * ביד היה מתיישן ברגע שהקטלוג משתנה, בשקט.
+ *
+ * ‎`null` = אין פעולה מזמינה לקטגוריה הזו, והכללי נשאר. תקציר יומי
+ * הוא בדיוק המקרה שבו „מה דחוף היום?” הוא הצעד הנכון.
+ */
+const CATEGORY_ACTION: Record<
+  WhatsAppNotifyCategory,
+  { id: AgentActionId; caption: string } | null
+> = {
+  calls: { id: "show_callbacks", caption: "למי לחזור" },
+  leads: { id: "show_leads", caption: "הלידים שלי" },
+  tasks: { id: "show_tasks", caption: "המשימות שלי" },
+  matches: { id: "show_matches", caption: "ההתאמות שלי" },
+  /*
+   * ‎`caption` ולא `action.title`: „פניות ממתינות מהרשת” הוא 19
+   * תווים, ועם האייקון הוא חוצה את תקרת 20 התווים של Meta ונחתך
+   * ל„פניות ממתינות מה…”. הכיתוב הוא תצוגה ומותר לקצר אותו;
+   * ‎**המשפט** שנשלח נשאר מהקטלוג, כי אותו המנוע צריך לזהות.
+   */
+  network: { id: "show_network_inbox", caption: "מה מחכה ברשת" },
+  // הפורום — ההודעה כולה מהפורום מקבלת את הכפתורים שלה (למעלה); באגד מעורב, „מה חדש בפורום”
+  forum: { id: "forum_latest", caption: "מה חדש בפורום" },
+  digests: null,
+  system: null,
+};
+
+/**
+ * ‎**סיכום של שיחה אחת — הצעד הבא הוא הלקוח, לא הרשימה.**
+ *
+ * ‏„למי לחזור” נכון לאגד שיחות; מתחת לסיכום של **שיחה אחת** הוא
+ * ‏שולח את המתווך לרשימה שבה השיחה הזו כבר נמצאת. מה שהוא צריך
+ * ‏שם הוא לפתוח ממנה לקוח — וזה בדיוק החיכוך שבגללו שיחה שלא
+ * ‏נענתה נשארת לא מטופלת: הכפתור קיים במסך, וההתראה שלחה לחפש
+ * ‏אותו (בקשת המשתמש).
+ *
+ * ‎**המצביע הוא מה שההתראה יודעת.** התראת התמלול מצביעה על
+ * ‏השיחה; ההתראה על שיחה שלא נענתה — המקרה שבשבילו זה נבנה —
+ * ‏מצביעה על הליד שנפתח, ואחרת על הכרטיס של המתקשר. הפעולה
+ * ‏שולפת מכל אחד מהם את השיחה, ולכן אין כאן רשימת סוגי התראה
+ * ‏שנייה שאפשר לשכוח לעדכן.
+ *
+ * ‏מה שאין לו מצביע נופל מכאן מעצמו: `pbx_silent` אינה שיחה,
+ * ‏והתראה שהוסתרה לנמען הזה מגיעה בלי `entityId` — ובצדק, כי
+ * ‏אסור שיהיה לו כפתור לפתוח כרטיס על מי שאינו רשאי לראות.
+ */
+/**
+ * ‎**הצלצול קודם לשורת השיחה** (ביקורת Codex, P2).
+ *
+ * ‏`incoming_call` נשלחת בזמן שהטלפון מצלצל — `TelephonyService`
+ * ‏יוצא מהענף הזה **לפני** שהוא כותב את השיחה. כלומר בלחיצה על
+ * ‏„המר ללקוח” מתוכה, המצביע על הכרטיס נפתר לשיחה **קודמת** של
+ * ‏אותו לקוח, או לא נפתר כלל — ובשני המקרים השאלה תהיה על משהו
+ * ‏אחר ממה שההתראה הציגה.
+ *
+ * ‏ההתראה עצמה נשארת כמות שהיא: היא נועדה להגיע בזמן הצלצול, וזה
+ * ‏בדיוק ערכה. מה שיורד הוא הכפתור בלבד, והוא חוזר עם ההתראה
+ * ‏שאחרי — „שיחה שלא נענתה” או „התמלול מוכן”, ששתיהן אחרי הכתיבה.
+ */
+const CALL_NOT_YET_LOGGED = new Set(["incoming_call"]);
+
+function convertFollowUp(
+  shown: readonly NotifyItem[],
+  allowed: readonly string[],
+): NotifyFollowUp | null {
+  if (!allowed.includes("convert_call")) return null;
+  /* ‏אגד עם שיחה אחת ועוד עדכונים אינו „ההתראה על השיחה” */
+  const only = shown.length === 1 ? shown[0] : undefined;
+  if (only === undefined || only.entityId === null) return null;
+  if (notifyCategory(only.type) !== "calls") return null;
+  if (CALL_NOT_YET_LOGGED.has(only.type)) return null;
+  const kind = CALL_CONVERT_REF_KINDS.find((k) => k === only.entityType);
+  if (kind === undefined) return null;
+  /* ‏הכיתוב והמשפט — שניהם מהקטלוג, כמו בכל כפתור אחר כאן */
+  const action = agentAction("convert_call");
+  const said = action?.examples[0];
+  if (action === undefined || said === undefined) return null;
+  return {
+    label: `🔄 ${action.title}`,
+    text: callConvertCommand(said, { kind, id: only.entityId }),
+  };
+}
+
+/** מה שכפתור ההמשך נושא: מה כתוב עליו, ומה נשלח בלחיצה. */
+export interface NotifyFollowUp {
+  /** כותרת הכפתור — Meta חותכת ל-20 תווים */
+  label: string;
+  /** המשפט שנשלח למנוע כאילו הוקלד */
+  text: string;
+}
+
+/**
+ * ‎**כפתור ההמשך שההתראות האלה מצדיקות** — או `null` לכללי.**
+ *
+ * ‎`allowed` הוא אותו סינון שנעשה בהצעות הסוכן ומאותה סיבה: כפתור
+ * לפעולה שהמתווך חסום ממנה שולח אותו אל „אין לך הרשאה” על משהו
+ * שהמערכת עצמה הציעה.
+ */
+export function notifyFollowUp(
+  items: readonly NotifyItem[],
+  allowed: readonly string[],
+): NotifyFollowUp | null {
+  if (items.length === 0) return null;
+  const shown = items.slice(0, NOTIFY_ITEMS_PER_MESSAGE);
+  const convert = convertFollowUp(shown, allowed);
+  if (convert !== null) return convert;
+  const category = dominantCategory(shown);
+  const entry = CATEGORY_ACTION[category];
+  if (entry === null || !allowed.includes(entry.id)) return null;
+  const example = agentAction(entry.id)?.examples[0];
+  if (example === undefined) return null;
+  return {
+    label: `${CATEGORY_ICON[category]} ${entry.caption}`,
+    text: example,
+  };
 }
 
 /* ==================== חלון 24 השעות של Meta ==================== */
@@ -500,9 +868,18 @@ export function templateParams(items: readonly NotifyItem[]): [string, string] {
   return [flatten(headline, 120), flatten(detail, 300)];
 }
 
-/** תבנית של Meta דוחה שורות חדשות, טאבים ורצף רווחים כפולים. */
+/**
+ * תבנית של Meta דוחה שורות חדשות, טאבים ורצף רווחים כפולים.
+ *
+ * ‏השורה הופכת ל-`·` ולא לרווח: גוף ההתראה בנוי שורה לכל פריט
+ * ‏(ראו `mentorMessageBody`), והדבקה ברווח החזירה בדיוק את גוש
+ * ‏הטקסט שהשורות באו למנוע.
+ */
 function flatten(text: string, max: number): string {
-  const cleaned = text.replace(/\s+/gu, " ").trim();
+  const cleaned = text
+    .replace(/[^\S\n]*\n[\s]*/gu, " · ")
+    .replace(/\s+/gu, " ")
+    .trim();
   return cleaned.length > max
     ? `${cleaned.slice(0, max - 1)}…`
     : cleaned || "עדכון";

@@ -13,6 +13,7 @@ import { formatDate } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
 import { IconPlus } from "../icons";
 import { BackupsSection } from "./backups-section";
+import { WhatsappSeatsPanel } from "./whatsapp-seats-panel";
 import { LeadPricesSection } from "./lead-prices-section";
 import { PaymentsSection } from "./payments-section";
 import { PlansSection } from "./plans-section";
@@ -25,13 +26,14 @@ import { SupportQueueSection } from "./support-queue-section";
 import { LegalDocsSection } from "./legal-docs-section";
 import { IntegrationDeskSection } from "./integration-desk-section";
 import { InvoicesSection } from "./invoices-section";
-import { TelephonyWebhooksSection } from "./telephony-webhooks-section";
+import { WebhookLogSection } from "./webhook-log-section";
 import { CreditEconomySection } from "./credit-economy-section";
 import { SystemUpdateSection } from "./system-update-section";
 import { PayoutDeskSection } from "./payout-desk-section";
 import { ReferralRevenueSection } from "./referral-revenue-section";
 import { Notice } from "../notice";
 import { EntityTabs, TabPanel, useEntityTab } from "../entity-tabs";
+import { FunnelCopySection } from "./funnel-copy-section";
 
 /**
  * ניהול הפלטפורמה — הקמת משרדי תיווך חדשים בלי SSH. נגיש רק למנהלי
@@ -42,6 +44,8 @@ const inputStyle = { borderColor: "var(--color-input-border)", background: "var(
 
 interface AgencyRow {
   id: string;
+  /** ‏מספר הלקוח — מה שאפשר להקריא בטלפון ולחפש לפיו ברשימה. */
+  customerNo: number;
   name: string;
   plan: string;
   status: string;
@@ -433,6 +437,7 @@ const PLATFORM_TABS = [
   { key: "agencies", label: "משרדים" },
   { key: "pricing", label: "מסלולים ומחירים" },
   { key: "billing", label: "גבייה" },
+  { key: "funnel", label: "נוסחי המרה" },
   { key: "integrations", label: "חיבורים" },
   { key: "system", label: "מערכת" },
 ] as const;
@@ -445,6 +450,7 @@ export default function PlatformPage() {
   /** המשרד שעורכים לו כרגע את חסימות המודולים; null = אף אחד. */
   const [modulesFor, setModulesFor] = useState<string | null>(null);
   const [overridesFor, setOverridesFor] = useState<string | null>(null);
+  const [waFor, setWaFor] = useState<string | null>(null);
   const [forbidden, setForbidden] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [created, setCreated] = useState<{ ownerEmail: string; tempPassword: string } | null>(null);
@@ -691,6 +697,15 @@ export default function PlatformPage() {
         <CreditEconomySection refreshToken={referralFeeVersion} />
       </TabPanel>
 
+      {/*
+        ‎**לשונית משלה, ולא בתוך „מסלולים ומחירים”.** שם נקבע כמה
+        ‏עולה; כאן נקבע מה **אומרים** למי שעדיין לא שילם. שתי
+        ‏החלטות שונות, ושתי פעמים שונות שנכנסים אליהן.
+      */}
+      <TabPanel tab="funnel" active={tab}>
+        <FunnelCopySection />
+      </TabPanel>
+
       <TabPanel tab="billing" active={tab}>
         {/*
           תור המשיכות ראשון בלשונית: מישהו ממתין בקצה השני שלו, והוא
@@ -717,7 +732,7 @@ export default function PlatformPage() {
           צמוד להגדרות הספקים: שתיהן עונות על "חיברתי ספק ולא קורה
           כלום", וזו הרשימה שאומרת אם הוא בכלל פונה אלינו.
         */}
-        <TelephonyWebhooksSection />
+        <WebhookLogSection />
       </TabPanel>
 
       <TabPanel tab="system" active={tab}>
@@ -729,6 +744,10 @@ export default function PlatformPage() {
         */}
         <AgentUsageSection />
         <LegalDocsSection />
+        {/*
+          ליד המסמכים המשפטיים ולא ליד ההגדרות: שניהם **תוכן** שהפלטפורמה
+          כותבת ומוצג בכל המשרדים, ולא מתג שמשנה התנהגות.
+        */}
       </TabPanel>
 
       <TabPanel tab="agencies" active={tab}>
@@ -802,6 +821,12 @@ export default function PlatformPage() {
               <caption className="mv-visually-hidden">משרדי התיווך בפלטפורמה</caption>
               <thead style={{ background: "var(--color-surface)" }}>
                 <tr>
+                  {/*
+                    ‎**המספר ראשון ולא אחרון.** הוא מה שמחפשים בעין
+                    כשלקוח מקריא אותו בטלפון, וטור שיושב בקצה מימין
+                    של טבלה שנגללת לרוחב אינו נסרק.
+                  */}
+                  <th scope="col" className="p-3 text-start">מס׳ לקוח</th>
                   <th scope="col" className="p-3 text-start">משרד</th>
                   <th scope="col" className="p-3 text-start">מסלול</th>
                   <th scope="col" className="p-3 text-start">סטטוס</th>
@@ -817,6 +842,14 @@ export default function PlatformPage() {
                 {agencies.map((a) => (
                   <Fragment key={a.id}>
                   <tr className="border-t" style={{ borderColor: "var(--color-border)" }}>
+                    {/*
+                      ‎`tabular-nums` — מספרים באותו רוחב, ולכן טור
+                      שנסרק מלמעלה למטה מיישר את עצמו. `dir="ltr"`
+                      כי מספר אינו טקסט עברי.
+                    */}
+                    <td className="p-3 font-mono tabular-nums" dir="ltr">
+                      {a.customerNo}
+                    </td>
                     <td className="p-3 font-medium">{a.name}</td>
                     <td className="p-3">
                       <label>
@@ -921,14 +954,33 @@ export default function PlatformPage() {
                           פתח ללא תפוגה
                         </Button>
                       ) : null}
+                      {/*
+                        מנויי הוואטסאפ ליד שאר פעולות המשרד: כשסוכן
+                        מתקשר ואומר „הסוכן לא עונה לי”, זו השורה שבה
+                        התמיכה כבר נמצאת.
+                      */}
+                      <Button
+                        variant="secondary"
+                        aria-expanded={waFor === a.id}
+                        onClick={() => setWaFor(waFor === a.id ? null : a.id)}
+                      >
+                        וואטסאפ
+                      </Button>
                       <Button variant="ghost" onClick={() => void deleteAgency(a)}>
                         <span style={{ color: "var(--color-danger)" }}>מחק משרד</span>
                       </Button>
                     </td>
                   </tr>
+                  {waFor === a.id ? (
+                    <tr style={{ background: "var(--color-bg)" }}>
+                      <td colSpan={8} className="p-3">
+                        <WhatsappSeatsPanel tenantId={a.id} />
+                      </td>
+                    </tr>
+                  ) : null}
                   {overridesFor === a.id ? (
                     <tr style={{ background: "var(--color-bg)" }}>
-                      <td colSpan={7} className="p-3">
+                      <td colSpan={8} className="p-3">
                         <TenantOverrides
                           agency={a}
                           planFeatures={
@@ -945,7 +997,7 @@ export default function PlatformPage() {
                   ) : null}
                   {modulesFor === a.id ? (
                     <tr style={{ background: "var(--color-bg)" }}>
-                      <td colSpan={7} className="p-3">
+                      <td colSpan={8} className="p-3">
                         <ModuleBlocks
                           agency={a}
                           onCancel={() => setModulesFor(null)}

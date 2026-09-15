@@ -4,14 +4,11 @@ import { useRef, useState } from "react";
 import type { NetworkChip, NetworkDetailRow } from "@metavchim/shared";
 import { mediaSrc } from "@/lib/api";
 import {
+  IconChevronDown,
   IconClock,
-  IconDoor,
   IconCamera,
   IconEye,
-  IconPin,
-  IconRuler,
-  IconStairs,
-  IconUsers,
+  IconInfo,
   IconX,
 } from "../icons";
 
@@ -58,11 +55,34 @@ export interface SplitChips {
   rest: NetworkChip[];
 }
 
-const FACT_ICONS: Partial<Record<NetworkChip["icon"], { node: React.ReactNode; label: string }>> = {
-  door: { node: <IconDoor s={18} />, label: "חדרים" },
-  ruler: { node: <IconRuler s={18} />, label: 'שטח במ"ר' },
-  stairs: { node: <IconStairs s={18} />, label: "קומה" },
+/*
+ * ‏שלושת השדות שמקבלים אריח משלהם, והתווית שלהם.
+ *
+ * ‎**בלי אייקון.** האריח נושא תווית ומספר, ובקובץ העיצוב זו כל
+ * צורתו: „חדרים / 4”. סמל נוסף מעליהם היה שכפול של אותה מילה
+ * בצורה שצריך לפענח — סרגל אינו נקרא „שטח” אלא נזכר ככזה.
+ */
+const FACT_LABELS: Partial<Record<NetworkChip["icon"], string>> = {
+  door: "חדרים",
+  ruler: 'שטח',
+  stairs: "קומה",
 };
+
+/**
+ * ‏ערך האריח בלי המילה שכבר כתובה בתווית שמעליו.
+ *
+ * הצ'יפ נוסח כמשפט עצמאי („4 חדרים”, „קומה 3”) כי הוא עמד לבדו
+ * בשורת תגיות. באריח יש תווית מעליו, ולכן אותה מילה הופיעה פעמיים:
+ * „חדרים / 4 חדרים”. מה שנשאר ריק חוזר לטקסט המלא — עדיף כפילות
+ * מאשר אריח בלי ערך.
+ */
+function factValue(text: string, label: string): string {
+  const trimmed = text
+    .replace(new RegExp(`^${label}\\s+`, "u"), "")
+    .replace(new RegExp(`\\s+${label}$`, "u"), "")
+    .trim();
+  return trimmed === "" ? text : trimmed;
+}
 
 export function splitNetworkChips(chips: readonly NetworkChip[]): SplitChips {
   const place: string[] = [];
@@ -72,12 +92,12 @@ export function splitNetworkChips(chips: readonly NetworkChip[]): SplitChips {
   let money: NetworkChip | undefined;
 
   for (const chip of chips) {
-    const fact = FACT_ICONS[chip.icon];
+    const label = FACT_LABELS[chip.icon];
     if (chip.icon === "coins") money ??= chip;
     else if (chip.icon === "map" || chip.icon === "pin") place.push(chip.text);
     else if (chip.icon === "tag" || chip.icon === "key" || chip.icon === "home")
       subtitle.push(chip.text);
-    else if (fact !== undefined) facts.push({ icon: fact.node, value: chip.text, label: fact.label });
+    else if (label !== undefined) facts.push({ value: factValue(chip.text, label), label });
     else rest.push(chip);
   }
 
@@ -90,42 +110,136 @@ export function splitNetworkChips(chips: readonly NetworkChip[]): SplitChips {
   };
 }
 
-/** שורת הגיבור: מי/מה, ותת-כותרת שאומרת איזו עסקה. */
-export function NetHero({
+/**
+ * ‏המשרד המפרסם — עיגול, שם ועיר, בראש הכרטיס.
+ *
+ * הוא היה צ'יפ אחד מבין כמה בפס העליון, כלומר פרט ברשימת פרטים.
+ * בפועל הוא הראשון שמסתכלים עליו: מודעה של משרד שמכירים נקראת
+ * אחרת מזו של משרד שלא שמעו עליו, וההחלטה אם בכלל לקרוא נופלת שם.
+ *
+ * ‏הלוגו נכנס לעיגול כשיש, ואות ראשונה כשאין. לוגו שנשבר בטעינה
+ * חוזר לאות — מודעה עם שם משרד ובלי סמל, ולא עיגול ריק.
+ */
+export function NetOfficeHead({
+  name,
+  place,
+  logoUrl,
+}: {
+  name: string;
+  /** עיר המשרד או של המודעה — שורה שנייה קטנה מתחת לשם. */
+  place?: string;
+  logoUrl?: string;
+}): React.JSX.Element {
+  const [broken, setBroken] = useState(false);
+  return (
+    <span className="mv-net-office">
+      <span className="mv-net-office__avatar" aria-hidden="true">
+        {logoUrl !== undefined && !broken ? (
+          <img src={mediaSrc(logoUrl)} alt="" loading="lazy" onError={() => setBroken(true)} />
+        ) : (
+          name.trim().slice(0, 1)
+        )}
+      </span>
+      <span className="min-w-0">
+        <span className="mv-net-office__name">{name}</span>
+        {place === undefined || place.trim() === "" ? null : (
+          <span className="mv-net-office__place">{place}</span>
+        )}
+      </span>
+    </span>
+  );
+}
+
+/**
+ * ‎**שורה, לא כרטיס — תצוגת „שורות” של הפיד.**
+ *
+ * ‏אותה מודעה בדיוק, באותם נתונים (`splitNetworkChips` נשאר המקור
+ * היחיד שמחליט מה מגיע למסך), אבל במסת מבט אחת: מה זה, כמה, ומה
+ * עושים. מי שסורק ארבעים מודעות אינו קורא הערות ואינו פותח רצועות
+ * — הוא מחפש את השתיים שכדאי לפתוח.
+ *
+ * ‎**מה אין כאן, ובכוונה:** ההערות, התמונות, וההסבר „אין לכם נכס
+ * מתאים”. תג ההתאמה בשורה כבר אומר אותו דבר במילה אחת, והפירוט
+ * ממתין ב„כל הפרטים” ובתצוגת הכרטיסיות — שהמתג אליה נמצא באותה
+ * שורה שבה בוחרים את התצוגה.
+ */
+export function NetRow({
   icon,
   title,
   subtitle,
+  badge,
+  money,
+  facts,
+  actions,
 }: {
   icon: React.ReactNode;
   title: string;
   subtitle?: string;
+  badge: React.ReactNode;
+  money?: string;
+  facts: NetFact[];
+  actions: React.ReactNode;
 }): React.JSX.Element {
+  const shown = facts.filter((fact) => fact.value.trim() !== "" && fact.value !== "—");
   return (
-    <div className="mv-net-hero">
-      <span className="mv-net-avatar">{icon}</span>
-      <div className="mv-net-hero-text">
-        <h3 className="mv-net-hero-title">{title}</h3>
+    <div className="mv-net-rowline">
+      <span className="mv-net-rowline__tile" aria-hidden="true">
+        {icon}
+      </span>
+      <span className="mv-net-rowline__main">
+        <span className="mv-net-line__title">
+          {title}
+          {badge}
+        </span>
         {subtitle === undefined || subtitle === "" ? null : (
-          <p className="mv-net-hero-sub">{subtitle}</p>
+          <span className="mv-net-line__sub">{subtitle}</span>
         )}
-      </div>
+      </span>
+      <span className="mv-net-rowline__figures">
+        {money === undefined ? null : (
+          <span className="mv-net-rowline__money">{money}</span>
+        )}
+        {shown.length === 0 ? null : (
+          <span className="mv-net-line__sub">
+            {shown.map((fact) => `${fact.label} ${fact.value}`).join(" · ")}
+          </span>
+        )}
+      </span>
+      <span className="mv-net-rowline__act">{actions}</span>
     </div>
   );
 }
 
 /**
- * המיקום — שדה ולא תגית.
+ * ‏שורת הכותרת — מה זה מימין, ומה מיוחד בו משמאל.
  *
- * זו התשובה לשאלה השנייה שמי שסורק לוח שואל, ותגית בין תגיות אינה
- * נקראת כתשובה אלא כעוד פרט.
+ * ‎**בלי אווטאר.** האווטאר עבר לפס העליון, אל המשרד המפרסם — שם
+ * הוא אומר „מי”, וכאן הוא רק חזר על סוג המודעה שכבר כתוב בשמה.
+ *
+ * ‏המיקום נכנס לתת-הכותרת ואינו שדה בפני עצמו: „אשדוד · דירה”
+ * נקרא בשורה אחת, ושדה ממוסגר משלו הוסיף מלבן שלישי לכרטיס בלי
+ * להוסיף מידע.
  */
-export function NetPlace({ text }: { text: string }): React.JSX.Element | null {
-  if (text.trim() === "") return null;
+export function NetHero({
+  title,
+  subtitle,
+  aside,
+}: {
+  title: string;
+  subtitle?: string;
+  /** תגיות מצב שיושבות בקצה שורת הכותרת — „בלעדיות”, „חדש ברשת”. */
+  aside?: React.ReactNode;
+}): React.JSX.Element {
   return (
-    <p className="mv-net-place">
-      <IconPin s={16} />
-      {text}
-    </p>
+    <>
+      <div className="mv-net-titlerow">
+        <h3 className="mv-net-hero-title">{title}</h3>
+        {aside === undefined ? null : <span className="flex flex-wrap items-center gap-2">{aside}</span>}
+      </div>
+      {subtitle === undefined || subtitle === "" ? null : (
+        <p className="mv-net-sub">{subtitle}</p>
+      )}
+    </>
   );
 }
 
@@ -146,7 +260,6 @@ export function NetMoney({
 }
 
 export interface NetFact {
-  icon: React.ReactNode;
   value: string;
   label: string;
 }
@@ -164,7 +277,6 @@ export function NetFacts({ facts }: { facts: NetFact[] }): React.JSX.Element | n
     <div className="mv-net-facts">
       {shown.map((fact) => (
         <div className="mv-net-fact" key={fact.label}>
-          {fact.icon}
           <span className="mv-net-fact-value">{fact.value}</span>
           <span className="mv-net-fact-label">{fact.label}</span>
         </div>
@@ -284,7 +396,7 @@ export function NetDetailsButton({
     <>
       <button
         type="button"
-        className="mv-net-details-btn"
+        className="mv-net-act"
         onClick={() => ref.current?.showModal()}
       >
         <IconEye s={15} /> כל הפרטים
@@ -353,6 +465,113 @@ export function NetDetailsButton({
 }
 
 /**
+ * ‎**רצועת ההתאמות — קטע מתקפל, לא פסקה ירוקה.**
+ *
+ * ‏הרשימה הזו היא הפעולה של הכרטיס: הנכסים שלי שמתאימים לביקוש
+ * הזה, וליד כל אחד „הצע נכס זה”. בתור פסקה ירוקה עם רשימה פתוחה
+ * מתחתיה היא נראתה כמו עוד שדה בכרטיס, ובכרטיס עם ארבע התאמות היא
+ * דחפה את שאר המודעה אל מחוץ למסך.
+ *
+ * ‏רצועה סגורה בעצמה, בצבע הדומיין הסגול — אותו צבע שאריח „מחכים
+ * לפעולה” בכרטיס הפתיחה נושא, כי זה אותו דבר בדיוק. המספר על
+ * הרצועה אומר כמה יש בלי לפתוח, והשברון אומר שאפשר לסגור.
+ *
+ * ‎**פתוחה כברירת מחדל.** הכפתור שבתוכה הוא הפעולה שהמסך קיים
+ * בשבילה, ורצועה סגורה הייתה מסתירה אותה מאחורי לחיצה נוספת בכל
+ * כרטיס. מי שרוצה לסרוק סוגר.
+ *
+ * ‎`<details>` נייטיב: המקלדת, קורא המסך וכפתור „חפש בעמוד” של
+ * הדפדפן מקבלים קטע מתקפל אמיתי בלי state ובלי ARIA ידני.
+ */
+export function NetMatchStrip({
+  count,
+  title,
+  summary,
+  domain,
+  icon,
+  children,
+}: {
+  count: number;
+  title: string;
+  /** ‏„2 קונים · הגבוה 94” — מה שיודעים בלי לפתוח. */
+  summary: string;
+  /** צבע הקטע שהכרטיס שייך לו — כחול לנכסים, סגול לביקושים. */
+  domain: string;
+  icon: React.ReactNode;
+  children: React.ReactNode;
+}): React.JSX.Element {
+  return (
+    <details className={`mv-net-strip ${domain}`}>
+      <summary className="mv-net-strip-head">
+        <span className="mv-net-strip__tile" aria-hidden="true">
+          {icon}
+        </span>
+        <span className="mv-net-strip-title">
+          {title}
+          <span className="mv-net-strip__sub">{summary}</span>
+        </span>
+        <span className="mv-net-strip-count">{count}</span>
+        <span className="mv-net-strip-chevron" aria-hidden="true">
+          <IconChevronDown s={16} />
+        </span>
+      </summary>
+      <div className="mv-net-strip-body">{children}</div>
+    </details>
+  );
+}
+
+/**
+ * ‎**„התאמה 92%” בראש הכרטיס — התשובה לפני הקריאה.**
+ *
+ * ‏ההתאמות ישבו רק בתוך הכרטיס, מתחת לפרטים. כלומר כדי לדעת אם
+ * מודעה רלוונטית לי בכלל צריך היה לקרוא אותה עד הסוף — ובלוח של
+ * עשרות מודעות זה בדיוק מה שאיש אינו עושה. הכרטיס נראה זהה בין אם
+ * יש לי נכס מושלם עבורו ובין אם אין לי דבר.
+ *
+ * ‏המספר הוא ה**גבוה** מבין ההתאמות ולא ממוצע ולא ספירה: הוא עונה
+ * על „כמה קרוב הכי טוב שיש לי”, וזו השאלה שמחליטה אם לפתוח.
+ *
+ * ‎`null` = אין התאמה, וזה מצב אמיתי שצריך להיקרא ולא להיעלם —
+ * הכרטיס עדיין רלוונטי, ומתחתיו כפתור המעקב.
+ */
+export function NetMatchBadge({
+  score,
+  label,
+  domain,
+}: {
+  /** האחוז הגבוה מבין ההתאמות, או `null` כשאין. */
+  score: number | null;
+  /** מה מתאים — „נכס שלך” / „קונה שלך”. לקורא המסך בלבד. */
+  label: string;
+  /** צבע הקטע כשיש התאמה; בלי התאמה התג תמיד ניטרלי. */
+  domain: string;
+}): React.JSX.Element {
+  const matched = score !== null;
+  return (
+    <span
+      className={`mv-pill ${matched ? domain : "mv-domain-neutral"}`}
+      title={matched ? `${label} מתאים בציון ${score}` : `אין ${label} מתאים במאגר שלך`}
+    >
+      {matched ? `התאמה ${score}` : "אין התאמה"}
+    </span>
+  );
+}
+
+/**
+ * ‏האחוז הגבוה מבין ההתאמות, או `null` כשאין.
+ *
+ * פונקציה ולא ביטוי בשני מקומות: שני סוגי הכרטיסים מחשבים את אותו
+ * מספר, ו-`Math.max` על מערך ריק מחזיר `-Infinity` — כלומר „התאמה
+ * ‎-Infinity%” בכל כרטיס בלי התאמות, אם מישהו יכתוב את זה שוב בקצרה.
+ */
+export function bestMatchScore(
+  matches: readonly { score: number }[] | undefined,
+): number | null {
+  if (matches === undefined || matches.length === 0) return null;
+  return matches.reduce((top, match) => (match.score > top ? match.score : top), 0);
+}
+
+/**
  * ההודעה כשאין התאמה מהצד שלנו — **בולטת, לא שורת לוואי.**
  *
  * הנוסח הקודם היה טקסט אפור קטן שנבלע בכרטיס; המשתמש ביקש שההודעה
@@ -368,15 +587,11 @@ export function NetNoMatch({
 }): React.JSX.Element {
   return (
     <div className="mv-net-nomatch" role="note">
-      <span className="mv-net-nomatch-icon" aria-hidden="true">
-        <IconUsers s={17} />
-      </span>
-      <span className="min-w-0">
-        <b className="block text-[length:var(--type-caption-lg)]">{what}</b>
-        <span className="text-[length:var(--type-caption)]" style={{ color: "var(--color-text-soft)" }}>
-          {hint}
-        </span>
-      </span>
+      <b className="mv-net-nomatch__head">
+        <IconInfo s={16} />
+        {what}
+      </b>
+      <span className="mv-net-nomatch__hint">{hint}</span>
     </div>
   );
 }
@@ -449,38 +664,5 @@ export function NetPhotos({
         </span>
       ) : null}
     </div>
-  );
-}
-
-/**
- * לוגו המשרד המפרסם, לצד שמו.
- *
- * משרד מזוהה נבחר לפני משרד אנונימי — זה כל התפקיד. הלוגו אינו
- * מחליף את השם אלא מתלווה אליו: לוגו שנכשל בטעינה משאיר מודעה עם
- * שם משרד, ולא מודעה בלי מפרסם.
- */
-export function NetOffice({
-  name,
-  logoUrl,
-}: {
-  name: string;
-  logoUrl?: string;
-}): React.JSX.Element {
-  const [broken, setBroken] = useState(false);
-  return (
-    <span className="mv-net-chip" title="המשרד שפרסם את המודעה">
-      {logoUrl !== undefined && !broken ? (
-        <img
-          src={mediaSrc(logoUrl)}
-          alt=""
-          loading="lazy"
-          className="mv-net-office-logo"
-          onError={() => setBroken(true)}
-        />
-      ) : (
-        <IconUsers s={14} />
-      )}
-      {name}
-    </span>
   );
 }

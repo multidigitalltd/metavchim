@@ -8,31 +8,151 @@ import {
 import { ulid } from "ulid";
 import {
   applyIntakeAnswers,
+  buyerNeighborhoodKeys,
+  buyerSharedTabuStance,
   BuyerRequirementsSchema,
   DEFAULT_COMMISSION_SPLIT,
   mergeIntakeSeed,
   uniformTerms,
-  labelOf,
-  MATURITY_LABELS,
+  buyerStatusChangeLine,
+  officeStatusById,
+  statusAfterMaturityChange,
+  type OfficeBuyerStatus,
   type BuyerRequirements,
   type IntakeAnswers,
   type Page,
+  type SharedTabuStance,
 } from "@metavchim/shared";
-import { assertBuyerAccess, ownershipFilter } from "../../common/ownership";
+import {
+  assertBuyerAccess,
+  leadOwnershipFilter,
+  ownershipFilter,
+  type PhoneTypedBy,
+} from "../../common/ownership";
+import { readOfficeStatuses } from "../../common/office-buyer-statuses";
 import {
   cleanVocabulary,
   freeTextTerms,
+  neighborhoodKey,
+  neighborhoodKeyMatches,
   normalizeRange,
   priceRangeAgorot,
 } from "@metavchim/shared";
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
+import {
+  agentHandover,
+  agentNameOf,
+  agentNames,
+  assertAgentInOffice,
+  assertCanAssignAgents,
+} from "../../common/agent-names";
 import { TenantContext } from "../../common/tenant-context";
 import { deleteCoopDeals } from "../../common/coop-deal-cleanup";
 import { AuditService } from "../../core/audit.service";
 import { OutboxService } from "../../core/outbox.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
-import { lockContact } from "../../common/locks";
+import { lockContact, shareTenantRow } from "../../common/locks";
 import { ContactErasureService } from "../contacts/contact-erasure.service";
+
+/**
+ * ‎**הכלל עצמו בשפת המסד — ולמה הוא חייב להיות מדויק.**
+ *
+ * ## מה היה קודם
+ *
+ * ‏המסד עשה תת-מחרוזת רחבה (`LIKE '%q%'`) תחת תקרה, והכלל
+ * ‏המשותף הכריע אחריה. אבל התקרה חתכה **לפני** ההכרעה
+ * ‏ובלי סדר: במשרד שבו יותר מ-200 מפתחות מכילים את מה
+ * ‏שהוקלד, התאמות אמיתיות נדחקו החוצה בידי התאמות באמצע
+ * ‏מילה שהכלל היה פוסל בלאו הכי — כלומר קונים שנעלמים
+ * ‏מהסינון בלי שום סימן (ביקורת Codex, P1).
+ *
+ * ## הכלל, מילה במילה
+ *
+ * ‏`neighborhoodKeyMatches` הוא שתי בדיקות על מפתח מקופל: תחילית
+ * ‏המפתח, או תחילית אחד מההיסטים שאחרי רווח. ב-SQL אלה בדיוק
+ * ‏שני ה-`LIKE` שלמטה. השקילות נבדקת מול מסד אמיתי ב-
+ * ‏`neighborhood-match.int.test.ts`, בדיוק כמו שהקיפול נבדק.
+ *
+ * ## ולמה הבריחה נדרשת עכשיו ולא קודם
+ *
+ * ‏כשהמסד רק הרחיב, `%` או `_` שהוקלדו בשדה לא הזיקו —
+ * ‏הקוד צימצם אחריהם. עכשיו המסד מכריע, ותו כזה היה מרחיב
+ * ‏את ההתאמה מעבר לכלל. `!` כתו בריחה מפורש ולא הלוכסן
+ * ‏המרמז, כדי שלא ניתלה במוסכמות מילוט של הספרייה.
+ */
+export function neighborhoodKeyMatchSql(queryKey: string): Prisma.Sql {
+  const escaped = queryKey.replace(/([!%_])/gu, "!$1");
+  return Prisma.sql`(k LIKE ${`${escaped}%`} ESCAPE '!' OR k LIKE ${`% ${escaped}%`} ESCAPE '!')`;
+}
+
+/**
+ * ‎**העמודות החמות שנגזרות מ-`requirements` — במקום אחד.**
+ *
+ * ‏הדרישות נשמרות כ-JSONB, ולצדן עמודות שהמסד יודע לסנן ולאנדקס
+ * ‏עליהן. הן **נגזרות**, ולכן חייבות להיכתב בכל כתיבה של ה-JSON,
+ * ‏אחרת השורה מספרת שני סיפורים: הסינון הגס במנוע ההתאמות קורא
+ * ‏עמודה, המנוע עצמו קורא את ה-JSON, ומועמד נעלם בלי שאיש רואה
+ * ‏מדוע.
+ *
+ * ‏עד כה הן נכתבו בשלושה מקומות — יצירה מליד, יצירה ישירה ועדכון
+ * ‏— ובשלושה ניסוחים נפרדים. זה עבד כל עוד לא נוספה עמודה נגזרת
+ * ‏חדשה; ברגע שנוספה, „שלושה עותקים” הפך ל„שניים מעודכנים ואחד
+ * ‏לא”, וקונה שנוצר מהמרת ליד היה מאבד את עמדת הטאבו שלו בשקט.
+ * ‏פונקציה אחת אינה יכולה להתעדכן חלקית.
+ */
+export function requirementColumns(
+  requirements: BuyerRequirements,
+): Pick<
+  Prisma.BuyerUncheckedCreateInput,
+  | "cities"
+  | "hasSearchAreas"
+  | "dealType"
+  | "budgetMinAgorot"
+  | "budgetMaxAgorot"
+  | "roomsMin"
+  | "roomsMax"
+  | "sharedTabuStance"
+  | "neighborhoodKeys"
+  | "requirements"
+> {
+  return {
+    cities: requirements.cities,
+    hasSearchAreas: requirements.searchAreas.length > 0,
+    dealType: requirements.dealType,
+    budgetMinAgorot:
+      requirements.budgetMinAgorot === undefined
+        ? null
+        : BigInt(requirements.budgetMinAgorot),
+    // חסר = הלקוח לא מסר תקציב, ולא "תקציב אפס"
+    budgetMaxAgorot:
+      requirements.budgetMaxAgorot === undefined
+        ? null
+        : BigInt(requirements.budgetMaxAgorot),
+    roomsMin: requirements.roomsMin ?? null,
+    roomsMax: requirements.roomsMax ?? null,
+    /* ‏חסר = טרם נשאל, וזה ערך — ראו schema.prisma */
+    /*
+     * ‎**העמודה היא ההתממשות של הכלל, לא מקור שני** (ביקורת Codex, P1).
+     *
+     * ‏קודם נכתב `requirements.sharedTabu ?? null`, ולכן קונה שביקש
+     * ‏את סוג הנכס הישן — האמירה היחידה שהייתה קיימת לפני השדה
+     * ‏החדש — נשמר כ„טרם נשאל” ונפל מחוץ לשידוך השותפים. הגזירה
+     * ‏יושבת ב-`buyerSharedTabuStance`, וכאן היא רק **נכתבת**, כדי
+     * ‏שהשאילתה תוכל לשאול עמודה אחת פשוטה.
+     */
+    sharedTabuStance: buyerSharedTabuStance(requirements) ?? null,
+    /*
+     * ‎**שני המקורות, והגזירה אינה כאן.**
+     *
+     * ‏קונה אומר איפה הוא מחפש גם בהקלדה וגם בנעיצה
+     * ‏על המפה, ושתי האמירות שוות ערך. ההגדרה יושבת
+     * ‏ב-`buyerNeighborhoodKeys`, כדי שהעמודה, המילוי במיגרציה
+     * ‏והסינון לא יוכלו להיפרד זה מזה.
+     */
+    neighborhoodKeys: buyerNeighborhoodKeys(requirements),
+    requirements: requirements as object,
+  };
+}
 import { ContactsService } from "../contacts/contacts.service";
 import {
   MatchingService,
@@ -46,6 +166,23 @@ export interface BuyerDto {
   requirements: BuyerRequirements;
   financing: string;
   maturity: string;
+  /**
+   * ‎**מזהה סטטוס המשרד — התווית נפתרת בלקוח.**
+   *
+   * הלקוח שולף ממילא את רשימת הסטטוסים (הוא צריך אותה לבורר
+   * ולסינון), ולכן שליחת התווית מכאן הייתה עותק שני של אותו מידע —
+   * שמתיישן ברגע שמשנים שם סטטוס בזמן שכרטיס פתוח.
+   */
+  officeStatus?: string;
+  /**
+   * ‎**הסוכן שהכרטיס שלו — `ownerUserId`, שהיה במסד ולא הוצג.**
+   *
+   * הוא כבר מסנן ראייה (`buyers.view_all`), כלומר המערכת ידעה של מי
+   * הכרטיס בכל שאילתה — ורק המסך לא אמר זאת. חסר = לא משויך, או
+   * משויך למי שאינו במשרד עוד; המסך אומר „לא משויך” ואינו מנחש.
+   */
+  ownerUserId?: string;
+  agentName?: string;
   source: string;
   agentNotes?: string;
   createdAt: Date;
@@ -69,11 +206,17 @@ export class BuyersService {
   async create(input: {
     contactName: string;
     contactPhone: string;
+    /** נשמר על כרטיס איש הקשר — `createWithin` כבר ידע, `create` לא הצהיר */
+    contactEmail?: string;
     requirements: BuyerRequirements;
     financing?: string;
     maturity?: string;
+    /** מזהה סטטוס משרד, או פונקציה שמכריעה — הבחירה קובעת גם את הדרגה. */
+    officeStatus?: string | ((statuses: readonly OfficeBuyerStatus[]) => string);
     source: string;
     agentNotes?: string;
+    /** ‏מי הקליד את המספר — ראו `createWithin` */
+    typedBy: PhoneTypedBy;
   }): Promise<BuyerDto> {
     const id = await this.persist(input);
     await this.afterCreate(id);
@@ -174,7 +317,7 @@ export class BuyersService {
         where: {
           id: leadId,
           tenantId: ctx.tenantId,
-          ...ownershipFilter("leads.view_all", "assignedToUserId"),
+          ...leadOwnershipFilter(),
         },
       });
       if (!lead) throw new NotFoundException("ליד לא נמצא");
@@ -254,21 +397,7 @@ export class BuyersService {
           // הקונה שייך לסוכן שמטפל בליד — אדמין שממיר לא גונב בעלות
           // מסוכן שרואה רק view_own (ביקורת Codex, P1)
           ownerUserId: lead.assignedToUserId ?? ctx.userId,
-          cities: requirements.cities,
-          hasSearchAreas: requirements.searchAreas.length > 0,
-          dealType: requirements.dealType,
-          budgetMinAgorot:
-            requirements.budgetMinAgorot === undefined
-              ? null
-              : BigInt(requirements.budgetMinAgorot),
-          // חסר = הלקוח לא מסר תקציב, ולא "תקציב אפס"
-          budgetMaxAgorot:
-            requirements.budgetMaxAgorot === undefined
-              ? null
-              : BigInt(requirements.budgetMaxAgorot),
-          roomsMin: requirements.roomsMin ?? null,
-          roomsMax: requirements.roomsMax ?? null,
-          requirements: requirements as object,
+          ...requirementColumns(requirements),
           financing: input.financing ?? "unknown",
           maturity: input.maturity ?? "interested",
           source: `lead:${lead.source}`,
@@ -333,6 +462,7 @@ export class BuyersService {
     maturity?: string;
     source: string;
     agentNotes?: string;
+    typedBy: PhoneTypedBy;
   }): Promise<string> {
     const id = await this.persist(input);
     try {
@@ -351,8 +481,10 @@ export class BuyersService {
     requirements: BuyerRequirements;
     financing?: string;
     maturity?: string;
+    officeStatus?: string | ((statuses: readonly OfficeBuyerStatus[]) => string);
     source: string;
     agentNotes?: string;
+    typedBy: PhoneTypedBy;
   }): Promise<string> {
     return this.prisma.withTenant((tx) => this.createWithin(tx, input));
   }
@@ -379,19 +511,53 @@ export class BuyersService {
       requirements: BuyerRequirements;
       financing?: string;
       maturity?: string;
+      /** מזהה, או פונקציה שמכריעה מול הרשימה — ראו `update`. */
+      officeStatus?: string | ((statuses: readonly OfficeBuyerStatus[]) => string);
       source: string;
       agentNotes?: string;
       ownerUserId?: string;
+      /**
+       * ‎**מי הקליד את המספר** (ביקורת Codex, P1).
+       *
+       * ‏יצירת קונה מצרפת כרטיס לקוח לקונה שהסוכן מחזיק, והצירוף
+       * ‏עצמו הוא שפותח את `canSeeContact` — כלומר מספר של בעל נכס
+       * ‏מוסתר, שהוקלד במסך, החזיר מיד את שמו, הטלפון והמייל שלו.
+       * ‏הקישור הפתוח מקבל את המספר מהלקוח עצמו ולכן `office`.
+       */
+      typedBy: PhoneTypedBy;
     },
   ): Promise<string> {
     const tenantId = TenantContext.current().tenantId;
     const id = ulid();
+    /*
+     * ‎**אותו כלל כמו בעדכון:** סטטוס משרד גורר את הדרגה שהוא נשען
+     * עליה. כרטיס שנפתח עם „במשא ומתן” ועם דרגת ברירת המחדל
+     * „מתעניין” היה יוצא מהטופס כשהוא כבר סותר את עצמו.
+     */
+    let maturity = input.maturity ?? "interested";
+    let officeStatus: string | null = null;
+    if (input.officeStatus !== undefined && input.officeStatus !== "") {
+      /* אותה נעילה משותפת כמו בעדכון — ראו ההסבר שם. */
+      await shareTenantRow(tx, tenantId);
+      const statuses = await readOfficeStatuses(tx, tenantId);
+      const wanted =
+        typeof input.officeStatus === "function"
+          ? input.officeStatus(statuses)
+          : input.officeStatus;
+      const entry = officeStatusById(statuses, wanted);
+      if (entry === null || entry.archived) {
+        throw new BadRequestException("הסטטוס אינו קיים ברשימת המשרד");
+      }
+      officeStatus = entry.id;
+      maturity = entry.maturity;
+    }
 
     {
-      const contact = await this.contacts.findOrCreateByPhone(tx, {
-        name: input.contactName,
-        phone: input.contactPhone,
-      });
+      const contact = await this.contacts.findOrCreateByPhoneTyped(
+        tx,
+        { name: input.contactName, phone: input.contactPhone },
+        { typedBy: input.typedBy, subject: "יצירת קונה" },
+      );
       // השלמה, לא דריסה: כתובת קיימת על הכרטיס גוברת על הקובץ
       if (input.contactEmail) {
         const existingEmail = await this.contacts.emailFor(tx, contact.id);
@@ -411,23 +577,10 @@ export class BuyersService {
            * ונעלם מכל סוכן שרואה „רק שלי”.
            */
           ownerUserId: input.ownerUserId ?? TenantContext.current().userId,
-          cities: input.requirements.cities,
-          hasSearchAreas: input.requirements.searchAreas.length > 0,
-          dealType: input.requirements.dealType,
-          budgetMinAgorot:
-            input.requirements.budgetMinAgorot === undefined
-              ? null
-              : BigInt(input.requirements.budgetMinAgorot),
-          // חסר = הלקוח לא מסר תקציב, ולא "תקציב אפס"
-          budgetMaxAgorot:
-            input.requirements.budgetMaxAgorot === undefined
-              ? null
-              : BigInt(input.requirements.budgetMaxAgorot),
-          roomsMin: input.requirements.roomsMin ?? null,
-          roomsMax: input.requirements.roomsMax ?? null,
-          requirements: input.requirements as object,
+          ...requirementColumns(input.requirements),
           financing: input.financing ?? "unknown",
-          maturity: input.maturity ?? "interested",
+          maturity,
+          officeStatus,
           source: input.source,
           agentNotes: input.agentNotes ?? null,
         },
@@ -498,7 +651,43 @@ export class BuyersService {
           ) => Promise<BuyerRequirements> | BuyerRequirements);
       financing?: string;
       maturity?: string;
+      /**
+       * ‎`null` או `""` = הסרת סטטוס המשרד; מזהה = בחירה בו.
+       *
+       * ‎**בחירה בסטטוס קובעת גם את הדרגה**, כי הסטטוס נושא אותה
+       * בהגדרה. אם נשלחו שניהם באותה בקשה, הסטטוס מנצח: הוא
+       * האמירה הספציפית יותר, ושמירת דרגה שסותרת אותו הייתה
+       * מייצרת כרטיס שקורא שני דברים הפוכים.
+       *
+       * ‎**ופונקציה, לקורא שצריך להכריע מול הרשימה** (ביקורת Codex).
+       * הסוכן הקולי מתאים את מה שנאמר לשלב, והתאמה שרצה בטרנזקציה
+       * נפרדת יכולה להתיישן: מנהל ששינה תווית או דרגה בין ההתאמה
+       * לכתיבה משאיר את המזהה תקף ואת המשמעות שונה. הפונקציה מקבלת
+       * את הרשימה **שנקראה כאן, מתחת לנעילה**, ולכן היא מכריעה על
+       * מה שבאמת נשמר.
+       *
+       * אותו נימוק בדיוק של `requirements` שמקבל פונקציה למעלה.
+       */
+      officeStatus?:
+        | string
+        | null
+        | ((statuses: readonly OfficeBuyerStatus[]) => string);
       agentNotes?: string;
+      /**
+       * ‎**העברת הכרטיס לסוכן אחר — פעולת מנהל.**
+       *
+       * ‎`ownerUserId` בקונה **אינו כמו `agentUserId` בנכס**: הוא
+       * מסנן ראייה. סוכן בלי `buyers.view_all` רואה רק את הכרטיסים
+       * שלו, ולכן העברה כאן היא גם העברת גישה — הסוכן הקודם מפסיק
+       * לראות את הקונה. זו הכוונה, וזה מה שהופך את השדה למשמעותי
+       * יותר מהמקביל לו בנכס.
+       *
+       * ‎**ואין „לא משויך”.** מחרוזת ריקה אינה מתקבלת: קונה בלי
+       * בעלים אינו „של כולם” אלא **בלתי נראה** — `ownershipFilter`
+       * משווה מזהה, ו-NULL אינו שווה לאיש. ניתוק היה מעלים את
+       * הכרטיס מכל סוכן במשרד בלי ששום מסך יאמר זאת.
+       */
+      ownerUserId?: string;
     },
   ): Promise<BuyerDto> {
     const tenantId = TenantContext.current().tenantId;
@@ -554,50 +743,125 @@ export class BuyersService {
         };
       }
 
+      /*
+       * ‎**שתי השכבות נפתרות יחד, לפני הכתיבה.**
+       *
+       * הרשימה נקראת רק כשאחת מהן נגעה בכלל: שאילתה נוספת בכל
+       * עדכון דרישות היא מחיר על מה שלא השתנה.
+       */
+      const touchesStatus =
+        patch.officeStatus !== undefined || patch.maturity !== undefined;
+      /*
+       * ‎**נעילה משותפת על שורת המשרד לפני קריאת הרשימה** (ביקורת
+       * Codex). מחיקה מלאה של סטטוס מותרת רק כשאיש אינו נושא אותו,
+       * והיא סופרת תחת `FOR UPDATE`; בלי הנעילה כאן, שיוך שקרה בין
+       * הספירה למחיקה היה משאיר על הכרטיס מזהה שאינו נפתר לשום
+       * תווית — כלומר אובדן ההיסטוריה שההסתרה נועדה למנוע.
+       *
+       * ‎`FOR SHARE` אינו חוסם שיוך מקביל של קונה אחר; הוא חוסם רק
+       * את עריכת ההגדרות, וזה בדיוק הזוג שצריך להיות סדרתי.
+       */
+      /*
+       * ‎**השומר באותה טרנזקציה שכותבת**, כמו בנכס: בדיקה לפניה
+       * הייתה חלון שבו הסוכן הוסר מהמשרד בין הבדיקה לכתיבה.
+       */
+      if (patch.ownerUserId !== undefined) {
+        /* הרשאה לפני קיום: „אינך רשאי” קודם ל„הסוכן אינו במשרד” */
+        assertCanAssignAgents();
+        await assertAgentInOffice(tx, tenantId, patch.ownerUserId);
+      }
+      if (touchesStatus) await shareTenantRow(tx, tenantId);
+      const statuses = touchesStatus
+        ? await readOfficeStatuses(tx, tenantId)
+        : [];
+      /** `undefined` = לא נגענו בעמודה; `null` = הסטטוס יורד. */
+      let nextOfficeStatus: string | null | undefined;
+      let nextMaturity = patch.maturity;
+      if (patch.officeStatus !== undefined) {
+        /* פונקציה מכריעה כאן, על הרשימה שנקראה מתחת לנעילה. */
+        const wanted =
+          typeof patch.officeStatus === "function"
+            ? patch.officeStatus(statuses)
+            : patch.officeStatus;
+        if (wanted === null || wanted === "") {
+          /*
+           * הסרת הסטטוס **אינה** נוגעת בדרגה: הכרטיס עדיין דחוף
+           * כפי שהיה, רק בלי המילה של המשרד עליו.
+           */
+          nextOfficeStatus = null;
+        } else {
+          const entry = officeStatusById(statuses, wanted);
+          /*
+           * ‎**מוסתר נדחה בכתיבה ולא רק בתפריט.** בורר שנפתח לפני
+           * שהמשרד הסתיר סטטוס עדיין מחזיק אותו, ושמירה שקטה שלו
+           * הייתה מחזירה לשימוש מה שהוסר בכוונה.
+           */
+          if (entry === null || entry.archived) {
+            throw new BadRequestException("הסטטוס אינו קיים ברשימת המשרד");
+          }
+          nextOfficeStatus = entry.id;
+          nextMaturity = entry.maturity;
+        }
+      } else if (patch.maturity !== undefined) {
+        nextOfficeStatus = statusAfterMaturityChange(
+          statuses,
+          existing.officeStatus,
+          patch.maturity,
+        );
+      }
+
       await tx.buyer.update({
         where: { id },
         data: {
-          ...(requirements
-            ? {
-                cities: requirements.cities,
-                hasSearchAreas: requirements.searchAreas.length > 0,
-                dealType: requirements.dealType,
-                budgetMinAgorot:
-                  requirements.budgetMinAgorot === undefined
-                    ? null
-                    : BigInt(requirements.budgetMinAgorot),
-                budgetMaxAgorot:
-                  requirements.budgetMaxAgorot === undefined
-                    ? null
-                    : BigInt(requirements.budgetMaxAgorot),
-                roomsMin: requirements.roomsMin ?? null,
-                roomsMax: requirements.roomsMax ?? null,
-                requirements: requirements as object,
-              }
-            : {}),
+          ...(requirements ? requirementColumns(requirements) : {}),
           ...(patch.financing !== undefined
             ? { financing: patch.financing }
             : {}),
-          ...(patch.maturity !== undefined
-            ? { maturity: patch.maturity, maturityOverridden: true }
+          ...(nextMaturity !== undefined
+            ? { maturity: nextMaturity, maturityOverridden: true }
+            : {}),
+          ...(nextOfficeStatus !== undefined
+            ? { officeStatus: nextOfficeStatus }
             : {}),
           ...(patch.agentNotes !== undefined
             ? { agentNotes: patch.agentNotes }
             : {}),
+          ...(patch.ownerUserId === undefined
+            ? {}
+            : { ownerUserId: patch.ownerUserId }),
         },
       });
-      // שינוי בשלות אמיתי נרשם בציר — קביעה חוזרת של אותו ערך רק מקבעת override
-      if (
-        patch.maturity !== undefined &&
-        patch.maturity !== existing.maturity
-      ) {
+      /*
+       * ‎**רשומת ציר אחת לכל פעולה, ולא אחת לכל עמודה שזזה.**
+       *
+       * בחירת סטטוס מזיזה גם את הדרגה, ושתי שורות („סטטוס: …” ואחריה
+       * „בשלות: …”) היו קוראות כמו שני דברים שקרו — במקום כמו הדבר
+       * האחד שהמתווך עשה. השורה נכתבת לפי מה שנשלח, לא לפי מה שהשתנה.
+       */
+      const statusMoved =
+        nextOfficeStatus !== undefined &&
+        (nextOfficeStatus ?? null) !== (existing.officeStatus ?? null);
+      const maturityMoved =
+        nextMaturity !== undefined && nextMaturity !== existing.maturity;
+      const timeline = buyerStatusChangeLine({
+        statuses,
+        pickedStatus: patch.officeStatus !== undefined,
+        statusMoved,
+        maturityMoved,
+        beforeStatus: existing.officeStatus,
+        afterStatus: nextOfficeStatus ?? null,
+        beforeMaturity: existing.maturity,
+        afterMaturity: nextMaturity,
+      });
+      // קביעה חוזרת של אותו ערך רק מקבעת override — ואין לה מה לספר
+      if (timeline !== "") {
         await tx.interaction.create({
           data: {
             id: ulid(),
             tenantId,
             buyerId: id,
             kind: "status_change",
-            content: `בשלות: ${labelOf(MATURITY_LABELS, existing.maturity)} ← ${labelOf(MATURITY_LABELS, patch.maturity)}`,
+            content: timeline,
             createdBy: TenantContext.current().userId,
           },
         });
@@ -608,6 +872,19 @@ export class BuyersService {
         entityId: id,
         metadata: { changedFields: Object.keys(patch) },
       });
+      /* ההעברה בנפרד, עם שני הצדדים — ראו `agentHandover`. */
+      const handover = agentHandover(
+        existing.ownerUserId,
+        patch.ownerUserId ?? existing.ownerUserId,
+      );
+      if (handover) {
+        await this.audit.record(tx, {
+          action: "buyer.agent_changed",
+          entityType: "buyer",
+          entityId: id,
+          metadata: handover,
+        });
+      }
       await this.outbox.emit(tx, "buyer.updated", {
         buyerId: id,
         tenantId,
@@ -650,7 +927,33 @@ export class BuyersService {
     return this.getById(id);
   }
 
-  async getById(id: string): Promise<BuyerDto> {
+  /**
+   * ‎**„פעילות אחרונה” — הגדרה אחת, לרשימה ולכרטיס.**
+   *
+   * ‏האינטראקציה האחרונה מכל סוג; ובלי אף אחת — העדכון האחרון של
+   * ‏הכרטיס עצמו. הנפילה-לאחור אינה פרט טכני: קונה שנוצר ידנית או
+   * ‏יובא מקובץ אין לו שורות אינטראקציה, ובלעדיה הרשימה הייתה
+   * ‏מציגה תאריך והכרטיס „—”, על אותו לקוח באותו רגע.
+   *
+   * ‏הכלל נכתב כאן פעם אחת בדיוק בגלל זה: הגרסה הראשונה של הכרטיס
+   * ‏החזירה `null` בזמן שהרשימה כבר נפלה ל-`updatedAt` (ביקורת
+   * ‏Codex), כלומר שתי תשובות שונות לאותה שאלה.
+   */
+  private lastActivityOf(
+    lastInteractionAt: Date | null | undefined,
+    updatedAt: Date,
+  ): Date {
+    return lastInteractionAt ?? updatedAt;
+  }
+
+  /**
+   * ‏הכרטיס — כמו הרשימה, כולל `lastActivityAt`.
+   *
+   * ‏שאילתת האינטראקציה מסוננת ב-`tenantId` ובקונה שכבר עבר את
+   * בדיקת הבעלות שמעליה, ולכן אין כאן דרך להגיע לפעילות של משרד
+   * או סוכן אחר.
+   */
+  async getById(id: string): Promise<BuyerDto & { lastActivityAt: Date }> {
     return this.prisma.withTenant(async (tx) => {
       const row = await tx.buyer.findFirst({
         where: {
@@ -663,7 +966,16 @@ export class BuyersService {
       if (!row) throw new NotFoundException("קונה לא נמצא");
       const contact = await this.contacts.getById(tx, row.contactId);
       if (!contact) throw new NotFoundException("איש קשר לא נמצא");
-      return this.toDto(row, contact);
+      const agents = await agentNames(tx, TenantContext.current().tenantId, [row.ownerUserId]);
+      const last = await tx.interaction.findFirst({
+        where: { tenantId: TenantContext.current().tenantId, buyerId: row.id },
+        orderBy: { createdAt: "desc" },
+        select: { createdAt: true },
+      });
+      return {
+        ...this.toDto(row, contact, agents),
+        lastActivityAt: this.lastActivityOf(last?.createdAt, row.updatedAt),
+      };
     });
   }
 
@@ -829,6 +1141,8 @@ export class BuyersService {
 
   async list(query: {
     maturity?: string;
+    /** מזהה סטטוס משרד — מצטלב עם `maturity` ואינו מתחרה בו. */
+    officeStatus?: string;
     q?: string;
     /** ערים מפורשות — קונה מתאים אם אחת מהן ברשימת הערים שלו (hasSome) */
     cities?: string[];
@@ -858,12 +1172,35 @@ export class BuyersService {
      * לפחות ל-X; קונה בלי תקציב מוצהר אינו נכלל, כי איננו יודעים.
      */
     budgetDeclaredOnly?: boolean;
+    /**
+     * ‏עמדת הקונה כלפי טאבו משותף.
+     *
+     * ‏מסנן על העמודה הנגזרת ולא על ה-JSON, ולכן „מי אישר” הוא
+     * ‏שאילתה מאונדקסת. קונה שלא נשאל אינו נכלל באף אחד משני
+     * ‏הערכים — הוא אינו „לא מוכן”, פשוט לא נשאל.
+     */
+    sharedTabu?: SharedTabuStance;
+    /**
+     * ‎שכונה — טקסט חופשי, בדיוק כמו בשדה שבו היא נכתבת.
+     *
+     * ‏שם שכונה אינו רשום בשום מרשם, ולכן אין מזהה לבקש —
+     * ‏הבורר במסך מציע את מה שכבר הוזן במשרד, ומרשה גם
+     * ‏להקליד משהו שעוד לא נכתב. ההתאמה היא על המפתח
+     * ‏המקופל ולא על הכתיב, ולכן „שיכון ג'” מוצא גם את מי
+     * ‏שנכתב אצלו „שכונת שיכון ג”.
+     */
+    neighborhood?: string;
     cursor?: string;
     limit: number;
   }): Promise<Page<BuyerDto>> {
     const budget = priceRangeAgorot(query.minPrice, query.maxPrice);
     const rooms = normalizeRange(query.minRooms, query.maxRooms);
     const terms = freeTextTerms(query.q);
+    /*
+     * קיפול אחד למה שהוקלד. מפתח ריק — רווחים או סימני
+     * פיסוק בלבד — אינו שכונה ואינו מסנן כלום.
+     */
+    const neighborhoodQueryKey = neighborhoodKey(query.neighborhood ?? "");
 
     /*
      * כל התנאים נאספים לרשימת AND אחת ולא נפרשים כמפתחות נפרדים.
@@ -872,6 +1209,20 @@ export class BuyersService {
      * האובייקט: המפתח השני מנצח, והראשון נעלם בשקט בלי שום שגיאה.
      */
     const conditions: Prisma.BuyerWhereInput[] = [];
+    /*
+     * ‏תנאי השכונה מצטרף לרשימה הזו **בתוך הטרנזקציה**
+     * ‏למטה, כי הוא דורש שאילתה — והיא חייבת הקשר דייר.
+     */
+
+    /*
+     * ‏טאבו משותף — שוויון פשוט על העמודה הנגזרת.
+     *
+     * ‏אין כאן ענף „ריק = הכול” כמו בתקציב: המסנן נשלח רק כשנבחר
+     * ‏ערך, ו-`undefined` פשוט אינו מוסיף תנאי.
+     */
+    if (query.sharedTabu !== undefined) {
+      conditions.push({ sharedTabuStance: query.sharedTabu });
+    }
 
     /*
      * חפיפה, לא הכלה. לקונה יש *טווח* תקציב ולא מחיר אחד, ולכן מי
@@ -997,12 +1348,66 @@ export class BuyersService {
     }
 
     return this.prisma.withTenant(async (tx) => {
+      /*
+       * ‎**השכונה — הטקסט שהוקלד מתורגם למפתחות שקיימים.**
+       *
+       * ‏העמודה מחזיקה מפתחות שלמים, ו-`hasSome` יודע לשאול רק
+       * ‏„האם אחד מאלה נמצא שם” — שאלה מאונדקסת (GIN). אבל הכלל
+       * ‏שהמסך מבטיח הוא תחילית מגבול מילה — „אהרון” מוצא את
+       * ‏„רמת אהרון” — ולכן צריך קודם לדעת אלו מפתחות תואמים.
+       *
+       * ‏החלוקה היא זו שאוצר השכונות כבר עובד לפיה: המסד
+       * ‏מצמצם **ברוחב** (תת-מחרוזת), והכלל המשותף מכריע.
+       * ‏כך אין שתי הגדרות ל„מתאים” — וגם `%` או `_` שהוקלדו
+       * ‏בשדה אינם מרחיבים דבר, כי ההכרעה אינה שלהם.
+       */
+      if (neighborhoodQueryKey !== "") {
+        /*
+         * ‎**ובלי תקרה.** קודם היתה כאן תקרה שהגנה על הזיכרון,
+         * ‏וכשהבדיקה היתה רחבה היא גם חתכה התאמות אמיתיות.
+         * ‏עכשיו השאילתה מחזירה **בדיוק את השכונות שהמסך הבטיח**,
+         * ‏והכמות חסומה במציאות: אלה שמות שכונות שהמשרד הקליד
+         * ‏ושמתחילות באותן אותיות — עשרות בודדות גם במשרד גדול.
+         * ‏תקרה שחותכת תוצאות נכונות גרועה משאילתה גדולה בעשרות שורות.
+         */
+        const candidates = await tx.$queryRaw<{ key: string }[]>`
+          SELECT DISTINCT k AS key
+            FROM buyers b
+           CROSS JOIN LATERAL unnest(b.neighborhood_keys) AS k
+           WHERE b.deleted_at IS NULL
+             AND ${neighborhoodKeyMatchSql(neighborhoodQueryKey)}
+        `;
+        /*
+         * ‏הכלל המשותף נשאר בדרך גם אחרי שה-SQL מדויק: הוא
+         * ‏הסמכות, וכל סטייה עתידית תיפול לכיוון הצר — פחות
+         * ‏תוצאות מהמובטח, ולא יותר.
+         */
+        const keys = candidates
+          .map((row) => row.key)
+          .filter((key) => neighborhoodKeyMatches(key, neighborhoodQueryKey));
+        /*
+         * ‎**אף שכונה לא תואמת — ולכן אף קונה.**
+         *
+         * ‏היציאה מפורשת ולא `hasSome: []`: התשובה זהה, אבל
+         * ‏היא היתה תלויה במשמעות של חיתוך עם מערך ריק —
+         * ‏פרט שאיש אינו בודק ושיכול להשתנות בשקט בשדרוג.
+         */
+        if (keys.length === 0) return { items: [], nextCursor: null };
+        conditions.push({ neighborhoodKeys: { hasSome: keys } });
+      }
+
       const rows = await tx.buyer.findMany({
         where: {
           tenantId: TenantContext.current().tenantId,
           deletedAt: null,
           ...ownershipFilter("buyers.view_all", "ownerUserId"),
           ...(query.maturity ? { maturity: query.maturity } : {}),
+          /*
+           * ‎**חיתוך ולא תחרות.** סטטוס המשרד גורר דרגה, ולכן צירוף
+           * של השניים הוא תמיד תת-קבוצה — ולעולם לא סתירה שמחזירה
+           * רשימה ריקה בלי הסבר.
+           */
+          ...(query.officeStatus ? { officeStatus: query.officeStatus } : {}),
           ...(conditions.length > 0 ? { AND: conditions } : {}),
           ...(query.cursor ? { id: { lt: query.cursor } } : {}),
         },
@@ -1053,6 +1458,12 @@ export class BuyersService {
         tx,
         page.map((row) => row.contactId),
       );
+      /* שם הסוכן — שאילתה אחת לכל העמוד, כמו אנשי הקשר שלצידה */
+      const agents = await agentNames(
+        tx,
+        TenantContext.current().tenantId,
+        page.map((row) => row.ownerUserId),
+      );
       const items: (BuyerDto & {
         offersReceived: number;
         lastActivityAt: Date;
@@ -1061,10 +1472,12 @@ export class BuyersService {
         const contact = contactsById.get(row.contactId);
         if (contact) {
           items.push({
-            ...this.toDto(row, contact),
+            ...this.toDto(row, contact, agents),
             offersReceived: offerCountByBuyer.get(row.id) ?? 0,
-            // אין תיעוד אינטראקציה ⇒ העדכון האחרון של הכרטיס עצמו
-            lastActivityAt: lastByBuyer.get(row.id) ?? row.updatedAt,
+            lastActivityAt: this.lastActivityOf(
+              lastByBuyer.get(row.id),
+              row.updatedAt,
+            ),
           });
         }
       }
@@ -1078,19 +1491,26 @@ export class BuyersService {
       requirements: unknown;
       financing: string;
       maturity: string;
+      officeStatus: string | null;
+      ownerUserId: string | null;
       source: string;
       agentNotes: string | null;
       createdAt: Date;
       updatedAt: Date;
     },
     contact: { id: string; name: string; phone: string },
+    agents?: Map<string, string>,
   ): BuyerDto {
+    const agentName = agentNameOf(agents ?? new Map(), row.ownerUserId);
     return {
       id: row.id,
       contact,
       requirements: BuyerRequirementsSchema.parse(row.requirements),
       financing: row.financing,
       maturity: row.maturity,
+      ...(row.officeStatus === null ? {} : { officeStatus: row.officeStatus }),
+      ...(row.ownerUserId === null ? {} : { ownerUserId: row.ownerUserId }),
+      ...(agentName === undefined ? {} : { agentName }),
       source: row.source,
       agentNotes: row.agentNotes ?? undefined,
       createdAt: row.createdAt,

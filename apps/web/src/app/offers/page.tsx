@@ -40,7 +40,12 @@ const FILTERS: [string, string][] = [
 function statusChip(o: OfferRow): { label: string; fg: string; bg: string } {
   if (o.status === "interested") return { label: "מעוניין ✓", fg: "var(--color-success)", bg: "var(--color-success-soft)" };
   if (o.status === "declined") return { label: "לא מתאים", fg: "var(--chip-neutral-fg)", bg: "var(--chip-neutral-bg)" };
-  if (o.status === "pending_approval") return { label: "ממתין לאישור", fg: "var(--chip-neutral-fg)", bg: "var(--chip-neutral-bg)" };
+  /*
+   * ‎„ממתינה לשליחה” ולא „ממתין לאישור”: איש אינו מאשר כאן דבר.
+   * זה המצב של הצעה שנוצר לה קישור ואף ערוץ לא הוציא אותה —
+   * ובגוון ענבר, כי זו שורה שדורשת פעולה ולא מצב שקט.
+   */
+  if (o.status === "pending_approval") return { label: "ממתינה לשליחה", fg: "var(--domain-amber-fg)", bg: "var(--domain-amber-bg)" };
   // ההצעות האוטומטיות במייל — בין יצירה לשליחה, וכשל שדורש המשך ידני
   if (o.status === "pending_email") return { label: "בדרך במייל", fg: "var(--chip-neutral-fg)", bg: "var(--chip-neutral-bg)" };
   if (o.status === "email_failed") return { label: "המייל נכשל — המשיכו ידנית", fg: "#8a3b21", bg: "#fbe9e1" };

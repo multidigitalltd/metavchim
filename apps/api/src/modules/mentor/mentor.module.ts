@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common";
 import { AgentEventsService } from "../agent/agent-events.service";
 import { MentorController } from "./mentor.controller";
+import { MentorPracticeService } from "./mentor-practice.service";
 import { MentorReviewService } from "./mentor-review.service";
 import { MentorSignalsService } from "./mentor-signals.service";
 import { MentorService } from "./mentor.service";
@@ -16,9 +17,11 @@ import { MentorService } from "./mentor.service";
     MentorService,
     MentorSignalsService,
     MentorReviewService,
+    MentorPracticeService,
     AgentEventsService,
   ],
   // הסוכן בשיחה (מסך ווואטסאפ) מדבר עם אותו מנטור — לא מסלול שני
-  exports: [MentorService],
+  /* ‏התרגול נדרש גם למנוע הפעולות (תרגול מהוואטסאפ) — לא רק לבקר */
+  exports: [MentorService, MentorPracticeService],
 })
 export class MentorModule {}

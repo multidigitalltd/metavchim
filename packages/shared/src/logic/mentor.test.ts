@@ -6,6 +6,7 @@ import {
   MENTOR_METRICS,
   type MentorActivity,
   mentorCelebration,
+  mentorDailyPlan,
   mentorGoalLabel,
   type MentorGoalProgress,
   mentorGoalProgress,
@@ -22,6 +23,7 @@ import {
   mentorReviewTitle,
   mentorStatusMessage,
   mentorWeeklyReview,
+  selectWins,
   obstaclePlanSuggestions,
   suggestProcessGoals,
 } from "./mentor.js";
@@ -29,6 +31,7 @@ import {
   MENTOR_INTENTION_MAX,
   MentorGoalInputSchema,
 } from "../schemas/mentor.js";
+import { MENTOR_PLAYBOOK } from "./mentor-playbook.js";
 
 // ראשון 2026-09-06 00:00 שעון ישראל (UTC+3 בקיץ)
 const WEEK_START = new Date("2026-09-05T21:00:00.000Z");
@@ -1148,6 +1151,19 @@ describe("הקול של המנטור — אישי, בגוף שני יחיד, ב�
       mentorPatternLine({ kind: "commitment_record", accepted: 3, kept: 2 }),
       mentorStatusMessage({ goals: [], wins: [], latestHeadline: null })
         .message,
+      mentorCelebration({ kind: "goal_reached", title: "5 הצעות בשבוע" }, "דנה")
+        .body,
+      mentorDailyPlan({
+        goals: [goal({ pace: "behind", actual: 1, remaining: 4 })],
+        insights: {
+          responseMedianMinutes: 30,
+          previousResponseMedianMinutes: null,
+          missedUnreturned: 2,
+        },
+        yesterday: { ...quiet, calls_made: 4, offers_sent: 1 },
+        now: new Date("2026-09-07T06:00:00.000Z"),
+        firstName: "דנה",
+      })?.body ?? "",
     ];
     for (const text of texts) expect(text, text).not.toMatch(PLURAL);
     expect(
@@ -1260,5 +1276,199 @@ describe("שיחות ומהירות מענה — המדדים והתובנות",
       expect(plans).toHaveLength(3);
       for (const plan of plans) expect(plan).toMatch(/^כש.*— אז /u);
     }
+  });
+});
+
+describe("mentorDailyPlan — הבוקר של המנטור: מה היום שווה", () => {
+  // שני 07/09 09:00 ישראל
+  const monday = new Date("2026-09-07T06:00:00.000Z");
+  // ראשון 06/09 09:00 ישראל
+  const sunday = new Date("2026-09-06T06:00:00.000Z");
+  const thursday = new Date("2026-09-10T06:00:00.000Z");
+  const saturday = new Date("2026-09-12T06:00:00.000Z");
+
+  it("שבת — שקט; יום חול בלי יעד, בלי שיחה שמחכה ובלי אתמול — גם שקט", () => {
+    expect(
+      mentorDailyPlan({
+        goals: [goal({ pace: "behind", actual: 1, remaining: 4 })],
+        now: saturday,
+      }),
+    ).toBeNull();
+    expect(
+      mentorDailyPlan({ goals: [], now: monday, yesterday: quiet }),
+    ).toBeNull();
+  });
+
+  it("אתמול בשמו, היעד השבועי עם מה שהיום שווה, שיחה שמחכה — ופתיח בשם", () => {
+    const plan = mentorDailyPlan({
+      goals: [goal({ pace: "behind", actual: 2, remaining: 3 })],
+      insights: {
+        responseMedianMinutes: null,
+        previousResponseMedianMinutes: null,
+        missedUnreturned: 1,
+      },
+      yesterday: { ...quiet, calls_made: 4, offers_sent: 2 },
+      now: monday,
+      firstName: "דנה",
+    });
+    expect(plan?.title).toBe("🌅 היום שלך");
+    /*
+     * ‎**שורה לכל פריט, וסמל לכל שורה.** הגוף חובר פעם ברווח,
+     * ‏והגיע לטלפון כפסקה רצופה שאי אפשר לסרוק (דיווח מהשטח).
+     * ‏הברכה והסיום מופרדים בשורה ריקה — ירידה בודדת צפופה מדי
+     * ‏מכדי שהעין תתפוס פריטים נפרדים.
+     */
+    expect(plan?.body).toBe(
+      [
+        "בוקר טוב דנה.",
+        "",
+        "✅ אתמול: 4 שיחות יוצאות ו-2 הצעות. יום מלא.",
+        // 3 חסרות, 4.5 ימי עבודה כולל היום ⇒ הצעה אחת היום
+        "🎯 5 הצעות בשבוע: 2 הצעות עד עכשיו. הצעה אחת היום כדי לחזור לקצב.",
+        "📞 שיחה נכנסת אחת מחכה לטלפון חוזר — שווה להתחיל ממנה.",
+        "",
+        "עוד אפשר להגיע לזה — ואני איתך.",
+      ].join("\n"),
+    );
+  });
+
+  it("חמישי: אותן 3 חסרות הן כבר 2 היום; יעד שהושג נאמר בקצרה והסיום רגוע", () => {
+    const plan = mentorDailyPlan({
+      goals: [
+        goal({ pace: "done", actual: 5 }),
+        goal({
+          metric: "viewings_held",
+          target: 4,
+          pace: "on_track",
+          actual: 1,
+          remaining: 3,
+        }),
+      ],
+      now: thursday,
+    });
+    expect(plan?.body).toContain(
+      "🎯 4 סיורים בשבוע: סיור אחד עד עכשיו. 2 סיורים היום כדי להישאר בקצב.",
+    );
+    /* הסמל בראש השורה ולא בסופה — הוא מה שמזהה את סוג השורה בסריקה */
+    expect(plan?.body).toContain("🎯 5 הצעות בשבוע — כבר הושג.");
+    // המאחור קודם, ההושג אחרון
+    expect(plan?.body.indexOf("4 סיורים")).toBeLessThan(
+      plan?.body.indexOf("כבר הושג") ?? -1,
+    );
+    expect(plan?.body).toMatch(/יום טוב — ואני כאן\.$/u);
+  });
+
+  it("ראשון בלי יעד — הזמנה לקבוע אחד; ביום שני אותו מתווך לא מקבל כלום", () => {
+    expect(mentorDailyPlan({ goals: [], now: sunday })?.body).toContain(
+      "השבוע עוד בלי יעד",
+    );
+    expect(mentorDailyPlan({ goals: [], now: monday })).toBeNull();
+  });
+
+  it("יעד חודשי אינו „היום שווה” — רק שבועי; ויעד שעוד לא התחיל מקבל התחלה", () => {
+    const plan = mentorDailyPlan({
+      goals: [
+        goal({
+          metric: "deals_closed",
+          period: "month",
+          target: 2,
+          pace: "behind",
+          actual: 0,
+          remaining: 2,
+        }),
+        goal({ pace: "on_track", actual: 0, remaining: 5 }),
+      ],
+      now: monday,
+    });
+    expect(plan?.body).not.toContain("בחודש");
+    expect(plan?.body).toContain(
+      "5 הצעות בשבוע: עוד לא התחיל. 2 הצעות היום — התחלה טובה.",
+    );
+  });
+});
+
+describe("יעד שהושג — חגיגה באותו יום, לא שוב במוצאי שבת", () => {
+  it("החגיגה פונה בשם ואומרת מה הושג", () => {
+    const message = mentorCelebration(
+      { kind: "goal_reached", title: "5 הצעות בשבוע" },
+      "דנה",
+    );
+    expect(message.title).toBe("🎯 היעד הושג!");
+    expect(message.body).toMatch(/^דנה, 5 הצעות בשבוע — הושג\./u);
+  });
+
+  it("selectWins: יעדים שהושגו אינם דוחקים החוצה הצלחה אמיתית — מחוץ לשש, ואחרי", () => {
+    const goals = Array.from({ length: 6 }, (_, i) => ({
+      kind: "goal_reached" as const,
+      title: `יעד ${i + 1}`,
+      goalId: `g${i}`,
+      periodKey: "2026-09-06",
+    }));
+    const picked = selectWins([
+      ...goals,
+      { kind: "offer_interested", title: "הרצל 12" },
+    ]);
+    expect(picked[0]).toEqual({ kind: "offer_interested", title: "הרצל 12" });
+    expect(picked).toHaveLength(7);
+    expect(picked.slice(1).every((w) => w.kind === "goal_reached")).toBe(true);
+  });
+
+  it("הסיכום השבועי אינו חוזר על „השגת את היעד” — היעד שהושג כבר נאמר מהיעדים", () => {
+    const review = mentorWeeklyReview({
+      weekStart: WEEK_START,
+      wins: [
+        { kind: "goal_reached", title: "5 הצעות בשבוע" },
+        { kind: "deal_closed", title: "הרצל 12" },
+      ],
+      activity: { ...quiet, offers_sent: 5 },
+      goals: [goal({ pace: "done" })],
+      streakWeeks: 1,
+    });
+    const text = review?.paragraphs.join(" ") ?? "";
+    expect(text).toContain("הרצל 12");
+    expect(text).not.toContain("השגת את היעד");
+  });
+});
+
+describe("עצה בבוקר ובסיכום — ספר המשחק בלי מודל", () => {
+  it("הבוקר: „רעיון להיום” רק כשיש עוד מה לומר", () => {
+    const monday = new Date("2026-09-07T06:00:00.000Z");
+    const withGoal = mentorDailyPlan({
+      goals: [goal({ pace: "behind", actual: 1, remaining: 4 })],
+      idea: "לקבוע שעה קבועה להצעות.",
+      now: monday,
+    });
+    expect(withGoal?.body).toContain("רעיון להיום: לקבוע שעה קבועה להצעות.");
+    expect(withGoal?.body.indexOf("רעיון להיום")).toBeGreaterThan(
+      withGoal?.body.indexOf("5 הצעות בשבוע") ?? 0,
+    );
+    expect(
+      mentorDailyPlan({
+        goals: [],
+        idea: "לקבוע שעה קבועה להצעות.",
+        now: monday,
+      }),
+    ).toBeNull();
+  });
+
+  it("הסיכום: „טיפ לשבוע הבא” על היעד שמאחור, אחרון — ובלי פיגור אין טיפ", () => {
+    const behind = mentorWeeklyReview({
+      weekStart: WEEK_START,
+      wins: [],
+      activity: { ...quiet, offers_sent: 2 },
+      goals: [goal({ pace: "behind", actual: 2, ratio: 0.4, remaining: 3 })],
+    });
+    const last = behind?.paragraphs.at(-1) ?? "";
+    expect(last).toMatch(/^טיפ לשבוע הבא: /u);
+    expect(MENTOR_PLAYBOOK.offers_sent.ideas).toContain(
+      last.replace("טיפ לשבוע הבא: ", ""),
+    );
+    const fine = mentorWeeklyReview({
+      weekStart: WEEK_START,
+      wins: [],
+      activity: { ...quiet, offers_sent: 5 },
+      goals: [goal({ pace: "done" })],
+    });
+    expect(fine?.paragraphs.join(" ")).not.toContain("טיפ לשבוע הבא");
   });
 });

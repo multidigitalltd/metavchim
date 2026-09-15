@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   Logger,
   NotFoundException,
@@ -15,24 +16,42 @@ import {
   limitState,
   type Page,
   type PropertyFields,
+  isSharedTabuProperty,
+  SHARED_TABU_PROPERTY_TYPE,
+  partnerRejection,
+  PARTNER_REJECTION_MESSAGES,
+  DEAL_STATUSES,
+  averagePerSqmAgorot,
+  neighborhoodSame,
+  normalizeLocationName,
+  pricePerSqmAgorot,
+  perSqmGapPercent,
+  PRICE_BENCHMARK_STATUSES,
+  type PerSqmBenchmark,
 } from "@metavchim/shared";
 import {
-  PROPERTY_TYPE_LABELS_HE,
   freeTextTerms,
   normalizeRange,
   priceRangeAgorot,
+  propertyTypesForTerm,
   whatsappLink,
 } from "@metavchim/shared";
-
-/** סוגי נכס שהתווית העברית שלהם מכילה את המונח שהוקלד. */
-function propertyTypesFor(term: string): string[] {
-  const needle = term.toLowerCase();
-  return Object.entries(PROPERTY_TYPE_LABELS_HE)
-    .filter(([, label]) => label.toLowerCase().includes(needle))
-    .map(([value]) => value);
-}
+import {
+  agentHandover,
+  agentNameOf,
+  agentNames,
+  assertAgentInOffice,
+  assertCanAssignAgents,
+} from "../../common/agent-names";
 import { lockContact, lockProperty, type ContactLock } from "../../common/locks";
-import { isOrphanContact, ownershipFilter } from "../../common/ownership";
+import {
+  assertPropertyOwnerAction,
+  assertPropertyScope,
+  canSeeContact,
+  inPropertyScope,
+  isOrphanContact,
+  leadOwnershipFilter,
+} from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { recordMentorWin } from "../../common/mentor-wins";
 import { deleteCoopDeals } from "../../common/coop-deal-cleanup";
@@ -42,9 +61,11 @@ import { GeocodingService } from "../../core/geocoding.service";
 import { OutboxService } from "../../core/outbox.service";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
+import type { Prisma } from "@prisma/client";
 import { ContactErasureService } from "../contacts/contact-erasure.service";
 import { ContactsService } from "../contacts/contacts.service";
 import { ListingsService } from "../collaboration/listings.service";
+import { cityForNeighborhood } from "../suggest/neighborhood-city";
 import {
   MatchingService,
   type MatchTrigger,
@@ -58,6 +79,71 @@ import {
   rowToFields,
   type PropertyDto,
 } from "./property.mapper";
+
+/**
+ * מי יצר את הנכס — או `null` כשאין אדם.
+ *
+ * הקשרי מערכת (קליטת מוכר, סורקים) רצים עם `userId: ""`. מחרוזת
+ * ריקה בעמודת שיוך היא „משויך למי ששמו ריק”, וזה מצב שאף שאילתה
+ * אינה מחפשת. `null` הוא „לא משויך”, וזה מה שקרה באמת.
+ */
+function creatorUserId(): string | null {
+  const { userId } = TenantContext.current();
+  return userId === "" ? null : userId;
+}
+
+/**
+ * ‎**הצורה ה-SQL של `isSharedTabuProperty` — והיחידה.**
+ *
+ * ‏העובדה „הנכס רשום בטאבו משותף” יושבת בשני מקומות: הדגל, והערך
+ * ‏הוותיק `shared_tabu` ב-`property_type`. ב-TypeScript יש לזה
+ * ‏תשובה אחת (`isSharedTabuProperty`), וכאן נדרשת הצורה השנייה
+ * ‏והאחרונה — כי שאילתה אינה יכולה לקרוא לפונקציה.
+ *
+ * ‏שתיהן נבדקות זו מול זו על אותה טבלת מקרים ב-
+ * ‎`shared-tabu-sources.test.ts`, כדי שהן לא יוכלו להיפרד: סינון
+ * ‏שקורא רק את הדגל היה מפספס בדיוק את הנכסים שנרשמו בסוג הישן,
+ * ‏והם הרוב הקיים.
+ *
+ * ‏האינדקס החלקי במיגרציה 20260906210000 נבנה על **אותו** תנאי
+ * ‏בדיוק, ולכן הוא משרת את הסינון הזה.
+ */
+export function sharedTabuWhere(value: boolean | undefined): Prisma.PropertyWhereInput {
+  if (value === undefined) return {};
+  if (value) {
+    return { OR: [{ sharedTabu: true }, { propertyType: SHARED_TABU_PROPERTY_TYPE }] };
+  }
+  /*
+   * ‎**`<> 'shared_tabu'` אינו נכון ל-`NULL`** (ביקורת Codex, P1).
+   *
+   * ‏ב-SQL כל השוואה ל-`NULL` היא `UNKNOWN`, ולכן `property_type
+   * ‏<> 'shared_tabu'` **מוציא** נכס בלי סוג — וטיוטות, שהן הרוב
+   * ‏של הנכסים בלי סוג, היו נעלמות מ„רישום נפרד” אף ש-
+   * ‏`isSharedTabuProperty` מסווג אותן בדיוק כך.
+   *
+   * ‏זו הסיבה שהטבלה המשותפת בבדיקה נושאת גם שורת `null`: בלעדיה
+   * ‏שתי הצורות מסכימות על כל מה שנבדק, ונפרדות בדיוק על מה שלא.
+   */
+  return {
+    sharedTabu: false,
+    OR: [{ propertyType: null }, { propertyType: { not: SHARED_TABU_PROPERTY_TYPE } }],
+  };
+}
+
+/**
+ * ‎**תקרת השליפה לאמת המידה של המחיר למ״ר.**
+ *
+ * ‏השאלה „כמה עולה מ״ר בשכונה” נשאלת על מסך אחד, ואינה מצדיקה
+ * ‏שליפה של כל מלאי המשרד. אלפיים שורות של שלוש עמודות הן גם
+ * ‏מדגם גדול בהרבה ממה שממוצע צריך, וגם תקרה שמשרד רגיל לעולם
+ * ‏אינו מגיע אליה.
+ *
+ * ‎**והיא חלה בתוך העיר, לא על המשרד כולו.** תקרה משרדית שסוננה
+ * ‏לעיר אחריה הייתה נותנת לנכסים בערים אחרות לדחוק החוצה את בני
+ * ‏ההשוואה של העיר הנדונה — כלומר אמת מידה שנעלמת אף שיש מדגם,
+ * ‏או ממוצע שמשתנה כשמוסיפים מלאי שאינו קשור (ביקורת Codex).
+ */
+const BENCHMARK_SCAN_LIMIT = 2000;
 
 @Injectable()
 export class PropertiesService {
@@ -163,12 +249,28 @@ export class PropertiesService {
     marketingTitle?: string;
     marketingDescription?: string;
     internalNotes?: string;
+    /**
+     * ‎**הסטטוס ההתחלתי.** חסר ⇒ `draft`, וזו ברירת המחדל של כל מי
+     * שנוצר מבחוץ: טופס קליטה ציבורי של מוכר, והסוכן הקולי. טופס
+     * „נכס חדש” של המשרד נוקב ב-`active` במפורש — המתווך שמילא
+     * אותו כבר עשה את הבדיקה שהטיוטה קיימת בשבילה.
+     */
+    status?: string;
+    /** הסוכן המטפל. חסר = מי שיוצר. */
+    agentUserId?: string;
     /** בעל הנכס (המוכר) — נקשר כ-contact לפי טלפון (docs/03: אדם אחד) */
     owner?: { name: string; phone: string };
     /** מי גר בנכס כשזה אינו הבעלים — לתיאום ביקור. */
     occupant?: { name: string; phone: string };
+    /**
+     * ‎**מזהה שנקבע מראש** — `persist` כבר תמך בו (`createFromIntake`),
+     * והחשיפה כאן היא מה שמאפשרת לקורא לרשום את המזהה **לפני**
+     * היצירה. בלי זה, יצירה שנכשלה אחרי ההתמדה משאירה נכס שאיש
+     * אינו יודע עליו, וניסיון חוזר יוצר שני.
+     */
+    id?: string;
   }): Promise<PropertyDto> {
-    const id = await this.persist(input);
+    const id = await this.persist({ ...input, typedBy: "agent" });
     /*
      * ההתאמות מחושבות **ברקע** — היצירה חוזרת מיד.
      *
@@ -253,7 +355,7 @@ export class PropertiesService {
         where: {
           id: leadId,
           tenantId: ctx.tenantId,
-          ...ownershipFilter("leads.view_all", "assignedToUserId"),
+          ...leadOwnershipFilter(),
         },
       });
       if (!lead) throw new NotFoundException("ליד לא נמצא");
@@ -314,7 +416,7 @@ export class PropertiesService {
     let propertyId: string;
     try {
       // persist בלבד — לא create: ההתאמות מופרדות ל-best-effort למטה
-      propertyId = await this.persist({ fields, owner: claim.owner });
+      propertyId = await this.persist({ fields, owner: claim.owner, typedBy: "agent" });
     } catch (error) {
       // השמירה נכשלה — הליד חוzר בדיוק למצבו, לא למצב גנרי
       await this.prisma
@@ -368,6 +470,17 @@ export class PropertiesService {
     internalNotes?: string;
     owner: { name: string; phone: string };
     /**
+     * ‎**האם הבעלים נשאל על רישום משותף — פרמטר חובה.**
+     *
+     * ‏הקורא היחיד הוא טופס המוכר, והוא היחיד שיודע: הטופס שואל
+     * ‏את השאלה, והתשובה מגיעה או לא מגיעה. השירות אינו יכול
+     * ‏להסיק זאת מ-`fields` — `sharedTabu: false` נראה זהה בין
+     * ‏„הבעלים ענה שלא” לבין „השדה לא נשלח ונפל לברירת מחדל”.
+     *
+     * ‏חובה ולא רשות, כדי שקורא שני שייכתב מחר ייאלץ להכריע.
+     */
+    sharedTabuAnswered: boolean;
+    /**
      * המזהה **נקבע מראש על ידי הקורא**, ולא נוצר כאן.
      *
      * הטופס שומר אותו על שורת הבקשה **בתוך הטרנזקציה שתופסת את
@@ -378,13 +491,149 @@ export class PropertiesService {
      */
     id: string;
   }): Promise<string> {
-    const id = await this.persist(input);
+    /*
+     * ‎**הבעלים נשאל — וזו תשובה, לא ברירת מחדל.**
+     *
+     * ‏זו הדרך היחידה שבה נכס נולד כשהוא כבר נבדק: הטופס שאל את
+     * ‏בעל הנכס עצמו. בלי החותמת הוא היה מופיע במסך הסקירה יחד
+     * ‏עם כל השאר, ומי שיפתח אותו יגלה שהשאלה כבר נענתה.
+     *
+     * ‏והיא נוסעת **לתוך** `persist` ולא ככתיבה שנייה אחריה: ראו
+     * ‏`sharedTabuConfirmed` שם.
+     */
+    /* ‏טופס ציבורי בהקשר משרד — אין מי שהקליד, ראו `typedBy` */
+    const id = await this.persist({
+      ...input,
+      typedBy: "office",
+      sharedTabuConfirmed: input.sharedTabuAnswered,
+    });
     try {
       await this.matching.recomputeForProperty(id);
     } catch {
       // הנכס כבר נשמר; חישוב ההתאמות אינו חלק מהצלחת היצירה.
     }
     return id;
+  }
+
+  /**
+   * ‎**מה שטרם נבדק — המעבר החד-פעמי על המאגר.**
+   *
+   * ## ‏למה זה קיים
+   *
+   * ‏המנוע **פוסל** נכס בטאבו משותף מקונה שסירב. נכס שבאמת רשום
+   * ‏במשותף ולא סומן נקרא `false`, ולכן הוא מוצע דווקא למי שאמר
+   * ‏„לא” — ההבטחה בלי כיסוי שכל התכונה קיימת כדי למנוע.
+   *
+   * ## ‏ולמה לא מצב שלישי בעמודה
+   *
+   * ‏`NULL` בדגל עצמו היה או לא משנה דבר (אם הוא נקרא כ„לא”), או
+   * ‏עוצר את **כל** המאגר הקיים מלהיות מוצע עד שמישהו יעבור עליו
+   * ‏שורה-שורה. שתי התוצאות גרועות. החותמת נפרדת מהדגל, ולכן
+   * ‏ההתאמות אינן משתנות כלל — הרשימה הזו היא עבודה, לא שער.
+   *
+   * ‏ממוין לפי עדכון אחרון: מי שנגעו בו לאחרונה הוא מי שזוכרים
+   * ‏עליו משהו.
+   */
+  async sharedTabuReview(limit: number): Promise<{
+    items: {
+      id: string;
+      city?: string;
+      street?: string;
+      houseNumber?: string;
+      propertyType?: string;
+      priceAgorot?: number;
+      sharedTabu: boolean;
+      updatedAt: Date;
+    }[];
+    remaining: number;
+  }> {
+    const tenantId = TenantContext.current().tenantId;
+    const where = {
+      tenantId,
+      deletedAt: null,
+      sharedTabuConfirmedAt: null,
+    } as const;
+    return this.prisma.withTenant(async (tx) => {
+      const [rows, remaining] = await Promise.all([
+        tx.property.findMany({
+          where,
+          orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+          take: limit,
+          select: {
+            id: true,
+            city: true,
+            street: true,
+            houseNumber: true,
+            propertyType: true,
+            priceAgorot: true,
+            sharedTabu: true,
+            updatedAt: true,
+          },
+        }),
+        tx.property.count({ where }),
+      ]);
+      return {
+        items: rows.map((row) => ({
+          id: row.id,
+          ...(row.city === null ? {} : { city: row.city }),
+          ...(row.street === null ? {} : { street: row.street }),
+          ...(row.houseNumber === null ? {} : { houseNumber: row.houseNumber }),
+          ...(row.propertyType === null ? {} : { propertyType: row.propertyType }),
+          ...(row.priceAgorot === null ? {} : { priceAgorot: Number(row.priceAgorot) }),
+          /*
+           * ‏הערך הנוכחי כפי שהמנוע קורא אותו — הדגל **או** הסוג
+           * ‏הישן. מסך שמציג „לא משותף” על שורה שסוגה הוא הייצוג
+           * ‏הישן היה מזמין תשובה שסותרת את מה שכבר קורה בפועל.
+           */
+          sharedTabu: isSharedTabuProperty({
+            sharedTabu: row.sharedTabu,
+            propertyType: row.propertyType,
+          }),
+          updatedAt: row.updatedAt,
+        })),
+        remaining,
+      };
+    });
+  }
+
+  /**
+   * ‎**התשובה — הדבר היחיד שכותב את החותמת.**
+   *
+   * ‏שמירה רגילה של כרטיס הנכס אינה חותמת, בכוונה: טופס העריכה
+   * ‏שולח את מצבו המלא כולל התיבה, ולכן כל שמירה הייתה מסמנת
+   * ‏„נבדק” גם כשאיש לא הסתכל על השאלה — והרשימה הייתה מתרוקנת
+   * ‏מעצמה בלי שאיש בדק דבר. חותמת שאפשר לקבל בטעות אינה עדות.
+   *
+   * ## ‏ולמה זו קריאה ל-`update` ולא כתיבה משלה
+   *
+   * ‎(ביקורת Codex, שני P1 שהם אותה תקלה.)
+   *
+   * ‏הניסוח הראשון כתב את השורה בעצמו — ולכן **דילג על כל מה
+   * ‏שהעדכון הרגיל עושה אחרי הכתיבה**: חישוב ההתאמות מחדש
+   * ‏וסנכרון המודעות המפורסמות. התוצאה הפוכה בדיוק מהכוונה: נכס
+   * ‏שאושר כ„משותף” המשיך להיות מוצע לקונה שסירב, ולהתפרסם
+   * ‏למשרדים אחרים כלא-משותף, עד שעריכה כלשהי הייתה מרעננת
+   * ‏אותו במקרה.
+   *
+   * ‏זו אותה מחלקה של המחיקה המרוכזת בגיוס נכסים, שעוברת דרך
+   * ‏המחיקה הבודדת מאותו נימוק: **מסלול כתיבה שני שוכח את מה
+   * ‏שהראשון עושה, ביום שהראשון ישתנה.** התיקון אינו להעתיק את
+   * ‏שתי הקריאות לכאן — הוא לא להיות מסלול שני.
+   */
+  async confirmSharedTabu(id: string, sharedTabu: boolean): Promise<{ remaining: number }> {
+    const tenantId = TenantContext.current().tenantId;
+    /*
+     * ‎`update` כבר מוסר את השורה השמורה ל-`fieldsToColumns`, ולכן
+     * ‏„לא משותף” על שורה שסוגה הוא הייצוג הישן פורש גם את הסוג —
+     * ‏בלי שהכלל הזה ייכתב כאן פעם שנייה.
+     */
+    await this.update(id, { sharedTabu, sharedTabuAnswered: true });
+    const remaining = await this.prisma.withTenant((tx) =>
+      tx.property.count({
+        where: { tenantId, deletedAt: null, sharedTabuConfirmedAt: null },
+      }),
+    );
+    return { remaining };
   }
 
   async createForImport(input: {
@@ -401,7 +650,7 @@ export class PropertiesService {
   }): Promise<string> {
     // גם בייבוא: קובץ של אלף נכסים לא אמור לעקוף מכסה שהוספה ידנית
     // נחסמת בה. הבדיקה עצמה בתוך persist, באותה טרנזקציה של הכתיבה.
-    const id = await this.persist(input);
+    const id = await this.persist({ ...input, typedBy: "agent" });
     try {
       await this.matching.recomputeForProperty(id);
     } catch {
@@ -418,6 +667,84 @@ export class PropertiesService {
    * לא תידרס בידי פענוח אוטומטי, וזו בדיוק ההבחנה שהעמודה
    * `location_source` נועדה לה.
    */
+  /**
+   * ‎**עיר חסרה מושלמת מהשכונה — לפני הגיאוקודינג ולפני הכתיבה.**
+   *
+   * ‏הטפסים דורשים עיר, ולכן מי שמגיע לכאן בלעדיה הגיע מייבוא
+   * ‏אקסל, מהסוכן בוואטסאפ, או מחילוץ מצילום מודעה או מהקלטה.
+   * ‏שם „פרדס כץ” מגיעה בלי „בני ברק”.
+   *
+   * ‎**ובלי עיר הנכס אינו נכנס להתאמות כלל** — לא כשגיאה, אלא
+   * ‏בשקט: הסינון הגס נשען על שם העיר, והמיקום הוא קריטריון חובה
+   * ‏במנוע. השורה נשמרת, נראית תקינה, ואינה מתאימה לאיש.
+   *
+   * ‏לפני הגיאוקודינג בכוונה: הכתובת שנשלחת לספק מקבלת גם את
+   * ‏העיר, ו„פרדס כץ” לבדה מפוענחת גרוע יותר מ„פרדס כץ, בני ברק”.
+   *
+   * ‏קריאה אחת, ורק כשבאמת חסר: מי שיש לו עיר אינו נוגע במסד.
+   */
+  /**
+   * ‎**סבב השלמה אחרי אצווה — כי הראיה עשויה להגיע בשורה הבאה.**
+   *
+   * ‏ייבוא אקסל כותב שורה-שורה, ולכן שורה בלי עיר שמגיעה **לפני**
+   * ‏השורה שנושאת את העיר של אותה שכונה אינה יכולה לראות אותה:
+   * ‏בזמן הכתיבה שלה השורה השנייה עוד לא במסד. התוצאה היא שאותו
+   * ‏קובץ בדיוק נקלט אחרת לפי סדר השורות בו — הראשונה נשארת בלי
+   * ‏עיר, ובסדר הפוך שתיהן מושלמות (ביקורת Codex, P1).
+   *
+   * ‏הסבב רץ **אחרי** שכל האצווה נכתבה, ולכן כל הראיות כבר שם
+   * ‏והסדר מפסיק להשפיע.
+   *
+   * ‎**וההתאמות מחושבות מחדש למי שהושלם.** בלי עיר `recomputeForProperty`
+   * ‏יצא מוקדם, ולכן הנכס נשמר בלי ולו התאמה אחת; השלמה בלי חישוב
+   * ‏חוזר הייתה מתקנת את הכרטיס ומשאירה אותו מחוץ להתאמות — כלומר
+   * ‏בדיוק הבעיה שהיא באה לפתור.
+   *
+   * ‏מחזיר כמה הושלמו, כדי שהקורא יוכל לדווח.
+   */
+  async completeMissingCitiesFor(ids: readonly string[]): Promise<number> {
+    if (ids.length === 0) return 0;
+    const rows = await this.prisma.withTenant((tx) =>
+      tx.property.findMany({
+        where: { id: { in: [...ids] }, deletedAt: null },
+        select: { id: true, city: true, neighborhood: true },
+      }),
+    );
+
+    let filled = 0;
+    for (const row of rows) {
+      /* ‏אותם שני תנאים של `withCompletedCity` — „ריק” הוא גם רווחים. */
+      if (row.city !== null && row.city.trim() !== "") continue;
+      if (row.neighborhood === null || row.neighborhood.trim() === "") continue;
+      const neighborhood = row.neighborhood;
+      const city = await this.prisma.withTenant((tx) =>
+        cityForNeighborhood(tx, neighborhood),
+      );
+      if (city === null) continue;
+      await this.prisma.withTenant((tx) =>
+        tx.property.updateMany({ where: { id: row.id }, data: { city } }),
+      );
+      filled += 1;
+      try {
+        await this.matching.recomputeForProperty(row.id);
+      } catch {
+        /* ‏הנכס כבר נושא עיר; חישוב ההתאמות אינו חלק מהצלחת ההשלמה. */
+      }
+    }
+    return filled;
+  }
+
+  private async withCompletedCity(fields: PropertyFields): Promise<PropertyFields> {
+    if (fields.city !== undefined && fields.city.trim() !== "") return fields;
+    const neighborhood = fields.neighborhood;
+    if (neighborhood === undefined || neighborhood.trim() === "") return fields;
+    const city = await this.prisma.withTenant((tx) =>
+      cityForNeighborhood(tx, neighborhood),
+    );
+    /* ‏אין תשובה ⇒ נשאר ריק. ניחוש גרוע מחוסר — ראו `cityForNeighborhood`. */
+    return city === null ? fields : { ...fields, city };
+  }
+
   private async withGeocodedLocation(
     fields: PropertyFields,
   ): Promise<PropertyFields> {
@@ -446,11 +773,37 @@ export class PropertiesService {
     marketingDescription?: string;
     internalNotes?: string;
     status?: string;
+    /** הסוכן המטפל. חסר = מי שיוצר. */
+    agentUserId?: string;
     owner?: { name: string; phone: string };
     /** מי גר בנכס כשזה אינו הבעלים — לתיאום ביקור. */
     occupant?: { name: string; phone: string };
     /** מזהה שנקבע מראש — ראו `createFromIntake`. ריק ⇒ נוצר כאן. */
     id?: string;
+    /**
+     * ‎**מי הקליד את המספר** (ביקורת Codex, P1).
+     *
+     * ‎`"agent"` — משתמש אנושי, ולכן מיחזור כרטיס קיים דורש שהוא
+     * ‏נגיש לו: אחרת הקלדת הטלפון של הלקוח של עמית מצרפת אותו לנכס
+     * ‏שלי, והצירוף הזה בעצמו פותח את `canSeeContact` על אותו אדם.
+     *
+     * ‎`"office"` — טופס קליטה ציבורי שרץ בהקשר משרד בלי משתמש
+     * ‏(`userId: ""`), ואין מולו מי לשאול.
+     *
+     * ‏בלי ברירת מחדל, בכוונה: קורא חדש חייב להכריע.
+     */
+    typedBy: "agent" | "office";
+    /**
+     * ‎**החותמת נכתבת כאן, בטרנזקציה של היצירה** (ביקורת Codex, P1).
+     *
+     * ‏היא הייתה עדכון שני אחרי ש-`persist` כבר נסגרה. כשלון בו
+     * ‏הפיל את `createFromIntake`, ו-`draftFor` שחרר את המזהה
+     * ‏השמור כאילו היצירה נכשלה — בזמן שהנכס קיים במאגר. השליחה
+     * ‏הבאה הייתה יוצרת נכס נוסף, והראשון נשאר יתום.
+     *
+     * ‏זו בדיוק התקלה שהמזהה-מראש נועד למנוע, שחזרה מדלת אחורית.
+     */
+    sharedTabuConfirmed?: boolean;
   }): Promise<string> {
     const tenantId = TenantContext.current().tenantId;
     const id = input.id ?? ulid();
@@ -467,7 +820,9 @@ export class PropertiesService {
      * לתוך טרנזקציית מסד. וכשל שלה אינו מפיל קליטת נכס — הסוכן
      * יסמן ידנית, בדיוק כמו קודם.
      */
-    const fields = await this.withGeocodedLocation(input.fields);
+    const fields = await this.withGeocodedLocation(
+      await this.withCompletedCity(input.fields),
+    );
     const readiness = computeReadiness(fields, {
       /*
        * נכס חדש אין לו עדיין מדיה — התמונות נטענות אחרי היצירה,
@@ -482,11 +837,26 @@ export class PropertiesService {
       // המכסה נבדקת כאן ולא לפני הקריאה: אותה טרנזקציה שכותבת היא
       // זו שסופרת, ולכן שתי בקשות מקבילות לא יכולות לעבור יחד
       await this.assertCanAddProperty(tx, tenantId);
-      const ownerContact = input.owner
-        ? await this.contacts.findOrCreateByPhone(tx, input.owner)
-        : null;
+      /*
+       * ‎**באותה טרנזקציה שכותבת.** בדיקה לפניה הייתה חלון שבו הסוכן
+       * הוסר מהמשרד בין הבדיקה לכתיבה — נדיר, אבל זה בדיוק סוג
+       * החלון שהקוד הזה סוגר בכל מקום אחר.
+       */
+      if (input.agentUserId !== undefined && input.agentUserId !== "") {
+        await assertAgentInOffice(tx, tenantId, input.agentUserId);
+      }
+      /* ‏מיחזור כרטיס קיים — ראו `typedBy` ו-`findOrCreateByPhoneScoped` */
+      const resolve = async (
+        person: { name: string; phone: string },
+        subject: string,
+      ): Promise<{ id: string }> =>
+        await this.contacts.findOrCreateByPhoneTyped(tx, person, {
+          typedBy: input.typedBy,
+          subject,
+        });
+      const ownerContact = input.owner ? await resolve(input.owner, "בעל הנכס") : null;
       const occupantContact = input.occupant
-        ? await this.contacts.findOrCreateByPhone(tx, input.occupant)
+        ? await resolve(input.occupant, "הדייר בנכס")
         : null;
       await tx.property.create({
         data: {
@@ -498,7 +868,25 @@ export class PropertiesService {
           marketingTitle: input.marketingTitle ?? null,
           marketingDescription: input.marketingDescription ?? null,
           internalNotes: input.internalNotes ?? null,
+          /*
+           * ‎**נכס חדש שייך למי שיצר אותו** — אותו כלל בדיוק שכבר
+           * נהוג בקונה (`ownerUserId ?? current`). ברירת מחדל היא
+           * מה שהופך את השדה למשויך בפועל: שדה שצריך למלא ביד
+           * נשאר ריק, ואז השאלה „של מי זה?” חוזרת בדיוק כמו קודם.
+           *
+           * ‎**וכשאין יוצר — `null`, ולא מחרוזת ריקה.** נכס שנוצר
+           * מטופס קליטה של מוכר רץ בהקשר משרד עם `userId: ""`, ואז
+           * ברירת המחדל הזו הייתה כותבת `''` לעמודה: `agentNames`
+           * מסננת אותה והמסך מציג „לא משויך”, אבל שאילתה על
+           * ‎`agent_user_id IS NULL` **אינה מוצאת** את השורה. שני
+           * מקורות אמת על אותה שאלה, ואחד מהם שקט (ביקורת Codex).
+           */
+          agentUserId: input.agentUserId ?? creatorUserId(),
           readinessScore: readiness.score,
+          /* ‏באותה כתיבה — ראו `sharedTabuConfirmed` בקלט */
+          ...(input.sharedTabuConfirmed === true
+            ? { sharedTabuConfirmedAt: new Date() }
+            : {}),
           ...(fieldsToColumns(fields) as object),
         },
       });
@@ -536,6 +924,18 @@ export class PropertiesService {
       occupant?: { name: string; phone: string };
       /** הדירה התפנתה — מסירים את הדייר במקום להחליף אותו. */
       occupantCleared?: boolean;
+      /**
+       * ‎**„זו תשובה לשאלה”, ולא „זה הערך”.**
+       *
+       * ‏שמירה רגילה של הכרטיס שולחת את תיבת „טאבו משותף” בכל
+       * ‏פעם, ולכן חותמת שנגזרת מהערך הייתה מרוקנת את מסך הסקירה
+       * ‏מעצמה. הדגל הזה נשלח **רק** ממקום שבו מישהו באמת נשאל.
+       *
+       * ‏רשות ולא חובה, ובכיוון הבטוח: מי שלא שולח אותו משאיר את
+       * ‏הנכס בתור לסקירה. הנזק של „לא סומן” הוא בדיקה מיותרת;
+       * ‏הנזק של „סומן בטעות” הוא שאלה שנעלמת בלי שנענתה.
+       */
+      sharedTabuAnswered?: boolean;
       /** ‎`null` = „טרם נשאל”, וזה ערך ולא היעדר. */
       occupancy?: OccupancyState | null;
       leaseEndsAt?: string | null;
@@ -565,6 +965,23 @@ export class PropertiesService {
        * ריקון בכל נתיב אחר, בלי שאיש ביקש זאת.
        */
       clearFields?: readonly (keyof PropertyFields)[];
+      /**
+       * שינוי הסוכן המטפל. מחרוזת ריקה = ניתוק השיוך.
+       *
+       * ‎`undefined` הוא „בלי שינוי” ולא „נתק”: רוב העריכות בכרטיס
+       * אינן נוגעות בשיוך כלל, ושדה חסר שהיה מנתק היה מוחק את
+       * הסוכן בכל שמירה של מחיר או תיאור.
+       */
+      agentUserId?: string;
+      /**
+       * ‎**הסוכן השותף על עסקה. מחרוזת ריקה = ניקוי הסימון.**
+       *
+       * ‏בשונה מ-`agentUserId`, הוא **אינו** דורש `tasks.assign`:
+       * ‏הוא אינו מעביר בעלות ואינו משנה ניקוד, ולכן כל מי שרשאי
+       * ‏לערוך את הנכס רשאי לסמן אותו (הכרעת בעל המוצר). דרישת
+       * ‏אישור מנהל על שדה שאינו עולה כלום פירושה שדה שיישאר ריק.
+       */
+      partnerUserId?: string;
     },
   ): Promise<PropertyDto> {
     const tenantId = TenantContext.current().tenantId;
@@ -581,8 +998,26 @@ export class PropertiesService {
       noticePeriodDays,
       expectStatus,
       clearFields,
+      agentUserId,
+      partnerUserId,
       ...fieldPatch
     } = patch;
+
+    /*
+     * ‎**ריקון הוא שינוי בשדה, ולא שינוי בשדה „clearFields”.**
+     *
+     * ‏הרשימה נבנתה מ-`Object.keys(patch)` בלבד, ולכן מחיקת מצב
+     * ‏הנכס (או החזית, או מספר הבית) דיווחה `["clearFields"]` —
+     * ‏ואוטומציה של המשרד שמותנית ב„מצב הנכס השתנה” לא רצה בדיוק
+     * ‏ברגע שהוא נמחק. שם השדה הוא מה שהמשרד הגדיר בתנאי, ולכן
+     * ‏הוא מה שנרשם — גם בביקורת וגם באירוע (ביקורת Codex).
+     */
+    const changedFields = [
+      ...new Set([
+        ...Object.keys(patch).filter((key) => key !== "clearFields"),
+        ...(clearFields ?? []),
+      ]),
+    ];
 
     /*
      * ירידת מחיר — הזדמנות, לא עוד עריכה.
@@ -608,11 +1043,37 @@ export class PropertiesService {
        * בשניהם.** נכס שאינו קיים מפיל את הטרנזקציה מיד אחרי כן,
        * וכרטיס שנוצר כאן מתגלגל אחורה איתה.
        */
+      /*
+       * ‎**מי כבר על הנכס הזה — נקרא כאן, לפני נעילת השורה.**
+       *
+       * ‏הסדר שלמעלה מחייב זאת: הכרטיסים נפתרים לפני הנכס, ולכן
+       * ‏`existing` עוד לא קיים. הקריאה הזו משמשת **להיתר בלבד** —
+       * ‏„האדם הזה כבר מצורף כאן, ולכן צירופו אינו חושף דבר חדש” —
+       * ‏ולכן קריאה לא-נעולה מספיקה לה: כל מה שהיא יכולה להחמיץ הוא
+       * ‏שינוי מקביל, ואת ההכרעה על **הכתיבה** לוקחים השערים שמתחת
+       * ‏לנעילה בהמשך.
+       */
+      const attached =
+        owner || occupant
+          ? await tx.property.findFirst({
+              where: { id, tenantId: TenantContext.current().tenantId, deletedAt: null },
+              select: { ownerContactId: true, occupantContactId: true },
+            })
+          : null;
+      const alreadyHere = (priorId: string): boolean =>
+        priorId === attached?.ownerContactId || priorId === attached?.occupantContactId;
       const ownerContact = owner
-        ? await this.contacts.findOrCreateByPhone(tx, owner)
+        ? await this.contacts.findOrCreateByPhoneScoped(tx, owner, {
+            subject: "בעל הנכס",
+            /* ‏מי שכבר על הנכס הזה — אין בצירוף שלו שום חשיפה חדשה */
+            alsoAllowed: alreadyHere,
+          })
         : null;
       const occupantContact = occupant
-        ? await this.contacts.findOrCreateByPhone(tx, occupant)
+        ? await this.contacts.findOrCreateByPhoneScoped(tx, occupant, {
+            subject: "הדייר בנכס",
+            alsoAllowed: alreadyHere,
+          })
         : null;
 
       /*
@@ -636,6 +1097,54 @@ export class PropertiesService {
         },
       });
       if (!existing) throw new NotFoundException("נכס לא נמצא");
+
+      /*
+       * ‎**מי שאינו רואה את בעל הנכס אינו יכול להחליף אותו.**
+       *
+       * ‏ההשמטה מהתשובה יצרה בעצמה את הנתיב הזה: הסוכן רואה „חסר”,
+       * ‏המסך מציע להוסיף, והעריכה דרסה את הכרטיס של העמית בלי שום
+       * ‏בדיקה. כלומר ההגנה על **הקריאה** פתחה אובדן נתונים
+       * ‏ב**כתיבה**, דרך הממשק הרגיל ובלי שאיש התכוון (ביקורת
+       * ‏Codex, P1).
+       *
+       * ‏השער הוא על ההחלפה ולא על העריכה: הסוכן ממשיך לערוך את
+       * ‏הנכס — כתובת, מחיר, מצב — ולהוסיף בעלים לנכס שאין לו. מה
+       * ‏שנחסם הוא לגעת באדם שהוא אינו רשאי לראות.
+       *
+       * ‎`occupantCleared` נכלל: מחיקת דייר מוסתר היא אותה פגיעה
+       * ‏בדיוק, ובלי הזכר הזה השער היה נכון לחצי מהפעולות.
+       */
+      const displacing: { current: string | null; changing: boolean }[] = [
+        { current: existing.ownerContactId, changing: ownerContact !== null },
+        {
+          current: existing.occupantContactId,
+          changing: occupantContact !== null || occupantCleared === true,
+        },
+      ];
+      /*
+       * ‎**והשאלה היא על הנכס, לא על האדם** (ביקורת Codex, P1, סבב
+       * ‏שני).
+       *
+       * ‏`canSeeContact` הוא **איחוד מקורות**, ולכן בעל הנכס של עמית
+       * ‏שהוא גם הקונה שלי עובר אותו — דרך הקונה. השער אישר, המסך
+       * ‏הציג את הקשר כניתן לעריכה (`getById` נשען על אותו איחוד),
+       * ‏והחלפת הבעלים בנכס של העמית התבצעה דרך הממשק הרגיל.
+       *
+       * ‏זו בדיוק המלכודת ש-`assertPropertyScope` נכתב בשבילה, והיא
+       * ‏מתועדת שם במילים האלה. הפעולה כאן היא **כתיבה על הנכס**,
+       * ‏ולכן היא נשאלת על היקף הנכס; שער האדם נשאר אחריה, כי
+       * ‏החלפת בעלים היא גם נגיעה באדם.
+       */
+      if (displacing.some((field) => field.changing && field.current !== null)) {
+        assertPropertyScope(existing.agentUserId, "החלפת הלקוח המשויך לנכס");
+      }
+      for (const field of displacing) {
+        if (!field.changing || field.current === null) continue;
+        if (await canSeeContact(tx, TenantContext.current().tenantId, field.current)) continue;
+        throw new ForbiddenException(
+          "הלקוח המשויך לנכס הזה אינו נגיש לך — פנה למנהל המשרד כדי להחליף אותו",
+        );
+      }
 
       /*
        * ‎**מתחת לנעילה, ולא לפניה.** ראו `expectStatus` בחתימה: זו
@@ -699,6 +1208,77 @@ export class PropertiesService {
         ...fieldPatch,
       };
       for (const key of clearFields ?? []) delete mergedFields[key];
+      /*
+       * ‎**אותה אכיפה בנכס.** הבורר בשני הכרטיסים נשען על
+       * ‎`tasks.assign`, ותפקיד `agent` מחזיק ב-`properties.edit`
+       * ואין לו אותה — כלומר בלי השורה הזו הגבול קיים במסך בלבד.
+       * הניתוק (`""`) הוא גם הוא העברה, ולכן גם הוא נאכף.
+       */
+      if (agentUserId !== undefined) {
+        assertCanAssignAgents();
+        if (agentUserId !== "") {
+          await assertAgentInOffice(tx, tenantId, agentUserId);
+        }
+      }
+      /*
+       * ‎**הסוכן השותף — אותו שער, וכלל אחד לשני הצדדים.**
+       *
+       * ‏`partnerRejection` הוא הכלל היחיד, והמסך קורא ממנו את אותה
+       * ‏תשובה — אחרת הטופס היה מציע צירוף שה-API דוחה. הוא נבדק מול
+       * ‏השיוך **שיהיה אחרי השמירה** ולא מול מה שהיה: שמירה שמחליפה
+       * ‏את הסוכן המטפל ומסמנת שותף באותה פעולה הייתה אחרת יכולה
+       * ‏להגיע למצב „X עם X”.
+       *
+       * ‏אימות השייכות למשרד הוא שאילתה, ולכן הוא רץ רק אחרי
+       * ‏שהכללים הזולים עברו.
+       */
+      /*
+       * ‎**הזוג נבדק כששני צידיו משתנים, ולא רק כשהשותף נשלח**
+       * ‏(ביקורת Codex, P1).
+       *
+       * ‏התנאי הקודם היה `partnerUserId !== undefined` בלבד, ולכן
+       * ‏שמירה שנוגעת **רק** בסוכן המטפל דילגה על כל הבדיקה. שני
+       * ‏מצבים ברחו משם, ושניהם רעים:
+       *
+       * - ‏העברת הנכס לסוכן שהוא כבר השותף — האילוץ במסד תפס את
+       *   ‏זה, אבל כשגיאת Prisma, כלומר 500 במקום הודעה קריאה.
+       * - ‏ניתוק הסוכן המטפל — האילוץ **אינו** תופס (‏`NULL <> x`
+       *   ‏הוא `UNKNOWN`, ו-`CHECK` מקבל אותו), ונשארה שורה עם
+       *   ‏שותף ובלי סוכן מטפל. „שת״פ” של אדם אחד.
+       *
+       * ‏הכלל נבדק עכשיו על **הזוג שיהיה אחרי השמירה**, ולא על מה
+       * ‏שנשלח בבקשה.
+       */
+      const nextAgent =
+        agentUserId === undefined
+          ? existing.agentUserId
+          : agentUserId === ""
+            ? null
+            : agentUserId;
+      const nextPartner =
+        partnerUserId === undefined
+          ? existing.partnerUserId
+          : partnerUserId === ""
+            ? null
+            : partnerUserId;
+      if (nextPartner !== null && (agentUserId !== undefined || partnerUserId !== undefined)) {
+        const rejection = partnerRejection({
+          agentUserId: nextAgent,
+          partnerUserId: nextPartner,
+          /* ‏השייכות למשרד נבדקת בשאילתה למטה; כאן רק שאר הכללים */
+          officeUserIds: [nextPartner],
+        });
+        if (rejection !== null) {
+          throw new BadRequestException(PARTNER_REJECTION_MESSAGES[rejection]);
+        }
+      }
+      /*
+       * ‏השאילתה רצה רק על שותף **שנשלח עכשיו**: שותף שנשמר בעבר
+       * ‏כבר עבר אותה, ובדיקה חוזרת בכל שמירה היא הלוך-חזור מיותר.
+       */
+      if (partnerUserId !== undefined && partnerUserId !== "") {
+        await assertAgentInOffice(tx, tenantId, partnerUserId);
+      }
       const readiness = computeReadiness(mergedFields, {
         hasImages: await this.hasMedia(tx, id),
         hasDescription: Boolean(
@@ -715,18 +1295,42 @@ export class PropertiesService {
       await tx.property.update({
         where: { id },
         data: {
-          ...(fieldsToColumns(fieldPatch) as object),
+          /* ‏הסוג השמור נמסר כדי שכיבוי מפורש יפרוש גם אותו — ראו שם */
+          ...(fieldsToColumns(fieldPatch, existing) as object),
           /*
            * הריקון **אחרי** ה-Patch: שדה שנמצא בשניהם התכוון להיות
            * ריק, ולא לקבל את הערך שהובא לפניו.
            */
           ...Object.fromEntries((clearFields ?? []).map((key) => [key, null])),
           ...(status !== undefined ? { status } : {}),
+          /*
+           * ‎**חותמת הסגירה נכתבת בחצייה, ולא בכל שמירה** (ביקורת
+           * ‏Codex, P1). „מתי נסגרה” חייבת להיות קבועה: `updatedAt`
+           * ‏זז בכל עריכה, ולכן הוספת סוכן שותף לעסקה מלפני חצי שנה
+           * ‏הייתה מזיזה אותה לחודש הנוכחי ומנפחת את מונה העסקאות.
+           *
+           * ‏החצייה ולא ההימצאות: נכס שכבר `sold` ונערך שוב אינו
+           * ‏„נסגר מחדש”. וחזרה החוצה (למשל `active` אחרי ביטול)
+           * ‏מנקה — אחרת שורה פעילה הייתה נושאת תאריך סגירה.
+           */
+          ...(status === undefined || status === existing.status
+            ? {}
+            : (DEAL_STATUSES as readonly string[]).includes(status)
+              ? { closedAt: new Date() }
+              : { closedAt: null }),
           ...(marketingTitle !== undefined ? { marketingTitle } : {}),
           ...(marketingDescription !== undefined
             ? { marketingDescription }
             : {}),
           ...(internalNotes !== undefined ? { internalNotes } : {}),
+          /* מחרוזת ריקה = ניתוק מכוון; חסר = לא נגעו בשיוך */
+          ...(agentUserId === undefined
+            ? {}
+            : { agentUserId: agentUserId === "" ? null : agentUserId }),
+          /* ‏מחרוזת ריקה = ניקוי מכוון; חסר = לא נגעו בשת״פ */
+          ...(partnerUserId === undefined
+            ? {}
+            : { partnerUserId: partnerUserId === "" ? null : partnerUserId }),
           ...(ownerContact ? { ownerContactId: ownerContact.id } : {}),
           /*
            * `occupantCleared` נבדק בנפרד מ-`occupantContact`: דירה
@@ -754,6 +1358,10 @@ export class PropertiesService {
            */
           ...(occupancy === "owner" || occupancy === "vacant" || occupantCleared === true
             ? { leaseEndsAt: null, noticePeriodDays: null }
+            : {}),
+          /* ‏חותמת „נשאל ונענה” — ראו `sharedTabuAnswered` בחתימה */
+          ...(patch.sharedTabuAnswered === true
+            ? { sharedTabuConfirmedAt: new Date() }
             : {}),
           readinessScore: readiness.score,
         },
@@ -797,8 +1405,26 @@ export class PropertiesService {
         action: "property.update",
         entityType: "property",
         entityId: id,
-        metadata: { changedFields: Object.keys(patch) },
+        metadata: { changedFields },
       });
+      /*
+       * ‎**ההעברה נרשמת בנפרד, ועם שני הצדדים.**
+       *
+       * ‎`changedFields: ["agentUserId"]` אומר שמשהו זז ולא לאן —
+       * וזו השאלה שנשאלת אחר כך: „מי העביר את הנכס הזה ומתי”.
+       */
+      const handover = agentHandover(
+        existing.agentUserId,
+        agentUserId === undefined ? existing.agentUserId : agentUserId || null,
+      );
+      if (handover) {
+        await this.audit.record(tx, {
+          action: "property.agent_changed",
+          entityType: "property",
+          entityId: id,
+          metadata: handover,
+        });
+      }
       /*
        * **חציית הסף, ולא הימצאות מעליו.** האירוע נפלט עד כה ביצירה
        * בלבד, ולכן נכס שהגיע למוכנות בעריכה לא הפעיל את האוטומציה
@@ -821,7 +1447,7 @@ export class PropertiesService {
       await this.outbox.emit(tx, "property.updated", {
         propertyId: id,
         tenantId,
-        changedFields: Object.keys(patch),
+        changedFields,
       });
     });
 
@@ -857,16 +1483,70 @@ export class PropertiesService {
         hasDescription: Boolean(row.marketingDescription),
         hasOwner: Boolean(row.ownerContactId),
       });
-      const ownerContact = row.ownerContactId
-        ? await this.contacts.getById(tx, row.ownerContactId)
+      /*
+       * ‎**פרטי הבעלים יורדים כשהנכס אינו של הסוכן — ולא הכרטיס.**
+       *
+       * ‏רשימת הנכסים משרדית בכוונה, ולכן כל סוכן מחזיק את המזהה.
+       * ‏בלי הבדיקה כאן, מנהל שחוסם `properties.view_all` היה מסתיר
+       * ‏את הבעלים מהדואר, מהשיחות ומהחיפוש — ומשאיר את השם, הטלפון
+       * ‏והמייל שלו זמינים בלחיצה אחת על הנכס עצמו (ביקורת Codex).
+       * ‏הגנה שיש לה מעקף בן צעד אחד אינה הגנה.
+       *
+       * ‏השמטה ולא 404: הנכס **כן** מותר לו — הכתובת, המחיר והמצב.
+       * ‏מה שאינו מותר הוא האדם.
+       */
+      /*
+       * ‎**וההיתר נגזר מהנכס, לא רק מהאדם** (ביקורת Codex, P1).
+       *
+       * ‏`canSeeContact` הוא **איחוד מקורות**: בעל הנכס של עמית
+       * ‏שהוא גם הקונה שלי עובר אותו — דרך כרטיס הקונה, שאין לו
+       * ‏שום קשר לנכס הזה. הכרטיס היה מחזיר את שמו, הטלפון והמייל
+       * ‏שלו **בהקשר של הנכס**, כלומר מגלה גם את הקשר עצמו: „האדם
+       * ‏הזה הוא הבעלים של הנכס ההוא”. וזה בדיוק מה ש-
+       * ‏`properties.view_all` נועד להסתיר.
+       *
+       * ‏זו אותה הבחנה ש-`assertPropertyOwnerAction` ו-
+       * ‏`propertyActivity` כבר אוכפים: שאלת הנכס נשאלת על הנכס.
+       * ‏שתי השאלות ולא אחת — הנכס בהישג ידי, **וגם** האדם נגיש לי.
+       */
+      const inScope = inPropertyScope(row.agentUserId);
+      const mayContact = async (contactId: string | null): Promise<boolean> =>
+        inScope &&
+        contactId !== null &&
+        (await canSeeContact(tx, TenantContext.current().tenantId, contactId));
+      const ownerVisible = await mayContact(row.ownerContactId);
+      const occupantVisible = await mayContact(row.occupantContactId);
+      const ownerContact = ownerVisible
+        ? await this.contacts.getById(tx, row.ownerContactId!)
         : null;
-      const occupantContact = row.occupantContactId
-        ? await this.contacts.getById(tx, row.occupantContactId)
+      const occupantContact = occupantVisible
+        ? await this.contacts.getById(tx, row.occupantContactId!)
         : null;
+      /*
+       * ‎**„מוסתר” אינו „חסר”, והמסך חייב להבדיל.**
+       *
+       * ‏בלי הדגל הזה כרטיס הנכס הציג „חסר” ופתח טופס הוספה על בעלים
+       * ‏קיים שהסוכן פשוט אינו רשאי לראות — כלומר ההשמטה עצמה הזמינה
+       * ‏דריסה (ביקורת Codex, P1). השרת דוחה את הדריסה בכל מקרה;
+       * ‏הדגל הוא כדי שהמסך לא יציע אותה מלכתחילה.
+       */
+      const ownerRedacted = row.ownerContactId !== null && !ownerVisible;
+      const occupantRedacted = row.occupantContactId !== null && !occupantVisible;
+      /* ‏שאילתה אחת לשני השמות — שתיים היו שתי הלוך-חזור על אותה טבלה */
+      const agents = await agentNames(tx, TenantContext.current().tenantId, [
+        row.agentUserId,
+        row.partnerUserId,
+      ]);
+      const agentName = agentNameOf(agents, row.agentUserId);
+      const partnerName = agentNameOf(agents, row.partnerUserId);
       return {
         ...fields,
         id: row.id,
         status: row.status,
+        ...(row.agentUserId === null ? {} : { agentUserId: row.agentUserId }),
+        ...(agentName === undefined ? {} : { agentName }),
+        ...(row.partnerUserId === null ? {} : { partnerUserId: row.partnerUserId }),
+        ...(partnerName === undefined ? {} : { partnerName }),
         marketingTitle: row.marketingTitle ?? undefined,
         marketingDescription: row.marketingDescription ?? undefined,
         internalNotes: row.internalNotes ?? undefined,
@@ -880,6 +1560,8 @@ export class PropertiesService {
          */
         readinessScore: readiness.score,
         missingFields: readiness.missingFields,
+        ...(ownerRedacted ? { ownerRedacted: true } : {}),
+        ...(occupantRedacted ? { occupantRedacted: true } : {}),
         ...(ownerContact
           ? {
               ownerContact: {
@@ -918,6 +1600,141 @@ export class PropertiesService {
     });
   }
 
+  /**
+   * ‎**המחיר למ״ר של הנכס, ולצידו הממוצע בשכונה ובעיר.**
+   *
+   * ## ‏למה השוואה ולא רק מספר
+   *
+   * ‎„26,500 ₪ למ״ר” לבדו אינו אומר דבר: השאלה שמתווך שואל היא
+   * ‏**„זה יקר או זול כאן”**, ובלי אמת מידה הוא עונה עליה מהזיכרון.
+   * ‏המשרד כבר מחזיק את התשובה — בנכסים שלו עצמו.
+   *
+   * ## ‏למה זה אינו חושף דבר
+   *
+   * ‎**רשימת הנכסים משרדית בכוונה** (ראו `getById`): כל סוכן רואה
+   * ‏ממילא כל נכס של המשרד, מחירו ושטחו. `properties.view_all`
+   * ‏מסתיר את **בעל הנכס**, לא את הנכס — ולכן ממוצע על אותם נכסים
+   * ‏אינו מוסיף שום גישה. הוא גם אינו חוצה משרדים: הכול תחת
+   * ‎`withTenant`, כלומר תחת RLS.
+   *
+   * ## ‏למה הקיפול ב-JS ולא ב-SQL
+   *
+   * ‏„אותה שכונה” ו„אותה עיר” כבר מוכרעים במקום אחד
+   * ‏(`neighborhoodSame`, `normalizeLocationName`), וזה הכלל שההתאמות
+   * ‏רצות לפיו. שוויון מחרוזות ב-SQL היה כלל **שני** לאותה שאלה —
+   * ‏„קרית אונו” ו„קריית אונו” היו שתי ערים — וזו בדיוק הצורה
+   * ‏שנפלה כאן כבר ארבע פעמים בסבב הזה.
+   */
+  async priceBenchmark(id: string): Promise<{
+    perSqmAgorot: number | null;
+    neighborhood: (PerSqmBenchmark & { label: string; gapPercent: number | null }) | null;
+    city: (PerSqmBenchmark & { label: string; gapPercent: number | null }) | null;
+  }> {
+    return this.prisma.withTenant(async (tx) => {
+      const tenantId = TenantContext.current().tenantId;
+      const subject = await tx.property.findFirst({
+        where: { id, tenantId, deletedAt: null },
+        select: {
+          id: true,
+          city: true,
+          neighborhood: true,
+          dealType: true,
+          priceAgorot: true,
+          areaSqm: true,
+        },
+      });
+      if (!subject) throw new NotFoundException("נכס לא נמצא");
+
+      /*
+       * ‎`BigInt` → `number`, כמו בכל אתר אחר שקורא מחיר מהסכימה.
+       * ‏מחירי נדל״ן רחוקים מגבול הדיוק של `number`, והכלל המשותף
+       * ‏עובד במספרים כי גם המסך וגם הבוט מקבלים אותם כך.
+       */
+      const subjectPrice = subject.priceAgorot === null ? null : Number(subject.priceAgorot);
+      const perSqmAgorot = pricePerSqmAgorot(subjectPrice, subject.areaSqm);
+      const cityKey = normalizeLocationName(subject.city ?? "");
+      if (cityKey === "") return { perSqmAgorot, neighborhood: null, city: null };
+
+      /*
+       * ‎**אותו סוג עסקה, ותמיד.** מ״ר של שכירות ומ״ר של מכירה הם
+       * ‏שני סדרי גודל שונים, וממוצע שמערבב אותם אינו שגוי במעט —
+       * ‏הוא חסר משמעות.
+       *
+       * ‎`take` הוא תקרה ולא מדיניות: משרד עם עשרות אלפי נכסים אינו
+       * ‏אמור לשלוף את כולם לשאלה שעל המסך. המיון מהחדש לישן, כי אם
+       * ‏בכל זאת נחתך — מה שנשאר הוא גם מה שרלוונטי יותר לשוק היום.
+       */
+      const comparable = {
+        tenantId,
+        deletedAt: null,
+        id: { not: subject.id },
+        dealType: subject.dealType,
+        status: { in: [...PRICE_BENCHMARK_STATUSES] },
+        priceAgorot: { gt: 0 },
+        areaSqm: { gt: 0 },
+      };
+
+      /*
+       * ‎**קודם אילו ערים, ורק אז אילו נכסים.**
+       *
+       * ‏הגרסה הראשונה שלפה את כל הנכסים ההשוואתיים של המשרד עם
+       * ‏תקרה, וסיננה לעיר ב-JS אחר כך — כלומר במשרד עם יותר
+       * ‏מ-`BENCHMARK_SCAN_LIMIT` נכסים, נכסים **בערים אחרות** דחקו
+       * ‏החוצה את בני ההשוואה של העיר הנדונה. התוצאה: אמת מידה
+       * ‏שנעלמת אף שיש מדגם, או ממוצע מוטה שמשתנה כשמוסיפים מלאי
+       * ‏שאינו קשור (ביקורת Codex).
+       *
+       * ‏רשימת הערים היא קבוצה קטנה — עשרות ערכים למשרד — ולכן
+       * ‏קיפולה ב-JS אינו עולה דבר, והתקרה חלה עכשיו **בתוך העיר**.
+       * ‏זו אותה צורה בדיוק של השלמת העיר מהשכונה: לקבץ במסד, לקפל
+       * ‏ב-JS, ולא לכתוב כלל שני ב-SQL.
+       */
+      const cities = await tx.property.groupBy({ by: ["city"], where: comparable });
+      const sameCity = cities
+        .map((row) => row.city)
+        .filter((city): city is string => city !== null)
+        .filter((city) => normalizeLocationName(city) === cityKey);
+      if (sameCity.length === 0) return { perSqmAgorot, neighborhood: null, city: null };
+
+      /*
+       * ‎`take` הוא תקרה ולא מדיניות: עיר אחת במשרד אחד אינה אמורה
+       * ‏להגיע לאלפיים נכסים השוואתיים, ואם בכל זאת — המיון מהחדש
+       * ‏לישן משאיר את מה שרלוונטי יותר לשוק היום.
+       */
+      const rows = await tx.property.findMany({
+        where: { ...comparable, city: { in: sameCity } },
+        select: { neighborhood: true, priceAgorot: true, areaSqm: true },
+        orderBy: { createdAt: "desc" },
+        take: BENCHMARK_SCAN_LIMIT,
+      });
+
+      const inCity = rows.map((row) => ({
+        neighborhood: row.neighborhood,
+        priceAgorot: row.priceAgorot === null ? null : Number(row.priceAgorot),
+        areaSqm: row.areaSqm,
+      }));
+      const wanted = subject.neighborhood ?? "";
+      const inNeighborhood =
+        wanted === ""
+          ? []
+          : inCity.filter((row) => neighborhoodSame(row.neighborhood ?? "", wanted));
+
+      const dress = (
+        benchmark: PerSqmBenchmark | null,
+        label: string,
+      ): (PerSqmBenchmark & { label: string; gapPercent: number | null }) | null =>
+        benchmark === null
+          ? null
+          : { ...benchmark, label, gapPercent: perSqmGapPercent(perSqmAgorot, benchmark) };
+
+      return {
+        perSqmAgorot,
+        neighborhood: dress(averagePerSqmAgorot(inNeighborhood), subject.neighborhood ?? ""),
+        city: dress(averagePerSqmAgorot(inCity), subject.city ?? ""),
+      };
+    });
+  }
+
   async list(query: {
     status?: string;
     city?: string;
@@ -929,6 +1746,14 @@ export class PropertiesService {
     maxPrice?: number;
     minRooms?: number;
     maxRooms?: number;
+    /**
+     * ‏רק נכסים בטאבו משותף (`true`) או רק שאינם (`false`).
+     *
+     * ‏העמודה `NOT NULL`, ולכן `false` הוא ערך אמיתי ולא „הכול”:
+     * ‏מסנן „לא משותף” הוא שאלה לגיטימית של מתווך שמחפש נכס למי
+     * ‏שסירב. `undefined` בלבד אינו מוסיף תנאי.
+     */
+    sharedTabu?: boolean;
     cursor?: string;
     /**
      * סדר התוצאות — „תמיד תציג מהזול ליקר” של הסוכן. עמוד ראשון
@@ -953,6 +1778,7 @@ export class PropertiesService {
             ? { city: { in: query.cities } }
             : {}),
           ...(query.dealType ? { dealType: query.dealType } : {}),
+          ...sharedTabuWhere(query.sharedTabu),
           ...(price.min !== undefined || price.max !== undefined
             ? {
                 priceAgorot: {
@@ -988,8 +1814,8 @@ export class PropertiesService {
                      * מוצא דירה אלא במקרה, אם המילה הופיעה בשדה טקסט
                      * אחר (ביקורת Codex).
                      */
-                    ...(propertyTypesFor(term).length > 0
-                      ? [{ propertyType: { in: propertyTypesFor(term) } }]
+                    ...(propertyTypesForTerm(term).length > 0
+                      ? [{ propertyType: { in: propertyTypesForTerm(term) } }]
                       : []),
                     {
                       street: { contains: term, mode: "insensitive" as const },
@@ -1067,8 +1893,20 @@ export class PropertiesService {
         matchCounts.map((row) => [row.propertyId, row._count._all]),
       );
 
+      /*
+       * שם הסוכן — **שאילתה אחת לכל העמוד**, כמו התמונות והמונים
+       * שמעליה. שליפה לכל שורה היא N+1 שמתגלה רק כשלמשרד יש מאה
+       * נכסים, כלומר בדיוק אצל הסוכנות שהשדה נוסף בשבילה.
+       */
+      const agents = await agentNames(
+        tx,
+        TenantContext.current().tenantId,
+        pageRows.map((row) => row.agentUserId),
+      );
+
       const items = pageRows.map((row) => {
         const fields = rowToFields(row);
+        const agentName = agentNameOf(agents, row.agentUserId);
         const readiness = computeReadiness(fields, {
           // מפת התמונה הראשית כבר עונה על „יש מדיה” — בלי שאילתה נוספת
           hasImages: primaryIdByProperty.has(row.id),
@@ -1086,6 +1924,8 @@ export class PropertiesService {
           missingFields: readiness.missingFields,
           thumbnailUrl: primaryId ? mediaRawPath(row.id, primaryId) : undefined,
           suggestedMatchCount: matchCountByProperty.get(row.id) ?? 0,
+          ...(row.agentUserId === null ? {} : { agentUserId: row.agentUserId }),
+          ...(agentName === undefined ? {} : { agentName }),
           archived: row.deletedAt !== null,
           createdAt: row.createdAt,
           updatedAt: row.updatedAt,
@@ -1117,6 +1957,28 @@ export class PropertiesService {
           "לנכס לא הוגדר בעל נכס — הוסיפו שם וטלפון בעריכת הנכס",
         );
       }
+      /*
+       * ‎**הסתרת הבעלים בכרטיס אינה שווה דבר אם אפשר לשלוח לו.**
+       *
+       * ‏`getById` על הנכס משמיט את פרטי הבעלים למי שאינו רשאי — ואז
+       * ‏הפעולה הזו החזירה אותם: `waUrl` נושא את **הטלפון** וההודעה
+       * ‏נושאת את **השם**. הנכס גלוי לכל המשרד בכוונה, ולכן המזהה
+       * ‏שלו אינו סוד וכל סוכן יכול היה לקרוא לפעולה (ביקורת Codex,
+       * ‏P1).
+       *
+       * ‏וזו הצורה החמורה, כמו ב-`reply` בתיבה: לא רק חשיפת מספר
+       * ‏אלא **פנייה** — ההודעה מתועדת ב-Messages Hub ויוצאת בשם
+       * ‏המשרד.
+       */
+      /*
+       * ‎**וגם הנכס עצמו** — לא רק האדם. שער הלקוח הוא איחוד
+       * ‏מקורות, ולקוח שקונה דרכי ומוכר דרך עמית פותח אותו דרך
+       * ‏הקונה שלי; הפנייה כאן היא על הנכס של העמית (ביקורת Codex).
+       */
+      await assertPropertyOwnerAction(tx, tenantId, {
+        agentUserId: property.agentUserId,
+        ownerContactId: property.ownerContactId,
+      });
       const owner = await this.contacts.getById(tx, property.ownerContactId);
       if (!owner) throw new NotFoundException("איש הקשר של בעל הנכס לא נמצא");
 

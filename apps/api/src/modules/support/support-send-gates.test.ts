@@ -75,15 +75,26 @@ describe("שני מסלולי המענה מתנהגים אותו הדבר", () =
     });
 
     /*
-     * ‎`EmailRejectedError` היא הדחייה הוודאית. הבחנה בינה לבין
-     * פסק זמן היא מה שמאפשר לזרוק אל המסך בלי להפחיד על שליחה
-     * שאולי כן הגיעה — ובלעדיה חוזרים לאחת משתי הרעות: בליעה
-     * שקטה, או „נכשל” על מייל שיצא.
+     * ‏ההבחנה בין דחייה ודאית לתוצאה עמומה היא מה שמאפשר לזרוק אל
+     * ‏המסך בלי להפחיד על שליחה שאולי כן הגיעה — ובלעדיה חוזרים
+     * ‏לאחת משתי הרעות: בליעה שקטה, או „נכשל” על מייל שיצא.
+     *
+     * ‎**והשער הזה מדד קודם צורה.** הוא דרש את הטקסט
+     * ‏`error instanceof EmailRejectedError` ואת שם המשתנה
+     * ‏`certainlyNotSent` — כלומר ניסוח מסוים, ולא ההכרעה. לכן הוא
+     * ‏**נשבר על התיקון הנכון**, כשאותה הבחנה עברה לפונקציה אחת
+     * ‏משותפת. מה שנטען עכשיו הוא ההכרעה: הסיווג מגיע מהמקום שמנסח
+     * ‏אותו, „נכשלה” נזרק, ו„לא ידוע” נשמר ואינו נזרק.
      */
     it(`${name}: דחייה ודאית נזרקת, ותוצאה עמומה נשמרת כ-unknown`, () => {
-      expect(scope).toContain("error instanceof EmailRejectedError");
-      expect(scope).toContain("if (certainlyNotSent) throw error;");
-      expect(scope).toContain('"unknown"');
+      expect(scope, `${name}: הסיווג אינו מגיע מהפונקציה המשותפת`).toContain(
+        "emailSendOutcome(error)",
+      );
+      expect(scope, `${name}: כישלון ודאי אינו נזרק`).toContain(
+        'if (outcome === "failed") throw error;',
+      );
+      expect(scope, `${name}: המצב אינו נכתב על השורה`).toContain("sendState: outcome");
+      expect(scope, `${name}: תוצאה עמומה נזרקת במקום להישמר`).toContain('state = "unknown";');
     });
   }
 

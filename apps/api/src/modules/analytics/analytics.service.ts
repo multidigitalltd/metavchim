@@ -1,7 +1,39 @@
-import { Injectable } from "@nestjs/common";
+import { ForbiddenException, Injectable } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
+import {
+  boardMovement,
+  boardOpenToAgents,
+  canSeeOfficeBoard,
+  boardScore,
+  delta,
+  boardGoal,
+  periodEnd,
+  periodStart,
+  periodTitle,
+  previousPeriodTitle,
+  superlative,
+  DEAL_STATUSES,
+  formatPropertyAddress,
+  partnerShare,
+  type DealStatus,
+  type BoardCounts,
+  type BoardMetric,
+  type BoardGoal,
+  type BoardMovement,
+  type BoardPeriod,
+  type Superlative,
+} from "@metavchim/shared";
 import { TenantContext } from "../../common/tenant-context";
 import { PrismaService } from "../../core/prisma.service";
+
+/**
+ * ‎**תקרת השת״פים שמוצגים בלוח.**
+ *
+ * ‏המקטע הוא צילום ולא דוח: מנהל רוצה לראות מה קרה החודש, ולא
+ * ‏לגלול מאתיים שורות. התקרה שומרת על זמן התגובה של העמוד, והמונה
+ * ‏(„3 מתוך 12”) נשאר נכון בכל מקרה כי הוא נספר בנפרד.
+ */
+const PARTNER_ROWS_MAX = 50;
 
 /**
  * חלון הדיווח בימים. null = מאז ומעולם.
@@ -41,6 +73,46 @@ export interface OfficeStats {
   /** אחוז הצעות שנפתחו מתוך שנשלחו — מדד יעילות ההצעות */
   offerOpenRate: number;
   windowDays: ReportWindowDays;
+}
+
+/** ‏שורה אחת בטבלת התחרות. */
+export interface BoardRow {
+  userId: string;
+  name: string;
+  role: string;
+  counts: BoardCounts;
+  score: number;
+  rank: number;
+  movement: BoardMovement;
+  /**
+   * ‏היעד החודשי שהסוכן קבע במנטור, מדד מול אותו מדד.
+   *
+   * ‎`null` = לא קבע יעד שהטבלה יודעת למדוד, או שהלשונית אינה
+   * ‏החודש — יעד חודשי מול מוני רבעון אינו אחוז שאומר משהו.
+   */
+  goal: BoardGoal | null;
+}
+
+export interface OfficeBoard {
+  period: BoardPeriod;
+  title: string;
+  previousTitle: string;
+  agents: number;
+  rows: BoardRow[];
+  superlatives: Superlative[];
+  summary: { key: BoardMetric | "calls"; value: number; diff: number; percent: number | null }[];
+  /**
+   * ‏האם המשרד פתח את הטבלה לסוכנים — מצב תיבת הסימון.
+   *
+   * ‎**מווסף בנתיב מתוך השער עצמו**, ולכן `board()` אינו מחזיר
+   * ‏אותו: השער קורא את הדגל בלאו הכי, וקריאה שנייה של אותה
+   * ‏שורה באותה בקשה היא מקום שני שיכול להשתנות.
+   *
+   * ‏המסך קורא אותו מכאן ולא מה-Session הממוטמן: התיבה היא
+   * ‏הפקד שמשנה את הדגל, ופקד שמציג ערך ממוטמן יכול להראות
+   * ‏מסומן אחרי שכבו. שני העותקים עוברים ב-`boardOpenToAgents`.
+   */
+  visibleToAgents: boolean;
 }
 
 export interface AgentPerformance {
@@ -105,16 +177,23 @@ export class AnalyticsService {
         tx.appointment.count({
           where: { tenantId, status: "scheduled", startsAt: { gte: new Date() } },
         }),
-        // עסקאות: נמדדות לפי updatedAt ולא createdAt — מה שקובע הוא
-        // מתי הנכס נסגר, לא מתי נקלט. נכס שנקלט בינואר ונמכר במרץ
-        // שייך למרץ.
+        /*
+         * ‏עסקאות נמדדות לפי **מתי הנכס נסגר** ולא מתי נקלט: נכס
+         * ‏שנקלט בינואר ונמכר במרץ שייך למרץ.
+         *
+         * ‎**וזה `closedAt` ולא `updatedAt`** (ביקורת Codex, P1).
+         * ‏הכוונה נכתבה כאן מלכתחילה, אבל `updatedAt` אינו „מתי
+         * ‏נסגר” אלא „מתי מישהו נגע” — ולכן כל עריכה על עסקה ישנה
+         * ‏הזיזה אותה קדימה. החותמת נכתבת בחצייה בלבד.
+         */
         tx.property.count({
           where: {
             tenantId,
             // נכס שנמחק אינו עסקה שנסגרה, גם אם הסטטוס שלו נשאר "נמכר"
             deletedAt: null,
-            status: { in: ["sold", "rented"] },
-            ...(from ? { updatedAt: { gte: from } } : {}),
+            /* ‏אותה הגדרת „עסקה” שהלוח סופר — קטלוג אחד, לא רשימה שנכתבה שוב */
+            status: { in: [...DEAL_STATUSES] },
+            ...(from ? { closedAt: { gte: from } } : {}),
           },
         }),
         tx.appointment.count({
@@ -255,6 +334,336 @@ export class AnalyticsService {
         offersInterested: interestedCount.get(u.id) ?? 0,
         appointments: apptCount.get(u.id) ?? 0,
       }));
+    });
+  }
+
+  /**
+   * ‎**השער של „המשרד שלנו” — יכולת או החלטת המשרד.**
+   *
+   * ‏הבדיקה יושבת כאן ולא ב-`@RequireCapability` מפני שהתנאי אינו
+   * ‏יכולת אלא **הגדרה של משרד**: בעל הסוכנות מסמן אם הצוות
+   * ‏רואה את הטבלה, ורשימת יכולות סטטית אינה יכולה לבטא דגל
+   * ‏שמור בשורת המשרד.
+   *
+   * ‎**והדגל נקרא בכל בקשה מחדש**, ולא מה-Session: מנהל שמוריד
+   * ‏את הסימון מצפה שהעמוד ייסגר מיד, ו-Session שנוצר לפני כן
+   * ‏היה ממשיך לפתוח אותו עד ההתחברות הבאה.
+   *
+   * ‎**מחזירה את הדגל שקראה**, ולכן הוא נקרא פעם אחת בבקשה.
+   * ‏המסך צריך אותו גם כמצב תיבת הסימון, וקריאה שנייה של
+   * ‏אותה שורה באותה בקשה היא גם מיותרת וגם מקום שני שיכול
+   * ‏להשתנות.
+   */
+  async assertBoardVisible(): Promise<boolean> {
+    const { tenantId, capabilities } = TenantContext.current();
+    const openToAgents = await this.readBoardOpen(tenantId);
+    const allowed = canSeeOfficeBoard({
+      managesTeam: capabilities.has("users.manage"),
+      openToAgents,
+    });
+    if (!allowed) {
+      throw new ForbiddenException(
+        "המסך סגור — מנהל המשרד יכול לפתוח אותו לסוכנים",
+      );
+    }
+    return openToAgents;
+  }
+
+  /** ‏הדגל משורת המשרד — מחוץ ל-RLS, כמו שאר קוראי `tenant`. */
+  private async readBoardOpen(tenantId: string): Promise<boolean> {
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { settings: true },
+    });
+    return boardOpenToAgents(
+      (tenant?.settings ?? {}) as Record<string, unknown>,
+    );
+  }
+
+  /**
+   * ‎**„המשרד שלנו” — טבלת התחרות של סוכנות.**
+   *
+   * ## ‏למה זו מתודה נפרדת מ-`agentPerformance`
+   *
+   * ‏הדוח עונה על „מה קרה” (מונים, ממוצעים, אחוזי המרה) על חלון
+   * ‏**מתגלגל** של 30/90 יום. המסך הזה עונה על „מי מוביל **החודש**”,
+   * ‏ולכן הוא מודד **תקופה קלנדרית** בשעון ישראל ומשווה אותה
+   * ‏לקודמת. אלה שתי שאלות ושני חלונות; מיזוג שלהן היה מחייב את
+   * ‏אחת מהן להתפשר על הגבול שלה.
+   *
+   * ## ‏מה נספר, ולמי
+   *
+   * | מדד | הטבלה | השיוך |
+   * | --- | --- | --- |
+   * | שיחות | `calls` | `agent_user_id`, יוצאות בלבד |
+   * | לידים | `leads` | `assigned_to_user_id` |
+   * | נכסים | `properties` | `agent_user_id`, לפי מועד היצירה |
+   * | פגישות | `appointments` | `owner_user_id` — **היומן של מי**, ולא מי הקליד |
+   * | עסקאות | `properties` | `agent_user_id`, סטטוס נמכר/הושכר לפי מועד העדכון |
+   *
+   * ‎`owner_user_id` ולא `created_by` בפגישות: פגישה שמנהל קובע
+   * ‏לסוכן היא של הסוכן, וספירתה למנהל הייתה נותנת לו את הנקודות
+   * ‏על עבודה של מישהו אחר — במסך שכל תכליתו לומר מי עשה מה.
+   *
+   * ## ‏והתקופה הקודמת נמדדת במלואה
+   *
+   * ‏הדירוג הקודם מחושב מאותן שאילתות על החלון הקודם, ולא נשמר
+   * ‏בטבלה: מיקום שמור מתיישן ברגע שסוכן מצטרף או עוזב, והתנועה
+   * ‏שהמסך מציג הייתה מודדת מול צילום שגוי.
+   */
+  async board(
+    period: BoardPeriod = "month",
+    now = new Date(),
+  ): Promise<Omit<OfficeBoard, "visibleToAgents">> {
+    const tenantId = TenantContext.current().tenantId;
+    const start = periodStart(period, now);
+    const prevStart = periodStart(period, new Date(start.getTime() - 1));
+    /*
+     * ‎**גם החלון הנוכחי חסום מלמעלה.**
+     *
+     * ‏הפגישות מסוננות לפי `startsAt` — הזמן שנקבע, לא זמן
+     * ‏ההתרחשות — ולכן חלון פתוח היה סופר עכשיו כל פגישה עתידית,
+     * ‏מנפח את הניקוד ומשנה את הדירוג של התקופה המוצגת
+     * ‏(ביקורת Codex). הגבול הוא **המוקדם מבין** סוף התקופה
+     * ‏ועכשיו: פגישה שנקבעה ל-28 בחודש אינה ביצוע ב-5 בו.
+     */
+    const end = periodEnd(period, now);
+    const until = now < end ? now : end;
+
+    return this.prisma.withTenant(async (tx) => {
+      const users = await tx.user.findMany({
+        where: { tenantId, isActive: true },
+        /* ‎`createdAt` — כדי להבחין בין „חודש ראשון” ל„לא היה בדירוג” */
+        select: { id: true, name: true, role: true, createdAt: true },
+        orderBy: { name: "asc" },
+      });
+
+      const window = async (from: Date, to: Date): Promise<Map<string, BoardCounts>> => {
+        const range = { gte: from, lt: to };
+        const [calls, leads, properties, viewings, deals] = await Promise.all([
+          tx.call.groupBy({
+            by: ["agentUserId"],
+            where: { tenantId, direction: "outgoing", occurredAt: range },
+            _count: { _all: true },
+          }),
+          tx.lead.groupBy({
+            by: ["assignedToUserId"],
+            where: { tenantId, createdAt: range },
+            _count: { _all: true },
+          }),
+          tx.property.groupBy({
+            by: ["agentUserId"],
+            where: { tenantId, deletedAt: null, createdAt: range },
+            _count: { _all: true },
+          }),
+          tx.appointment.groupBy({
+            by: ["ownerUserId"],
+            where: { tenantId, startsAt: range, status: { not: "cancelled" } },
+            _count: { _all: true },
+          }),
+          /*
+           * ‎**„עסקה” מוגדרת פעם אחת** (`DEAL_STATUSES`), כי מקטע
+           * ‏השת״פים למטה סופר את אותו הדבר. שתי רשימות שנכתבו
+           * ‏ביד היו מציגות „3 שת״פים מתוך 12 עסקאות” על שני
+           * ‏מכנים שונים — מספר שנראה אמין ואינו נכון.
+           */
+          /*
+           * ‎**`closedAt` ולא `updatedAt`** (ביקורת Codex, P1):
+           * ‏‎`updatedAt` הוא „מתי מישהו נגע בשורה”, ולכן כל עריכה
+           * ‏על עסקה ישנה הזיזה אותה לתקופה הנוכחית וניפחה את
+           * ‏המונה. החותמת נכתבת בחצייה בלבד ואינה זזה אחריה.
+           */
+          tx.property.groupBy({
+            by: ["agentUserId"],
+            where: {
+              tenantId,
+              deletedAt: null,
+              status: { in: [...DEAL_STATUSES] },
+              closedAt: range,
+            },
+            _count: { _all: true },
+          }),
+        ]);
+        const map = new Map<string, BoardCounts>();
+        const put = (
+          id: string | null,
+          key: keyof BoardCounts,
+          n: number,
+        ): void => {
+          if (id === null) return;
+          const row = map.get(id) ?? { calls: 0, leads: 0, properties: 0, viewings: 0, deals: 0 };
+          row[key] += n;
+          map.set(id, row);
+        };
+        for (const r of calls) put(r.agentUserId, "calls", r._count._all);
+        for (const r of leads) put(r.assignedToUserId, "leads", r._count._all);
+        for (const r of properties) put(r.agentUserId, "properties", r._count._all);
+        for (const r of viewings) put(r.ownerUserId, "viewings", r._count._all);
+        for (const r of deals) put(r.agentUserId, "deals", r._count._all);
+        return map;
+      };
+
+      const [current, previous] = await Promise.all([
+        window(start, until),
+        window(prevStart, start),
+      ]);
+
+      /*
+       * ‎**היעד החודשי — מהמנטור, ולא מטבלה שנייה.**
+       *
+       * ‏זה היעד ש**הסוכן קבע לעצמו**, וזו כל הסיבה שעמודת „יעד
+       * ‏חודשי” בטבלה אינה מדד שהמנהל כפה. יעד שהסתיים
+       * ‎(`endedAt`) אינו נספר: הוא של תקופה שנגמרה.
+       *
+       * ‎**ורק בלשונית החודש.** היעדים כאן הם `period: "month"`,
+       * ‏והשוואה שלהם למונים של רבעון או שנה הייתה מציגה אחוז
+       * ‏שאינו אומר דבר. `metric` נשלף כי ההשוואה היא מדד מול
+       * ‏אותו מדד — ראו `boardGoal` (ביקורת Codex).
+       */
+      const goals =
+        period === "month"
+          ? await tx.mentorGoal.findMany({
+              where: { tenantId, period: "month", endedAt: null },
+              select: { userId: true, metric: true, target: true },
+            })
+          : [];
+      const goalsBy = new Map<string, { metric: string; target: number }[]>();
+      for (const goal of goals) {
+        const list = goalsBy.get(goal.userId) ?? [];
+        list.push({ metric: goal.metric, target: goal.target });
+        goalsBy.set(goal.userId, list);
+      }
+
+      const empty: BoardCounts = { calls: 0, leads: 0, properties: 0, viewings: 0, deals: 0 };
+      const ranked = (counts: Map<string, BoardCounts>): Map<string, number> => {
+        const order = users
+          .map((u) => ({ id: u.id, score: boardScore(counts.get(u.id) ?? empty) }))
+          /* ‏מי שלא עשה דבר בתקופה אינו מדורג בה — אין לו ממה לזוז */
+          .filter((row) => row.score > 0)
+          .sort((a, b) => b.score - a.score);
+        return new Map(order.map((row, i) => [row.id, i + 1]));
+      };
+      const prevRank = ranked(previous);
+
+      const rows = users
+        .map((u) => {
+          const counts = current.get(u.id) ?? empty;
+          const score = boardScore(counts);
+          return {
+            userId: u.id,
+            name: u.name,
+            role: u.role,
+            joinedAt: u.createdAt,
+            counts,
+            score,
+          };
+        })
+        .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name, "he"));
+
+      const total = rows.length;
+      const rowsWithRank: BoardRow[] = rows.map((row, i) => ({
+        ...row,
+        rank: i + 1,
+        /*
+         * ‎**„חודש ראשון” נקבע מתאריך ההצטרפות, ולא מניקוד אפס.**
+         * ‏סוכן ותיק שהיה חודש בחופשה יוצא גם הוא מהדירוג הקודם,
+         * ‏ו„חודש ראשון” עליו הוא שקר (ביקורת Codex).
+         */
+        movement: boardMovement(
+          i + 1,
+          prevRank.get(row.userId) ?? null,
+          total,
+          row.joinedAt >= start,
+        ),
+        goal: boardGoal(row.counts, goalsBy.get(row.userId) ?? []),
+      }));
+
+      const sum = (map: Map<string, BoardCounts>, key: keyof BoardCounts): number =>
+        [...map.values()].reduce((acc, row) => acc + row[key], 0);
+
+      /*
+       * ‎**שת״פים בתוך המשרד — עסקאות שנסגרו בשניים.**
+       *
+       * ‏אותו חלון ואותה הגדרת „עסקה” כמו בניקוד (`sold`/`rented`
+       * ‏שעודכנו בתקופה) — שאלה אחת, תשובה אחת. הגדרה שנייה כאן
+       * ‏הייתה מציגה „3 שת״פים מתוך 12 עסקאות” על שני מכנים שונים.
+       *
+       * ‎**והניקוד אינו נוגע בזה** (הכרעת בעל המוצר): `deals` למעלה
+       * ‏ממשיך להיספר לפי `agentUserId` בלבד. הקריאה הזו נפרדת
+       * ‏לגמרי ואינה נכנסת ל-`window`.
+       */
+      const partnerWhere = {
+        tenantId,
+        deletedAt: null,
+        status: { in: [...DEAL_STATUSES] },
+        /* ‏אותה חותמת שהניקוד סופר — לא `updatedAt` (ביקורת Codex) */
+        closedAt: { gte: start, lt: until },
+        partnerUserId: { not: null },
+      };
+      /*
+       * ‎**המונה נספר בנפרד מהרשימה** (ביקורת Codex, P2): התקרה
+       * ‏קיימת כדי לשמור על זמן התגובה של המסך, ולא כדי לשנות את
+       * ‏המספר. חודש עם 80 שת״פים היה מציג „50 מתוך 120” — מספר
+       * ‏שנראה אמין ואינו נכון.
+       */
+      const [partnered, partneredTotal] = await Promise.all([
+        tx.property.findMany({
+          where: partnerWhere,
+          select: {
+            id: true,
+            city: true,
+            street: true,
+            houseNumber: true,
+            status: true,
+            closedAt: true,
+            agentUserId: true,
+            partnerUserId: true,
+          },
+          orderBy: { closedAt: "desc" },
+          /* ‏מקטע ולא דוח: התקרה על התצוגה בלבד */
+          take: PARTNER_ROWS_MAX,
+        }),
+        tx.property.count({ where: partnerWhere }),
+      ]);
+      const names = new Map(users.map((u) => [u.id, u.name]));
+      const partnerDeals = partnered.map((row) => ({
+        propertyId: row.id,
+        address: formatPropertyAddress({
+          city: row.city ?? undefined,
+          street: row.street ?? undefined,
+          houseNumber: row.houseNumber ?? undefined,
+        }),
+        status: row.status as DealStatus,
+        /* ‏השורה מסוננת על `closedAt` שאינו ריק, ולכן הוא קיים */
+        closedAt: row.closedAt ?? start,
+        /*
+         * ‏שם של מי שכבר אינו במשרד אינו נמצא ב-`users` (הרשימה
+         * ‏מסוננת ל-`isActive`), ולכן „סוכן שעזב” ולא מזהה גולמי.
+         */
+        agentName: names.get(row.agentUserId ?? "") ?? "סוכן שעזב",
+        partnerName: names.get(row.partnerUserId ?? "") ?? "סוכן שעזב",
+      }));
+
+      return {
+        period,
+        title: periodTitle(period, now),
+        previousTitle: previousPeriodTitle(period, now),
+        agents: total,
+        rows: rowsWithRank,
+        superlatives: (["leads", "calls", "deals", "properties"] as const)
+          .map((metric) => superlative(metric, rows))
+          .filter((item): item is Superlative => item !== null),
+        summary: (["calls", "leads", "properties", "deals"] as const).map((key) => ({
+          key,
+          value: sum(current, key),
+          ...delta(sum(current, key), sum(previous, key)),
+        })),
+        partners: {
+          deals: partnerDeals,
+          /* ‏„3 מתוך 12” — המכנה הוא אותו `deals` שהניקוד סופר */
+          share: partnerShare(partneredTotal, sum(current, "deals")),
+        },
+      };
     });
   }
 }

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { normalizeHouseNumber } from "../logic/property-address.js";
 import { IdSchema, MoneyAgorotSchema } from "./common.js";
 
 export const PropertyTypeSchema = z.enum([
@@ -22,8 +23,34 @@ export const PropertyTypeSchema = z.enum([
    * אותה תחת „דירה”.
    */
   "divisible_apartment",
+  /*
+   * דירת נכה — דירה מותאמת נגישות. היא נכנסת כאן ולא כמאפיין מאותה
+   * סיבה בדיוק ש„טאבו משותף” ו„מתאימה לחלוקה” נכנסו: קונה שמחפש
+   * בדיוק את זה מחפש **קטגוריה**, ותחת „דירה” הוא לא היה מוצא אותה.
+   * זה גם מה שהמתווך אומר בטלפון — „יש לי דירת נכה” — ולא „דירה עם
+   * מאפיין נגישות”.
+   */
+  "accessible_apartment",
   "plot",
+  /*
+   * ‎**„מסחרי” נשאר, ותשעת הסוגים נוספים לצידו.**
+   *
+   * הוא אינו רק תאימות לאחור לשורות קיימות: הוא **„מסחרי שלא נאמר
+   * איזה”** — מה שמתווך רושם בשיחה ראשונה לפני שראה את הנכס, ומה
+   * שקונה מתכוון אליו כשהוא אומר „מחפש נכס מסחרי”. ראו
+   * ‎`logic/commercial-types.ts`: בהתאמה הוא נחשב כמתאים לכל
+   * הענפים, בשני הכיוונים.
+   */
   "commercial",
+  "commercial_shop",
+  "commercial_office",
+  "commercial_warehouse",
+  "commercial_industrial",
+  "commercial_basement",
+  "commercial_building",
+  "commercial_logistics",
+  "commercial_parking",
+  "commercial_gas_station",
   "other",
 ]);
 export type PropertyType = z.infer<typeof PropertyTypeSchema>;
@@ -56,6 +83,111 @@ export const MATCHABLE_PROPERTY_STATUSES: readonly PropertyStatus[] = [
   "active",
 ];
 
+/**
+ * ‎**חזית או עורף — לאיזה כיוון הדירה פונה.**
+ *
+ * ‏בשוק הישראלי זו אחת השאלות הראשונות בטלפון, והיא אינה „מאפיין
+ * ‏נוחות” לצד מעלית ומחסן: חזית היא רעש רחוב ותצוגה, עורף הוא
+ * ‏שקט וחצר. מתווך ששאל ולא היה לו איפה לרשום — רשם בהערות,
+ * ‏ומשם זה לא חוזר לאף מסך (בקשת המשתמש).
+ *
+ * ‎**ושלושה ערכים ולא שניים.** דירה שפונה לשני הכיוונים היא מצב
+ * ‏נפוץ, ובבחירה של שניים בלבד היא נרשמת בשקר — אותה תקלה בדיוק
+ * ‏שבגללה ל„מועד כניסה” יש מצב ולא רק תאריך. „לא צוין” נשאר
+ * ‏חוסר, ולא ערך רביעי: השדה אופציונלי.
+ */
+export const PropertyFacingSchema = z.enum(["front", "rear", "both"]);
+export type PropertyFacing = z.infer<typeof PropertyFacingSchema>;
+
+export const PROPERTY_FACING_LABELS: Record<PropertyFacing, string> = {
+  front: "חזית",
+  rear: "עורף",
+  both: "חזית ועורף",
+};
+
+/**
+ * ‎**מצב הנכס — הצהרה אחת שכל התוויות נגזרות ממנה.**
+ *
+ * ## ‏מה היה כאן
+ *
+ * ‏השדה עצמו קיים מזמן (עמודה, סכימה, קטלוג הסוכן, ייבוא CSV),
+ * ‏אבל **התוויות העבריות שלו נכתבו שלוש פעמים בשלושה קבצים**,
+ * ‏והן כבר נפרדו:
+ *
+ * ‎`actions.ts` אמר „חדש מקבלן”, `network-card.ts` אמר אותו דבר
+ * ‏ועוד `preserved: "שמור"` — **ערך שהסכימה אינה מקבלת כלל**,
+ * ‏כלומר תווית שממתינה לערך שלא יגיע — ו-`csv-import.ts` החזיק
+ * ‏את המיפוי ההפוך. מי שהוסיף ערך היה צריך לזכור שלושה קבצים,
+ * ‏ומי ששינה ניסוח שינה אותו במקום אחד.
+ *
+ * ‏כאן זה מוצהר פעם אחת: הסכימה, קטלוג הסוכן, תווית הרשת ומילון
+ * ‏הייבוא נגזרים כולם מהרשימה הזו.
+ *
+ * ## ‏הסדר הוא מהטוב לפחות טוב
+ *
+ * ‏כך המתווך קורא את הצ׳יפים בטופס בלי לחשוב, וכך גם ההשוואה
+ * ‏בין שני נכסים נראית כמו סולם ולא כמו רשימה אקראית.
+ *
+ * ‎**„משופץ מהיסוד” אינו „משופץ”**, וזו הסיבה שהוא ערך ולא ניסוח:
+ * ‏שיפוץ יסודי הוא הפרש של מאות אלפי שקלים מול צביעה והחלפת
+ * ‏מטבח, וקונה ששאל „משופץ?” מתכוון לאחד משניהם ולא יודע לאיזה.
+ */
+export const PROPERTY_CONDITIONS = [
+  "new",
+  "renovated_full",
+  "renovated",
+  "good",
+  "needs_renovation",
+] as const;
+
+export const PropertyConditionSchema = z.enum(PROPERTY_CONDITIONS);
+export type PropertyCondition = z.infer<typeof PropertyConditionSchema>;
+
+/**
+ * ‏התווית של כל ערך — ו**הטיפוס הוא שאוכף שלמות**: `Record` על
+ * ‏האיחוד המלא פירושו שערך חדש ברשימה שבור את הבנייה עד שתיכתב
+ * ‏לו תווית. זו אותה תבנית של `PROPERTY_FACING_LABELS` שמעליה.
+ */
+export const PROPERTY_CONDITION_LABELS: Record<PropertyCondition, string> = {
+  new: "חדש",
+  renovated_full: "משופץ מהיסוד",
+  renovated: "משופץ",
+  good: "שמור",
+  needs_renovation: "זקוק לשיפוץ",
+};
+
+/**
+ * ‎**ערך רפאים אחד, ורק לקריאה.** `preserved` לא היה בסכימה מעולם,
+ * ‏כלומר שום כתיבה חדשה אינה יכולה לייצר אותו — אבל שורה ישנה
+ * ‏שנושאת אותו הייתה מציגה „preserved” באנגלית למתווך. הוא ממופה
+ * ‏למילה שהערך הקנוני נושא ממילא, והוא **אינו** ב-`PROPERTY_CONDITIONS`:
+ * ‏מה שנקרא אינו מה שאפשר לבחור.
+ */
+const LEGACY_PROPERTY_CONDITION_LABELS: Record<string, string> = {
+  preserved: PROPERTY_CONDITION_LABELS.good,
+};
+
+/**
+ * ‏התווית של מצב הנכס — **התשובה היחידה בקוד**, כולל לערך הישן.
+ *
+ * ‏זו הייתה בדיוק הסטייה שהקטלוג נועד לסגור: כרטיס הרשת ידע לקרוא
+ * ‏‎`preserved` וכרטיס הנכס הפנימי לא, כלומר אותה שורה הציגה „שמור”
+ * ‏בצד אחד ושום דבר בצד השני. מי שמציג מצב נכס קורא מכאן.
+ *
+ * ‎`Object.hasOwn` ולא אינדוקס ישיר: `condition` מגיע מהמסד כמחרוזת
+ * ‏חופשית (אין `CHECK` על העמודה), ו„constructor” היה מחזיר פונקציה.
+ */
+export function propertyConditionLabel(value: string | null | undefined): string | undefined {
+  if (!value) return undefined;
+  if (Object.hasOwn(PROPERTY_CONDITION_LABELS, value)) {
+    return PROPERTY_CONDITION_LABELS[value as PropertyCondition];
+  }
+  if (Object.hasOwn(LEGACY_PROPERTY_CONDITION_LABELS, value)) {
+    return LEGACY_PROPERTY_CONDITION_LABELS[value];
+  }
+  return undefined;
+}
+
 export const DealTypeSchema = z.enum(["sale", "rent"]);
 
 /** השדות שמנוע החילוץ מהקול מנסה לזהות; הכל אופציונלי — החוסרים מסומנים למתווך. */
@@ -63,7 +195,8 @@ export const PropertyFieldsSchema = z.object({
   city: z.string().min(1).max(80).optional(),
   neighborhood: z.string().max(80).optional(),
   street: z.string().max(120).optional(),
-  houseNumber: z.string().max(10).optional(),
+  /* ‏שלם בלי שארית אפס — הכלל אחד, וכל מסלול כתיבה עובר בו. */
+  houseNumber: z.string().max(10).transform(normalizeHouseNumber).optional(),
   propertyType: PropertyTypeSchema.optional(),
   dealType: DealTypeSchema.optional(),
   rooms: z.number().multipleOf(0.5).min(1).max(20).optional(),
@@ -75,6 +208,16 @@ export const PropertyFieldsSchema = z.object({
   hasBalcony: z.boolean().optional(),
   hasSafeRoom: z.boolean().optional(),
   hasStorage: z.boolean().optional(),
+  /**
+   * ‎**רישום בטאבו משותף (מושאע)** — עובדה משפטית, לא מאפיין נוחות.
+   *
+   * ‏אין חלקה נפרדת, נדרשת הסכמת שותפים, והמימון מסובך. לכן היא
+   * ‏שדה משלה ולא פריט ב-`customFeatures`, שם יושבים המאפיינים
+   * ‏שהמשרד מגדיר לעצמו לצד „מעלית” ו„מחסן”.
+   */
+  sharedTabu: z.boolean().optional(),
+  /** ‏חזית / עורף / שניהם — ראו `PropertyFacingSchema`. */
+  facing: PropertyFacingSchema.optional(),
   /**
    * מאפיינים שהמשרד הוסיף בעצמו — ראו `logic/custom-features.ts`.
    *
@@ -92,7 +235,8 @@ export const PropertyFieldsSchema = z.object({
     )
     .max(12)
     .optional(),
-  condition: z.enum(["new", "renovated", "good", "needs_renovation"]).optional(),
+  /** ‏מצב הנכס — ראו `PROPERTY_CONDITIONS`, המקור היחיד לערכים ולתוויות. */
+  condition: PropertyConditionSchema.optional(),
   priceAgorot: MoneyAgorotSchema.optional(),
   priceFlexible: z.boolean().optional(),
   /**

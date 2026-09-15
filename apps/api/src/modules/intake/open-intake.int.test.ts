@@ -85,12 +85,15 @@ async function materialize(
   withPhoneLock = true,
 ): Promise<string> {
   return asTenant(async (tx) => {
+    /*
+     * ‎**הנעילה נשארה, ההתממשות-החד-פעמית לא.**
+     *
+     * ‏קודם ישבה כאן יציאה מוקדמת: „לבקשה כבר יש כרטיס ⇒ החזר
+     * ‏אותו”. זה מה שהפך קישור כללי לחד-פעמי — הלקוח השני נחת על
+     * ‏הכרטיס של הראשון. הנעילה עצמה עדיין נחוצה, והיא זו שמסדרת
+     * ‏שתי שליחות מקבילות של **אותו** אדם.
+     */
     await lockIntakeRequest(tx, TENANT, requestId);
-    const again = await tx.intakeRequest.findUnique({
-      where: { id: requestId },
-      select: { subjectId: true, contactId: true },
-    });
-    if (again?.subjectId !== null && again?.subjectId !== undefined) return again.subjectId;
 
     if (withPhoneLock) await lockContactPhone(tx, TENANT, phoneHash);
     const found = await tx.contact.findUnique({
@@ -129,9 +132,23 @@ async function materialize(
         },
       });
     }
-    await tx.intakeRequest.updateMany({
-      where: { id: requestId, tenantId: TENANT, subjectId: null },
-      data: { subjectId: buyerId, contactId },
+    /*
+     * ‏המילוי נרשם על **שורה משלו**, ושורת הקישור אינה נוגעת —
+     * ‏בדיוק כמו `recordOpenSubmission` בשירות.
+     */
+    await tx.intakeRequest.create({
+      data: {
+        id: ulid(),
+        tenantId: TENANT,
+        token: ulid().slice(0, 20) + ulid().slice(0, 23),
+        subject: "buyer",
+        subjectId: buyerId,
+        contactId,
+        channel: "open_fill",
+        expiresAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
+        status: "submitted",
+        submittedAt: new Date(),
+      },
     });
     return buyerId;
   });
@@ -177,16 +194,35 @@ describe("קישור פתוח → כרטיס", () => {
     expect(Number(buyers[0]!.count)).toBe(1);
   });
 
-  it("הבקשה מצביעה על הכרטיס שנוצר, ואיש הקשר נרשם עליה", async () => {
+  /*
+   * ‎**שורת הקישור נשארת קישור.**
+   *
+   * ‏קודם היא נתפסה בתור השליחה עצמה — `submitted`, התשובות,
+   * ‏ו-`subject_id` שמצביע על הכרטיס. זה מה שהפך אותה לחד-פעמית.
+   * ‏עכשיו המילוי יושב על שורה משלו, והקישור ממשיך לעבוד.
+   */
+  it("שורת הקישור אינה נתפסת — היא נשארת פתוחה למילוי הבא", async () => {
     const request = await openRequest();
-    const phoneHash = `hash-${ulid()}`;
-    const buyerId = await materialize(request, phoneHash);
+    const buyerId = await materialize(request, `hash-${ulid()}`);
 
     const row = await owner.$queryRawUnsafe<
-      { subject_id: string; contact_id: string }[]
-    >(`SELECT subject_id, contact_id FROM intake_requests WHERE id = $1`, request);
-    expect(row[0]!.subject_id).toBe(buyerId);
-    expect(row[0]!.contact_id).not.toBeNull();
+      { subject_id: string | null; contact_id: string | null; status: string }[]
+    >(
+      `SELECT subject_id, contact_id, status FROM intake_requests WHERE id = $1`,
+      request,
+    );
+    expect(row[0]!.subject_id).toBeNull();
+    expect(row[0]!.contact_id).toBeNull();
+    expect(row[0]!.status).not.toBe("submitted");
+
+    /* ‏והמילוי עצמו נרשם — על שורה משלו שמצביעה על הכרטיס */
+    const fill = await owner.$queryRawUnsafe<{ count: bigint }[]>(
+      `SELECT count(*) FROM intake_requests
+         WHERE tenant_id = $1 AND channel = 'open_fill' AND subject_id = $2`,
+      TENANT,
+      buyerId,
+    );
+    expect(Number(fill[0]!.count)).toBe(1);
   });
 
   /*
@@ -204,11 +240,78 @@ describe("קישור פתוח → כרטיס", () => {
     expect(second).toBe(first);
   });
 
-  it("בקשה שכבר מצביעה על כרטיס אינה מוסטת לאחר", async () => {
+  /*
+   * ‎**הדבר החמור ביותר שהבאג הזה גרם, ולכן בדיקה משלו.**
+   *
+   * ‏עמוד הטופס הציבורי בונה את מה שהלקוח רואה משלושה שדות של
+   * ‏שורת הקישור: `contact_id` (שם הברכה), `answers` (מילוי מראש
+   * ‏של הטופס, כולל שם וטלפון), ו-`submitted_at` („כבר מילאת”).
+   * ‏כשהמילוי נתפס על שורת הקישור, שלושתם נשאו את הלקוח הקודם —
+   * ‏ולכן הלקוח **הבא** שפתח את אותו קישור קיבל ברכה בשם של מישהו
+   * ‏אחר וטופס מלא בפרטים שלו (דיווח המשתמש).
+   *
+   * ‏הבדיקה על שלושת השדות ולא על התצוגה, כי הם המקור: מה שאין
+   * ‏בהם אינו יכול להופיע במסך.
+   */
+  it("אחרי מילוי, הקישור אינו נושא שום פרט של מי שמילא", async () => {
+    const request = await openRequest();
+    await materialize(request, `hash-${ulid()}`);
+
+    const row = await owner.$queryRawUnsafe<
+      {
+        contact_id: string | null;
+        answers: unknown;
+        submitted_at: Date | null;
+        subject_id: string | null;
+      }[]
+    >(
+      `SELECT contact_id, answers, submitted_at, subject_id
+         FROM intake_requests WHERE id = $1`,
+      request,
+    );
+    expect(row[0]!.contact_id).toBeNull();
+    expect(row[0]!.answers).toBeNull();
+    expect(row[0]!.submitted_at).toBeNull();
+    expect(row[0]!.subject_id).toBeNull();
+  });
+
+  /*
+   * ‎**זה הבאג שהמשתמש דיווח עליו, ועכשיו הוא בדיקה.**
+   *
+   * ‏מתווך שולח קישור אחד לכל הלקוחות שלו. קודם הלקוח השני שמילא
+   * ‏נחת על הכרטיס של הראשון ודרס את התשובות שלו — הבדיקה כאן
+   * ‏אפילו קיבעה את זה כהתנהגות נכונה. שני אנשים שונים הם שני
+   * ‏כרטיסים, נקודה.
+   */
+  it("שני לקוחות שונים באותו קישור מקבלים שני כרטיסים", async () => {
     const request = await openRequest();
     const first = await materialize(request, `hash-${ulid()}`);
-    // מספר אחר לגמרי — ובכל זאת הבקשה נשארת על הכרטיס הראשון
     const second = await materialize(request, `hash-${ulid()}`);
+    expect(second).not.toBe(first);
+  });
+
+  /*
+   * ‏והמשך ישיר: קישור אחד, שלושה לקוחות, שלושה כרטיסים. זה
+   * ‏התרחיש בפועל — הודעה אחת בקבוצה, וכל מי שלוחץ נכנס למערכת.
+   */
+  it("קישור אחד משרת לקוחות רבים", async () => {
+    const request = await openRequest();
+    const ids = new Set<string>();
+    for (let i = 0; i < 3; i += 1) {
+      ids.add(await materialize(request, `hash-${ulid()}`));
+    }
+    expect(ids.size).toBe(3);
+  });
+
+  /*
+   * ‏אותו אדם ממלא שוב — תיקון, לא לקוח חדש. הכרטיס נשאר אחד,
+   * ‏וזו ההבחנה שמפרידה בין „שלחתי שוב” לבין „זה מישהו אחר”.
+   */
+  it("אותו לקוח שממלא שוב אינו מקבל כרטיס שני", async () => {
+    const request = await openRequest();
+    const phoneHash = `hash-${ulid()}`;
+    const first = await materialize(request, phoneHash);
+    const second = await materialize(request, phoneHash);
     expect(second).toBe(first);
   });
 });

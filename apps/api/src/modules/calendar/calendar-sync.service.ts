@@ -1,6 +1,6 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
 import { ulid } from "ulid";
-import { PrismaService } from "../../core/prisma.service";
+import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import {
   GoogleCalendarService,
   type CalendarLink,
@@ -23,6 +23,9 @@ import {
 const TICK_MS = 15 * 60 * 1000;
 /** כמה חיבורים לסנכרן בסבב. תקרה, לא יעד. */
 const BATCH = 20;
+/** ‏ניסיונות הביטול המפצה — ראו `cancelOrphan`. */
+const ORPHAN_CANCEL_ATTEMPTS = 3;
+const ORPHAN_CANCEL_BACKOFF_MS = 200;
 /** עד כמה אחורה מסתכלים במשיכה מלאה. פגישות שעברו אינן מעניינות. */
 const WINDOW_BACK_DAYS = 7;
 /** כמה פגישות לדחוף בסבב לכל משתמש. */
@@ -200,30 +203,160 @@ export class CalendarSyncService implements OnModuleInit, OnModuleDestroy {
        */
       const dueAt = task.dueAt ?? (task.deletedAfterSync ? now : null);
       if (!dueAt) continue;
-      const googleEventId = await this.google.upsertEvent(link, {
-        googleEventId: task.googleEventId,
+      /*
+       * ‏האירוע מתואר פעם אחת: אותם שדות משמשים גם את הדחיפה וגם
+       * ‏את הביטול שאחריה, אם השורה נעלמה בינתיים.
+       */
+      const event = {
         // הקידומת מבדילה ביומן בין משימה לפגישה במבט
         summary: `משימה: ${task.title}`,
         description: task.notes ?? undefined,
         startsAt: dueAt,
         endsAt: new Date(dueAt.getTime() + 30 * 60_000),
-        // משימה שבוצעה — האירוע נמחק מהיומן במקום להישאר תלוי
-        cancelled: task.status !== "open",
+      };
+      const googleEventId = await this.google.upsertEvent(link, {
+        googleEventId: task.googleEventId,
+        ...event,
+        /*
+         * משימה שבוצעה — האירוע נמחק מהיומן במקום להישאר תלוי.
+         *
+         * ‎**ושורה שממתינה לניקוי — תמיד**, ולא רק בזכות הסטטוס:
+         * ‏הענף שמתחת **מוחק** אותה, ולכן אירוע שנוצר לה כאן לא
+         * ‏היה נשאר לו אף מצביע.
+         */
+        cancelled: task.deletedAfterSync || task.status !== "open",
       });
-      await this.prisma.withExplicitTenant(link.tenantId, async (tx) => {
-        // משימה שנמחקה והאירוע שלה נוקה — עכשיו אפשר להסיר את השורה
-        if (task.deletedAfterSync) {
-          await tx.task.delete({ where: { id: task.id } });
-          return;
-        }
-        await tx.task.update({
-          where: { id: task.id },
-          data: { googleEventId, googleSyncedAt: new Date() },
-        });
-      });
+      const kept = await this.persistOrCancel(link, googleEventId, event, async (tx) =>
+        task.deletedAfterSync
+          ? // משימה שנמחקה והאירוע שלה נוקה — עכשיו אפשר להסיר את השורה
+            (await tx.task.deleteMany({ where: { id: task.id, tenantId: link.tenantId } })).count
+          : (
+              await tx.task.updateMany({
+                /*
+                 * ‎**גם „סומנה לניקוי” הוא שינוי שקרה תחתינו**
+                 * ‏(ביקורת Codex, P2).
+                 *
+                 * ‏מחיקת שורת גיוס אינה תמיד מוחקת את הפולואפ:
+                 * ‏משימה שכבר מסונכרנת ל-Google נשארת, ומקבלת
+                 * ‏‎`deletedAfterSync: true` עם `googleSyncedAt: null`
+                 * ‏— סימן שממתין לסבב הבא כדי לבטל את האירוע
+                 * ‏ולמחוק את השורה.
+                 *
+                 * ‏כתיבה שמתאימה על המזהה בלבד הייתה חותמת
+                 * ‏‎`googleSyncedAt` על הסימן הזה, והשאילתה שלמעלה
+                 * ‏דורשת `googleSyncedAt: null` — כלומר הסימן לא היה
+                 * ‏נבחר שוב **לעולם**: האירוע נשאר ביומן, והשורה
+                 * ‏נשארת מוסתרת במסד.
+                 *
+                 * ‏התנאי מתאר את המצב שממנו יצאנו, ולכן אפס שורות
+                 * ‏נופל למסלול הביטול — האירוע נמחק, והסימן נשאר
+                 * ‏לסבב הבא שימחק את השורה.
+                 */
+                where: { id: task.id, tenantId: link.tenantId, deletedAfterSync: false },
+                data: { googleEventId, googleSyncedAt: new Date() },
+              })
+            ).count,
+      );
+      if (!kept) continue;
       count += 1;
     }
     return count;
+  }
+
+  /**
+   * ‎**מזהה שחזר מ-Google חייב למצוא שורה שתחזיק אותו — או שהאירוע
+   * ‏יורד** (ביקורת Codex, P2).
+   *
+   * ## ‏החלון
+   *
+   * ‏הדחיפה קוראת אצווה, פונה ל-Google, ורק אז כותבת את המזהה
+   * ‏חזרה. השיחה עם Google היא רשת: היא לוקחת זמן, ובתוכו מישהו
+   * ‏יכול למחוק את השורה — מחיקת שורת גיוס מנקה את הפולואפים שלה,
+   * ‏מחיקת לקוח מנקה את הפגישות, וכן הלאה.
+   *
+   * ‏מה שקרה אז: `update` על שורה שאיננה **זורק** (`P2025`), האצווה
+   * ‏כולה נופלת — והאירוע שזה עתה נוצר ב-Google נשאר ביומן של
+   * ‏המתווך **לנצח**, כי המזהה שלו לא נשמר בשום מקום ואין דרך
+   * ‏להגיע אליו.
+   *
+   * ## ‏מה נעשה במקום
+   *
+   * ‏הכתיבה היא `updateMany`/`deleteMany` ולכן מדווחת „אפס שורות”
+   * ‏במקום לזרוק, והתשובה הזו היא **מידע**: השורה נמחקה בזמן
+   * ‏הדחיפה. אז האירוע נמחק גם הוא — הוא נוצר בשביל שורה שכבר אין
+   * ‏לה זכות קיום — והסבב ממשיך לשאר האצווה.
+   *
+   * ‏אחת ולשני הכיוונים: משימות ופגישות עושות בדיוק אותו דבר, ושתי
+   * ‏גרסאות של הכלל הזה היו נשארות מסונכרנות בדיוק עד השינוי הבא.
+   */
+  /**
+   * ‎**הביטול המפצה מנסה שוב — כי אין סבב הבא** (ביקורת Codex, P2).
+   *
+   * ‏בכל מסלול אחר תקלה חולפת מול Google נגמרת מאליה: השורה נשארת
+   * ‏עם `googleSyncedAt: null` והסבב הבא בוחר אותה שוב. כאן השורה
+   * ‏נמחקה תחתינו, ולכן **אין מה לבחור** — המזהה שביד הוא הדבר
+   * ‏היחיד שמצביע על האירוע, והוא נעלם עם המשתנה. רישום ביומן
+   * ‏אינו מסלול ניסיון חוזר; הוא רק מאפשר לאדם לנקות ידנית.
+   *
+   * ‏שלושה ניסיונות עם המתנה קצרה ביניהם, וזה מה שהם מכסים
+   * ‏**ולא יותר**: הפרעה רגעית — 5xx בודד, ניתוק, חלון של rate
+   * ‏limit. הם אינם מכסים תקלה מתמשכת ואינם מכסים 401/403, שלא
+   * ‏יתוקנו בהמתנה. במקרים האלה נשאר הרישום ביומן, וזה מה שיש.
+   *
+   * ‏ההמתנה קצרה בכוונה: הלולאה הזו יושבת בתוך סבב שמשרת עוד
+   * ‏שורות של אותו משתמש, והשהיה ארוכה כאן היא עיכוב שלהן.
+   */
+  private async cancelOrphan(
+    link: CalendarLink,
+    googleEventId: string,
+    event: { summary: string; description?: string; startsAt: Date; endsAt: Date },
+  ): Promise<void> {
+    let last: unknown;
+    for (let attempt = 1; attempt <= ORPHAN_CANCEL_ATTEMPTS; attempt += 1) {
+      try {
+        await this.google.upsertEvent(link, { googleEventId, ...event, cancelled: true });
+        return;
+      } catch (error: unknown) {
+        last = error;
+        if (attempt < ORPHAN_CANCEL_ATTEMPTS) {
+          await new Promise((resolve) => setTimeout(resolve, ORPHAN_CANCEL_BACKOFF_MS * attempt));
+        }
+      }
+    }
+    /*
+     * ‏המזהה נרשם לפני שהוא אובד — אחרי שכל הניסיונות מוצו, כדי
+     * ‏שהשורה ביומן תתאר אירוע שבאמת נשאר ולא ניסיון שהצליח בשני.
+     */
+    this.logger.error(
+      `אירוע יתום ביומן ${link.calendarId} של ${link.userId}: ${googleEventId} — ${String(last).slice(0, 200)}`,
+    );
+    throw last;
+  }
+
+  private async persistOrCancel(
+    link: CalendarLink,
+    googleEventId: string | null,
+    event: { summary: string; description?: string; startsAt: Date; endsAt: Date },
+    write: (tx: TenantTx) => Promise<number>,
+  ): Promise<boolean> {
+    const rows = await this.prisma.withExplicitTenant(link.tenantId, write);
+    if (rows > 0) return true;
+    if (googleEventId !== null) {
+      /*
+       * ‎**וזו ההזדמנות האחרונה** (ביקורת Codex, P2).
+       *
+       * ‏בכל מסלול אחר כישלון מול Google נגמר בסבב חוזר: השורה
+       * ‏נשארת עם `googleSyncedAt: null` והיא תיבחר שוב. כאן אין
+       * ‏שורה — היא נמחקה תחתינו — ולכן המזהה שביד הוא הדבר היחיד
+       * ‏שמצביע על האירוע, והוא נעלם עם המשתנה.
+       *
+       * ‏לכן הוא נרשם ביומן לפני שהוא אובד: זה מה שמאפשר לאדם
+       * ‏למחוק את האירוע ידנית. השגיאה ממשיכה למעלה ונרשמת
+       * ‏ב-`lastError` של החיבור — כישלון כאן אינו „הצליח”.
+       */
+      await this.cancelOrphan(link, googleEventId, event);
+    }
+    return false;
   }
 
   /**
@@ -442,20 +575,27 @@ export class CalendarSyncService implements OnModuleInit, OnModuleDestroy {
     let count = 0;
     for (const appointment of pending) {
       const endsAt = appointment.endsAt ?? new Date(appointment.startsAt.getTime() + 60 * 60_000);
-      const googleEventId = await this.google.upsertEvent(link, {
-        googleEventId: appointment.googleEventId,
+      const event = {
         summary: appointment.title ?? "פגישה — מתווכים",
         description: appointment.notes ?? undefined,
         startsAt: appointment.startsAt,
         endsAt,
+      };
+      const googleEventId = await this.google.upsertEvent(link, {
+        googleEventId: appointment.googleEventId,
+        ...event,
         cancelled: appointment.status === "cancelled",
       });
-      await this.prisma.withExplicitTenant(link.tenantId, async (tx) => {
-        await tx.appointment.update({
-          where: { id: appointment.id },
-          data: { googleEventId, googleSyncedAt: new Date() },
-        });
-      });
+      /* ‏אותו כלל של המשימות — ראו `persistOrCancel` */
+      const kept = await this.persistOrCancel(link, googleEventId, event, async (tx) =>
+        (
+          await tx.appointment.updateMany({
+            where: { id: appointment.id, tenantId: link.tenantId },
+            data: { googleEventId, googleSyncedAt: new Date() },
+          })
+        ).count,
+      );
+      if (!kept) continue;
       count += 1;
     }
     return count;

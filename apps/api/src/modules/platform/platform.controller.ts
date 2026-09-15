@@ -1,3 +1,4 @@
+import { WEBHOOK_HIT_OUTCOMES } from "../webhook-log/webhook-log.service";
 import {
   BadRequestException,
   Body,
@@ -15,6 +16,7 @@ import {
   Res,
   ServiceUnavailableException,
   UseGuards,
+  Logger,
 } from "@nestjs/common";
 import type { Request, Response } from "express";
 import { randomBytes } from "node:crypto";
@@ -61,6 +63,11 @@ import {
   planRejectionReason,
   sanitizeFeatures,
   whatsappAgentSeats,
+  whatsappPairingLink,
+  whatsappSeatGrant,
+  WhatsappSeatGrantError,
+  whatsappSeatOriginLabel,
+  linkNeedsReverification,
   type PlanDefinition,
   type ServiceVersion,
 } from "@metavchim/shared";
@@ -68,6 +75,7 @@ import { loadEnv } from "../../config/env";
 import { PlatformAdmin } from "../../common/auth.decorators";
 import { PlatformAdminGuard } from "../../common/platform-admin.guard";
 import { whatsappSeatQuotaWhere } from "../../core/whatsapp-seat-quota";
+import { CryptoService } from "../../core/crypto.service";
 import { TenantContext } from "../../common/tenant-context";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { EmailService } from "../../core/email.service";
@@ -79,6 +87,7 @@ import { CardcomService } from "../../core/cardcom.service";
 import { LinetService } from "../../core/linet.service";
 import { GeminiService } from "../../core/gemini.service";
 import { WhatsAppSendService } from "../messaging/whatsapp-send.service";
+import { WhatsAppLinkService } from "../messaging/whatsapp-link.service";
 import { GeocodingService } from "../../core/geocoding.service";
 import { CreditEconomyService } from "../../core/credit-economy.service";
 import {
@@ -86,6 +95,7 @@ import {
   type PlatformCreditRow,
   type PlatformCreditsReport,
 } from "./platform-credits.service";
+import { FunnelEnrollmentService } from "../funnel/funnel-enrollment.service";
 import { AccountDeletionService } from "../settings/account-deletion.service";
 import { LeadPricingService } from "../../core/lead-pricing.service";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
@@ -105,9 +115,15 @@ import {
   type BackupRunStatus,
   type RestoreStatus,
 } from "./backups.service";
-import { callUpdaterAgent, updaterFailure } from "./updater-agent";
+import {
+  callUpdaterAgent,
+  updaterFailure,
+  updaterFailureMessage,
+  type UpdateRunStatus,
+} from "./updater-agent";
+import { type DiskStatus, DiskSpaceService } from "./disk-space.service";
 import { ServiceVersionsService } from "./service-versions.service";
-import { TelephonyWebhookLogService } from "../telephony/webhook-log.service";
+import { WebhookLogService } from "../webhook-log/webhook-log.service";
 
 /**
  * ניהול הפלטפורמה — הקמת משרדי תיווך חדשים מהממשק, בלי SSH.
@@ -122,6 +138,67 @@ import { TelephonyWebhookLogService } from "../telephony/webhook-log.service";
  * חוסם בדיוק את מה שהמסך נועד לאפשר: מסלול חדש. התקינות נבדקת מול
  * הקטלוג בפועל, שם היא גם רלוונטית.
  */
+/**
+ * ‎**סינון יומן הוובהוקים — שדה חסר פירושו „בלי הגבלה”.**
+ *
+ * ‏קריאה בלי פרמטרים מתנהגת בדיוק כמו קודם (חמישים האחרונות מכל
+ * ‏המשרדים), ולכן אין כאן שינוי התנהגות למי שלא ביקש דבר.
+ */
+/* ‏מיוצא כדי שהשער יוכל לטעון שהוא מקבל כל תוצאה שהיומן רושם. */
+export const TelephonyWebhookQuerySchema = z
+  .object({
+    /**
+     * ‎**מרכזייה או טופס לידים.**
+     *
+     * ‏שתי שאלות נפרדות באותו יומן, ורשימה מעורבת אינה עונה על אף
+     * ‏אחת מהן: „נקלטה” על שיחה ו„נקלטה” על ליד הן עובדות שונות.
+     * ‏חסר = שתיהן, כמו שהיה לפני שהמקור השני נכנס.
+     */
+    source: z.enum(["telephony", "lead"]).optional(),
+    /*
+     * ‎**הרשימה הסגורה — נגזרת מהשירות ולא משוכפלת כאן.**
+     *
+     * ‏כתיב חופשי לא היה מסנן דבר, אבל רשימה שנכתבת פעם שנייה
+     * ‏מתיישנת: תוצאה שנוספה בשירות ולא כאן נדחית ב-400, והמסך
+     * ‏נשבר בדיוק כשמנהל מנסה לראות את השורות החדשות.
+     */
+    outcome: z.enum(WEBHOOK_HIT_OUTCOMES).optional(),
+    tenantId: z.string().length(26).optional(),
+    callId: z.string().max(120).optional(),
+    /**
+     * ‎**מספר המתקשר — החיפוש שאין לו תחליף.**
+     *
+     * ‏מי שבודק „לקוח התקשר ואין רישום” יודע מספר טלפון, לא מזהה
+     * ‏שיחה. הערך מנורמל ונחתם בשירות היומן מול אותה חתימה
+     * ‏שנשמרה, ולכן הכתיב שהוקלד אינו משנה — והמספר עצמו אינו
+     * ‏קיים בטבלה בשום צורה.
+     */
+    phone: z.string().min(3).max(32).optional(),
+    /** ‏„מה היה בשעה האחרונה” / „ביממה” — במקום לגלול לפי תאריך. */
+    hours: z.coerce.number().int().min(1).max(24 * 90).optional(),
+    /*
+     * ‏מאתיים ולא חמישים: מרכזייה שולחת שלושה אירועים לשיחה, ולכן
+     * ‏חמישים שורות הן פחות מעשרים שיחות — פחות משעה על משרד פעיל.
+     */
+    limit: z.coerce.number().int().min(1).max(500).default(200),
+  })
+  .strict();
+
+/**
+ * ‎ריקון היומן — כמה אחורה למחוק.
+ *
+ * ‎`0` = הכול, וזו דווקא הדרישה השכיחה: לרוקן, לחייג שיחת בדיקה,
+ * ‏ולראות שורה אחת במקום לחפש אותה בתוך רעש. האישור על מחיקה
+ * ‏מלאה יושב במסך, ולכן כאן זה ערך ככל ערך.
+ *
+ * ‏החסם העליון הוא חלון השמירה עצמו: „מחק ישן משנה” על יומן
+ * ‏שנשמר תשעים יום אינו מוחק דבר, וכפתור שאינו עושה כלום גרוע
+ * ‏משגיאה.
+ */
+const PurgeWebhookLogSchema = z
+  .object({ olderThanHours: z.coerce.number().int().min(0).max(24 * 90) })
+  .strict();
+
 const PlanCodeSchema = z
   .string()
   .min(2)
@@ -168,6 +245,33 @@ const TenantFeaturesSchema = z
  * המחיר **חיובי בלבד**: „חינם למשרד הזה” הוא הארכת החלון ולא סכום
  * אפס, שהיה נשלח לסולק כחיוב על אפס ונדחה.
  */
+/**
+ * הוספת מקום וואטסאפ ממסך הפלטפורמה.
+ *
+ * ‎`.strict()` ושדות מותנים: „ניסיון בלי תאריך” ו„בתשלום בלי מחיר”
+ * הם שתי בקשות חסרות שהיו נשמרות כמקום חינם לנצח. ההכרעה עצמה
+ * ‎(`whatsappSeatGrant`) דוחה אותן גם היא — כאן זו דחייה עם 400
+ * במקום חריגה, ושם זה הכלל.
+ */
+/** חיוב חודשי על מספר של משרד — המחיר באגורות, לפני מע"מ, כמו בהשכרה. */
+const CreateNumberChargeSchema = z
+  .object({
+    tenantId: IdSchema,
+    phone: z.string().trim().min(3).max(20),
+    monthlyAgorot: z.number().int().min(1).max(MAX_RENTAL_MONTHLY_AGOROT),
+  })
+  .strict();
+
+const GrantWhatsappSeatSchema = z
+  .object({
+    mode: z.enum(["free", "trial", "billed"]),
+    /** ל-`trial`: מתי המקום נסגר מעצמו. */
+    endsAt: z.string().datetime().optional(),
+    /** ל-`billed`: המחיר החודשי שסוכם, באגורות. */
+    monthlyAgorot: z.number().int().min(1).max(MAX_RENTAL_MONTHLY_AGOROT).optional(),
+  })
+  .strict();
+
 const TenantBillingOverrideSchema = z
   .object({
     trialEndsAt: z.union([z.string().datetime(), z.null()]).optional(),
@@ -301,16 +405,56 @@ const UpdateSettingsSchema = z
     /** שיעור המע"מ באחוזים — משתנה בחקיקה, ולכן הגדרה ולא קבוע. */
     vatPercent: z.union([z.string().trim().regex(/^\d{1,2}$/u), z.literal("")]).optional(),
     whatsappAppSecret: z.union([z.string().trim().min(16).max(200), z.literal("")]).optional(),
+    whatsappConnectAppSecret: z
+      .union([z.string().trim().min(16).max(200), z.literal("")])
+      .optional(),
     whatsappVerifyToken: z.union([z.string().trim().min(16).max(200), z.literal("")]).optional(),
+    whatsappConnectVerifyToken: z
+      .union([z.string().trim().min(16).max(200), z.literal("")])
+      .optional(),
+    /**
+     * חיבור המספר של כל משרד (docs/12) — מזהה האפליקציה ומזהה
+     * הקונפיגורציה של Embedded Signup. שניהם מזהים ציבוריים של Meta
+     * (הם נשלחים לדפדפן כדי לפתוח את הפופאפ), ולכן ספרות בלבד ובלי
+     * דרישת אורך של סוד.
+     */
+    whatsappAppId: z.union([z.string().trim().regex(/^\d{5,30}$/u), z.literal("")]).optional(),
+    whatsappSignupConfigId: z
+      .union([z.string().trim().regex(/^\d{5,30}$/u), z.literal("")])
+      .optional(),
+    /**
+     * ‎**`standard` ולא `""`.** מחרוזת ריקה בנתיב הזה פירושה „מחק את
+     * השורה, חזור למשתנה הסביבה”, ולכן היא לא יכלה לשאת בחירה —
+     * ‏„רגיל” היה נמחק והדו-קיום היה חוזר בשקט (ביקורת Codex).
+     */
+    whatsappSignupFeatureType: z
+      .union([z.literal("whatsapp_business_app_onboarding"), z.literal("standard")])
+      .optional(),
     /** הסוכן האישי — טוקן קבוע של System User, לא הטוקן הזמני ממסך הפיתוח */
     whatsappAccessToken: z.union([z.string().trim().min(20).max(500), z.literal("")]).optional(),
     // מזהה ולא כמות — ספרות בלבד, אפסים מובילים משמעותיים
     whatsappPhoneNumberId: z.union([z.string().trim().regex(/^\d{5,30}$/u), z.literal("")]).optional(),
+    /*
+     * מספר הבוט לתצוגה — גיבוי ל-`display_phone_number` של Meta.
+     * ספרות בלבד, עם קידומת מדינה או בלעדיה; הנרמול ל-`wa.me` נעשה
+     * ב-`normalizePhoneForWhatsapp` ולא כאן, כדי שיהיה מקום אחד
+     * שיודע להפוך `055…` ל-`972…`.
+     */
+    whatsappBotNumber: z
+      .union([z.string().trim().regex(/^\+?[\d\s()-]{9,20}$/u), z.literal("")])
+      .optional(),
     /** תבנית "לקוח ענה במייל" לסוכן — מחוץ לחלון 24 השעות של Meta */
     whatsappEmailReplyTemplate: z
       .union([z.string().trim().regex(/^[a-z0-9_]{1,512}$/u), z.literal("")])
       .optional(),
     whatsappEmailReplyTemplateLang: z
+      .union([z.string().trim().regex(/^[a-zA-Z]{2}(_[A-Z]{2})?$/u), z.literal("")])
+      .optional(),
+    /** תבנית הסיכום החודשי לסוכן — פנייה יזומה, מחוץ לחלון */
+    whatsappOfficeDigestTemplate: z
+      .union([z.string().trim().regex(/^[a-z0-9_]{1,512}$/u), z.literal("")])
+      .optional(),
+    whatsappOfficeDigestTemplateLang: z
       .union([z.string().trim().regex(/^[a-zA-Z]{2}(_[A-Z]{2})?$/u), z.literal("")])
       .optional(),
     /** המענה למספר לא רשום — ריק = הנוסח המובנה, לא שתיקה */
@@ -401,6 +545,7 @@ const UpdateSettingsSchema = z
      * ההגדרה, והשולח בודק בזמן השליחה — שם זה נכון.
      */
     partnerPlanCode: z.union([z.string().trim().max(20), z.literal("")]).optional(),
+    // (הערך נבחר מרשימת המסלולים במסך; הקאפ כאן הוא הגנה בעומק)
 
     /*
      * השכרת מספרים — חשבון 015 **של הפלטפורמה**. ריק = מחיקת ההגדרה.
@@ -524,6 +669,8 @@ export interface PaymentRow {
 
 export interface AgencyRow {
   id: string;
+  /** ‏מספר הלקוח — מה שאפשר להקריא בטלפון ולחפש לפיו ברשימה. */
+  customerNo: number;
   name: string;
   plan: string;
   status: string;
@@ -644,6 +791,8 @@ interface CouponRow {
 @UseGuards(PlatformAdminGuard)
 @PlatformAdmin()
 export class PlatformController {
+  private readonly logger = new Logger(PlatformController.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly platformSettings: PlatformSettingsService,
@@ -656,16 +805,40 @@ export class PlatformController {
     private readonly geocoding: GeocodingService,
     private readonly creditEconomy: CreditEconomyService,
     private readonly serviceVersions: ServiceVersionsService,
-    private readonly telephonyWebhookLog: TelephonyWebhookLogService,
+    private readonly disk: DiskSpaceService,
+    private readonly telephonyWebhookLog: WebhookLogService,
     private readonly platformCredits: PlatformCreditsService,
     private readonly gemini: GeminiService,
     private readonly whatsappSender: WhatsAppSendService,
+    private readonly whatsappLinks: WhatsAppLinkService,
     private readonly subscriptionOffers: SubscriptionOfferService,
     private readonly pbx015: Pbx015NumbersService,
     private readonly numberRentals: NumberRentalService,
     private readonly linet: LinetService,
     private readonly invoices: InvoiceService,
+    private readonly crypto: CryptoService,
+    /*
+     * ‏רק לפתיחה מחדש של רישום שנסגר כשמחזירים למשרד ניסיון. אין
+     * ‏כאן שליחה — מודול המשפך אינו מחזיק ערוץ יוצא כלל.
+     */
+    private readonly funnel: FunnelEnrollmentService,
   ) {}
+
+  /**
+   * מסלול השותפים כפי שהוא נפתר **באותם שני תנאים** שהשולח בודק:
+   * הקוד בקטלוג, והמסלול חינמי. הכפילות מכוונת — כאן זו תצוגה ושם
+   * זו הכרעה — אבל שתיהן חייבות לומר את אותו דבר, ולכן שתיהן עוברות
+   * דרך `PlanCatalogService` ולא דרך שאילתה משלהן.
+   */
+  private async resolvePartnerPlan(
+    code: string,
+  ): Promise<{ name: string; isFree: boolean } | null> {
+    if (code === "") return null;
+    const plan = await this.plans.byCode(code);
+    if (plan === undefined) return null;
+    return { name: plan.name, isFree: await this.plans.isFreeCode(code) };
+  }
+
 
   /**
    * יומן הפניות לנתיב הוובהוק של המרכזיות — **כולל אלה שנדחו**.
@@ -678,8 +851,19 @@ export class PlatformController {
    *
    * המפתח מוחזר בקידומת בת שישה תווים בלבד; ראו `webhook-log.service`.
    */
+  /* ‏ראו את ההערה על `telephonyWebhooks` — שדה חסר פירושו „בלי הגבלה” */
   @Get("telephony-webhooks")
-  async telephonyWebhooks(): Promise<{
+  async telephonyWebhooks(
+    /**
+     * ‎**סינון — מה שהופך רשימה למשהו שאפשר לחקור בו.**
+     *
+     * ‏בלי הפרמטרים האלה כל שאלה נענתה בגלילה ידנית של רשימה
+     * ‏מעורבת מכל המשרדים. שדה שלא נשלח = בלי הגבלה, ולכן קריאה
+     * ‏בלי פרמטרים מתנהגת בדיוק כמו קודם.
+     */
+    @Query(new ZodValidationPipe(TelephonyWebhookQuerySchema))
+    query: z.infer<typeof TelephonyWebhookQuerySchema>,
+  ): Promise<{
     hits: {
       id: string;
       receivedAt: Date;
@@ -693,15 +877,61 @@ export class PlatformController {
       fieldKeys: string | null;
       /** מה שהספק שלח ואיננו צורכים — ראו `unmappedFields`. */
       unmapped: string | null;
+      /** ‏מזהה השיחה אצל הספק — מה שמחבר שורה לשיחה, ושורות זו לזו. */
+      callId: string | null;
+      /** ‏סוג האירוע — `ringing | answered | hangup`. */
+      action: string | null;
+      direction: string | null;
+      /**
+       * ‎ארבע הספרות האחרונות של המתקשר — ולא המספר.
+       *
+       * ‏די כדי לראות ברשימה לא מסוננת ששתי שורות הן אותו מתקשר;
+       * ‏החיפוש המלא נעשה מול חתימה שאינה יוצאת מהשרת.
+       */
+      peerSuffix: string | null;
+      /** ‏מרכזייה או טופס לידים — `telephony` | `lead`. */
+      source: string;
     }[];
+    /**
+     * ‎**מה קרה ב-24 השעות האחרונות, לפני שמסתכלים בשורות.**
+     *
+     * ‏אלף שורות אינן אומרות אם המצב תקין. שורת סיכום עונה על
+     * ‏השאלה הראשונה — האם יש פניות בכלל, וכמה מהן הפכו לשיחות.
+     */
+    summary: { source: string; outcome: string; count: number }[];
+    /**
+     * ‎**כל המשרדים שיש להם שורות ביומן — לרשימת הסינון.**
+     *
+     * ‏נגזר מכל מה ששמור ולא מהשורות שחזרו: משרד ששיחותיו ישנות
+     * ‏מהעמוד המוצג לא היה מופיע ברשימה, ולא הייתה דרך אחרת
+     * ‏לבחור אותו — כלומר החיפוש היה חסום דווקא על החיבורים
+     * ‏השקטים.
+     */
+    offices: { id: string; name: string }[];
   }> {
-    const hits = await this.telephonyWebhookLog.recent(50);
+    const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const [hits, summary, officeIds] = await Promise.all([
+      this.telephonyWebhookLog.recent(query.limit, {
+        ...(query.source === undefined ? {} : { source: query.source }),
+        ...(query.outcome === undefined ? {} : { outcome: query.outcome }),
+        ...(query.tenantId === undefined ? {} : { tenantId: query.tenantId }),
+        ...(query.callId === undefined ? {} : { callId: query.callId }),
+        ...(query.phone === undefined ? {} : { peerPhone: query.phone }),
+        ...(query.hours === undefined
+          ? {}
+          : { since: new Date(Date.now() - query.hours * 60 * 60 * 1000) }),
+      }),
+      this.telephonyWebhookLog.summary(since24h),
+      this.telephonyWebhookLog.offices(),
+    ]);
     /*
      * שם המשרד ולא רק המזהה: בעל הפלטפורמה מסתכל על היומן כדי לענות
      * למישהו ששאל למה השיחות לא מגיעות, ומזהה ULID אינו תשובה.
      * שאילתה אחת לכל המשרדים ולא אחת לשורה.
      */
-    const tenantIds = [...new Set(hits.map((h) => h.tenantId).filter((id) => id !== null))];
+    const tenantIds = [
+      ...new Set([...hits.map((h) => h.tenantId).filter((id) => id !== null), ...officeIds]),
+    ];
     const tenants =
       tenantIds.length > 0
         ? await this.prisma.tenant.findMany({
@@ -715,7 +945,43 @@ export class PlatformController {
         ...hit,
         tenantName: hit.tenantId === null ? null : (nameById.get(hit.tenantId) ?? null),
       })),
+      summary,
+      /*
+       * משרד שנמחק משאיר שורות ביומן בלי שם — הן מסוננות מהרשימה
+       * ולא מוצגות כמזהה ערום, שאינו בחירה שאפשר לעשות בה משהו.
+       */
+      offices: officeIds
+        .flatMap((id) => {
+          const name = nameById.get(id);
+          return name === undefined ? [] : [{ id, name }];
+        })
+        .sort((a, b) => a.name.localeCompare(b.name, "he")),
     };
+  }
+
+  /**
+   * ‎**ריקון היומן.**
+   *
+   * ‏הגיזום האוטומטי שומר על החסם ואינו עונה על מה שצריך מי
+   * ‏שיושב מול המסך: „נקה לפני שאני עושה שיחת בדיקה”, ו„הישן כבר
+   * ‏לא רלוונטי”. בלי הכפתור שניהם דרשו גישה ישירה למסד.
+   *
+   * ‏נרשם ביומן הביקורת של הפלטפורמה: מחיקת ראיות אבחון היא בדיוק
+   * ‏הפעולה שצריכה להשאיר עקבה משלה.
+   */
+  @Delete("telephony-webhooks")
+  @HttpCode(200)
+  async purgeTelephonyWebhooks(
+    @Body(new ZodValidationPipe(PurgeWebhookLogSchema))
+    body: z.infer<typeof PurgeWebhookLogSchema>,
+  ): Promise<{ deleted: number }> {
+    const deleted = await this.telephonyWebhookLog.purge(
+      body.olderThanHours * 60 * 60 * 1000,
+    );
+    this.logger.log(
+      `יומן וובהוקים רוקן בידי ${TenantContext.current().userId}: ${deleted} שורות, ישן מ-${body.olderThanHours} שעות`,
+    );
+    return { deleted };
   }
 
   /**
@@ -806,21 +1072,33 @@ export class PlatformController {
        */
       if (all.length <= 1) throw new BadRequestException("זהו המסלול היחיד — אי אפשר למחוק אותו");
 
-      const moved = await tx.tenant.updateMany({
-        where: { plan: code },
-        data: { plan: body.moveTo },
-      });
       /*
-       * המנוי ולא רק המשרד. `subscriptions.plan_code` הוא מה
-       * ש-RenewalService מתמחר לפיו, והוא מדלג על מסלול שאינו מוכר —
-       * כלומר לקוח משלם היה מפסיק להתחדש בשקט בזמן שהמשרד שלו נראה
-       * תקין לגמרי (ביקורת Codex).
+       * ‎**המנוי לפני המשרד, וזה סדר הנעילות ולא סדר קריאה.**
+       *
+       * ‏`UPDATE` נועל את השורות שהוא נוגע בהן, ולכן שתי השורות כאן
+       * ‏הן נעילה על `subscriptions` ואז על `tenants`. הסדר ההפוך —
+       * ‏שהיה כאן — סוגר מעגל מול כל מסלול שנועל מנוי ואז דייר:
+       * ‏`switchToFreePlan` ב-`BillingService`, ו-`close` של המשפך.
+       * ‏מחיקת מסלול שמתנגשת עם סבב המשפך על משרד באותו מסלול הייתה
+       * ‏מפילה אחת מהשתיים ב-deadlock (ביקורת Codex, P2).
+       *
+       * ‏„שורת המשרד אחרונה” הוא הכלל הכתוב ב-`common/locks.ts`,
+       * ‏והמסלול הזה היה החריג היחיד לו.
+       *
+       * ‏המנוי אינו רק מראה של המשרד: `subscriptions.plan_code` הוא
+       * ‏מה ש-RenewalService מתמחר לפיו, והוא מדלג על מסלול שאינו
+       * ‏מוכר — כלומר לקוח משלם היה מפסיק להתחדש בשקט בזמן שהמשרד
+       * ‏שלו נראה תקין לגמרי (ביקורת Codex).
        */
       await tx.subscription.updateMany({
         where: { planCode: code },
         data: { planCode: body.moveTo },
       });
       await tx.coupon.updateMany({ where: { planCode: code }, data: { planCode: body.moveTo } });
+      const moved = await tx.tenant.updateMany({
+        where: { plan: code },
+        data: { plan: body.moveTo },
+      });
       /*
        * ההנחה שכבר הובטחה למשרד בהרשמה מוצמדת לקוד המסלול שהיה.
        * בלי העברה היא הייתה מפסיקה לחול — כלומר הבטחה שנשברה בגלל
@@ -979,6 +1257,7 @@ export class PlatformController {
         priceOverrideMonthlyAgorot: true,
         priceOverrideYearlyAgorot: true,
         whatsappAgentSeatsExtra: true,
+        customerNo: true,
         createdAt: true,
         _count: { select: { users: true } },
       },
@@ -989,6 +1268,7 @@ export class PlatformController {
     );
     return tenants.map((t) => ({
       id: t.id,
+      customerNo: t.customerNo,
       name: t.name,
       plan: t.plan,
       status: t.status,
@@ -1125,26 +1405,62 @@ export class PlatformController {
      */
     const toFree = target !== undefined && isFreePlan(target);
     const activateFromTrial = toFree && tenant.status === "trial";
+    const now = new Date();
 
-    await this.prisma.tenant.update({
-      where: { id },
-      data: {
-        ...(body.plan !== undefined ? { plan: body.plan } : {}),
-        ...(toFree ? { trialEndsAt: null, paidUntil: null } : {}),
-        ...(activateFromTrial ? { status: "active" } : {}),
-        ...(body.status !== undefined ? { status: body.status } : {}),
-        ...(body.paidUntil !== undefined
-          ? {
-              paidUntil: body.paidUntil === null ? null : new Date(body.paidUntil),
-              /*
-               * הענקה ידנית מסיימת גם את הניסיון: משרד עם שני
-               * תאריכים פעילים היה נחסם לפי זה שרלוונטי לסטטוס שלו,
-               * ומנהל שהעניק גישה לא היה מבין למה היא לא נכנסה לתוקף.
-               */
-              trialEndsAt: null,
-            }
-          : {}),
-      },
+    /*
+     * ‎**כל כתיבה שנוגעת בחצי מ„ניסיון חי” שואלת על הפתיחה מחדש**
+     * ‏(ביקורת Codex, P2).
+     *
+     * ‏„ניסיון חי” הוא סטטוס **וגם** תאריך, ולכן מנהל יכול להגיע
+     * ‏אליו בשני צעדים: תאריך עתידי דרך מסך העקיפה בזמן שהמשרד
+     * ‏`active`, ואז שינוי הסטטוס כאן. הצעד השני לא קרא למשפך
+     * ‏כלל, והתוצאה **קבועה**: ניסיון חי לצד רישום סגור,
+     * ‏ש-`reopenLapsed` אינו סורק (הוא סורק `paid` בלבד)
+     * ‏ו-`enrollDue` אינו מקבל (היה לו רישום).
+     *
+     * ‏הקריאה אינה מותנית בכלום: `reopenRows` כבר מכריע בעצמו על
+     * ‏השורה שאחרי הכתיבה, ותנאי כאן היה עותק שני שלו.
+     */
+    await this.prisma.$transaction(async (tx) => {
+      await tx.tenant.update({
+        where: { id },
+        data: {
+          ...(body.plan !== undefined ? { plan: body.plan } : {}),
+          /*
+           * ‎**כל מי שמוחק את תאריך הניסיון רושם גם למה.**
+           *
+           * ‏תאריך ריק לבדו הוא דו-משמעי — „נגמר” או „אופס זמנית” —
+           * ‏ומשפך ההמרה מכריע הפוך בין השניים. שני המסלולים כאן
+           * ‏**מסיימים** את הניסיון, ולכן שניהם רושמים זאת.
+           */
+          ...(toFree
+            ? { trialEndsAt: null, trialConcludedAt: now, paidUntil: null }
+            : {}),
+          ...(activateFromTrial ? { status: "active" } : {}),
+          ...(body.status !== undefined ? { status: body.status } : {}),
+          ...(body.paidUntil !== undefined
+            ? {
+                paidUntil: body.paidUntil === null ? null : new Date(body.paidUntil),
+                /*
+                 * הענקה ידנית מסיימת גם את הניסיון: משרד עם שני
+                 * תאריכים פעילים היה נחסם לפי זה שרלוונטי לסטטוס שלו,
+                 * ומנהל שהעניק גישה לא היה מבין למה היא לא נכנסה לתוקף.
+                 *
+                 * ‎**וזה חל גם על „פתח ללא תפוגה”**, ששולח
+                 * ‏`paidUntil: null`: הוא משאיר את הסטטוס „ניסיון” ובלי
+                 * ‏`paid_until`, כלומר מצב שאינו ניתן להבחנה מאיפוס
+                 * ‏זמני — ורישום המשפך היה נשאר פתוח לנצח (ביקורת
+                 * ‏Codex). הסיום נרשם, ולכן אין מה להסיק.
+                 */
+                trialEndsAt: null,
+                trialConcludedAt: now,
+              }
+            : {}),
+        },
+      });
+      if (body.status !== undefined || toFree) {
+        await this.funnel.reopenWithin(tx, id, now);
+      }
     });
     // השהיה — ניתוק מיידי של כל ה-sessions של המשרד
     if (body.status === "suspended") {
@@ -1261,6 +1577,238 @@ export class PlatformController {
     return { ok: true, grants, denials };
   }
 
+
+  /* ============================================================
+     מנויי הוואטסאפ של משרד — מי מחזיק, מי אימת, ומה אפשר להוסיף.
+
+     ‎**למה זה כאן ולא במסך של המשרד.** המשרד רואה כמה מקומות יש לו
+     וקונה עוד; מי שמוסיף מקום בחינם, פותח פיילוט לחודש או קובע מחיר
+     שסוכם בטלפון הוא מפעיל הפלטפורמה. ובעיקר: כשסוכן אינו מצליח
+     לאמת את המספר שלו, מי שמקבל את הטלפון הוא התמיכה — ועד היום לא
+     הייתה לה שום דרך לראות מה מצבו, ולא כלי לעזור.
+     ============================================================ */
+
+  /**
+   * ‎**המספרים עצמם אינם מוחזרים — רק ארבע ספרות אחרונות.**
+   *
+   * מסך התמיכה צריך לענות על „האם המכשיר שלי מחובר”, ולזה די בזנב:
+   * הוא מספיק כדי שהסוכן יזהה את המספר שלו בטלפון, ואינו מספיק כדי
+   * לבנות ממנו רשימת מספרים של כל הסוכנים בכל המשרדים. אותה הכרעה
+   * בדיוק כמו ב-`WhatsAppLinkService.status`, ומאותה סיבה.
+   */
+  @Get("agencies/:id/whatsapp")
+  async agencyWhatsapp(@Param("id", new ZodValidationPipe(IdSchema)) id: string): Promise<{
+    seats: { total: number; used: number; grantedCounter: number };
+    rows: {
+      id: string;
+      origin: string;
+      label: string;
+      monthlyAgorot: number;
+      status: string;
+      currentPeriodEnd: string | null;
+      createdAt: string;
+    }[];
+    subscribers: {
+      userId: string;
+      name: string;
+      role: string;
+      isActive: boolean;
+      whatsappAccess: boolean;
+      linked: boolean;
+      tail: string | null;
+      verifiedAt: string | null;
+      needsReverification: boolean;
+      implicit: boolean;
+    }[];
+  }> {
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id },
+      select: { id: true, whatsappAgentSeatsExtra: true },
+    });
+    if (!tenant) throw new BadRequestException("משרד לא נמצא");
+
+    const now = new Date();
+    const [users, rows, paid] = await Promise.all([
+      this.prisma.withExplicitTenant(id, (tx) =>
+        tx.user.findMany({
+          where: { tenantId: id },
+          select: { id: true, name: true, role: true, isActive: true, whatsappAccess: true },
+          orderBy: [{ isActive: "desc" }, { name: "asc" }],
+        }),
+      ),
+      this.prisma.whatsappSeat.findMany({
+        where: { tenantId: id, status: { not: "released" } },
+        orderBy: { createdAt: "desc" },
+      }),
+      this.prisma.whatsappSeat.count({ where: whatsappSeatQuotaWhere(id, now) }),
+    ]);
+
+    /*
+     * ‎`whatsapp_links` יושב מחוץ ל-RLS (הוא נקרא בנתיב הוובהוק לפני
+     * שידוע מיהו הדייר), ולכן הסינון לפי דייר נאכף כאן: המשתמשים
+     * נשלפו תחת הדייר, והקישורים נשלפים לפיהם בלבד.
+     */
+    const links =
+      users.length === 0
+        ? []
+        : await this.prisma.whatsAppLink.findMany({
+            where: { userId: { in: users.map((u) => u.id) }, revokedAt: null },
+            select: { userId: true, waIdEncrypted: true, verifiedAt: true, source: true },
+          });
+    const byUser = new Map(links.map((link) => [link.userId, link]));
+
+    return {
+      seats: {
+        total: whatsappAgentSeats({
+          planHasAgent: await this.plans.tenantHasFeature(id, "voice_intake"),
+          granted: tenant.whatsappAgentSeatsExtra,
+          paid,
+        }),
+        used: users.filter((u) => u.isActive && u.whatsappAccess).length,
+        grantedCounter: tenant.whatsappAgentSeatsExtra,
+      },
+      rows: rows.map((row) => ({
+        id: row.id,
+        origin: row.origin,
+        label: whatsappSeatOriginLabel(row),
+        monthlyAgorot: row.monthlyAgorot,
+        status: row.status,
+        currentPeriodEnd: row.currentPeriodEnd?.toISOString() ?? null,
+        createdAt: row.createdAt.toISOString(),
+      })),
+      subscribers: users.map((user) => {
+        const link = byUser.get(user.id);
+        return {
+          userId: user.id,
+          name: user.name,
+          role: user.role,
+          isActive: user.isActive,
+          whatsappAccess: user.whatsappAccess,
+          linked: link !== undefined,
+          tail: link === undefined ? null : this.crypto.decrypt(link.waIdEncrypted).slice(-4),
+          verifiedAt: link?.verifiedAt.toISOString() ?? null,
+          needsReverification:
+            link !== undefined && linkNeedsReverification(link.verifiedAt, now),
+          implicit: link?.source === "phone",
+        };
+      }),
+    };
+  }
+
+  /**
+   * הפקת קוד חיבור **עבור סוכן מסוים**, כדי שהתמיכה תוכל לשלוח לו
+   * ברקוד או קישור במקום להכתיב שש אותיות בטלפון.
+   *
+   * ‎**וזה נרשם ביומן.** הקוד מקשר את המכשיר ששולח אותו לחשבון של
+   * אותו סוכן — כלומר מי שמחזיק בו יכול לקשר את המכשיר **שלו**.
+   * הסמכות קיימת ממילא (מפעיל הפלטפורמה יכול הכול), אבל פעולה
+   * שמייצרת מפתח לחשבון של מישהו אחר חייבת להשאיר עקבות.
+   */
+  @Post("agencies/:id/whatsapp/link-code")
+  async agencyWhatsappLinkCode(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Body(new ZodValidationPipe(z.object({ userId: IdSchema }).strict()))
+    body: { userId: string },
+  ): Promise<{ code: string; expiresInSeconds: number; botNumber: string | null; link: string | null }> {
+    const user = await this.prisma.user.findFirst({
+      where: { id: body.userId, tenantId: id },
+      select: { id: true, name: true, isActive: true },
+    });
+    if (!user) throw new BadRequestException("המשתמש אינו שייך למשרד הזה");
+    if (!user.isActive) throw new BadRequestException("החשבון אינו פעיל");
+
+    const issued = await this.whatsappLinks.issueCode(id, user.id);
+    this.logger.warn(
+      `קוד חיבור וואטסאפ הופק ממסך הפלטפורמה עבור ${user.name} (${user.id}) במשרד ${id}`,
+    );
+    /*
+     * ‎`botNumber` ולא רק `link`: הקישור והברקוד מסתירים את המספר
+     * בתוכם, והמסך היה אומר „שלחו ידנית” בלי לומר למי. המספר הוא
+     * מה שמאפשר לבצע את ההוראה כשהקיצור אינו עובד.
+     */
+    const botNumber = await this.whatsappSender.businessNumber();
+    return {
+      ...issued,
+      botNumber,
+      link: whatsappPairingLink(botNumber, issued.code),
+    };
+  }
+
+  /**
+   * הוספת מקום למשרד — בחינם, לניסיון, או בתשלום חודשי.
+   *
+   * ההכרעה מה נכתב בשורה יושבת ב-`whatsappSeatGrant` שב-shared, ולא
+   * כאן: היא נבדקת בלי מסד ובלי סולק, וכל תנאי שלה הוא כלל עסקי
+   * ולא פרט מימוש.
+   */
+  @Post("agencies/:id/whatsapp/seats")
+  async grantWhatsappSeat(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Body(new ZodValidationPipe(GrantWhatsappSeatSchema))
+    body: z.infer<typeof GrantWhatsappSeatSchema>,
+  ): Promise<{ id: string }> {
+    const tenant = await this.prisma.tenant.findUnique({ where: { id }, select: { id: true } });
+    if (!tenant) throw new BadRequestException("משרד לא נמצא");
+
+    let grant;
+    try {
+      grant = whatsappSeatGrant({
+        mode: body.mode,
+        now: new Date(),
+        endsAt: body.endsAt === undefined ? null : new Date(body.endsAt),
+        monthlyAgorot: body.monthlyAgorot ?? null,
+      });
+    } catch (error) {
+      throw new BadRequestException(
+        error instanceof WhatsappSeatGrantError ? error.message : "בקשה לא תקינה",
+      );
+    }
+
+    const seat = await this.prisma.whatsappSeat.create({
+      data: {
+        id: ulid(),
+        tenantId: id,
+        origin: grant.origin,
+        monthlyAgorot: grant.monthlyAgorot,
+        /*
+         * ‎`active` ולא `pending`: `pending` פירושו „ממתין לתשלום”,
+         * וכאן אין דף תשלום שממתינים לו. המקום פתוח מרגע הלחיצה,
+         * וזו גם המשמעות של „הוספתי לו מקום”.
+         */
+        status: "active",
+        currentPeriodEnd: grant.currentPeriodEnd,
+        billingAnchorDay: grant.billingAnchorDay,
+        createdBy: TenantContext.current().userId,
+      },
+      select: { id: true },
+    });
+    this.logger.log(`מקום וואטסאפ (${body.mode}) נוסף למשרד ${id}: ${seat.id}`);
+    return seat;
+  }
+
+  /**
+   * סגירת מקום שנוסף מהמסך הזה.
+   *
+   * ‎**רק מה שהוענק, ומיד.** מקום שהמשרד קנה מבוטל אצלו ונשאר פתוח
+   * עד תום התקופה ששולמה — סגירה שלו מכאן הייתה מוחקת חודש ששולם.
+   */
+  @Delete("agencies/:id/whatsapp/seats/:seatId")
+  async releaseWhatsappSeat(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("seatId", new ZodValidationPipe(IdSchema)) seatId: string,
+  ): Promise<{ ok: true }> {
+    const now = new Date();
+    const closed = await this.prisma.whatsappSeat.updateMany({
+      where: { id: seatId, tenantId: id, origin: "granted", status: { not: "released" } },
+      data: { status: "released", releasedAt: now, cancelledAt: now },
+    });
+    if (closed.count === 0) {
+      throw new BadRequestException("המקום לא נמצא, או שהוא מקום בתשלום של המשרד");
+    }
+    this.logger.warn(`מקום וואטסאפ שהוענק נסגר ממסך הפלטפורמה: ${seatId} (משרד ${id})`);
+    return { ok: true };
+  }
+
   /**
    * חלון החינם והמחיר המוסכם של משרד יחיד.
    *
@@ -1293,6 +1841,7 @@ export class PlatformController {
 
     const data: {
       trialEndsAt?: Date | null;
+      trialConcludedAt?: Date | null;
       paidUntil?: Date | null;
       priceOverrideMonthlyAgorot?: number | null;
       priceOverrideYearlyAgorot?: number | null;
@@ -1300,7 +1849,21 @@ export class PlatformController {
     } = {};
     // `in` ולא בדיקת ערך: `null` הוא הוראה מפורשת לבטל, ושדה חסר
     // הוא "אל תיגע" — שני מצבים שונים שאסור לאחד
-    if ("trialEndsAt" in body) data.trialEndsAt = body.trialEndsAt ? new Date(body.trialEndsAt) : null;
+    /*
+     * ‎**תאריך ניסיון אמיתי מבטל „הניסיון נגמר”.**
+     *
+     * ‏המסך הזה הוא הדרך היחידה להחזיר משרד לניסיון, ולכן הוא גם
+     * ‏המקום היחיד שבו הסיום שנרשם חדל להיות נכון. בלי האיפוס, משרד
+     * ‏שהוחזר לניסיון היה נושא „נגמר” לצד תאריך חי — סתירה ששלבי
+     * ‏הניסיון שלו משלמים עליה (ביקורת Codex).
+     *
+     * ‎`null` **אינו** מאפס: איפוס התאריך לבדו הוא בדיוק המצב הזמני
+     * ‏שאין להסיק ממנו דבר, ומי שסיים את הניסיון קודם לכן לא חזר בו.
+     */
+    if ("trialEndsAt" in body) {
+      data.trialEndsAt = body.trialEndsAt ? new Date(body.trialEndsAt) : null;
+      if (data.trialEndsAt !== null) data.trialConcludedAt = null;
+    }
     if ("paidUntil" in body) data.paidUntil = body.paidUntil ? new Date(body.paidUntil) : null;
     if ("priceOverrideMonthlyAgorot" in body) {
       data.priceOverrideMonthlyAgorot = body.priceOverrideMonthlyAgorot ?? null;
@@ -1349,7 +1912,24 @@ export class PlatformController {
     }
     if (Object.keys(data).length === 0) return { ok: true };
 
-    await this.prisma.tenant.update({ where: { id }, data });
+    /*
+     * ‎**הכתיבה והפתיחה-מחדש באותה טרנזקציה.**
+     *
+     * ‏רישום שנסגר כ„מוצה” נפתח כשהניסיון חוזר — יש לו שוב תפוגה
+     * ‏שאפשר להזהיר מפניה, ו-`enrollDue` לעולם לא היה מכניס אותו
+     * ‏שוב. בשתי פעולות נפרדות, תקלה ביניהן מותירה ניסיון חי לצד
+     * ‏רישום סגור, וזה מצב **קבוע**: הסורק אינו רואה רישומים סגורים
+     * ‏והכניסה אינה מקבלת מי שכבר היה לו רישום (ביקורת Codex).
+     */
+    await this.prisma.$transaction(async (tx) => {
+      await tx.tenant.update({ where: { id }, data });
+      /*
+       * ‏בלי תנאי: `reopenRows` מכריע בעצמו על השורה שאחרי הכתיבה
+       * ‏(„ניסיון חי” — סטטוס וגם תאריך), ותנאי כאן היה עותק שני
+       * ‏שלו. אותה קריאה בדיוק יושבת גם ב-`PATCH agencies/:id`.
+       */
+      if ("trialEndsAt" in body) await this.funnel.reopenWithin(tx, id);
+    });
     await this.prisma.withExplicitTenant(id, (tx) =>
       tx.auditLog.create({
         data: {
@@ -1455,6 +2035,29 @@ export class PlatformController {
       configured: boolean;
       source: "db" | "env" | "none";
       webhookUrl: string;
+      /**
+       * המספר שמוצג במסך חיבור המכשיר כשלא נשלף מ-Meta.
+       * הערך ולא „מוגדר”: זה מסך העריכה שלו.
+       */
+      botNumber: string;
+      /**
+       * אפליקציית החיבור — נתיב משלה, ומאיפה הסוד שלה מגיע.
+       * ‎`source: "env"` הוא מה שהופך „ניקוי מהמסך” ללא-מספיק.
+       */
+      connect: {
+        configured: boolean;
+        source: "db" | "env" | "none";
+        /** האם `WHATSAPP_CONNECT_APP_SECRET` קיים — גם כשהמסד גובר. */
+        envFallback: boolean;
+        webhookUrl: string;
+        secretSet: boolean;
+        verifyTokenSet: boolean;
+        /** מזהים ציבוריים — הערך עצמו, כי המסך מציג אותם לעריכה. */
+        appId: string;
+        signupConfigId: string;
+        /** איזו זרימה הפופאפ פותח — דו-קיום או Embedded Signup רגיל */
+        signupFeatureType: string;
+      };
       /** הצד היוצא — הסוכן האישי עונה רק כשהוא מוגדר */
       assistant: {
         configured: boolean;
@@ -1476,6 +2079,8 @@ export class PlatformController {
         viewingReminderTemplateButtons: boolean;
         emailReplyTemplate: string;
         emailReplyTemplateLang: string;
+        officeDigestTemplate: string;
+        officeDigestTemplateLang: string;
       };
     };
     /**
@@ -1547,6 +2152,27 @@ export class PlatformController {
     /** קוד מסלול השותפים — ערך ולא „מוגדר”, מאותו טעם כמו `supportEmail`. */
     partnerPlanCode: string;
     /**
+     * ‎**למה הקוד הזה נפתר עכשיו — ולא רק מה נכתב בשדה.**
+     *
+     * השולח בודק את הקוד בזמן השליחה, ואם הוא אינו בקטלוג או שהמסלול
+     * בתשלום הוא מוותר על ההעברה ורושם אזהרה ביומן. מי שהקליד קוד
+     * שגוי לא רואה שום דבר במסך: התזכורות ממשיכות לצאת, אף משרד אינו
+     * עובר, והתקלה מתגלה חודש אחר כך. השורה הזאת היא ההבדל.
+     *
+     * ‎`null` = הקוד ריק או שאינו בקטלוג; ה-`partnerPlanCode` שלצדו
+     * מבחין בין השניים.
+     */
+    partnerPlan: { name: string; isFree: boolean } | null;
+    /**
+     * המסלולים שאפשר לבחור מהם — **הבחירה מהקטלוג ולא הקלדה.**
+     *
+     * קוד שמוקלד ביד יכול להיות שגוי, ואז אין העברה ואיש אינו יודע.
+     * רשימה סוגרת את זה במקור. המסלולים בתשלום נשלחים גם הם ומסומנים
+     * ‎`isFree: false` — הם מוצגים מנוטרלים ולא נעלמים, כי „למה
+     * המסלול שלי לא ברשימה” היא שאלה בלי תשובה במסך.
+     */
+    partnerPlanOptions: { code: string; name: string; isFree: boolean }[];
+    /**
      * השכרת מספרים מ-015 — **הערכים העסקיים ולא רק "מוגדר"**: שם
      * המשתמש, הקבוצה והמחיר מוצגים כי זה מסך העריכה שלהם; הסיסמה
      * לעולם לא חוזרת — רק אם היא מוגדרת.
@@ -1587,7 +2213,41 @@ export class PlatformController {
     const waDb = has("whatsappAppSecret") && has("whatsappVerifyToken");
     const waEnv = env.WHATSAPP_APP_SECRET !== undefined && env.WHATSAPP_VERIFY_TOKEN !== undefined;
     // הצד היוצא של הסוכן האישי — טוקן ומזהה מספר, שניהם יחד
+    /*
+     * ‎**מאיפה מגיע הסוד של אפליקציית החיבור** — והאם ניקוי מהמסך
+     * בכלל ישפיע. כשהוא מוגדר במשתנה סביבה, מחיקת השורה במסד
+     * מחזירה את הנפילה לסביבה, והמסך היה מבטיח „חזרה לאפליקציה
+     * אחת" בזמן שהסוד הנפרד ממשיך לפעול (ביקורת Codex).
+     */
+    const waConnectEnv = env.WHATSAPP_CONNECT_APP_SECRET !== undefined;
+    const waConnectSecret = has("whatsappConnectAppSecret") || waConnectEnv;
+    const waConnectVerify = has("whatsappConnectVerifyToken");
+    const waConnectDb = has("whatsappConnectAppSecret") || has("whatsappConnectVerifyToken");
+    /*
+     * ‎**שני המזהים חוזרים כערך ולא כ„מוגדר".**
+     *
+     * הם ציבוריים מעצם טיבם — נשלחים לדפדפן של המתווך כדי לפתוח את
+     * הפופאפ — ולכן אין סיבה להסתיר אותם. וזה גם מה שהופך את המסך
+     * לשמיש: בלי הערך המוצג, מי שהזין אותם ולחץ „שמור" ראה שדה ריק
+     * ולא יכול היה לדעת אם נשמרו (דיווח מהשטח).
+     */
+    const waAppId = (await this.platformSettings.get("whatsappAppId")) ?? "";
+    const waSignupConfigId = (await this.platformSettings.get("whatsappSignupConfigId")) ?? "";
+    /*
+     * ריק במסד = ברירת המחדל של הקוד (דו-קיום), ולא „ES רגיל”.
+     * ההבחנה נשמרת כאן כדי שהמסך יציג את מה שיקרה בפועל.
+     */
+    const waSignupFeatureChoice =
+      (await this.platformSettings.get("whatsappSignupFeatureType")) ??
+      env.WHATSAPP_SIGNUP_FEATURE_TYPE ??
+      "whatsapp_business_app_onboarding";
+    /* המסך מציג את שתי האפשרויות בלבד; `""` בסביבה הוא „רגיל” */
+    const waSignupFeatureType =
+      waSignupFeatureChoice === "whatsapp_business_app_onboarding"
+        ? "whatsapp_business_app_onboarding"
+        : "standard";
     const waOutDb = has("whatsappAccessToken") && has("whatsappPhoneNumberId");
+    const whatsappBotNumber = (await this.platformSettings.get("whatsappBotNumber")) ?? "";
     const waOutEnv =
       env.WHATSAPP_ACCESS_TOKEN !== undefined && env.WHATSAPP_PHONE_NUMBER_ID !== undefined;
     const googleDb = has("googleClientId") && has("googleClientSecret");
@@ -1603,6 +2263,7 @@ export class PlatformController {
       env.CARDCOM_API_NAME !== undefined &&
       env.CARDCOM_API_PASSWORD !== undefined;
     const otpDb = await this.platformSettings.get("loginOtpEnabled");
+    const partnerPlanCode = (await this.platformSettings.get("partnerPlanCode")) ?? "";
     // אותה פונקציה שהשרת גובה לפיה — לא העתק שלה
     const referralFeePercent = resolveReferralFeePercent(
       await this.platformSettings.get("referralFeePercent"),
@@ -1619,7 +2280,13 @@ export class PlatformController {
       },
       // הערך ולא רק "מוגדר" — ראו ההסבר בטיפוס המוחזר
       supportEmail: (await this.platformSettings.get("supportEmail")) ?? "",
-      partnerPlanCode: (await this.platformSettings.get("partnerPlanCode")) ?? "",
+      partnerPlanCode: partnerPlanCode,
+      partnerPlan: await this.resolvePartnerPlan(partnerPlanCode),
+      partnerPlanOptions: (await this.plans.all()).map((plan) => ({
+        code: plan.code,
+        name: plan.name,
+        isFree: isFreePlan(plan),
+      })),
       numberRental: {
         configured: await this.pbx015.isConfigured(),
         username: (await this.platformSettings.get("pbx015AuthUsername")) ?? "",
@@ -1669,6 +2336,29 @@ export class PlatformController {
         configured: waDb || waEnv,
         source: waDb ? "db" : waEnv ? "env" : "none",
         webhookUrl: `${env.WEB_ORIGIN}/api/v1/webhooks/whatsapp`,
+        botNumber: whatsappBotNumber,
+        /* אפליקציית החיבור — הנתיב שלה, והאם היא מוגדרת ומאיפה */
+        connect: {
+          configured: waConnectDb || waConnectEnv,
+          source: waConnectDb ? "db" : waConnectEnv ? "env" : "none",
+          /*
+           * ‎**דגל נפרד, כי `source` מדווח מי גובר ולא מי קיים.**
+           *
+           * כששניהם מוגדרים `source` הוא `"db"`, והאזהרה על הסביבה
+           * הייתה נעלמת — דווקא במקרה שבו היא הכי נחוצה: הניקוי
+           * מוחק את שורות המסד, והסוד שבסביבה משתלט מיד (ביקורת
+           * Codex).
+           */
+          envFallback: waConnectEnv,
+          webhookUrl: `${env.WEB_ORIGIN}/api/v1/webhooks/whatsapp/connect`,
+          /* „מוגדר" לכל סוד בנפרד — אחרת המסך אינו יכול לומר מה נשמר */
+          secretSet: waConnectSecret,
+          verifyTokenSet: waConnectVerify,
+          /* ערכים, לא „מוגדר": מזהים ציבוריים שמוצגים חזרה לעריכה */
+          appId: waAppId,
+          signupConfigId: waSignupConfigId,
+          signupFeatureType: waSignupFeatureType,
+        },
         assistant: {
           configured: waOutDb || waOutEnv,
           source: waOutDb ? "db" : waOutEnv ? "env" : "none",
@@ -1720,6 +2410,11 @@ export class PlatformController {
             (await this.platformSettings.get("whatsappEmailReplyTemplate")) ?? "",
           emailReplyTemplateLang:
             (await this.platformSettings.get("whatsappEmailReplyTemplateLang")) ?? "he",
+          /* ריק = הסיכום החודשי מגיע בהתראות בלבד למי שמחוץ לחלון */
+          officeDigestTemplate:
+            (await this.platformSettings.get("whatsappOfficeDigestTemplate")) ?? "",
+          officeDigestTemplateLang:
+            (await this.platformSettings.get("whatsappOfficeDigestTemplateLang")) ?? "he",
         },
       },
       google: {
@@ -1951,6 +2646,40 @@ export class PlatformController {
   }
 
   /**
+   * ‎**שליחת הודעת בדיקה אמיתית — מה שהבדיקה שמעליה אינה מוכיחה.**
+   *
+   * ‏קריאת פרטי המספר עוברת בהצלחה גם כשהטוקן חסר את הרשאת
+   * השליחה, וגם כשהמספר אינו ברשימת הבדיקה במצב Development. שני
+   * המקרים מתגלים היום רק בהודעה הראשונה של מתווך אמיתי — כלומר
+   * במקום הגרוע ביותר. הודעה שיוצאת באמת היא הראיה היחידה.
+   *
+   * ‏הנוסח קבוע בשירות ואינו מגיע מכאן: המסך מוסר מספר בלבד, כדי
+   * שזה יישאר בדיקת חיבור ולא כלי לשליחת טקסט חופשי לכל מספר.
+   */
+  @Post("settings/test-whatsapp-send")
+  @HttpCode(200)
+  async testWhatsAppSend(
+    @Body(
+      new ZodValidationPipe(
+        z.object({
+          /*
+           * תחביר של מספר בלבד. אורך לבדו קיבל גם „abc0501234567”,
+           * והנרמול שמסיר אותיות היה הופך אותו למספר תקין של מישהו
+           * אחר — כלומר הודעה לאדם זר (ביקורת Codex).
+           */
+          to: z
+            .string()
+            .trim()
+            .regex(/^\+?[\d\s()-]{6,20}$/u, "מספר לא תקין"),
+        }),
+      ),
+    )
+    body: { to: string },
+  ): Promise<{ ok: boolean; message: string }> {
+    return this.whatsappSender.probeSend(body.to);
+  }
+
+  /**
    * בדיקת חיבור למנוע ההבנה החכמה — **שתי קריאות אמת, לא בדיקת שדה.**
    *
    * "זיהוי בסיסי" בכל פקודה כשמפתח מוגדר הוא כשל שקט: הסיבה נרשמת
@@ -2052,12 +2781,23 @@ export class PlatformController {
     version: string;
     updateAvailable: boolean;
     services: ServiceVersion[];
+    /**
+     * מצב הדיסק של השרת. מוצג תמיד ולא רק כשהוא נמוך: „כמה נשאר”
+     * הוא מה שמפעיל הפלטפורמה בא לבדוק, ומספר שמופיע רק כשכבר
+     * מאוחר אינו ניטור.
+     */
+    disk: DiskStatus;
   }> {
     const env = loadEnv();
+    const [services, disk] = await Promise.all([
+      this.serviceVersions.collect(),
+      this.disk.status(),
+    ]);
     return {
       version: env.APP_VERSION,
       updateAvailable: env.UPDATER_URL !== undefined && env.UPDATE_SECRET !== undefined,
-      services: await this.serviceVersions.collect(),
+      services,
+      disk,
     };
   }
 
@@ -2078,6 +2818,46 @@ export class PlatformController {
     if (res.status === 409) throw new ConflictException("עדכון כבר רץ — המתינו לסיומו");
     if (!res.ok) throw updaterFailure(res);
     return { status: "started" };
+  }
+
+  /**
+   * ‎**מה עלה בגורל העדכון.**
+   *
+   * ‏עד כה `POST system/update` החזיר „הופעל” וזה היה כל מה שהמסך
+   * ‏ידע אי פעם. עדכון שנכשל — משיכה שנדחתה, שירות שלא עלה — נראה
+   * ‏בדיוק כמו עדכון שהצליח, והסיבה נשארה בלוג של קונטיינר הסוכן.
+   *
+   * ‏הסוכן שורד את ההפעלה מחדש (הוא קונטיינר נפרד), ולכן הוא זה
+   * ‏שמחזיק את התשובה: ה-API עצמו נהרג באמצע ואינו יכול לזכור דבר.
+   * ‏אותו מבנה בדיוק כמו `backups/restore/status`.
+   */
+  @Get("system/update/status")
+  async updateStatus(): Promise<UpdateRunStatus> {
+    const res = await callUpdaterAgent("/update/status", { method: "GET" });
+    /*
+     * ‎**404 מהסוכן אינו כישלון של השאילתה — הוא התשובה עליה.**
+     *
+     * ‏העדכון אינו מרים את הסוכן (הוא מריץ את `compose` מתוך עצמו),
+     * ‏ולכן מיד אחרי שהשינוי הזה נפרס הסוכן שבשרת עדיין ישן ואינו
+     * ‏מכיר את הנתיב. חריגה כאן הייתה נבלעת ב-`catch` של המסך, והוא
+     * ‏היה נשאר בספינר לנצח — כלומר בדיוק השתיקה שהשינוי הזה בא
+     * ‏לתקן, רק בניסוח חדש (ביקורת Codex).
+     *
+     * ‏לכן זו תוצאה מדווחת: „לא הצלחתי לדעת, והנה הפקודה שתתקן”.
+     * ‏שאר הכשלים נשארים חריגות — שם כישלון הוא באמת כישלון.
+     */
+    if (res.status === 404) {
+      return {
+        running: false,
+        startedAt: null,
+        finishedAt: null,
+        ok: false,
+        message: updaterFailureMessage(res.status),
+        stage: null,
+      };
+    }
+    if (!res.ok) throw updaterFailure(res);
+    return (await res.json()) as UpdateRunStatus;
   }
 
   /**
@@ -2255,7 +3035,10 @@ export class PlatformController {
    * תפיסה שנכשלה, ו-`past_due` הוא חיוב חודשי שנדחה.
    */
   @Get("number-rentals")
-  async listNumberRentals(): Promise<{
+  async listNumberRentals(
+    /** סינון למשרד אחד — לשולחן החיבורים, שמציג חיוב ליד כל מספר. */
+    @Query("tenantId", new ZodValidationPipe(IdSchema.optional())) tenantId?: string,
+  ): Promise<{
     rentals: {
       id: string;
       tenantId: string;
@@ -2266,11 +3049,14 @@ export class PlatformController {
       status: string;
       currentPeriodEnd: Date | null;
       provisioned: boolean;
+      /** `purchased` מהמלאי של 015, או `platform` — חיוב שנפתח מכאן. */
+      origin: string;
       providerError: string | null;
       createdAt: Date;
     }[];
   }> {
     const rows = await this.prisma.rentedNumber.findMany({
+      where: tenantId === undefined ? {} : { tenantId },
       orderBy: { createdAt: "desc" },
       take: 200,
     });
@@ -2290,10 +3076,30 @@ export class PlatformController {
         status: row.status,
         currentPeriodEnd: row.currentPeriodEnd,
         provisioned: row.providerPurchasedAt !== null,
+        origin: row.origin,
         providerError: row.providerError,
         createdAt: row.createdAt,
       })),
     };
+  }
+
+  /**
+   * חיוב חודשי על מספר שכבר בידי המשרד — נפתח מהפלטפורמה.
+   *
+   * לא השכרה מהמלאי של 015: המספר של המשרד (למשל ממרכזייה משלו),
+   * והפלטפורמה גובה עליו שירות. אותו סורק חידושים ואותו כרטיס שמור.
+   * ראו `NumberRentalService.createPlatformCharge`.
+   */
+  @Post("number-rentals")
+  @HttpCode(200)
+  async createNumberCharge(
+    @Body(new ZodValidationPipe(CreateNumberChargeSchema))
+    body: z.infer<typeof CreateNumberChargeSchema>,
+  ): Promise<{ id: string; number: string; warning: string | null }> {
+    return this.numberRentals.createPlatformCharge({
+      ...body,
+      createdBy: TenantContext.current().userId,
+    });
   }
 
   /**
@@ -2368,6 +3174,10 @@ export class PlatformController {
     await this.subscriptionOffers.revoke(id);
     return { ok: true };
   }
+
+  /* ====================================================================
+   * ‏משפטי המוטבציה של הפלטפורמה
+   * ==================================================================== */
 
   /**
    * כניסת תמיכה למשרד — **רק דרך חלון שהמשרד פתח בעצמו**.

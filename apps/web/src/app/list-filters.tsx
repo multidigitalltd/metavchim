@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, type FormEvent } from "react";
-import { IconFilter, IconSearch, IconX } from "./icons";
+import { IconChevronDown, IconFilter, IconSearch, IconX } from "./icons";
 import { formatNumber } from "@/lib/format";
 
 /**
@@ -209,7 +209,10 @@ export function ListFilters({
   searchHint,
   priceLabel,
   card,
+  layout = "card",
+  view,
   children,
+  childrenActive = false,
 }: {
   values: ListFilterValues;
   onApply: (next: ListFilterValues) => void;
@@ -217,22 +220,49 @@ export function ListFilters({
   searchHint: string;
   priceLabel: string;
   /**
-   * ‎**צורת הכרטיס — כותרת עם אריח, ודוגמה בשדה.**
+   * ‎**צורת הכרטיס — כותרת עם אריח, ושדה שקוף.**
    *
    * בלי זה הרכיב נשאר טופס חשוף, וזו הצורה שכל שאר הרשימות מציגות.
-   * ‎`example` מחליף את `searchHint` כטקסט הרפאים בשדה, כי במצב הזה
-   * הרמז כבר נאמר בכותרת — ושדה שחוזר על מה שכתוב מעליו מבזבז את
-   * המקום היחיד שבו אפשר להראות **איך** מנסחים חיפוש.
+   *
+   * ‎`example` הוא **אופציונלי, וברירת המחדל היא בלי טקסט רפאים
+   * כלל.** הרמז כבר נאמר בכותרת הכרטיס (`searchHint`), ומשפט דוגמה
+   * ארוך בתוך שדה צר נקטע באמצע — כלומר הוא לא הדגים דבר, רק מילא
+   * את השדה ברעש שנעלם ברגע שמקלידים. שדה ריק קורא נקי, והדוגמה
+   * נשארת אפשרית למסך שבאמת צריך אותה.
    *
    * התווית של השדה נשארת ב-DOM ומוסתרת חזותית: היא מה שקורא מסך
    * מקריא, וכותרת הכרטיס אינה קשורה אליו ב-`htmlFor`.
    */
-  card?: { example: string };
-  /** צ'יפים או פקדים שיושבים בתחתית אותו כרטיס. */
+  card?: {
+    example?: string;
+    /**
+     * ‎**בלי המרווח התחתון** — הכרטיס יושב בתוך רשת שמנהלת את
+     * המרווחים בעצמה. `mb-[18px]` בתוך תא של רשת מוסיף מרווח
+     * שהרשת לא ביקשה, והתוצאה היא טור אחד שנגמר נמוך מהשני.
+     */
+    flush?: boolean;
+  };
+  /**
+   * ‎**`"inline"` — שורת חיפוש בתוך כרטיס של מישהו אחר.**
+   *
+   * ברשת שיתופי הפעולה החיפוש יושב בתוך כרטיס הכיוונים ולא בכרטיס
+   * משלו: שדה רחב עם זכוכית מגדלת בתוכו, ו„עוד סינונים” בקצה. כפתור
+   * „חפש” נפרד יורד — השדה נשלח ב-Enter, והכפתור רק גזל מרוחבו.
+   */
+  layout?: "card" | "inline";
+  /** פקד תצוגה שיושב בקצה שורת החיפוש — למשל כרטיסיות/שורות. */
+  view?: React.ReactNode;
+  /** צ'יפים או פקדים שיושבים בתחתית אותו כרטיס, בתוך „עוד סינון”. */
   children?: React.ReactNode;
+  /**
+   * ‎`true` כשהפקדים ב-`children` מחזיקים סינון פעיל — למשל עיר
+   * שנבחרה. המגירה נפתחת עליו, כי סינון שלא רואים הוא רשימה חסרה
+   * בלי הסבר.
+   */
+  childrenActive?: boolean;
 }): React.JSX.Element {
   const [draft, setDraft] = useState(values);
-  const [open, setOpen] = useState(hasActiveFilters(values));
+  const [open, setOpen] = useState(hasActiveFilters(values) || childrenActive);
 
   /*
    * הטיוטה מתעדכנת כשההורה משנה את הערכים.
@@ -287,7 +317,13 @@ export function ListFilters({
   return (
     <form
       onSubmit={submit}
-      className={card === undefined ? "mb-4" : "mv-card mv-card--pad mb-[18px]"}
+      className={
+        card === undefined
+          ? "mb-4"
+          : /* ‎`mv-card--pad` נשאר אסימון שלם — שער הריפוד קורא מחרוזות
+               ומפצל ברווחים, ו-`mv-card--pad${…}` אינו נראה לו כמחלקה */
+            `mv-card mv-card--pad ${card.flush === true ? "" : "mb-[18px]"}`
+      }
     >
       {card === undefined ? null : (
         <div className="mv-card-head">
@@ -303,8 +339,41 @@ export function ListFilters({
           </span>
         </div>
       )}
-      {/* גובה אחיד (38px) לשדה ולכפתונים — שורה אחת ישרה שגם נשברת
-          יפה במובייל בזכות flex-wrap */}
+      {layout === "inline" ? (
+        <div className="mv-searchrow">
+          <label htmlFor="flt-q" className="mv-visually-hidden">
+            {searchLabel}
+          </label>
+          <span className="mv-searchbox">
+            <IconSearch s={18} />
+            <input
+              id="flt-q"
+              value={draft.q}
+              placeholder={searchHint}
+              onChange={(event) => setDraft({ ...draft, q: event.target.value })}
+            />
+          </span>
+          {view}
+          <button
+            type="button"
+            className="mv-morefilters"
+            aria-expanded={open}
+            onClick={() => setOpen(!open)}
+          >
+            <IconFilter s={16} /> עוד סינונים
+            <span className="mv-morefilters__chevron" aria-hidden="true">
+              <IconChevronDown s={15} />
+            </span>
+          </button>
+          {hasActiveFilters(draft) ? (
+            <button type="button" className="mv-morefilters" onClick={clear}>
+              <IconX s={15} /> נקה
+            </button>
+          ) : null}
+        </div>
+      ) : (
+      /* גובה אחיד (38px) לשדה ולכפתונים — שורה אחת ישרה שגם נשברת
+          יפה במובייל בזכות flex-wrap */
       <div className="flex flex-wrap items-end gap-2">
         <div className="min-w-0 flex-1" style={{ minWidth: 200 }}>
           <label
@@ -320,7 +389,7 @@ export function ListFilters({
           <input
             id="flt-q"
             value={draft.q}
-            placeholder={card?.example ?? searchHint}
+            placeholder={card === undefined ? searchHint : (card.example ?? "")}
             onChange={(event) => setDraft({ ...draft, q: event.target.value })}
             className="w-full rounded-lg border px-3 text-sm"
             style={{ ...inputStyle, minHeight: 38 }}
@@ -353,6 +422,7 @@ export function ListFilters({
           </button>
         ) : null}
       </div>
+      )}
 
       {open ? (
         <div
@@ -368,7 +438,19 @@ export function ListFilters({
         </div>
       ) : null}
 
-      {children === undefined ? null : <div className="mt-3">{children}</div>}
+      {/*
+        ‎**הצ׳יפים חיים בתוך „עוד סינון”, ולא מעל הכל.**
+
+        רשימת הערים גדלה עם המשרד: משרד שעובד בשתים-עשרה ערים קיבל
+        שתי שורות של כפתורים בראש המסך, לפני הנכס הראשון — כלומר
+        המסך נפתח על הסינון במקום על התוכן. הם אותו סוג של בקרה כמו
+        טווח המחיר והחדרים שכבר יושבים שם, ולכן זה המקום שלהם.
+
+        ‎`childrenActive` הוא מה שמונע סינון שקוף: עיר שנבחרה פותחת
+        את המגירה מעצמה, כדי שלא תישאר רשימה מסוננת בלי שום סימן
+        למה.
+      */}
+      {open && children !== undefined ? <div className="mt-3">{children}</div> : null}
 
       {/*
         הצירים מתחת לשדות ולא במקומם: גרירה מהירה למי שרוצה טווח,

@@ -1,5 +1,6 @@
 import { Body, Controller, Delete, Get, HttpCode, Param, Post, Query } from "@nestjs/common";
 import { Throttle } from "@nestjs/throttler";
+import { ThrottleWebhook } from "../../common/webhook-throttle";
 import { z } from "zod";
 import { IdSchema, TELEPHONY_PROVIDERS } from "@metavchim/shared";
 import { Public, RequireCapability } from "../../common/auth.decorators";
@@ -105,14 +106,13 @@ export class TelephonyController {
   @HttpCode(200)
   async importRecordings(
     @Body(new ZodValidationPipe(ImportSchema)) body: z.infer<typeof ImportSchema>,
-  ): Promise<{
-    found: number;
-    linked: number;
-    alreadyHad: number;
-    withoutCall: number;
-    withoutRecordId: number;
-    rowKeys: string[];
-  }> {
+    /*
+     * ‎**צורת התשובה נגזרת מהמנוע ואינה נכתבת שוב.** העותק שישב
+     * ‏כאן החסיר את `skipped` מהיום שנולד, והיה ממשיך להחסיר כל
+     * ‏שדה שייווסף — הקונטרולר מחזיר בפועל את מה שהשירות מחזיר,
+     * ‏וההצהרה רק החביאה חלק ממנו.
+     */
+  ): ReturnType<RecordingFetchService["importRange"]> {
     const to = new Date();
     const from = new Date(to.getTime() - body.days * 24 * 60 * 60 * 1000);
     return this.recordings.importRange(TenantContext.current().tenantId, from, to);
@@ -235,11 +235,22 @@ export class TelephonyWebhookController {
   constructor(private readonly telephony: TelephonyService) {}
 
   /*
-   * מגבלת קצב משלה: הנתיב כותב שורות (שיחה, ולפעמים ליד). מרכזייה
-   * אמיתית של משרד תיווך שולחת עשרות אירועים בשעה, לא מאות בדקה.
+   * ‎**מגבלת קצב לכל משרד — ולא לכל כתובת IP.**
+   *
+   * ‏מרכזייה אמיתית של משרד תיווך שולחת עשרות אירועים בשעה, לא
+   * ‏מאות בדקה. אבל התקרה נספרה לפי `req.ip`, וכל המשרדים שיושבים
+   * ‏על אותה מרכזיית ענן מגיעים מאותן כתובות: השישים **חולקו בין
+   * ‏כולם** במקום להינתן לכל אחד, ומשרד עמוס אחד השתיק את השאר.
+   *
+   * ‏המפתח שבנתיב הוא זהות המשרד, והוא מה שנספר עכשיו. תקרת
+   * ‏ה-IP הכללית (300) ובלם ההצפה (600) נשארים מאחור כרשת ביטחון,
+   * ‏ולכן פיזור מפתחות אקראיים מכתובת אחת עדיין נחסם.
+   *
+   * ‏והדחייה נרשמת ביומן: מרכזייה שנדחתה ב-429 בדרך כלל אינה מנסה
+   * ‏שוב, כלומר זו שיחה שאבדה — ובלי שורה ביומן איש לא היה יודע.
    */
   @Public()
-  @Throttle({ default: { ttl: 60_000, limit: 60 } })
+  @ThrottleWebhook({ source: "telephony", param: "key" }, 60)
   @Post(":key")
   @HttpCode(200)
   async ingest(
@@ -256,7 +267,7 @@ export class TelephonyWebhookController {
    * חלק גדול מהמשרדים לא היו יכולים להתחבר כלל.
    */
   @Public()
-  @Throttle({ default: { ttl: 60_000, limit: 60 } })
+  @ThrottleWebhook({ source: "telephony", param: "key" }, 60)
   @Get(":key")
   async ingestViaQuery(
     @Param("key", new ZodValidationPipe(RawKeySchema)) key: string,

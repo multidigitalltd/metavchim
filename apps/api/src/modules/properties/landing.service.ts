@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from "@nestjs/common";
 import { randomBytes } from "node:crypto";
 import { loadEnv } from "../../config/env";
 import { TenantContext } from "../../common/tenant-context";
+import { TenantLogoService } from "../../core/tenant-logo.service";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import { StorageService } from "../../core/storage.service";
@@ -33,6 +34,8 @@ export interface LandingView {
   features: string[];
   images: { url: string; alt?: string }[];
   officeName: string;
+  /** נתיב ציבורי ללוגו המשרד, או `null` כשאין. */
+  logoUrl: string | null;
 }
 
 /** הנכס משווק? נמכר/ארכיון ⇒ הדף מציג "לא זמין" במקום למכור אוויר. */
@@ -45,6 +48,7 @@ export class LandingService {
     private readonly storage: StorageService,
     private readonly webLeads: WebLeadService,
     private readonly plans: PlanCatalogService,
+    private readonly logo: TenantLogoService,
   ) {}
 
   /**
@@ -113,9 +117,24 @@ export class LandingService {
         select: { name: true },
       });
       const officeName = tenant?.name ?? "משרד תיווך";
+      /*
+       * נתיב ולא הקובץ; `null` = אין לוגו, והמסך מצייר מונוגרמה
+       * במקום. גם בדף „הנכס כבר לא זמין” — שם דווקא חשוב שהמותג
+       * יופיע, כי זה הדף שממנו הלקוח יפנה למשרד.
+       */
+      const logoUrl = (await this.logo.has(p.tenantId))
+        ? `/public/landing/${token}/logo`
+        : null;
 
       if (!MARKETABLE.has(p.status)) {
-        return { status: "unavailable", title: "הנכס כבר לא זמין", features: [], images: [], officeName };
+        return {
+          status: "unavailable",
+          title: "הנכס כבר לא זמין",
+          features: [],
+          images: [],
+          officeName,
+          logoUrl,
+        };
       }
 
       const media = await tx.propertyMedia.findMany({
@@ -150,8 +169,25 @@ export class LandingService {
           ...(m.altText !== null ? { alt: m.altText } : {}),
         })),
         officeName,
+        logoUrl,
       };
     });
+  }
+
+  /** הלוגו של המשרד — המשרד נגזר מהנכס שהטוקן פתח. */
+  async publicLogo(
+    token: string,
+  ): Promise<{ body: NodeJS.ReadableStream; contentType: string; contentLength?: number }> {
+    const tenantId = await this.prisma.withPublicLanding(token, async (tx) => {
+      const property = await tx.property.findFirst({
+        where: { landingToken: token },
+        select: { tenantId: true, deletedAt: true },
+      });
+      if (!property || property.deletedAt !== null) throw new NotFoundException("הדף לא נמצא");
+      await this.assertLandingEnabled(property.tenantId, tx);
+      return property.tenantId;
+    });
+    return this.logo.rawFor(tenantId);
   }
 
   /** הזרמת תמונה לדף הציבורי — הפוליסה חושפת רק את תמונות הנכס של הטוקן. */

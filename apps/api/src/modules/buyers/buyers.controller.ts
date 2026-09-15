@@ -15,7 +15,8 @@ import {
   BuyerRequirementsSchema,
   FinancingStatusSchema,
   IdSchema,
-  PhoneSchema,
+  PhoneInputSchema,
+  SharedTabuStanceSchema,
   type Page,
 } from "@metavchim/shared";
 import { RequireCapability } from "../../common/auth.decorators";
@@ -27,10 +28,28 @@ import { BuyersService, type BuyerDto } from "./buyers.service";
 const CreateBuyerSchema = z
   .object({
     contactName: z.string().min(2).max(120),
-    contactPhone: PhoneSchema,
-    requirements: BuyerRequirementsSchema,
+    contactPhone: PhoneInputSchema,
+    /*
+     * ‎`.strict()` למטה הוא מה שהופך את זה לחובה ולא לנוחות: בלי
+     * המפתח כאן, טופס ששולח כתובת מקבל 400 ולא „נשמר בלי המייל”.
+     */
+    contactEmail: z.string().trim().email().max(254).optional(),
+    /*
+     * ‎`.strict()` גם על האובייקט הפנימי: `.strict()` של החיצוני
+     * אינו יורד לתוכו, ומפתח שגוי (`minRooms` במקום `roomsMin`)
+     * נבלע בשקט — הבקשה החזירה 201 בלי השדה. לטופס זה לא קרה;
+     * לצרכן API או לייבוא — כן. הקריאה מהמסד (`parse` בשירות)
+     * נשארת סלחנית, כי שם אין מי שיתקן.
+     */
+    requirements: BuyerRequirementsSchema.strict(),
     financing: FinancingStatusSchema.optional(),
     maturity: BuyerMaturitySchema.optional(),
+    /*
+     * ‎**מזהה בלבד, והתקפות שלו נבדקת בשירות מול רשימת המשרד.**
+     * ‎`z.string()` כאן מגביל רק את הצורה: הרשימה חיה בהגדרות ולא
+     * בסכימה, ולכן `enum` היה מתיישן ברגע שמשרד יוסיף סטטוס.
+     */
+    officeStatus: z.string().max(24).optional(),
     source: z.string().min(1).max(60),
     agentNotes: z.string().max(4000).optional(),
   })
@@ -38,16 +57,26 @@ const CreateBuyerSchema = z
 
 const UpdateBuyerSchema = z
   .object({
-    requirements: BuyerRequirementsSchema.optional(),
+    requirements: BuyerRequirementsSchema.strict().optional(),
     financing: FinancingStatusSchema.optional(),
     maturity: BuyerMaturitySchema.optional(),
+    /** `""` או `null` = הסרת הסטטוס; מזהה = בחירה בו. */
+    officeStatus: z.union([z.string().max(24), z.null()]).optional(),
     agentNotes: z.string().max(4000).optional(),
+    /*
+     * ‎**העברת הכרטיס לסוכן אחר.** מזהה בלבד — בלי מחרוזת ריקה:
+     * קונה בלי בעלים אינו „של כולם” אלא בלתי נראה לכל סוכן שאין לו
+     * ‎`buyers.view_all`. ראו ההסבר ב-`BuyersService.update`.
+     */
+    ownerUserId: IdSchema.optional(),
   })
   .strict();
 
 const ListQuerySchema = z
   .object({
     maturity: BuyerMaturitySchema.optional(),
+    /** מצטלב עם `maturity` ואינו מתחרה בו — ראו `BuyersService.list`. */
+    officeStatus: z.string().max(24).optional(),
     /** חיפוש חופשי — ערים מבוקשות, הערות הסוכן, סיכומי AI ומקור */
     q: z.string().max(120).optional(),
     /** בשקלים; נבדק בחפיפה מול טווח התקציב של הקונה */
@@ -55,6 +84,17 @@ const ListQuerySchema = z
     maxPrice: z.coerce.number().min(0).optional(),
     minRooms: z.coerce.number().min(0).max(30).optional(),
     maxRooms: z.coerce.number().min(0).max(30).optional(),
+    /** מי אישר טאבו משותף ומי סירב — „טרם נשאל” אינו אף אחד מהם */
+    sharedTabu: SharedTabuStanceSchema.optional(),
+    /**
+     * ‎שכונה — טקסט חופשי, ולא מזהה.
+     *
+     * ‏שמות שכונות אינם רשומים בשום מרשם, ולכן אין רשימה
+     * ‏סגורה לאכוף — בדיוק כמו בשדה שבו הן נכתבות. אותה
+     * ‏תקרת אורך כמו בנתיב ההצעות, כי זה הטקסט שאותו שדה
+     * ‏עצמו שולח לשניהם.
+     */
+    neighborhood: z.string().max(80).optional(),
     cursor: z.string().max(30).optional(),
     limit: z.coerce.number().int().min(1).max(100).default(50),
   })
@@ -113,7 +153,8 @@ export class BuyersController {
     @Body(new ZodValidationPipe(CreateBuyerSchema))
     body: z.infer<typeof CreateBuyerSchema>,
   ): Promise<BuyerDto> {
-    return this.buyers.create(body);
+    /* ‏מסך של סוכן מחובר — `typedBy` אינו מגיע מהגוף, וראו `createWithin` */
+    return this.buyers.create({ ...body, typedBy: "agent" });
   }
 
   @Get()
@@ -177,7 +218,7 @@ export class BuyersController {
   @RequireCapability("buyers.view_own")
   async get(
     @Param("id", new ZodValidationPipe(IdSchema)) id: string,
-  ): Promise<BuyerDto> {
+  ): Promise<BuyerDto & { lastActivityAt: Date }> {
     return this.buyers.getById(id);
   }
 

@@ -26,12 +26,20 @@ import {
   IdSchema,
   PLAN_FEATURES,
   AssignableRoleSchema,
+  BuyerMaturitySchema,
+  MAX_OFFICE_STATUS_LABEL,
+  addOfficeStatus,
+  removeOfficeStatus,
+  updateOfficeStatus,
+  type OfficeBuyerStatus,
+  type OfficeStatusResult,
   clearEffect,
   describeOverride,
   isOverrideActive,
   limitState,
   overrideRejectionReason,
-  resolveCapabilities,
+  orphanedGrantReason,
+  effectiveCapabilities,
   type Capability,
   type LimitState,
   DEFAULT_MATCH_WEIGHTS,
@@ -48,7 +56,12 @@ import {
   normalizePhone,
 } from "@metavchim/shared";
 import { loadEnv } from "../../config/env";
-import { emailDomainStatus, onboardingSteps, type OnboardingProgress } from "@metavchim/shared";
+import {
+  emailDomainStatus,
+  onboardingSteps,
+  whatsappPairingLink,
+  type OnboardingProgress,
+} from "@metavchim/shared";
 import {
   WHATSAPP_AGENT_DENIAL_TEXT,
   whatsappAgentDenial,
@@ -62,14 +75,23 @@ import {
   RequireCapability,
 } from "../../common/auth.decorators";
 import { lockTenantRow } from "../../common/locks";
-import { whatsappSeatQuotaWhere } from "../../core/whatsapp-seat-quota";
+import {
+  readOfficeStatuses,
+  writeOfficeStatuses,
+} from "../../common/office-buyer-statuses";
 import { TenantContext } from "../../common/tenant-context";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { AuditService } from "../../core/audit.service";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PlatformSettingsService } from "../../core/platform-settings.service";
 import { EmailDomainProviderService } from "../../core/email-domain-provider.service";
-import { PrismaService, type TenantTx } from "../../core/prisma.service";
+import { PrismaService } from "../../core/prisma.service";
+import {
+  OfficeSettingsSchema,
+  OfficeSettingsService,
+  type OfficeSettingsPatch,
+} from "./office-settings.service";
+import { TeamMemberInputSchema, TeamService, type TeamUserDto } from "./team.service";
 import { AuthService, type SessionInfo } from "../auth/auth.service";
 import { LoginThrottleService } from "../auth/login-throttle.service";
 import { MatchRefreshService } from "../matching/match-refresh.service";
@@ -77,8 +99,9 @@ import {
   WhatsAppLinkService,
   type LinkStatus,
 } from "../messaging/whatsapp-link.service";
+import { WhatsAppSendService } from "../messaging/whatsapp-send.service";
 import { AccountDeletionService } from "./account-deletion.service";
-import { MAX_LOGO_BYTES, TenantLogoService } from "./tenant-logo.service";
+import { MAX_LOGO_BYTES, TenantLogoService } from "../../core/tenant-logo.service";
 
 /**
  * הגדרת האוטומציות שמגיעה מהמסך.
@@ -101,6 +124,15 @@ const AutomationsSchema = z
          */
         channel: z.enum(["email", "whatsapp", "both"]).optional(),
         messages: z.record(z.string().max(40), z.string().max(600)).optional(),
+        /* חלון הניטור — רק לאוטומציה שמסומנת `watch` בקטלוג */
+        watch: z
+          .object({
+            days: z.array(z.number().int().min(0).max(6)).max(7),
+            fromHour: z.number().int().min(0).max(24),
+            toHour: z.number().int().min(0).max(24),
+          })
+          .strict()
+          .optional(),
       })
       .strict(),
   )
@@ -108,39 +140,6 @@ const AutomationsSchema = z
     message: "לא נשלחה שום הגדרה",
   });
 
-const TenantSettingsSchema = z
-  .object({
-    name: z.string().min(2).max(120).optional(),
-    /** המספר העסקי לוואטסאפ — ספרות בלבד; "" מנתק את השיוך */
-    whatsappNumber: z
-      .union([z.string().regex(/^\d{9,15}$/u), z.literal("")])
-      .optional(),
-    /* פרטי המשרד שנכנסים לנוסחי ההסכמים. מספר רישיון התיווך הוא
-       פרט חובה בהזמנה בכתב לפי חוק המתווכים במקרקעין. */
-    licenseNumber: z.union([z.string().max(40), z.literal("")]).optional(),
-    officeAddress: z.union([z.string().max(200), z.literal("")]).optional(),
-    officePhone: z.union([z.string().max(30), z.literal("")]).optional(),
-    /* ברירות המחדל לנוסחי ההסכמים. דמי התיווך ומועד התשלום הם פרטי
-       חובה בתקנות, ושער ההחתמה יוצר הסכם בלי שאיש הזין אותם — בלי
-       ברירת מחדל ברמת המשרד הוא לא יכול לייצר מסמך תקף כלל. */
-    defaultCommission: z.union([z.string().max(80), z.literal("")]).optional(),
-    defaultPaymentTerms: z
-      .union([z.string().max(120), z.literal("")])
-      .optional(),
-    /*
-     * מדיניות הרשת של המשרד: כל נכס/קונה חדש מתפרסם לרשת השיתופים
-     * אוטומטית. ההחלטה של מי שמחזיק settings.manage — הסוכן שקולט
-     * את הנכס מבצע מדיניות משרד, לא בחירה אישית.
-     */
-    autoShareProperties: z.boolean().optional(),
-    autoShareBuyers: z.boolean().optional(),
-    /*
-     * הצעות אוטומטיות במייל: התאמה פנימית חדשה וחזקה נשלחת ללקוח
-     * בלי שסוכן לחץ. אותו היגיון של מדיניות משרד כמו שכניו למעלה.
-     */
-    autoEmailOffers: z.boolean().optional(),
-  })
-  .strict();
 
 // owner אינו ניתן להקצאה דרך ה-API — מוקם בהקמת הסוכנות בלבד.
 // הסכימה מיובאת ואינה מוגדרת כאן שוב: המסכים בונים את התפריט
@@ -166,6 +165,19 @@ type UserCapabilitiesDto = {
   role: string;
   protected: boolean;
   effective: string[];
+  /**
+   * ‎**מודולים שהפלטפורמה חסמה למשרד — לא לסוכן הזה.**
+   *
+   * ‏`effective` כבר מנוכה מהם, וזה נכון אבל לא מספיק: המסך אינו
+   * ‏יודע **למה** היכולת חסרה, ולכן הוא הציג „חסום” לצד כפתורי
+   * ‏„חסום” ו„הענק” שפועלים על שכבת החריגים — שכבה שאינה יכולה
+   * ‏לפתוח מודול שנחסם מלמעלה. ההענקה נדחית, והמנהל אינו מבין
+   * ‏למה (ביקורת Codex, P2).
+   *
+   * ‏מפתחות המודולים כפי שהם ב-`CAPABILITY_MODULES`, ולכן המסך
+   * ‏משווה מול אותה רשימה שהוא מרנדר.
+   */
+  blockedModules: string[];
   overrides: {
     capability: string;
     effect: string;
@@ -176,13 +188,14 @@ type UserCapabilitiesDto = {
   }[];
 };
 
-const CreateUserSchema = z
-  .object({
-    name: z.string().min(2).max(120),
-    email: z.string().email().max(254),
-    role: AssignableRoleSchema,
-  })
-  .strict();
+/*
+ * ‎**אותה סכימה שהשירות אוכף**, ולא עותק שלה.
+ *
+ * ‏שני עותקים היו מסכימים ביום שנכתבו: „owner אינו ניתן להענקה”
+ * ‏היה יורד מאחד מהם, והמסלול השני היה ממשיך לקבל אותו בשקט.
+ * ‏הבקר דוחה מוקדם, השירות דוחה בוודאות — מאותה הגדרה.
+ */
+const CreateUserSchema = TeamMemberInputSchema;
 
 const UpdateUserSchema = z
   .object({
@@ -198,6 +211,31 @@ const UpdateUserSchema = z
 const AuditQuerySchema = z
   .object({ limit: z.coerce.number().int().min(1).max(100).default(50) })
   .strict();
+
+/**
+ * סטטוס משרד: התווית והדרגה שהוא נשען עליה. המזהה נקבע בשרת
+ * (`nextOfficeStatusId`) ואינו נשלח — לקוח שקובע מזהים היה יכול
+ * לדרוס סטטוס קיים בכתיבה „חדשה”.
+ */
+const CreateBuyerStatusSchema = z
+  .object({
+    label: z.string().trim().min(2).max(MAX_OFFICE_STATUS_LABEL),
+    maturity: BuyerMaturitySchema,
+  })
+  .strict();
+
+const UpdateBuyerStatusSchema = z
+  .object({
+    label: z.string().trim().min(2).max(MAX_OFFICE_STATUS_LABEL).optional(),
+    maturity: BuyerMaturitySchema.optional(),
+    /** החזרה משימוש, או הוצאה ממנו בלי למחוק. */
+    archived: z.boolean().optional(),
+  })
+  .strict()
+  .refine((body) => Object.keys(body).length > 0, { message: "לא נשלח שינוי" });
+
+/** ‎`IdSchema` הוא ULID; מזהה סטטוס הוא קצר ומהצורה `s7`. */
+const BuyerStatusIdSchema = z.string().regex(/^[a-z0-9]{2,24}$/u);
 
 /** שם המקור נכנס כ-source של הליד — ולכן מוגבל לאורך העמודה שם (20) */
 const LeadWebhookSchema = z
@@ -241,20 +279,6 @@ const DeleteAccountSchema = z
   })
   .strict();
 
-export interface TeamUserDto {
-  id: string;
-  name: string;
-  email: string;
-  role: string;
-  isActive: boolean;
-  lastLoginAt?: Date;
-  /** נעול זמנית בגלל ניסיונות התחברות כושלים — ניתן לשחרור ע"י המנהל */
-  locked: boolean;
-  /** מספר הוואטסאפ האישי — הזהות מול הסוכן החכם */
-  phone?: string;
-  /** מנוי הסוכן בוואטסאפ פעיל למשתמש הזה (בעל המשרד כלול תמיד) */
-  whatsappAccess: boolean;
-}
 
 @Controller("settings")
 export class SettingsController {
@@ -265,10 +289,13 @@ export class SettingsController {
     private readonly auth: AuthService,
     private readonly tenantLogo: TenantLogoService,
     private readonly plans: PlanCatalogService,
+    private readonly team: TeamService,
+    private readonly officeSettings: OfficeSettingsService,
     private readonly accountDeletion: AccountDeletionService,
     private readonly matchRefresh: MatchRefreshService,
     private readonly platformSettings: PlatformSettingsService,
     private readonly whatsappLinks: WhatsAppLinkService,
+    private readonly whatsappSender: WhatsAppSendService,
     private readonly emailDomainProvider: EmailDomainProviderService,
   ) {}
 
@@ -300,6 +327,45 @@ export class SettingsController {
    * הקטלוג חוזר יחד עם ההגדרה, כדי שהמסך לא יחזיק רשימה משלו: תיאור
    * שמתיישן במסך הוא הבטחה לא נכונה על מה שקורה בפועל.
    */
+  /**
+   * ‎**הסיכום החודשי שלי — מתג אישי, לא של המשרד.**
+   *
+   * ‏הסיכום הוא על הסוכן עצמו ונשלח לטלפון שלו, ולכן הבחירה היא
+   * ‏שלו. `settings.manage` היה נותן למנהל לכבות בשם סוכן, וזו
+   * ‏בדיוק ההפרדה שהכלל „ביטול הצטרפות הוא של הנמען” קיים כדי
+   * ‏לשמור.
+   *
+   * ‏אין כאן יכולת נדרשת: כל משתמש מחובר קורא וכותב **את שלו
+   * ‏בלבד** — `TenantContext.current().userId`, ולא מזהה מהבקשה.
+   */
+  @Get("office-digest")
+  @AnyAuthenticated()
+  async officeDigest(): Promise<{ enabled: boolean }> {
+    const { userId } = TenantContext.current();
+    const row = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { officeDigestOptedOutAt: true },
+    });
+    /* ‏שורה שאינה קיימת אינה מצב — אבל `undefined` כאן פירושו „מקבל”,
+       כי משתמש מחובר תמיד קיים והשדה ריק בברירת המחדל */
+    return { enabled: (row?.officeDigestOptedOutAt ?? null) === null };
+  }
+
+  @Patch("office-digest")
+  @AnyAuthenticated()
+  async setOfficeDigest(
+    @Body(new ZodValidationPipe(z.object({ enabled: z.boolean() })))
+    body: { enabled: boolean },
+  ): Promise<{ enabled: boolean }> {
+    const { userId } = TenantContext.current();
+    await this.prisma.user.update({
+      where: { id: userId },
+      /* ‏חותמת ולא בוליאני — „מתי ביקש” היא שאלה שנשאלת */
+      data: { officeDigestOptedOutAt: body.enabled ? null : new Date() },
+    });
+    return { enabled: body.enabled };
+  }
+
   @Get("automations")
   @RequireCapability("settings.manage")
   async automations(): Promise<{
@@ -587,8 +653,15 @@ export class SettingsController {
   @Get("tenant")
   @RequireCapability("settings.manage")
   async tenant(): Promise<{
+    /**
+     * ‎**מספר הלקוח של המשרד — מה שהוא מקריא כשהוא פונה לתמיכה.**
+     *
+     * ‏בלעדיו המספר מועיל לנו בלבד: התמיכה מבקשת „מה מספר הלקוח
+     * ‏שלכם”, ולמשרד אין מאיפה לקרוא אותו. לקריאה בלבד — הוא
+     * ‏מחולק מרצף במסד ואינו נערך.
+     */
+    customerNo: number;
     name: string;
-    whatsappNumber?: string;
     plan: string;
     licenseNumber?: string;
     officeAddress?: string;
@@ -610,48 +683,35 @@ export class SettingsController {
     const tenantId = TenantContext.current().tenantId;
     const tenant = await this.prisma.tenant.findUnique({
       where: { id: tenantId },
-      select: { name: true, plan: true, settings: true, whatsappAgentSeatsExtra: true },
+      select: { customerNo: true, plan: true, whatsappAgentSeatsExtra: true },
     });
-    const settings = (tenant?.settings ?? {}) as Record<string, unknown>;
+    /*
+     * ‏פרטי המשרד נקראים מ-`OfficeSettingsService` ולא מכאן: אותה
+     * ‏הכרעה על מה „לא הוגדר” מול „ריק” משרתת גם את הסוכן בוואטסאפ,
+     * ‏ושני מקומות שקוראים את אותו JSON היו נפרדים ביום שיתווסף שדה.
+     */
+    const office = await this.officeSettings.read();
     return {
-      name: tenant?.name ?? "",
-      whatsappNumber:
-        typeof settings["whatsappNumber"] === "string"
-          ? settings["whatsappNumber"]
-          : undefined,
+      /* ‏‎0 אינו מספר לקוח אפשרי (הרצף מתחיל ב-100000) — „לא נטען” */
+      customerNo: tenant?.customerNo ?? 0,
+      name: office.name,
       plan: tenant?.plan ?? "basic",
-      licenseNumber:
-        typeof settings["licenseNumber"] === "string"
-          ? settings["licenseNumber"]
-          : undefined,
-      officeAddress:
-        typeof settings["officeAddress"] === "string"
-          ? settings["officeAddress"]
-          : undefined,
-      officePhone:
-        typeof settings["officePhone"] === "string"
-          ? settings["officePhone"]
-          : undefined,
-      defaultCommission:
-        typeof settings["defaultCommission"] === "string"
-          ? settings["defaultCommission"]
-          : undefined,
-      defaultPaymentTerms:
-        typeof settings["defaultPaymentTerms"] === "string"
-          ? settings["defaultPaymentTerms"]
-          : undefined,
+      licenseNumber: office.licenseNumber,
+      officeAddress: office.officeAddress,
+      officePhone: office.officePhone,
+      defaultCommission: office.defaultCommission,
+      defaultPaymentTerms: office.defaultPaymentTerms,
       whatsappAgentSeats: whatsappAgentSeats({
         planHasAgent: await this.plans.tenantHasFeature(tenantId, "voice_intake"),
         granted: tenant?.whatsappAgentSeatsExtra ?? 0,
-        paid: await this.paidSeatCount(tenantId),
+        paid: await this.team.paidSeatCount(tenantId),
       }),
       whatsappAgentSeatsUsed: await this.prisma.withTenant((tx) =>
         tx.user.count({ where: { tenantId, isActive: true, whatsappAccess: true } }),
       ),
-      // חסר = כבוי: מדיניות שמפרסמת נתונים החוצה חייבת הפעלה מפורשת
-      autoShareProperties: settings["autoShareProperties"] === true,
-      autoShareBuyers: settings["autoShareBuyers"] === true,
-      autoEmailOffers: settings["autoEmailOffers"] === true,
+      autoShareProperties: office.autoShareProperties,
+      autoShareBuyers: office.autoShareBuyers,
+      autoEmailOffers: office.autoEmailOffers,
     };
   }
 
@@ -859,173 +919,153 @@ export class SettingsController {
     );
   }
 
+  /*
+   * ‎-------------------------------------------------------------
+   * ‎סטטוסי הקונים של המשרד — שכבה ב'
+   * ‎-------------------------------------------------------------
+   *
+   * ראו `packages/shared/logic/buyer-status.ts` להסבר מלא על שתי
+   * השכבות. בקצרה: `maturity` (ארבע דרגות) נשארת כפי שהיא ומזינה את
+   * הדשבורד, ההתאמות וההתראות; הרשימה כאן היא המילים של המשרד,
+   * וכל סטטוס נושא דרגה שהוא נשען עליה.
+   */
+
+  /**
+   * ‎**קריאה פתוחה למי שעורך כרטיסים, ולא ל-`settings.manage` בלבד.**
+   *
+   * הבורר על כרטיס הקונה, הבורר בטופס קונה חדש והסינון ברשימה — כולם
+   * צריכים את הרשימה כדי להציג בכלל את הסטטוס שכבר שמור. סוכן שאינו
+   * מנהל היה רואה כרטיס עם מזהה במקום שם, כלומר תקלה שנראית כמו
+   * נתון פגום.
+   *
+   * ‎**מי שרואה כרטיס קונה** — גם `view_own` בלבד — צריך את התוויות.
+   * זו אינה הגדרה שהוא יכול לשנות: הכתיבה למטה דורשת `settings.manage`.
+   */
+  @Get("buyer-statuses")
+  @RequireCapability(
+    "buyers.view_all",
+    "buyers.view_own",
+    "buyers.edit",
+    "settings.manage",
+  )
+  async buyerStatuses(): Promise<{ statuses: OfficeBuyerStatus[] }> {
+    const tenantId = TenantContext.current().tenantId;
+    return { statuses: await readOfficeStatuses(this.prisma, tenantId) };
+  }
+
+  @Post("buyer-statuses")
+  @RequireCapability("settings.manage")
+  @HttpCode(200)
+  async createBuyerStatus(
+    @Body(new ZodValidationPipe(CreateBuyerStatusSchema))
+    body: z.infer<typeof CreateBuyerStatusSchema>,
+  ): Promise<{ statuses: OfficeBuyerStatus[] }> {
+    return this.saveBuyerStatuses("settings.buyer_status_create", (list) =>
+      addOfficeStatus(list, body),
+    );
+  }
+
+  @Patch("buyer-statuses/:id")
+  @RequireCapability("settings.manage")
+  async updateBuyerStatus(
+    @Param("id", new ZodValidationPipe(BuyerStatusIdSchema)) id: string,
+    @Body(new ZodValidationPipe(UpdateBuyerStatusSchema))
+    body: z.infer<typeof UpdateBuyerStatusSchema>,
+  ): Promise<{ statuses: OfficeBuyerStatus[] }> {
+    return this.saveBuyerStatuses("settings.buyer_status_update", (list) =>
+      updateOfficeStatus(list, id, body),
+    );
+  }
+
+  /**
+   * ‎**מחיקה שהופכת להסתרה כשהסטטוס בשימוש.**
+   *
+   * המחיקה אינה נחסמת „עד שיתפנה”: היא מוחלפת בהסתרה, שנותנת את אותה
+   * תוצאה בתפריט בלי לגעת בכרטיסים שנושאים אותו. חסימה הייתה מכריחה
+   * את המשרד לעבור כרטיס-כרטיס כדי לנקות שלב שיצא משימוש, ומחיקה
+   * שקטה הייתה הופכת אותם ל„סטטוס לא ידוע”.
+   */
+  @Delete("buyer-statuses/:id")
+  @RequireCapability("settings.manage")
+  async deleteBuyerStatus(
+    @Param("id", new ZodValidationPipe(BuyerStatusIdSchema)) id: string,
+  ): Promise<{ statuses: OfficeBuyerStatus[] }> {
+    return this.saveBuyerStatuses(
+      "settings.buyer_status_delete",
+      (list, inUse) => removeOfficeStatus(list, id, inUse > 0),
+      id,
+    );
+  }
+
+  /**
+   * ‎**קריאה-שינוי-כתיבה, בטרנזקציה אחת ומתחת לנעילת שורת המשרד.**
+   *
+   * ## למה הנעילה
+   *
+   * הרשימה יושבת ב-`tenants.settings`, שהוא **מסמך JSON אחד**. בלי
+   * הנעילה שני מנהלים שעורכים סטטוסים במקביל — או אחד שעורך סטטוס
+   * בזמן שהשני שומר את פרטי המשרד — קוראים את אותו צילום, והשני
+   * שכותב מוחק את מה שהראשון שמר. בלי שגיאה ובלי שאיש ידע
+   * ‎(ביקורת Codex). `updateTenant` כבר עשה בדיוק את זה, ופספסתי.
+   *
+   * ## ולמה הספירה כאן ולא אצל הקורא
+   *
+   * ‎`inUse` הוא מה שמכריע בין מחיקה להסתרה, והוא **חייב** להימדד
+   * תחת אותה נעילה ובאותה טרנזקציה: ספירה שרצה קודם, בטרנזקציה
+   * משלה, מאפשרת לסוכן לשייך את הסטטוס לקונה בין הספירה למחיקה —
+   * והכרטיס נשאר עם מזהה שאינו נפתר לשום תווית. הצד השני של המרוץ
+   * נסגר ב-`shareTenantRow` במסלול הכתיבה של הקונה.
+   *
+   * ‎**והספירה אינה מסננת `deletedAt`**: קונה בארכיון עדיין נושא את
+   * הסטטוס, ושחזור שלו היה מחזיר כרטיס עם תווית שנעלמה.
+   */
+  private async saveBuyerStatuses(
+    action: string,
+    change: (list: OfficeBuyerStatus[], inUse: number) => OfficeStatusResult,
+    /** מזהה שצריך ספירת שימוש — רק מחיקה צריכה אותה. */
+    countFor?: string,
+  ): Promise<{ statuses: OfficeBuyerStatus[] }> {
+    const tenantId = TenantContext.current().tenantId;
+    return this.prisma.withTenant(async (tx) => {
+      await lockTenantRow(tx, tenantId);
+      const inUse =
+        countFor === undefined
+          ? 0
+          : await tx.buyer.count({ where: { officeStatus: countFor } });
+      const result = change(await readOfficeStatuses(tx, tenantId), inUse);
+      if (!result.ok) throw new BadRequestException(result.error);
+      await writeOfficeStatuses(tx, tenantId, result.list);
+      await this.audit.record(tx, {
+        action,
+        entityType: "tenant",
+        entityId: tenantId,
+        metadata: { statusId: result.id },
+      });
+      return { statuses: result.list };
+    });
+  }
+
   @Patch("tenant")
   @RequireCapability("settings.manage")
   async updateTenant(
-    @Body(new ZodValidationPipe(TenantSettingsSchema))
-    body: z.infer<typeof TenantSettingsSchema>,
+    @Body(new ZodValidationPipe(OfficeSettingsSchema))
+    body: OfficeSettingsPatch,
   ): Promise<{ ok: true }> {
-    const tenantId = TenantContext.current().tenantId;
-
-    // מספר וואטסאפ ייחודי בין משרדים — אחרת הודעות לקוחות ינותבו למשרד
-    // שגוי (ביקורת Codex, PR #5). אינדקס DB ייחודי משמש כקו הגנה שני.
-    if (body.whatsappNumber) {
-      const taken = await this.prisma.tenant.findFirst({
-        where: {
-          id: { not: tenantId },
-          settings: { path: ["whatsappNumber"], equals: body.whatsappNumber },
-        },
-        select: { id: true },
-      });
-      if (taken) throw new BadRequestException("המספר כבר משויך למשרד אחר");
-    }
-
     /*
-     * ‎**הקריאה, השינוי והכתיבה — בטרנזקציה אחת ומתחת לנעילת השורה.**
-     *
-     * ‎`settings` הוא מסמך JSON אחד, ולכן עדכון של שדה בודד הוא
-     * קריאה של הכול וכתיבה של הכול בחזרה. שתי בקשות מקבילות קראו
-     * את אותו צילום, וזו שכתבה שנייה מחקה את מה שהראשונה שמרה —
-     * בלי שגיאה ובלי שאיש ידע (ביקורת Codex).
-     *
-     * ולא תרחיש תיאורטי: מסך ההגדרות שולח מתג בכל לחיצה, ושתי
-     * לחיצות רצופות מייצרות בדיוק את זה; שתי לשוניות פתוחות מייצרות
-     * את זה גם בלי למהר.
+     * ‏הלולאה עצמה יושבת ב-`OfficeSettingsService`: מאז שמנהל יכול
+     * ‏לכבות „פרסום אוטומטי לרשת” מהוואטסאפ יש לה קורא שני, והסוכן
+     * ‏אינו עובר בבקרים. ארבעת הכללים שהיא נושאת — הנעילה, המחיקה
+     * ‏במקום שמירת ריק, וחותמת ההפעלה של ההצעות עם הסמן שלה —
+     * ‏מתועדים שם.
      */
-    await this.prisma.$transaction(async (tx) => {
-    await lockTenantRow(tx, tenantId);
-    const current = await tx.tenant.findUnique({
-      where: { id: tenantId },
-      select: { settings: true },
-    });
-    const settings = {
-      ...((current?.settings ?? {}) as Record<string, unknown>),
-    };
-
-    /*
-     * כל השדות שיושבים ב-settings עוברים באותה לולאה.
-     *
-     * קודם רק whatsappNumber נכתב, ושלושת פרטי המשרד נבלעו בשקט: הם
-     * עברו ולידציה, חזרו ב-GET, ומעולם לא נשמרו. משתמש שמילא מספר
-     * רישיון, שמר, וראה "נשמר" — קיבל שדה ריק בטעינה הבאה. שמירה
-     * שמדווחת הצלחה ולא כותבת גרועה משדה שלא קיים.
-     *
-     * מחרוזת ריקה מוחקת את המפתח (ניקוי שדה), ולא שומרת "" —
-     * כדי שהתבניות יראו "חסר" ולא ידפיסו רישיון ריק בהסכם.
-     */
-    const SETTINGS_FIELDS = [
-      "whatsappNumber",
-      "licenseNumber",
-      "officeAddress",
-      "officePhone",
-      "defaultCommission",
-      "defaultPaymentTerms",
-    ] as const;
-    let settingsTouched = false;
-    for (const field of SETTINGS_FIELDS) {
-      const value = body[field];
-      if (value === undefined) continue;
-      settingsTouched = true;
-      if (value === "") delete settings[field];
-      else settings[field] = value;
-    }
-
-    /*
-     * הדגלים הבוליאניים: false מוחק את המפתח ולא שומר false —
-     * מאותה סיבה ש-"" מוחק למעלה. חסר = ברירת המחדל (כבוי), ואין
-     * טעם לשמור במסד הצהרה על ברירת המחדל.
-     */
-    const BOOLEAN_FIELDS = [
-      "autoShareProperties",
-      "autoShareBuyers",
-      "autoEmailOffers",
-    ] as const;
-    for (const field of BOOLEAN_FIELDS) {
-      const value = body[field];
-      if (value === undefined) continue;
-      settingsTouched = true;
-      if (value === false) delete settings[field];
-      else settings[field] = true;
-    }
-
-    /*
-     * חותמת ההפעלה של ההצעות האוטומטיות — נקבעת ב**מעבר** לדלוק
-     * ונמחקת בכיבוי. הסורק שולח רק התאמות שחושבו אחריה: משרד ותיק
-     * שמדליק את הדגל מתכוון ל"מכאן והלאה", לא ל"הפציצו את כל
-     * הלקוחות בכל ההיסטוריה" — וכיבוי-הדלקה מאפס את הקו בכוונה.
-     */
-    if (body.autoEmailOffers === true && settings["autoEmailOffersSince"] === undefined) {
-      settings["autoEmailOffersSince"] = new Date().toISOString();
-    }
-    if (body.autoEmailOffers === false) {
-      delete settings["autoEmailOffersSince"];
-      /*
-       * ‎**וגם סמן הסריקה — הוא שייך לתקופת ההפעלה שהסתיימה.**
-       *
-       * הסמן מציין מיקום ברשימת ההתאמות הממוינת לפי ציון. הדלקה
-       * מחדש פותחת קו „מכאן והלאה” חדש, וההתאמות החדשות שנוצרות
-       * אחריו נכנסות לפי ציון — כלומר **לפני** סמן ישן. בלי האיפוס
-       * הזה הן היו מדולגות עד שהסורק יסיים סיבוב שלם, ובמשרד גדול
-       * זה המון סבבים (ביקורת Codex).
-       */
-      delete settings["autoEmailOffersCursor"];
-    }
-
-    try {
-      await tx.tenant.update({
-        where: { id: tenantId },
-        data: {
-          ...(body.name !== undefined ? { name: body.name } : {}),
-          ...(settingsTouched ? { settings: settings as object } : {}),
-        },
-      });
-    } catch {
-      // מרוץ מול משרד אחר — האינדקס הייחודי ב-DB חסם
-      throw new BadRequestException("המספר כבר משויך למשרד אחר");
-    }
-    });
-    await this.prisma.withTenant((tx) =>
-      this.audit.record(tx, {
-        action: "settings.update",
-        entityType: "tenant",
-        entityId: tenantId,
-        metadata: { changedFields: Object.keys(body) },
-      }),
-    );
+    await this.officeSettings.update(body);
     return { ok: true };
   }
 
   @Get("users")
   @RequireCapability("users.manage")
   async users(): Promise<TeamUserDto[]> {
-    const tenantId = TenantContext.current().tenantId;
-    const rows = await this.prisma.user.findMany({
-      where: { tenantId },
-      orderBy: { createdAt: "asc" },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        role: true,
-        isActive: true,
-        lastLoginAt: true,
-        phone: true,
-        whatsappAccess: true,
-      },
-    });
-    return Promise.all(
-      rows.map(async (u) => ({
-        id: u.id,
-        name: u.name,
-        email: u.email,
-        role: u.role,
-        isActive: u.isActive,
-        lastLoginAt: u.lastLoginAt ?? undefined,
-        locked: await this.loginThrottle.isLocked(u.email),
-        phone: u.phone ?? undefined,
-        whatsappAccess: u.whatsappAccess,
-      })),
-    );
+    return this.team.list();
   }
 
   /**
@@ -1139,7 +1179,14 @@ export class SettingsController {
     const tenantId = TenantContext.current().tenantId;
     const target = await this.prisma.user.findFirst({
       where: { id, tenantId },
-      select: { id: true, name: true, role: true },
+      /*
+       * ‎**וגם חסימות המודולים של המשרד.** בלעדיהן המסך הציג
+       * ‏„היכולות בפועל” שאינן בפועל: יכולת שהפלטפורמה חסמה למשרד
+       * ‏המשיכה להופיע כפעילה, ומנהל שקורא את המסך הזה כדי להחליט
+       * ‏מה לסוכן מותר קיבל תשובה שגויה — במסך שכל תפקידו לענות
+       * ‏עליה נכון.
+       */
+      select: { id: true, name: true, role: true, tenant: { select: { blockedModules: true } } },
     });
     if (!target) throw new BadRequestException("משתמש לא נמצא");
 
@@ -1169,7 +1216,17 @@ export class SettingsController {
       // בעל המשרד מוגן בשרת; המסך מקבל את הדגל כדי להסביר למה
       protected:
         target.role === "owner" || target.id === TenantContext.current().userId,
-      effective: [...resolveCapabilities(target.role, overrides, now)],
+      blockedModules: [...target.tenant.blockedModules],
+      effective: [
+        ...effectiveCapabilities(
+          {
+            role: target.role,
+            overrides: rows,
+            blockedModules: target.tenant.blockedModules,
+          },
+          now,
+        ),
+      ],
       overrides: rows.map((row, index) => ({
         capability: row.capability,
         effect: row.effect,
@@ -1179,6 +1236,53 @@ export class SettingsController {
         active: isOverrideActive(overrides[index]!, now),
       })),
     };
+  }
+
+  /**
+   * ‎**הענקה שלא תשנה דבר נדחית — עם שם החוסם** (ביקורת Codex, P2).
+   *
+   * ‏החישוב הוא על המצב **אחרי** הפעולה, ומאותה `effectiveCapabilities`
+   * ‏שכל שאר המערכת קוראת. בדיקה מול המצב הקודם הייתה דוחה גם
+   * ‏„הענק את כרטיס הכניסה ואת המרחיבה יחד”, שהיא בדיוק הפעולה
+   * ‏שההודעה מבקשת מהמנהל לעשות.
+   */
+  private async assertGrantsTakeEffect(
+    userId: string,
+    role: string,
+    granted: readonly Capability[],
+    body: z.infer<typeof SetCapabilitiesSchema>,
+    expiresAt: Date | null,
+  ): Promise<void> {
+    const ctx = TenantContext.current();
+    const [tenant, existing] = await Promise.all([
+      this.prisma.tenant.findUnique({
+        where: { id: ctx.tenantId },
+        select: { blockedModules: true },
+      }),
+      this.prisma.withTenant((tx) =>
+        tx.userCapability.findMany({
+          where: { userId, tenantId: ctx.tenantId },
+          select: { capability: true, effect: true, expiresAt: true },
+        }),
+      ),
+    ]);
+    const after = new Map(existing.map((row) => [row.capability, row]));
+    for (const capability of body.capabilities) {
+      if (body.effect === "clear") after.delete(capability);
+      else after.set(capability, { capability, effect: body.effect, expiresAt });
+    }
+    const effective = effectiveCapabilities(
+      {
+        role,
+        overrides: [...after.values()],
+        blockedModules: tenant?.blockedModules ?? [],
+      },
+      new Date(),
+    );
+    for (const capability of granted) {
+      const reason = orphanedGrantReason(capability, effective);
+      if (reason !== null) throw new BadRequestException(reason);
+    }
   }
 
   /**
@@ -1231,6 +1335,8 @@ export class SettingsController {
       ),
     );
 
+    /** ‏מה שהפעולה הזו **מדליקה** — ולא רק „מה נשלח”. */
+    const granted: Capability[] = [];
     for (const capability of body.capabilities) {
       const effect =
         body.effect === "clear"
@@ -1249,11 +1355,24 @@ export class SettingsController {
         effect,
       });
       if (reason) throw new BadRequestException(reason);
+      if (effect === "grant") granted.push(capability as Capability);
     }
 
     const expiresAt = body.expiresAt ? new Date(body.expiresAt) : null;
     if (expiresAt && expiresAt.getTime() <= Date.now()) {
       throw new BadRequestException("מועד סיום החסימה חייב להיות בעתיד");
+    }
+
+    /*
+     * ‎**והפעולה חייבת לעשות את מה שהיא אומרת** (ביקורת Codex, P2).
+     *
+     * ‏יכולת מרחיבה שכרטיס הכניסה שלה חסום יורדת בנרמול, ולכן
+     * ‏„הענק” החזיר „בוצע” והמסך נשאר כבוי. הבדיקה נעשית על המצב
+     * ‏**אחרי** הפעולה — כך ש„הענק את שתיהן יחד” עוברת, וההענקה
+     * ‏היתומה לבדה נדחית עם שם החוסם.
+     */
+    if (granted.length > 0) {
+      await this.assertGrantsTakeEffect(id, target.role, granted, body, expiresAt);
     }
 
     await this.prisma.withTenant(async (tx) => {
@@ -1316,30 +1435,6 @@ export class SettingsController {
    * הטבלה users מחוץ ל-RLS (ראו הערה ב-schema.prisma), ולכן הספירה
    * הישירה כאן תקפה — התנאי `tenantId` הוא זה שמבודד.
    */
-  private async assertSeatAvailable(
-    tx: TenantTx,
-    tenantId: string,
-  ): Promise<void> {
-    const plan = await this.plans.forTenant(tenantId, tx);
-    // מסלול שאי אפשר לפתור חוסם ולא פותח — ראו properties.service
-    if (plan === undefined) {
-      throw new BadRequestException("המסלול של המשרד אינו מוגדר — פנו לתמיכה");
-    }
-    if (plan.maxUsers === null) return;
-    /*
-     * מנעול ייעוץ ברמת הדייר, בתוך הטרנזקציה שכותבת.
-     *
-     * שתי בקשות מקבילות שספרו את אותו מצב לפני שאחת מהן כתבה היו
-     * שתיהן עוברות, והמכסה הייתה נחצית בשקט (ביקורת Codex).
-     */
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`seat-quota:${tenantId}`}))`;
-    const used = await tx.user.count({ where: { tenantId, isActive: true } });
-    if (limitState(used, plan.maxUsers).blocked) {
-      throw new BadRequestException(
-        `מסלול "${plan.name}" כולל ${plan.maxUsers} משתמשים. לתוספת משתמשים יש לשדרג מסלול.`,
-      );
-    }
-  }
 
   /**
    * ‎**מקום פנוי לסוכן הוואטסאפ** — אחרת הרכישה היא בקשה ולא תנאי.
@@ -1358,37 +1453,7 @@ export class SettingsController {
    * מגיעה מהוובהוק של קארדקום בלי הקשר דייר. הסינון לפי דייר נאכף
    * כאן, מפורשות, ולא נשען על מדיניות שאינה קיימת על הטבלה.
    */
-  private async paidSeatCount(tenantId: string): Promise<number> {
-    return this.prisma.whatsappSeat.count({
-      where: whatsappSeatQuotaWhere(tenantId, new Date()),
-    });
-  }
 
-  private async assertWhatsappSeatAvailable(tx: TenantTx, tenantId: string): Promise<void> {
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`seat-quota:${tenantId}`}))`;
-    const tenant = await tx.tenant.findUnique({
-      where: { id: tenantId },
-      select: { whatsappAgentSeatsExtra: true },
-    });
-    const seats = whatsappAgentSeats({
-      planHasAgent: await this.plans.tenantHasFeature(tenantId, "voice_intake", tx),
-      granted: tenant?.whatsappAgentSeatsExtra ?? 0,
-      paid: await this.paidSeatCount(tenantId),
-    });
-    if (seats === 0) {
-      throw new BadRequestException(WHATSAPP_AGENT_DENIAL_TEXT.plan);
-    }
-    const used = await tx.user.count({
-      where: { tenantId, isActive: true, whatsappAccess: true },
-    });
-    if (used >= seats) {
-      throw new BadRequestException(
-        seats === 1
-          ? "הסוכן בוואטסאפ כלול לסוכן אחד במשרד. כדי להעביר אותו — כבו אותו אצל מי שמחזיק בו כרגע, או פנו אלינו להוספת מקום."
-          : `המשרד מחזיק ${seats} מקומות לסוכן בוואטסאפ, וכולם תפוסים. כבו אצל אחד המחזיקים, או פנו אלינו להוספת מקום.`,
-      );
-    }
-  }
 
   @Post("users")
   @RequireCapability("users.manage")
@@ -1396,48 +1461,7 @@ export class SettingsController {
     @Body(new ZodValidationPipe(CreateUserSchema))
     body: z.infer<typeof CreateUserSchema>,
   ): Promise<{ user: TeamUserDto; tempPassword: string }> {
-    const tenantId = TenantContext.current().tenantId;
-    const email = body.email.toLowerCase();
-    const existing = await this.prisma.user.findUnique({ where: { email } });
-    if (existing) throw new BadRequestException("האימייל כבר רשום במערכת");
-
-    const tempPassword = `Mv-${randomBytes(9).toString("base64url")}`;
-    const id = ulid();
-    const passwordHash = await AuthService.hashPassword(tempPassword);
-    // יצירה + Audit בטרנזקציה אחת — אין חשבון בלי רישום (ביקורת Codex)
-    await this.prisma.withTenant(async (tx) => {
-      // המכסה נבדקת באותה טרנזקציה שיוצרת, אחרי נעילת הדייר
-      await this.assertSeatAvailable(tx, tenantId);
-      await tx.user.create({
-        data: {
-          id,
-          tenantId,
-          name: body.name,
-          email,
-          role: body.role,
-          passwordHash,
-          mustChangePassword: true,
-        },
-      });
-      await this.audit.record(tx, {
-        action: "users.create",
-        entityType: "user",
-        entityId: id,
-        metadata: { role: body.role },
-      });
-    });
-    return {
-      user: {
-        id,
-        name: body.name,
-        email,
-        role: body.role,
-        isActive: true,
-        locked: false,
-        whatsappAccess: false,
-      },
-      tempPassword,
-    };
+    return this.team.create(body);
   }
 
   @Patch("users/:id")
@@ -1503,7 +1527,7 @@ export class SettingsController {
       }
       // הפעלה מחדש תופסת מושב — אותה מכסה בדיוק כמו ביצירה
       if (body.isActive === true && !target.isActive) {
-        await this.assertSeatAvailable(tx, ctx.tenantId);
+        await this.team.assertSeatAvailable(tx, ctx.tenantId);
       }
       /*
        * ‎**מקום הוואטסאפ נספר בהדלקה, ובתוך הנעילה שכבר נלקחה.**
@@ -1525,7 +1549,7 @@ export class SettingsController {
         (body.whatsappAccess === true && !target.whatsappAccess) ||
         (body.isActive === true && !target.isActive && holdsSeatAfter);
       if (takesWhatsappSeat) {
-        await this.assertWhatsappSeatAvailable(tx, ctx.tenantId);
+        await this.team.assertWhatsappSeatAvailable(tx, ctx.tenantId);
       }
       const nextPhone =
         body.phone === undefined ? undefined : body.phone.trim() === "" ? null : body.phone.trim();
@@ -1629,9 +1653,29 @@ export class SettingsController {
         },
       }),
     );
+    /*
+     * ‎**מי העביר, וגם ממי למי.**
+     *
+     * ‎`*.agent_changed` נושאת `from`/`to` — וזו כל הסיבה שהאירוע
+     * נפרד מ-`update`. בלי השורות האלה הן נכתבות ואי אפשר לקרוא
+     * אותן: המסך היה מציג „העברת נכס בין סוכנים” בלי לומר בין מי
+     * לבין מי, כלומר בדיוק את השאלה שהאירוע קיים בשבילה (ביקורת
+     * Codex).
+     *
+     * המזהים נכנסים לאותה שאילתת שמות שכבר רצה — לא שאילתה נוספת.
+     */
+    const handoverId = (row: (typeof rows)[number], key: "from" | "to"): string | null => {
+      const meta = row.metadata;
+      if (typeof meta !== "object" || meta === null) return null;
+      const value = (meta as Record<string, unknown>)[key];
+      return typeof value === "string" && value !== "" ? value : null;
+    };
     const userIds = [
       ...new Set(
-        rows.map((r) => r.userId).filter((u): u is string => u !== null),
+        [
+          ...rows.map((r) => r.userId),
+          ...rows.flatMap((r) => [handoverId(r, "from"), handoverId(r, "to")]),
+        ].filter((u): u is string => u !== null),
       ),
     ];
     const users = await this.prisma.user.findMany({
@@ -1647,80 +1691,25 @@ export class SettingsController {
           "supportAdmin" in r.metadata
             ? String((r.metadata as Record<string, unknown>)["supportAdmin"])
             : undefined;
+        /*
+         * שם ולא מזהה, ו„סוכן שאינו במשרד” כשהוא כבר לא שם: היומן
+         * הוא היסטוריה, ומי שעזב עדיין מופיע בה.
+         */
+        const from = handoverId(r, "from");
+        const to = handoverId(r, "to");
+        const agentName = (id: string | null): string | undefined =>
+          id === null ? undefined : (nameById.get(id) ?? "סוכן שאינו במשרד");
         return {
           action: r.action,
           entityType: r.entityType,
           userName: r.userId ? nameById.get(r.userId) : undefined,
           ...(supportAdmin ? { supportAdmin } : {}),
+          /* „לא משויך” הוא צד לגיטימי בהעברה, ולכן `null` נשלח כחסר */
+          ...(agentName(from) === undefined ? {} : { agentFrom: agentName(from)! }),
+          ...(agentName(to) === undefined ? {} : { agentTo: agentName(to)! }),
           createdAt: r.createdAt,
         };
       }),
-    };
-  }
-
-  /**
-   * סטטוס חיבור הוואטסאפ של המשרד — מה מוגדר, מה חסר, והאם זורמות
-   * הודעות בפועל (ההודעה הנכנסת האחרונה). משמש את מסך ההגדרות כדי
-   * שהמתווך יידע בדיוק איפה החיבור עומד בלי לנחש.
-   */
-  @Get("whatsapp-status")
-  @RequireCapability("settings.manage")
-  async whatsappStatus(): Promise<{
-    serverConfigured: boolean;
-    numberConfigured: boolean;
-    lastInboundAt?: Date;
-  }> {
-    const env = loadEnv();
-    const tenantId = TenantContext.current().tenantId;
-    const tenant = await this.prisma.tenant.findUnique({
-      where: { id: tenantId },
-      select: { settings: true },
-    });
-    const settings = (tenant?.settings ?? {}) as Record<string, unknown>;
-    const numberConfigured = typeof settings["whatsappNumber"] === "string";
-
-    // ההודעה הנכנסת האחרונה — ההוכחה שהחיבור חי מקצה לקצה
-    const lastInbound = await this.prisma.withTenant((tx) =>
-      tx.interaction.findFirst({
-        // נכנסות בלבד — הצעה שנשלחה בוואטסאפ היא direction:out ולא
-        // מעידה שה-webhook מ-Meta עובד (ביקורת Codex)
-        where: { tenantId, kind: "whatsapp", direction: "in" },
-        orderBy: { createdAt: "desc" },
-        select: { createdAt: true },
-      }),
-    );
-
-    /*
-     * שני המקורות, ובאותו סדר שבו ה-Webhook עצמו קורא אותם.
-     *
-     * הבדיקה כאן הסתכלה על משתני הסביבה בלבד — אבל הדרך המומלצת
-     * להגדיר את המפתחות היא מסך /platform, שכותב אותם למסד. כלומר
-     * בעל הפלטפורמה מגדיר הכול כהלכה, הודעות נכנסות זורמות, וכל
-     * משרד ממשיך לראות "חיבור השרת ל-Meta ✗" לנצח — עם הנחיה לפנות
-     * לתמיכה על תקלה שאינה קיימת.
-     *
-     * `configuredKeys` ולא קריאת הערכים עצמם: למנהל משרד אין עסק
-     * עם סוד של הפלטפורמה, והשאלה כאן היא "האם הוגדר" בלבד.
-     */
-    const dbKeys = await this.platformSettings.configuredKeys();
-    const serverConfigured =
-      (dbKeys.includes("whatsappAppSecret") &&
-        dbKeys.includes("whatsappVerifyToken")) ||
-      (env.WHATSAPP_APP_SECRET !== undefined &&
-        env.WHATSAPP_VERIFY_TOKEN !== undefined);
-
-    return {
-      serverConfigured,
-      numberConfigured,
-      /*
-       * כתובת ה-Webhook **אינה** מוחזרת כאן.
-       *
-       * היא מוגדרת פעם אחת במטא לכל הפלטפורמה, ולמנהל משרד אין אפליקציית
-       * Meta שאפשר להזין אותה בה. הצגתה לו רק שידרה שיש כאן משהו שהוא
-       * צריך לעשות — ובמקביל חשפה פרט תפעולי של הפלטפורמה לכל דייר.
-       * מקומה במסך /platform, שם היא באמת ניתנת לפעולה.
-       */
-      lastInboundAt: lastInbound?.createdAt,
     };
   }
 
@@ -1791,7 +1780,24 @@ export class SettingsController {
    */
   @Post("whatsapp-link/code")
   @AnyAuthenticated()
-  async whatsappLinkCode(): Promise<{ code: string; expiresInSeconds: number }> {
+  async whatsappLinkCode(): Promise<{
+    code: string;
+    expiresInSeconds: number;
+    /**
+     * המספר שאליו שולחים — לקריאה בעין, ולא רק בתוך הקישור.
+     *
+     * ‎`null` = לא נשלף מ-Meta וגם לא הוגדר ידנית. אז המסך אומר את
+     * זה במפורש, במקום „שלחו ידנית” בלי לומר למי.
+     */
+    botNumber: string | null;
+    /**
+     * ‎`wa.me` עם הקוד כבר בפנים — הקיצור, לא היכולת.
+     *
+     * ‎`null` = אין מספר עסקי (הצד היוצא לא הוגדר, או ש-Meta לא ענתה).
+     * המסך מציג אז את הקוד והמספר, ומי שרוצה שולח ידנית.
+     */
+    link: string | null;
+  }> {
     const ctx = TenantContext.current();
     /*
      * ‎**הזכאות נבדקת כאן, ולא רק בהודעה הראשונה.**
@@ -1806,7 +1812,23 @@ export class SettingsController {
      */
     const denial = await this.whatsappAgentDenial();
     if (denial !== null) throw new ForbiddenException(WHATSAPP_AGENT_DENIAL_TEXT[denial]);
-    return this.whatsappLinks.issueCode(ctx.tenantId, ctx.userId);
+    const issued = await this.whatsappLinks.issueCode(ctx.tenantId, ctx.userId);
+    /*
+     * המספר נשלף **אחרי** ההנפקה ובנפרד ממנה: פנייה ל-Meta שנכשלת
+     * או מתעכבת אינה יכולה למנוע קוד. במטמון של שעה זו ממילא
+     * קריאת רשת אחת ליום עבודה.
+     */
+    /*
+     * ‎`botNumber` ולא רק `link`: הקישור והברקוד מסתירים את המספר
+     * בתוכם, והמסך היה אומר „שלחו ידנית” בלי לומר למי. המספר הוא
+     * מה שמאפשר לבצע את ההוראה כשהקיצור אינו עובד.
+     */
+    const botNumber = await this.whatsappSender.businessNumber();
+    return {
+      ...issued,
+      botNumber,
+      link: whatsappPairingLink(botNumber, issued.code),
+    };
   }
 
   /**
@@ -1853,7 +1875,15 @@ export class SettingsController {
       typeof settings[key] === "string" &&
       (settings[key] as string).trim() !== "";
 
-    const [activeUsers, properties, buyers, leadWebhooks, emailDomain, emailDomainAvailable] =
+    const [
+      activeUsers,
+      properties,
+      buyers,
+      leadWebhooks,
+      emailDomain,
+      emailDomainAvailable,
+      whatsappLines,
+    ] =
       await Promise.all([
       this.prisma.user.count({ where: { tenantId, isActive: true } }),
       this.prisma.withTenant((tx) =>
@@ -1881,6 +1911,16 @@ export class SettingsController {
        * „הפיצ'ר אינו מופעל” (ביקורת Codex).
        */
       this.emailDomainProvider.isConfigured(),
+      /*
+       * קו וואטסאפ ביזנס שחובר בפועל — ולא שדה שהוקלד. „ההיסטוריה
+       * מסתנכרנת” ו„דרוש אמצעי תשלום” הם קו שכבר חובר; רק „מנותק”
+       * ו„החיבור לא הושלם” אינם.
+       */
+      this.prisma.withTenant((tx) =>
+        tx.whatsAppBusinessConnection.count({
+          where: { tenantId, status: { in: ["connected", "pending_history", "payment_required"] } },
+        }),
+      ),
     ]);
 
     return onboardingSteps({
@@ -1893,7 +1933,7 @@ export class SettingsController {
       properties,
       buyers,
       leadWebhookConfigured: leadWebhooks > 0,
-      whatsappConfigured: filled("whatsappNumber"),
+      whatsappConfigured: whatsappLines > 0,
       emailDomainAvailable,
       emailDomainVerified:
         emailDomain !== null && emailDomainStatus(emailDomain) === "verified",

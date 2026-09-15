@@ -8,7 +8,10 @@ import {
 } from "@metavchim/shared";
 import { TenantContext } from "../../common/tenant-context";
 import {
+  canSeeContact,
+  leadOwnershipFilter,
   ownershipFilter,
+  seesAllContacts,
   visibleCallsCondition,
   visibleContactIds,
 } from "../../common/ownership";
@@ -53,6 +56,7 @@ export interface SearchResults {
     id: string;
     city: string | null;
     street: string | null;
+    houseNumber: string | null;
     neighborhood: string | null;
     marketingTitle: string | null;
     status: string;
@@ -170,10 +174,22 @@ export class SearchService {
       const [properties, buyers, leads] = await Promise.all([
         can.canProperties
           ? tx.property.findMany({
-              where: { tenantId, ownerContactId: contact.id, deletedAt: null },
+              where: {
+                tenantId,
+                ownerContactId: contact.id,
+                deletedAt: null,
+                /*
+                 * ‎**גם כאן — אחרת החיפוש הוא הדלת האחורית לכרטיס.**
+                 *
+                 * ‏הענף הזה היה משרדי לחלוטין, ולכן סוכן שחסום מבעלי
+                 * ‏הנכסים של המשרד קיבל דרכו את הנכס של עמיתו — ומיד
+                 * ‏אחריו את הזהות המפוענחת (ביקורת Codex, P1).
+                 */
+                ...ownershipFilter("properties.view_all", "agentUserId"),
+              },
               select: {
-                id: true, city: true, street: true, neighborhood: true,
-                marketingTitle: true, status: true,
+                id: true, city: true, street: true, houseNumber: true,
+                neighborhood: true, marketingTitle: true, status: true,
               },
               take: GROUP_PROBE,
             })
@@ -195,7 +211,7 @@ export class SearchService {
               where: {
                 tenantId,
                 contactId: contact.id,
-                ...ownershipFilter("leads.view_all", "assignedToUserId"),
+                ...leadOwnershipFilter(),
               },
               select: { id: true, status: true, requiresHuman: true },
               take: GROUP_PROBE,
@@ -203,13 +219,20 @@ export class SearchService {
           : [],
       ]);
 
-      // זהות איש הקשר נחשפת רק למי שרואה לפחות ישות מקושרת אחת, או
-      // לבעל ראייה משרדית (view_all) — משתמש view_own שמחפש טלפון של
-      // לקוח של סוכן אחר מקבל "אין תוצאות", בדיוק כמו ברשימות (docs/04 §3).
-      const ctx = TenantContext.current();
-      const officeWide =
-        ctx.capabilities.has("buyers.view_all") || ctx.capabilities.has("leads.view_all");
-      const anyVisible = properties.length + buyers.length + leads.length > 0;
+      /*
+       * ‏זהות איש הקשר נחשפת רק למי שרואה לפחות ישות מקושרת אחת, או
+       * ‏לבעל ראייה משרדית — משתמש `view_own` שמחפש טלפון של לקוח של
+       * ‏סוכן אחר מקבל "אין תוצאות", בדיוק כמו ברשימות (docs/04 §3).
+       *
+       * ‎**שני התנאים נלקחים מ-`ownership.ts` ואינם נבנים כאן.**
+       * ‏שניהם היו כתובים בקובץ הזה בעותק משלהם, ושניהם פיגרו אחרי
+       * ‏היכולת החדשה: הראשון ספר רשימות שלא היו מסוננות, והשני שאל
+       * ‏על שתי יכולות מתוך ארבע. שם, „ראייה משרדית” כולל גם את
+       * ‏הנכסים, ו„יש לו ישות גלויה” מכיר גם **דייר** ולא רק בעלים —
+       * ‏שני הבדלים שהעותק המקומי לא ידע עליהם.
+       */
+      const officeWide = seesAllContacts();
+      const anyVisible = await canSeeContact(tx, tenantId, contact.id);
       if (!anyVisible && !officeWide) {
         return EMPTY;
       }
@@ -299,8 +322,8 @@ export class SearchService {
                 })),
               },
               select: {
-                id: true, city: true, street: true, neighborhood: true,
-                marketingTitle: true, status: true,
+                id: true, city: true, street: true, houseNumber: true,
+                neighborhood: true, marketingTitle: true, status: true,
               },
               orderBy: { updatedAt: "desc" },
               take: GROUP_PROBE,
@@ -493,7 +516,7 @@ export class SearchService {
               where: {
                 tenantId,
                 contactId: { in: matchedIds },
-                ...ownershipFilter("leads.view_all", "assignedToUserId"),
+                ...leadOwnershipFilter(),
               },
               select: { id: true, status: true, requiresHuman: true, contactId: true },
               take: GROUP_PROBE,
@@ -751,7 +774,7 @@ export class SearchService {
             where: {
               tenantId,
               id: { in: leadIds },
-              ...ownershipFilter("leads.view_all", "assignedToUserId"),
+              ...leadOwnershipFilter(),
             },
             select: { id: true },
           })

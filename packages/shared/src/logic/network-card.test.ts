@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { demandChips, entryChip, presentationChips } from "./network-card.js";
+import {
+  demandChips,
+  entryChip,
+  networkSafeTitle,
+  presentationChips,
+  presentationDetailRows,
+  withNetworkSafeTitle,
+} from "./network-card.js";
+import { SHARED_TABU_NETWORK_LABEL } from "./shared-tabu.js";
 
 const base = {
   dealType: "sale",
@@ -113,6 +121,44 @@ describe("entryChip", () => {
   });
 });
 
+/**
+ * ‎**רישום משותף — עובדה משפטית, ולכן היא נאמרת בכרטיס** (ביקורת
+ * ‏Codex, P1).
+ *
+ * ‏הסבב הקודם הביא את השדה עד ה-DTO והמנוע כיבד אותו, אבל שום מסך
+ * ‏לא הציג אותו: סוכן ממשרד אחר ראה מודעה רגילה לגמרי וביקש חיבור
+ * ‏בלי לדעת שאין חלקה נפרדת. „הגיע ל-DTO” אינו „נאמר”.
+ *
+ * ‏הבדיקות כאן על הצילום המשותף, כי שלושת המסכים — מודעה, הצעה
+ * ‏שהתקבלה, הצעה שנשלחה — נגזרים ממנו.
+ */
+describe("‏רישום משותף בכרטיס הרשת", () => {
+  it("‏מסומן — הצ׳יפ מופיע", () => {
+    const texts = presentationChips({ sharedTabu: true }).map((c) => c.text);
+    expect(texts).toContain(SHARED_TABU_NETWORK_LABEL);
+  });
+
+  /* ‏והצד השני, שבלעדיו „תמיד להציג” היה עובר ומפחיד על כל מודעה */
+  it("‏לא מסומן — אין צ׳יפ", () => {
+    const texts = presentationChips({ sharedTabu: false }).map((c) => c.text);
+    expect(texts).not.toContain(SHARED_TABU_NETWORK_LABEL);
+  });
+
+  it("‏לא ידוע — גם אין", () => {
+    const texts = presentationChips({}).map((c) => c.text);
+    expect(texts).not.toContain(SHARED_TABU_NETWORK_LABEL);
+  });
+
+  /* ‏ובפירוט המלא, שם ההיעדר עצמו הוא תשובה */
+  it("‏שורת הפירוט אומרת גם „רישום נפרד”", () => {
+    const rowOf = (fields: Parameters<typeof presentationDetailRows>[0]): string | undefined =>
+      presentationDetailRows(fields).find((r) => r.label === "רישום")?.value;
+    expect(rowOf({ sharedTabu: true })).toBe(SHARED_TABU_NETWORK_LABEL);
+    expect(rowOf({ sharedTabu: false })).toBe("רישום נפרד");
+    expect(rowOf({}), "המציא תשובה על שדה שלא נשלח").toBeUndefined();
+  });
+});
+
 describe("presentationChips", () => {
   it("מציג את הנכס שהוצע במלואו — למעט כתובת מדויקת ובעלים", () => {
     const chips = presentationChips({
@@ -189,5 +235,49 @@ describe("שם האייקון ולא אימוג'י", () => {
       expect(EMOJI.test(chip.icon), chip.icon).toBe(false);
       expect(chip.icon).toMatch(/^[a-z]+$/);
     }
+  });
+});
+
+describe("networkSafeTitle — הכותרת שחוצה את גבול הדייר", () => {
+  /*
+   * הבאג שנסגר: `marketingTitle` הוא טקסט חופשי, ומתווכים כותבים
+   * בו את הכתובת. הכרטיס הבטיח „כתובת רק אחרי אישור” והציג אותה.
+   */
+  it("נבנית מסוג הנכס, החדרים והשכונה", () => {
+    expect(
+      networkSafeTitle({
+        propertyType: "apartment",
+        rooms: 3.5,
+        neighborhood: "אזור העיריה",
+        city: "בני ברק",
+      }),
+    ).toBe("דירה 3.5 חדרים · אזור העיריה");
+  });
+
+  it("בלי שכונה — העיר; היא ממילא גלויה בכרטיס", () => {
+    expect(networkSafeTitle({ propertyType: "apartment", rooms: 4, city: "בני ברק" })).toBe(
+      "דירה 4 חדרים · בני ברק",
+    );
+  });
+
+  it("בלי שום שדה — „נכס”, ולא מחרוזת ריקה", () => {
+    expect(networkSafeTitle({})).toBe("נכס");
+  });
+
+  it("‎**הכותרת השמורה נדרסת** — גם ברשומה שנכתבה לפני התיקון", () => {
+    const stored = {
+      title: "ירושלים 67",
+      propertyType: "apartment",
+      rooms: 3.5,
+      neighborhood: "אזור העיריה",
+      city: "בני ברק",
+    };
+    expect(withNetworkSafeTitle(stored).title).toBe("דירה 3.5 חדרים · אזור העיריה");
+  });
+
+  it("שאר השדות אינם נוגעים — רק הכותרת מוחלפת", () => {
+    const stored = { title: "ירושלים 67", city: "בני ברק", priceAgorot: 200000000 };
+    expect(withNetworkSafeTitle(stored).priceAgorot).toBe(200000000);
+    expect(withNetworkSafeTitle(stored).city).toBe("בני ברק");
   });
 });

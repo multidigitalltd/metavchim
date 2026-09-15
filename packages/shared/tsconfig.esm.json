@@ -1,0 +1,18 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    /*
+     * פלט ESM מקביל ל-dist (שנשאר CJS עבור Node — ה-API וה-Workers).
+     * ה-Bundler של האתר מעדיף את השדה "module" ויודע לבצע tree-shaking
+     * רק על ESM: בלי הפלט הזה, ייבוא של פונקציה אחת מהחבילה גרר את
+     * כולה (‎~130KB gz) לכל עמוד. הטיפוסים נשארים מהבנייה הרגילה.
+     */
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "outDir": "dist-esm",
+    "declaration": false,
+    "sourceMap": false
+  },
+  "include": ["src"],
+  "exclude": ["src/**/*.test.ts"]
+}

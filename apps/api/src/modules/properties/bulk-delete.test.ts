@@ -16,6 +16,7 @@ const read = (relative: string): string =>
 const SERVICE = read("./properties.service.ts");
 const CONTROLLER = read("./properties.controller.ts");
 const OWNERSHIP = read("../../common/ownership.ts");
+const DIALOG = read("../../../../web/src/app/properties/property-removal-dialog.tsx");
 const LIST = read("../../../../web/src/app/properties/page.tsx");
 
 describe("מחיקת נכסים מרוכזת", () => {
@@ -89,12 +90,21 @@ describe("מחיקת נכסים מרוכזת", () => {
   });
 
   /*
-   * ‎**„לא ידוע” חוסם — אינו מבטיח ואינו מוחק.** כשל בבדיקה מחזיר
-   * שגיאה ועוצר, במקום להציג אישור בלי גילוי.
+   * ‎**„לא ידוע” חוסם — אינו מבטיח ואינו מוחק.**
+   *
+   * ‏השאלה עברה מ-`window.confirm` בעמוד לחלון המשותף, ולכן
+   * ‏העצירה כבר אינה `catch … return` כאן: הבדיקה מוסרת לחלון
+   * ‏כפרומיס, דחייה שלה נרשמת שם כ„לא ידוע”, והאישור נשאר חסום.
+   * ‏אותו כלל, במקום שבו הוא נאכף (ביקורת Codex).
    */
   it("כשל בבדיקה עוצר את המחיקה", () => {
-    const fn = LIST.slice(LIST.indexOf("async function removeSelected("), LIST.indexOf("const filtering ="));
-    expect(fn).toMatch(/catch \{[\s\S]{0,120}בדיקת המחיקה נכשלה[\s\S]{0,80}return;/u);
+    const fn = LIST.slice(LIST.indexOf("async function bulkImpact("), LIST.indexOf("async function bulkRemove("));
+    expect(fn, "bulkImpact לא נמצאה").not.toBe("");
+    // אין כאן בליעה: דחייה יוצאת החוצה ואינה הופכת לאפס
+    expect(fn, "כשל שנבלע יוצג כ„לא יימחק אף כרטיס”").not.toMatch(/catch/u);
+    expect(fn).toContain("bulk-deletion-preview");
+    // והחלון הוא זה שחוסם, כל עוד אין מספר
+    expect(DIALOG).toContain("confirmDisabled={typeof impact !== \"number\"}");
   });
 
   /*
@@ -113,7 +123,8 @@ describe("מחיקת נכסים מרוכזת", () => {
    * מדווח „המחיקה נכשלה” על מחיקה שהצליחה, ומזמין למחוק שוב.
    */
   it("כישלון רענון אינו מדווח ככישלון מחיקה", () => {
-    const fn = LIST.slice(LIST.indexOf("async function removeSelected("), LIST.indexOf("const filtering ="));
+    const fn = LIST.slice(LIST.indexOf("async function bulkRemove("), LIST.indexOf("const filtering ="));
+    expect(fn, "bulkRemove לא נמצאה").not.toBe("");
     expect(fn).toContain("הרשימה לא רועננה");
   });
 });

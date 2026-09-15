@@ -1,10 +1,20 @@
 import type { PropertyFields } from "../schemas/property.js";
 import type { BuyerRequirements } from "../schemas/buyer.js";
 import type { MatchCriterion, ScoreComponent } from "../schemas/match.js";
+import { propertyTypeMatches } from "./commercial-types.js";
 import { scoreEntryFit } from "./entry-timing.js";
+import {
+  FLOOR_MAX,
+  FLOOR_MIN,
+  floorLabel,
+  floorMatches,
+  floorPreferenceText,
+} from "./floor-preference.js";
 import { bestLocationMatch } from "./location-text.js";
+import { hasNeighborhoodName, matchedNeighborhood } from "./neighborhood.js";
 import { bestAreaMatch, describeDistance } from "./proximity.js";
 import { CUSTOM_FEATURE_PREFIX, customFeatureMap, isCustomFeature } from "./custom-features.js";
+import { buyerSharedTabuStance, isSharedTabuProperty, sharedTabuFit } from "./shared-tabu.js";
 
 export interface MatchResult {
   /** 0–100 */
@@ -190,6 +200,13 @@ export const DEFAULT_MATCH_WEIGHTS = {
   features_nice: 0.05,
   area: 0.05,
   entry_date: 0.05,
+  /*
+   * ‎**0.05, וזה מכוון.** קומה היא העדפה חזקה אצל מי שיש לו אותה
+   * ‎(„בלי מדרגות”, „לא קרקע”) ולא קיימת אצל השאר. משקל גבוה היה
+   * מזיז את הציון של כל המשרד בגלל שדה שרוב הכרטיסים אינם ממלאים,
+   * ומשרד שהקומה קריטית ללקוחותיו יכול להעלות אותו בהגדרות.
+   */
+  floor: 0.05,
 } as const;
 
 /*
@@ -265,7 +282,40 @@ export const MATCH_CRITERION_LABELS: Record<MatchCriterion, string> = {
   features_nice: "נחמד שיהיה",
   area: "שטח",
   entry_date: "מועד כניסה/מסירה",
+  floor: "קומה",
 };
+
+/**
+ * ‎**נכס שהשכונה בו לא מולאה, כשהקונה כן נקב בשכונות.**
+ *
+ * ‏אינו נפסל — „לא ידוע” אינו „מחוץ לשכונה” — אבל גם אינו שווה
+ * ‏לנכס שהוכח שהוא בשכונה המבוקשת. הגריעה גדולה מספיק כדי שנכס
+ * ‏מאומת ידורג מעליו, וקטנה מספיק כדי שלא תיראה כפסילה.
+ */
+export const NEIGHBORHOOD_UNKNOWN_FIT = 0.7;
+
+/**
+ * ‎**ההערה על המיקום — נוקבת בשכונה כשהיא נבדקה.**
+ *
+ * ‏הניסוח הקודם אמר „באזור המבוקש (בני ברק)” בכל מקרה, ולכן מתווך
+ * ‏שביקש שכונה מסוימת וקיבל אותה בדיוק לא ראה שום סימן לכך
+ * ‏שהשכונה נבדקה. ההערה היא מה שהמסך מציג, ולכן קריטריון שאינו
+ * ‏מופיע בה הוא קריטריון שמבחינת המשתמש אינו קיים.
+ */
+function locationNote(
+  cityHit: boolean,
+  property: PropertyFields,
+  buyer: BuyerRequirements,
+  hit: string | null,
+): string {
+  if (!cityHit) return "מחוץ לאזורים המבוקשים";
+  if (buyer.neighborhoods.length === 0) return `באזור המבוקש (${property.city ?? ""})`;
+  if (hit !== null) return `בשכונה המבוקשת (${hit})`;
+  if (!hasNeighborhoodName(property.neighborhood)) {
+    return `ב${property.city ?? "עיר המבוקשת"}, אך השכונה לא מולאה בנכס`;
+  }
+  return `מחוץ לשכונות המבוקשות (${property.neighborhood})`;
+}
 
 /**
  * ניקוד התאמה בין נכס לקונה.
@@ -288,6 +338,27 @@ export function scoreMatch(
 ): MatchResult {
   const parts: ScoreComponent[] = [];
   let excluded = false;
+
+  /*
+   * --- טאבו משותף — שער, לפני כל קריטריון ---
+   *
+   * ‎**לא קריטריון משוקלל, ובכוונה.** משקל אומר „כמה זה מבדיל בין
+   * מועמדים”, וכאן השאלה אינה מבדילה אלא חוסמת: קונה שסימן שאינו
+   * מוכן למושאע לא יקנה מושאע מושלם. קריטריון נוסף היה גם דורש
+   * משקל במסך ההגדרות, כלומר היה מאפשר למשרד לכייל אותו לאפס —
+   * ולהחזיר בדיוק את ההצעה שהקונה סירב לה.
+   *
+   * ההערה נשמרת בנפרד ולא כ-`ScoreComponent` בלי משקל, כי כל
+   * הפולטים סוכמים משקלים על `parts` — רכיב במשקל אפס היה נספר
+   * בכיסוי ובנרמול ומזיז ציונים בלי שאיש ביקש.
+   */
+  const propertyIsSharedTabu = isSharedTabuProperty(property);
+  /*
+   * ‏העמדה נגזרת ולא נקראת ישירות: קונה שביקש את סוג הנכס הישן
+   * ‏אמר „מקבל”, גם אם השדה החדש ריק. ראו `buyerSharedTabuStance`.
+   */
+  const tabu = sharedTabuFit(propertyIsSharedTabu, buyerSharedTabuStance(buyer));
+  if (tabu.excluded) excluded = true;
 
   /*
    * --- מיקום (0.25) ---
@@ -326,36 +397,71 @@ export function scoreMatch(
           ? `${describeDistance(hit.distanceKm)} מ${where}`
           : `רחוק מכל אזורי החיפוש (${describeDistance(hit.distanceKm)})`,
     });
-    // מעבר לפי שניים מהרדיוס — מחוץ לכל סבירות, כמו עיר שאינה ברשימה
-    if (hit.score === 0) excluded = true;
+    /*
+     * ‎**מחוץ לרדיוס שסומן — לא מוצג** (בקשת המשתמש).
+     *
+     * ‏עד כה הפסילה הייתה על `score === 0`, כלומר רק מעבר ל**פי
+     * ‏שניים** מהרדיוס: נכס במרחק 1.7 ק״מ מאזור שסומן לקילומטר
+     * ‏הוצג כהתאמה. רצועת החסד הזו אינה נראית בשום מקום — המפה
+     * ‏מציירת את העיגול שהקונה סימן, ורק אותו — ולכן היא הבטיחה
+     * ‏גבול אחד והתאימה לפיאחר.
+     *
+     * ‏הקונה שסימן רדיוס אמר בדיוק כמה הוא מוכן להתפשר, וזו אינה
+     * ‏הערכה שהמערכת אמורה להרחיב בשבילו.
+     */
+    if (hit.distanceKm > hit.area.radiusKm) excluded = true;
   } else if (property.city !== undefined && buyer.cities.length > 0) {
     const city = bestLocationMatch(property.city, buyer.cities);
     /*
-     * השכונה נבדקת באותה סלחנות כמו העיר. שכונה שנכתבה אחרת אינה
-     * "שכונה אחרת", והבונוס נועד לתגמל דיוק ולא לתגמל כתיב.
+     * ‎**השכונה נבדקת ב-`neighborhoodSame` ולא ב-`bestLocationMatch`.**
+     *
+     * ‏עד כה היא נבדקה בכלל של **הערים**, וזה כלל אחר: הוא מכיר
+     * ‏כתיב מלא/חסר ושמות חלופיים, ואינו מכיר גרשיים, מקפים
+     * ‏והקידומת „שכונת ”. „שכונת רמת אהרון” מול „רמת אהרון” נחשבו
+     * ‏שתי שכונות שונות, בעוד שהסינון בעמוד הקונים — שנכתב מאוחר
+     * ‏יותר, עם קיפול משלו — ראה בהן אותה שכונה. שני כללים על אותה
+     * ‏שאלה, ומתווך שראה את השכונה ברשימה לא ראה אותה בהתאמות.
      */
-    const neighborhood =
-      city.score > 0 && buyer.neighborhoods.length > 0 && property.neighborhood !== undefined
-        ? bestLocationMatch(property.neighborhood, buyer.neighborhoods).score
-        : 0;
-    const score =
-      city.score === 0
-        ? 0
-        : buyer.neighborhoods.length === 0
-          ? city.score
-          : /*
-             * שכונה תואמת מחזירה את מלוא ניקוד העיר; שכונה שאינה
-             * ברשימה גורעת רבע. הקונה ביקש שכונות מסוימות, אבל הוא
-             * ביקש גם את העיר — ולכן זו גריעה ולא פסילה.
-             */
-            city.score * (neighborhood > 0 ? 1 : 0.75);
+    const hit = matchedNeighborhood(property.neighborhood, buyer.neighborhoods);
+    /*
+     * ‎**שכונה שהקונה נקב בה היא דרישה, לא העדפה** (בקשת המשתמש).
+     *
+     * ‏עד כה שכונה שאינה ברשימה גרעה רבע מניקוד המיקום — כלומר
+     * ‏6.25 נקודות מתוך מאה, שאינן מזיזות דבר. מתווך שכתב „פרדס
+     * ‏כץ” קיבל את כל בני ברק, וזה בדיוק הדיווח מהשטח.
+     *
+     * ‎**קונה שלא נקב בשכונה מקבל את כל העיר** — ‎`neighborhoods`
+     * ‏ריק אינו „שום שכונה” אלא „לא הגבלתי”, וזה הענף הראשון כאן.
+     *
+     * ‎**ונכס בלי שכונה אינו נפסל.** „לא ידוע” אינו „מחוץ לשכונה”,
+     * ‏וזה הכלל שכל שאר הקריטריונים בקובץ הזה מקיימים. פסילה עליו
+     * ‏הייתה מעלימה בשקט כל נכס שהשדה בו לא מולא — כלומר מענישה את
+     * ‏המתווך על שדה חסר ולא על אי-התאמה. הוא נגרע, ובבירור.
+     */
+    /*
+     * ‎„יש בנכס שם שכונה” נענה ב-`hasNeighborhoodName` ולא בבדיקת
+     * ‏`undefined`: מחרוזת ריקה, רווחים וסימני פיסוק הם „לא מולא”
+     * ‏בדיוק כמו שדה חסר, והסכמה מקבלת את כולם.
+     */
+    const named = hasNeighborhoodName(property.neighborhood);
+    const neighborhoodMiss = buyer.neighborhoods.length > 0 && hit === null && named;
+    const neighborhoodUnknown = buyer.neighborhoods.length > 0 && hit === null && !named;
+    const neighborhoodFit = neighborhoodUnknown ? NEIGHBORHOOD_UNKNOWN_FIT : 1;
+    const score = city.score === 0 || neighborhoodMiss ? 0 : city.score * neighborhoodFit;
     parts.push({
       criterion: "location",
       weight: weights.location,
       score,
-      note: city.score > 0 ? `באזור המבוקש (${property.city})` : `מחוץ לאזורים המבוקשים`,
+      /*
+       * ‎**ההערה נוקבת בשכונה, ולא רק בעיר.** קודם היא אמרה „באזור
+       * ‏המבוקש (בני ברק)” גם כשהמתווך ביקש שכונה מסוימת וקיבל
+       * ‏אותה בדיוק — כלומר המסך לא אמר לו שהשכונה נבדקה בכלל, וזה
+       * ‏מה שנקרא „ההתאמות לא מתייחסות לשכונה”.
+       */
+      note: locationNote(city.score > 0, property, buyer, hit),
     });
-    if (city.score === 0) excluded = true; // עיר לא מבוקשת — לא רלוונטי להציע
+    // עיר שאינה ברשימה, או שכונה שאינה ברשימה — לא רלוונטי להציע
+    if (city.score === 0 || neighborhoodMiss) excluded = true;
   }
 
   /*
@@ -458,8 +564,35 @@ export function scoreMatch(
    * בדיוק כפי שאי אפשר להזיז אותה לעיר אחרת — ולכן ההתנהגות כאן
    * זהה לזו של המיקום ושל החדרים שמעל.
    */
-  if (property.propertyType !== undefined && buyer.propertyTypes.length > 0) {
-    const ok = buyer.propertyTypes.includes(property.propertyType);
+  /*
+   * ‎**לא `includes` ישיר.** „מסחרי” הוא „מסחרי שלא נאמר איזה”,
+   * ולכן הוא מתאים לכל ענף בשני הכיוונים — אחרת פיצול המסחרי
+   * לתשעה ענפים היה **פוסל** בשקט כל קונה קיים שסימן „מסחרי”,
+   * כי סוג שאינו ברשימה מוציא את ההתאמה לגמרי. ראו
+   * ‎`commercial-types.ts`.
+   */
+  const ok = propertyTypeMatches(
+    buyer.propertyTypes,
+    property.propertyType,
+    propertyIsSharedTabu,
+  );
+  /*
+   * ‎**נכס בלי סוג מבנה עדיין עונה לקונה שביקש רישום** (ביקורת
+   * ‏Codex, P2).
+   *
+   * ‏קודם עמד כאן `property.propertyType !== undefined`, וזה דילג
+   * ‏על הקריטריון כולו: נכס שנרשם כמושאע ואין לו סוג מבנה השאיר
+   * ‏קונה ותיק שדרישתו היא `["shared_tabu"]` בלי הקריטריון הנדרש
+   * ‏‎`property_type`, כלומר ב-`insufficientData` — וגם ההתאמה
+   * ‏הרגילה וגם השותפות נבלעו.
+   *
+   * ‏השאלה היחידה היא **האם הנכס עונה על מה שהקונה ביקש**, והיא
+   * ‏מנוסחת פעם אחת בקריאה שמעל: יש סוג — היא נבחנת כרגיל; אין
+   * ‏סוג והרישום הוא מה שנתבקש — היא נענתה. אין סוג ואין רישום
+   * ‏מבוקש — היא נשארת מדולגת בדיוק כמו קודם, כי „לא ידוע” אינו
+   * ‏„לא מתאים”, ו-`MANDATORY_MATCH_CRITERIA` הוא שמכריע.
+   */
+  if (buyer.propertyTypes.length > 0 && (property.propertyType !== undefined || ok)) {
     parts.push({
       criterion: "property_type",
       weight: weights.property_type,
@@ -590,6 +723,34 @@ export function scoreMatch(
     });
   }
 
+  /*
+   * --- קומה (0.05) ---
+   *
+   * ‎**נבדק רק כשהקונה אמר משהו והנכס יודע להשיב.** `floorMatches`
+   * מחזירה `null` בשני המקרים שאינם תשובה — אין העדפה, או שלנכס אין
+   * קומה רשומה — וחוסר מידע אינו אי-התאמה, בדיוק כמו בשאר
+   * הקריטריונים.
+   *
+   * ‎**ואינו פוסל.** קומה שאינה מה שביקש הקונה מורידה 0.05 מהציון
+   * ומסבירה למה; היא אינה מוציאה את ההתאמה מהרשימה. „קרקע או
+   * ראשונה” היא לרוב העדפה חזקה ולא תנאי, ומתווך שרואה קומה שנייה
+   * מצוינת בכל שאר הפרמטרים ירצה להתקשר — לא לגלות שהמערכת הסתירה
+   * אותה. מי שרוצה פסילה מוריד את הנכס דרך שאר הקריטריונים.
+   */
+  const floorFit = floorMatches(buyer.floorPreference, property.floor);
+  if (floorFit !== null) {
+    parts.push({
+      criterion: "floor",
+      weight: weights.floor,
+      score: floorFit ? 1 : 0,
+      ...(floorFit
+        ? {}
+        : {
+            note: `קומה ${floorLabel(property.floor!)} — הקונה ביקש ${floorPreferenceText(buyer.floorPreference)}`,
+          }),
+    });
+  }
+
   // --- מועד כניסה/מסירה (0.05) --- לא רק תאריך; ראו entry-timing.ts
   const entryFit = scoreEntryFit(property, buyer, now);
   if (entryFit !== null) {
@@ -708,7 +869,7 @@ export function scoreMatch(
     score: excluded ? 0 : score,
     coverage,
     breakdown: parts,
-    explanation: buildExplanation(parts, excluded, coverage),
+    explanation: buildExplanation(parts, excluded, coverage, tabu.note),
     excluded,
     insufficientData: false,
   };
@@ -757,6 +918,11 @@ const EVERY_REQUIREMENT_BUYER: BuyerRequirements = {
   features: { hasElevator: "must", hasParking: "nice" },
   entryType: "by_date",
   entryBy: PROBE_DEADLINE,
+  /*
+   * טווח פתוח משני הצדדים היה נקרא „לא נאמר” ולא היה נבחן כלל, ואז
+   * הבדיקה הזו לא הייתה שואלת דבר על הקומה. הטווח המלא שואל.
+   */
+  floorPreference: { mode: "range", min: FLOOR_MIN, max: FLOOR_MAX },
 };
 
 /**
@@ -818,13 +984,31 @@ function buildExplanation(
   parts: ScoreComponent[],
   excluded: boolean,
   coverage: number,
+  /**
+   * ‏הערת שער — נולדת מחוץ ל-`parts` ולכן לא הייתה נמצאת בחיפוש
+   * החוסם. בלעדיה פסילה על טאבו משותף הייתה מוצגת כ„לא מתאים
+   * לדרישות הקונה”, כלומר כמסקנה בלי סיבה, על שדה שהסוכן יכול
+   * לברר בשיחה אחת.
+   */
+  gateNote?: string,
 ): string {
   const notes = parts.filter((p) => p.note).map((p) => p.note as string);
   if (excluded) {
+    /*
+     * ‏השער קודם לחוסם המשוקלל כששניהם קיימים. עיר שגויה היא
+     * אי-התאמה שהמתווך רואה בעצמו ברשימה; „הלקוח סירב לרישום
+     * משותף” הוא נתון שאין שום דרך אחרת לדעת ממנו.
+     */
+    if (gateNote !== undefined) return gateNote;
     const blocker = parts.find((p) => p.score === 0 && p.note);
     return blocker?.note ?? "לא מתאים לדרישות הקונה";
   }
-  const body = notes.length > 0 ? notes.join(". ") + "." : "התאמה מלאה לדרישות שהוגדרו.";
+  /*
+   * ‏הערת השער נכנסת ראשונה גם כשאין פסילה: „לא נשאל אם הקונה
+   * מוכן” הוא מה שצריך לקרות לפני הסיור, לא אחרי רשימת ההתאמות.
+   */
+  const all = gateNote === undefined ? notes : [gateNote, ...notes];
+  const body = all.length > 0 ? all.join(". ") + "." : "התאמה מלאה לדרישות שהוגדרו.";
   if (coverage >= 1) return body;
   /*
    * ‎**הסיבה לציון מופיעה לצד הציון.** בלי המשפט הזה „67%” נראה

@@ -2,7 +2,7 @@ import type { EmailContent } from "./email-template.js";
 import { formatIsraeliNumber } from "./israel-time.js";
 
 /**
- * הפורום המקצועי — הליבה המשותפת (docs/14).
+ * הפורום המקצועי — הליבה המשותפת (docs/16).
  *
  * ## מה יושב כאן ולמה
  *

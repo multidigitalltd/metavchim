@@ -11,13 +11,24 @@ import {
   inboundToken,
   replyAddressFor,
   safeAttachmentName,
+  emailCardTag,
   whatsappTemplateParams,
+  type EmailCardKind,
+  type EmailCardTag,
   type InboundEmailPayload,
 } from "@metavchim/shared";
-import { TenantContext } from "../../common/tenant-context";
+import {
+  assertContactAccess,
+  replyRecipient,
+  type ContactOwner,
+  leadOwnershipFilter,
+  ownershipFilter,
+  visibleContactIds,
+} from "../../common/ownership";
+import { actingUserId, TenantContext } from "../../common/tenant-context";
 import { loadEnv } from "../../config/env";
 import { AuditService } from "../../core/audit.service";
-import { EmailRejectedError, EmailService } from "../../core/email.service";
+import { EmailService, emailSendOutcome } from "../../core/email.service";
 import { PlatformSettingsService } from "../../core/platform-settings.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import { StorageService } from "../../core/storage.service";
@@ -70,6 +81,14 @@ export interface InboxMessageDto {
   fromEmail?: string;
   readAt: Date | null;
   createdAt: Date;
+  /**
+   * ‎**באיזה כרטיס ההודעה עוסקת — כשזה ידוע.**
+   *
+   * ‏החוט נשאר לפי אדם; זה תג על ההודעה הבודדת, שעונה על „על מה
+   * ‏זה”. נעדר כשלא ידוע — ומייל נכנס שאינו תשובה לשליחה מהמערכת
+   * ‏באמת לא ידוע, ולכן זה המצב הנפוץ ולא חריג.
+   */
+  card?: EmailCardTag;
   attachments: InboxAttachmentDto[];
 }
 
@@ -99,6 +118,82 @@ export interface InboxMessageDto {
  * וטוקן לא-מוכר נבלע בשקט (200 — הספק לא ינסה שוב לנצח). התיבה
  * היא תיבת דואר: מציגים מה שהגיע, לא סומכים עליו.
  */
+export function inboundNotificationContent(
+  ownerUserId: string | null,
+  snippet: string,
+): { title: string; body: string | null } {
+  return ownerUserId === null
+    ? { title: "📧 התקבלה תשובה במייל — ללא סוכן משויך", body: null }
+    : { title: "📧 לקוח ענה במייל", body: snippet };
+}
+
+/**
+ * ‎**ציר הזמן נתלה על המקור שנבחר, לא על „יש קונה”** (ביקורת
+ * ‏Codex, P2).
+ *
+ * ‏`notifiableContactOwnerSource` כבר מכריע בין הכרטיסים —
+ * ‏כשהקונה חסום והליד פתוח, הוא בוחר את הליד. התלייה העדיפה קונה
+ * ‏בכל מקרה, ולכן הסוכן שקיבל את ההתראה פתח את **הליד שלו** ולא
+ * ‏מצא בו שום שורה, בזמן שהתמצית המלאה נרשמה על כרטיס קונה שהוא
+ * ‏אינו יכול לפתוח: גם הפניה למקום ריק, וגם רישום במקום הלא נכון.
+ *
+ * ‏אותה הכרעה שהקישור נשען עליה, ולכן היא נשאלת ולא משוחזרת.
+ * ‎`null` — אין בעלים או שהמקור הוא נכס, ואז אין למי לתלות; זו
+ * ‏כבר ההתראה המשרדית בלי תוכן.
+ */
+export function inboundInteractionParent(
+  owner: ContactOwner | null,
+): { buyerId: string } | { leadId: string } | null {
+  if (owner === null || owner.cardId === null) return null;
+  if (owner.source === "buyers") return { buyerId: owner.cardId };
+  if (owner.source === "leads") return { leadId: owner.cardId };
+  return null;
+}
+
+/**
+ * ‎**העוגן אינו הקישור** (ביקורת Codex, P1).
+ *
+ * ‏שני הדברים נשאלו כאן כשאלה אחת, ולכן התשובה של הניווט הפכה
+ * ‏בשקט לתשובה של ההרשאה. כשהלקוח נראה **דרך נכס** אין כרטיס
+ * ‏לפתוח, ולכן `inboundInteractionParent` מחזיר `null` — וזה נכון
+ * ‏לניווט. אבל השורה נשמרה גם בלי `entityType`, ושורה בלי עוגן
+ * ‏פטורה מהצנזורה בקריאה: `notificationAnchor` מחזיר `null`,
+ * ‎`redactNotification` מחזיר אותה כמות שהיא, וכך גם ה-API, גם
+ * ‏הדחיפה לדפדפן וגם הוואטסאפ. אחרי העברת הנכס לסוכן אחר, או
+ * ‏שלילת `properties.view_all`, הסוכן הקודם המשיך לקבל את תמצית
+ * ‏המייל של הלקוח — בזמן שהתיבה עצמה כבר דוחה אותו.
+ *
+ * ‏זו בדיוק אותה שגיאה שתוקנה בשורה האישית, שכבה אחת מתחת:
+ * ‏„היה מיועד לך אז” אינו „מותר לך עכשיו”. שם היא תוקנה לשורה
+ * ‏שיש לה עוגן, וכאן נשארה השורה שאין לה.
+ *
+ * ‏ולכן: הניווט נשאר על הכרטיס, וההרשאה נופלת חזרה **ללקוח**.
+ * ‎`contact` הוא עוגן מוכר, `redactNotification` פותר אותו מול
+ * ‏אותו איחוד מקורות שהתיבה נשענת עליו, ואין לו מסך — כלומר
+ * ‏הקישור בפעמון נשאר ריק בדיוק כפי שהוא היום.
+ *
+ * ‎**ובלי בעלים — עדיין בלי עוגן.** זו השורה המשרדית
+ * ‏(`userId: null`), `inboundNotificationContent` כבר מוריד ממנה
+ * ‏את התוכן, ואין בה מה להגן עליו. מצביע שהיה נשאר בה היה פותח
+ * ‏את ההעשרה של העובד לכל המשרד — וזו הדליפה שנסגרה בהתראות
+ * ‏המרכזייה.
+ *
+ * ‏שני הערכים נגזרים מקריאה אחת ל-`inboundInteractionParent`,
+ * ‏ולכן התראה שמקשרת לכרטיס אחד וציר זמן שנרשם על אחר אינם
+ * ‏אפשריים גם עכשיו.
+ */
+export function inboundNotificationAnchor(
+  owner: ContactOwner | null,
+  contactId: string,
+): { entityType: string; entityId: string } | Record<string, never> {
+  if (owner === null) return {};
+  const parent = inboundInteractionParent(owner);
+  if (parent === null) return { entityType: "contact", entityId: contactId };
+  return "buyerId" in parent
+    ? { entityType: "buyer", entityId: parent.buyerId }
+    : { entityType: "lead", entityId: parent.leadId };
+}
+
 @Injectable()
 export class EmailInboxService {
   private readonly logger = new Logger(EmailInboxService.name);
@@ -130,23 +225,57 @@ export class EmailInboxService {
    * הטבלה מחוץ ל-RLS (כמו lead_webhooks) — והכתיבה כאן היא בדיוק
    * הסיבה שהמזהים באים תמיד מהשורה שבגינה נשלח המייל, לא מקלט.
    */
-  async replyAddressFor(tenantId: string, contactId: string): Promise<string | null> {
+  async replyAddressFor(
+    tenantId: string,
+    contactId: string,
+    /**
+     * ‎**מי שולח — וזה חלק מזהות הטוקן, לא תיעוד לצדו.**
+     *
+     * ‏השימוש החוזר היה על הלקוח בלבד, ולכן טוקן שסוכן ב׳ הנפיק
+     * ‏שימש גם לשליחה של סוכן א׳ — ואז תשובה על ההודעה של א׳
+     * ‏נשאה את השולח של ב׳. שדה שנכתב בהנפקה ואינו נכנס לחיפוש
+     * ‏מתאר את השליחה הראשונה בלבד.
+     *
+     * ‎`null` — שליחה אוטומטית שאין לה סוכן.
+     */
+    sentByUserId: string | null,
+    /**
+     * ‎**הכרטיס שבגינו נשלח — פרמטר חובה, ובכוונה.**
+     *
+     * ‏הוא יכול היה להיות רשות עם ברירת מחדל `null`, וזה היה עובד
+     * ‏היום: ארבעת הקוראים הקיימים היו ממשיכים לעבוד, וקורא חמישי
+     * ‏היה יורש „בלי כרטיס” בלי שאיש התכוון. כפרמטר חובה המהדר
+     * ‏מכריח כל קורא להחליט מה הוא **באמת** יודע.
+     *
+     * ‎`null` = אין כרטיס, ואומרים זאת במפורש.
+     */
+    card: EmailCardTag | null,
+  ): Promise<string | null> {
     const config = await this.inboundConfig();
     if (config === null) return null;
     /*
      * לכרטיס יכולים להיות כמה טוקנים — מיזוג כפילויות מעביר את
      * הטוקנים של הכפיל לשורד, וכולם ממשיכים לפעול. שליחה חדשה
-     * משתמשת בוותיק שבהם; מרוץ בין שתי שליחות מנפיק שניים, ושניהם
-     * תקפים — כפילות כאן זולה מהתנגשות.
+     * משתמשת בוותיק **של אותו שולח ואותו כרטיס**; מרוץ בין שתי
+     * שליחות מנפיק שניים, ושניהם תקפים — כפילות כאן זולה מהתנגשות.
+     *
+     * ‎**הכרטיס בחיפוש ולא רק בכתיבה.** בלעדיו טוקן שהונפק להצעה
+     * ‏היה נמצא ומשמש גם לשליחת ההסכם, והתשובה על ההסכם הייתה
+     * ‏מתויגת כהצעה — כלומר תיוג שגוי שנראה סמכותי, בדיוק מה
+     * ‏שהתכונה הזאת אמורה למנוע.
      */
+    const cardKind = card?.kind ?? null;
+    const cardId = card?.id ?? null;
     const existing = await this.prisma.emailReplyToken.findFirst({
-      where: { tenantId, contactId },
+      where: { tenantId, contactId, sentByUserId, cardKind, cardId },
       orderBy: { createdAt: "asc" },
       select: { id: true },
     });
     if (existing !== null) return replyAddressFor(config.address, existing.id);
     const id = ulid();
-    await this.prisma.emailReplyToken.create({ data: { id, tenantId, contactId } });
+    await this.prisma.emailReplyToken.create({
+      data: { id, tenantId, contactId, sentByUserId, cardKind, cardId },
+    });
     return replyAddressFor(config.address, id);
   }
 
@@ -159,7 +288,13 @@ export class EmailInboxService {
     if (token === null) return;
     const mapping = await this.prisma.emailReplyToken.findUnique({
       where: { id: token },
-      select: { tenantId: true, contactId: true },
+      select: {
+        tenantId: true,
+        contactId: true,
+        sentByUserId: true,
+        cardKind: true,
+        cardId: true,
+      },
     });
     if (mapping === null) {
       this.logger.warn("תשובת אימייל עם טוקן לא מוכר — דולגה");
@@ -174,10 +309,12 @@ export class EmailInboxService {
     const body = inboundBody(payload);
     const incoming = payload.Attachments.slice(0, EMAIL_ATTACHMENT_MAX_COUNT)
       .map((a) => {
-        const kind = emailAttachmentKind(a.ContentType);
-        if (kind === null || a.Content === "") return null;
+        if (a.Content === "") return null;
         const content = Buffer.from(a.Content, "base64");
         if (content.length === 0 || content.length > EMAIL_ATTACHMENT_MAX_BYTES) return null;
+        // התוכן נמסר לבדיקת Magic Bytes — הצהרה כוזבת יורדת ל"קובץ"
+        const kind = emailAttachmentKind(a.ContentType, content);
+        if (kind === null) return null;
         return {
           kind,
           content,
@@ -193,7 +330,7 @@ export class EmailInboxService {
     }
     if (body === "" && incoming.length === 0) return; // אין תוכן — אין מה להציג
 
-    const { tenantId, contactId } = mapping;
+    const { tenantId, contactId, sentByUserId } = mapping;
     const stored = await this.prisma.withExplicitTenant(tenantId, async (tx) => {
       // הכרטיס עשוי להימחק אחרי שהטוקן הונפק — תשובה יתומה מדולגת
       // השם דרך ContactsService — מוצפן במסד, ונחוץ להתראה בוואטסאפ
@@ -232,6 +369,20 @@ export class EmailInboxService {
             body,
             fromEmail: payload.From.slice(0, 320) || null,
             providerMessageId: inboundProviderMessageId(payload),
+            /*
+             * ‎**התג מגיע מהטוקן, ולא מחיפוש כאן.**
+             *
+             * ‏זו הנקודה שבה התיוג מרוויח את קיומו: התשובה הנכנסת
+             * ‏היא ההודעה שהסוכן קורא, והיא זו שאין בה שום רמז
+             * ‏למה היא עונה. הטוקן שהיא הגיעה דרכו הונפק עבור
+             * ‏שליחה מסוימת מכרטיס מסוים — כלומר זו עובדה שנשמרה
+             * ‏מראש ולא ניחוש בדיעבד.
+             *
+             * ‏טוקן ישן (מלפני העמודות) מביא `null`, וההודעה נשארת
+             * ‏בלי תג — נכון, כי באמת לא ידוע.
+             */
+            cardKind: mapping.cardKind,
+            cardId: mapping.cardId,
           },
         ],
         skipDuplicates: true,
@@ -271,31 +422,38 @@ export class EmailInboxService {
        * לציר נכנסת תמצית. אינטראקציה חייבת הורה (קונה או ליד) —
        * לקוח בלי שניהם נשאר עם ההודעה בתיבה בלבד.
        */
-      const buyer = await tx.buyer.findFirst({
-        where: { tenantId, contactId, deletedAt: null },
-        orderBy: { createdAt: "desc" },
-        select: { id: true, ownerUserId: true },
-      });
-      const lead =
-        buyer === null
-          ? await tx.lead.findFirst({
-              where: { tenantId, contactId },
-              orderBy: { createdAt: "desc" },
-              select: { id: true, assignedToUserId: true },
-            })
-          : null;
+      /*
+       * ‎**מי הנמען — שאלה אחת, ולא הרכבה כאן** (`replyRecipient`).
+       *
+       * ‏שם כתובים שלושת הכללים שנצרפו אליה, כל אחד מביקורת משלו:
+       * ‏שלושת המקורות נטענים תמיד ואין קיצור שמדלג על מקור;
+       * ‏**שיוך אינו הרשאה**, ולכן מי שנפסל מוריש את התור; והשולח
+       * ‏של ההודעה שעליה עונים עולה לראשו. `null` פירושו כרגיל —
+       * ‏התראה משרדית בלי תוכן.
+       */
+      const owner = await replyRecipient(tx, tenantId, contactId, sentByUserId);
+      const ownerUserId = owner?.userId ?? null;
       const snippet =
         body === ""
           ? `📎 ${incoming.length} קבצים מצורפים`
           : body.length > 120
             ? `${body.slice(0, 120)}…`
             : body;
-      if (buyer !== null || lead !== null) {
+      /*
+       * ‎**הקישור נכתב על הכרטיס שנבחר** (ביקורת Codex, P2).
+       *
+       * ‏כאן נלקחו קודם שני דברים בנפרד: הנמען מהבחירה, והכרטיס
+       * ‏מהשורה החדשה. כשהבעלים של הכרטיס החדש נפסל והבחירה נפלה
+       * ‏על כרטיס ותיק, האינטראקציה נתלתה דווקא על הכרטיס שהנמען
+       * ‏אינו יכול לפתוח — והכרטיס שלו נשאר בלי שורה בציר הזמן.
+       */
+      const parent = inboundInteractionParent(owner);
+      if (parent !== null) {
         await tx.interaction.create({
           data: {
             id: ulid(),
             tenantId,
-            ...(buyer !== null ? { buyerId: buyer.id } : { leadId: lead?.id }),
+            ...parent,
             kind: "system",
             direction: "in",
             content: `📧 תשובה במייל: ${snippet}`,
@@ -303,26 +461,38 @@ export class EmailInboxService {
           },
         });
       }
+      const content = inboundNotificationContent(ownerUserId, snippet);
       await tx.notification.create({
         data: {
           id: ulid(),
           tenantId,
-          // הסוכן האחראי; אין כזה — כל המשרד רואה
-          userId: buyer?.ownerUserId ?? lead?.assignedToUserId ?? null,
+          // הסוכן האחראי; אין כזה — כל המשרד רואה, ולכן בלי תוכן
+          userId: ownerUserId,
           type: "email_reply",
-          title: "📧 לקוח ענה במייל",
-          body: snippet,
-          ...(buyer !== null
-            ? { entityType: "buyer", entityId: buyer.id }
-            : lead !== null
-              ? { entityType: "lead", entityId: lead.id }
-              : {}),
+          title: content.title,
+          body: content.body,
+          /*
+           * ‎**הקישור הוא של המקור שדרכו נבחר הנמען, והעוגן נופל
+           * ‏ללקוח** — ההסבר המלא ליד `inboundNotificationAnchor`.
+           *
+           * ‏קודם הקישור נגזר מ„יש כרטיס קונה”, בלי קשר לשאלה מי
+           * ‏מקבל את ההתראה. `notifiableContactOwnerSource` כבר
+           * ‏מדלגת על בעלים שאינו רשאי ועוברת למקור הבא — כלומר
+           * ‏סוכן הליד קיבל התראה שמקשרת לכרטיס הקונה של עמיתו,
+           * ‏כרטיס שאינו יכול לפתוח, בזמן שהליד שלו — שאותו כן —
+           * ‏אינו היעד.
+           *
+           * ‏ומקור „נכס” אינו מקשר לכרטיס, אבל כן נושא עוגן: בלעדיו
+           * ‏השורה פטורה מהצנזורה בקריאה, והתמצית ממשיכה לזרום גם
+           * ‏אחרי שהנכס עבר לסוכן אחר.
+           */
+          ...inboundNotificationAnchor(owner, contact.id),
         },
       });
       return {
         messageId: id,
         fresh: true,
-        notifyUserId: buyer?.ownerUserId ?? lead?.assignedToUserId ?? null,
+        notifyUserId: ownerUserId,
         customerName: contact.name,
       };
     });
@@ -426,7 +596,13 @@ export class EmailInboxService {
 
     // מסירה חוזרת אינה התראה חוזרת — הסוכן כבר קיבל אותה
     if (stored.fresh) {
-      await this.notifyAgentOnWhatsApp(tenantId, stored.notifyUserId, stored.customerName);
+      await this.notifyAgentOnWhatsApp(
+        tenantId,
+        contactId,
+        stored.notifyUserId,
+        stored.customerName,
+        sentByUserId,
+      );
     }
   }
 
@@ -443,11 +619,47 @@ export class EmailInboxService {
    */
   private async notifyAgentOnWhatsApp(
     tenantId: string,
+    contactId: string,
     userId: string | null,
     customerName: string,
+    /** ‏השולח של ההודעה שעליה עונים — ראו `replyRecipient`. */
+    sentByUserId: string | null,
   ): Promise<void> {
     // בלי סוכן אחראי אין נמען — ההתראה המשרדית במערכת מכסה את זה
     if (userId === null) return;
+    /*
+     * ‎**והשאלה נשאלת שוב, כאן** (ביקורת Codex, P2).
+     *
+     * ‏הנמען והשם נבחרו בתוך הטרנזקציה, ואחריה מועלים הקבצים —
+     * ‏עשרות מגה-בייט, במכוון מחוץ לטרנזקציה כדי לא להחזיק חיבור
+     * ‏מסד לאורך ההעלאה. השליחה הזו קורית **אחרי** החלון הזה,
+     * ‏והיא בדקה רק שהמשתמש פעיל ומנוי. נכס, ליד או קונה שהועברו
+     * ‏לעמית בזמן ההעלאה — או יכולת שנשללה — והשם של הלקוח יצא
+     * ‏בכל זאת לסוכן הקודם, בערוץ שיוצא מהמערכת ואי אפשר לצנזר
+     * ‏בדיעבד.
+     *
+     * ‏אותה פונקציה בדיוק שבחרה את הנמען מלכתחילה, ולא ניסוח שני
+     * ‏שלה: `canSeeContact` נשען על הקשר הבקשה, ולוובהוק של ספק
+     * ‏הדואר אין כזה. „מי רשאי לקבל התראה על הלקוח הזה” נשאל פעם
+     * ‏אחת, בשני הזמנים.
+     *
+     * ‎**ו„אותה פונקציה” אינה מספיקה — צריך גם אותה שאלה.** ברגע
+     * ‏שהשולח נכנס לתמונה, שם הוא הועדף וכאן לא; שתי הקריאות ענו
+     * ‏תשובות שונות, `stillOwner !== userId` התקיים תמיד — ועל כל
+     * ‏תשובה להודעה של סוכן ב׳, בדיוק המקרה שבגללו נוסף השדה,
+     * ‏ההתראה בוואטסאפ נבלעה בשקט. השאלה המורכבת ירדה כולה
+     * ‏ל-`replyRecipient`, ו-`sentByUserId` שם **חובה**: קורא
+     * ‏שישכח אותו לא יעבור הידור.
+     *
+     * ‏השתנה הנמען — שקט, ולא העברה לבעלים החדש: ההתראה במערכת
+     * ‏כבר נכתבה על הסוכן הקודם, והיא נצנזרת בקריאה לפי המצב
+     * ‏העכשווי. „מי מקבל וואטסאפ במקומו” היא החלטה אחרת.
+     */
+    const stillOwner = await this.prisma.withExplicitTenant(
+      tenantId,
+      async (tx) => (await replyRecipient(tx, tenantId, contactId, sentByUserId))?.userId ?? null,
+    );
+    if (stillOwner !== userId) return;
     try {
       const user = await this.prisma.user.findFirst({
         where: { id: userId, tenantId, isActive: true },
@@ -482,13 +694,28 @@ export class EmailInboxService {
     const tenantId = TenantContext.current().tenantId;
     return this.prisma.withTenant(async (tx) => {
       /*
+       * ‎**התיבה מסוננת לפי בעלות — כמו יומן השיחות, ההסכמים והחיפוש.**
+       *
+       * ‏עד כאן הסינון היה על המשרד בלבד, ולכן כל סוכן ראה את
+       * ‏ההתכתבות של כל עמיתיו: לא רק את הרשימה אלא את גוף ההודעות,
+       * ‏את הקבצים — ויכול היה **להשיב בשם המשרד** ללקוח של אחר.
+       * ‏היכולת שנדרשת לנתיב היא `buyers.view_own`, שיש לכל סוכן,
+       * ‏כלומר לא הייתה כאן שום הפרדה.
+       *
+       * ‎`visibleContactIds` הוא אותו כלל בדיוק שכבר קיים בשלושת
+       * ‏המודולים האחרים; מה שהיה חסר כאן הוא הקריאה לו, לא הרעיון.
+       * ‎`null` = רואה את כל לקוחות המשרד, ואז אין מה לסנן.
+       */
+      const visible = await visibleContactIds(tx, tenantId);
+      const scope = visible === null ? {} : { contactId: { in: visible } };
+      /*
        * ‏`distinct` על הלקוח, לא חיתוך של זרם ההודעות: חיתוך גולמי
        * היה מעלים שיחה שההודעה שלה נדחקה מעבר לגבול — כולל שיחה עם
        * לא-נקראו שהתג בסרגל ממשיך לספור, בלי שום דרך לפתוח אותה
        * (ביקורת Codex). כאן הגבול הוא על **שיחות**: 100 האחרונות.
        */
       const lastPerContact = await tx.emailMessage.findMany({
-        where: { tenantId },
+        where: { tenantId, ...scope },
         orderBy: { createdAt: "desc" },
         distinct: ["contactId"],
         take: 100,
@@ -517,8 +744,25 @@ export class EmailInboxService {
       );
       const [names, buyers] = await Promise.all([
         this.contacts.getByIds(tx, contactIds),
+        /*
+         * ‎**וגם הקישור לכרטיס הקונה** (ביקורת Codex, P2).
+         *
+         * ‏שער הלקוח הוא איחוד, ולכן שיחה שנפתחה דרך הליד או הנכס
+         * ‏שלי יכולה להיות עם לקוח שיש לו **גם** כרטיס קונה של
+         * ‏עמית. השליפה כאן הייתה משרדית, ולכן המסך צייר קישור אל
+         * ‏`/buyers/:id` שאינו נפתח — כלומר גילה את קיומו של הכרטיס
+         * ‏והוביל ל-404.
+         *
+         * ‏זה אותו סינון בעלות של כל שאר מודול הקונים; מה שהיה חסר
+         * ‏כאן הוא הקריאה לו.
+         */
         tx.buyer.findMany({
-          where: { tenantId, contactId: { in: contactIds }, deletedAt: null },
+          where: {
+            tenantId,
+            contactId: { in: contactIds },
+            deletedAt: null,
+            ...ownershipFilter("buyers.view_all", "ownerUserId"),
+          },
           select: { id: true, contactId: true },
         }),
       ]);
@@ -547,6 +791,8 @@ export class EmailInboxService {
   async thread(contactId: string): Promise<{ contactName: string; messages: InboxMessageDto[] }> {
     const tenantId = TenantContext.current().tenantId;
     return this.prisma.withTenant(async (tx) => {
+      // ‏הסתרה מהרשימה בלי שער על הפתיחה אינה הפרדה — היא ניחוש מזהה
+      await assertContactAccess(tx, tenantId, contactId);
       const contact = await this.contacts.getById(tx, contactId);
       if (contact === null) throw new NotFoundException("הלקוח לא נמצא");
       /*
@@ -587,6 +833,82 @@ export class EmailInboxService {
         });
         attachmentsByMessage.set(a.messageId, list);
       }
+      /*
+       * ‎**התג שורד רק אם הכרטיס חי ונראה לסוכן הזה** (אותה ביקורת
+       * ‏שכבר תוקנה כאן על הקישור לכרטיס הקונה — P2).
+       *
+       * ‏שער הלקוח הוא איחוד: שיחה שנפתחה דרך הליד שלי יכולה
+       * ‏להיות עם לקוח שיש עליו גם כרטיס קונה של עמית. תג משרדי
+       * ‏היה מצייר קישור אל כרטיס שאינו נפתח — כלומר **מגלה את
+       * ‏קיומו** ומוביל ל-404. אותה בעיה בדיוק, שלוש פעמים.
+       *
+       * ‏וזה מטפל גם בכרטיס שנמחק: תג אל מה שאיננו הוא קישור שבור,
+       * ‏והמודול המשותף כבר אומר שקישור למסך שגיאה גרוע מתא ריק.
+       *
+       * ‏שלוש שאילתות לכל היותר, ורק כשיש תגים — לרוב השיחות אין,
+       * ‏ואז אין כאן שאילתה נוספת כלל.
+       */
+      const tagged = rows.flatMap((row) => {
+        const card = emailCardTag(row.cardKind, row.cardId);
+        return card === null ? [] : [card];
+      });
+      const idsOf = (kind: EmailCardKind): string[] => [
+        ...new Set(tagged.filter((card) => card.kind === kind).map((card) => card.id)),
+      ];
+      /* ‏אותה יכולת שמסך הנכס עצמו נשמר בה */
+      const canSeeProperties = TenantContext.current().capabilities.has("properties.view");
+      const [buyerIds, leadIds, propertyIds] = [
+        idsOf("buyer"),
+        idsOf("lead"),
+        idsOf("property"),
+      ];
+      const [visibleBuyers, visibleLeads, visibleProperties] = await Promise.all([
+        buyerIds.length === 0
+          ? []
+          : tx.buyer.findMany({
+              where: {
+                tenantId,
+                id: { in: buyerIds },
+                deletedAt: null,
+                ...ownershipFilter("buyers.view_all", "ownerUserId"),
+              },
+              select: { id: true },
+            }),
+        leadIds.length === 0
+          ? []
+          : tx.lead.findMany({
+              where: { tenantId, id: { in: leadIds }, ...leadOwnershipFilter() },
+              select: { id: true },
+            }),
+        /*
+         * ‎**הנכס נבדק כמו מסך הנכס עצמו, ולא במסנן בעלות**
+         * ‏(ביקורת Codex, P2).
+         *
+         * ‏רשימת הנכסים **משרדית בכוונה** — כך כתוב ב-`getById`,
+         * ‏שמסנן לפי דייר ומחיקה בלבד ונשמר ביכולת
+         * ‏`properties.view`. מה שיורד לסוכן שאינו מטפל בנכס הוא
+         * ‏**פרטי הבעלים**, לא הכרטיס.
+         *
+         * ‏מסנן בעלות כאן היה מחמיר מהמסך: הוא מסתיר תג לנכס
+         * ‏שהסוכן יכול לפתוח — כלומר גורע קישור שימושי בלי סיבה.
+         * ‏ובכיוון ההפוך, מי שמודול הנכסים כבוי אצלו היה מקבל תג
+         * ‏לנכס שמשויך אליו. שני החצאים של אותה טעות.
+         *
+         * ‏קונה וליד **כן** מסוננים בבעלות, כי הרשימות שלהם כאלה.
+         */
+        propertyIds.length === 0 || !canSeeProperties
+          ? []
+          : tx.property.findMany({
+              where: { tenantId, id: { in: propertyIds }, deletedAt: null },
+              select: { id: true },
+            }),
+      ]);
+      const visible: Record<EmailCardKind, Set<string>> = {
+        buyer: new Set(visibleBuyers.map((row) => row.id)),
+        lead: new Set(visibleLeads.map((row) => row.id)),
+        property: new Set(visibleProperties.map((row) => row.id)),
+      };
+
       return {
         contactName: contact.name,
         messages: rows.map((row) => ({
@@ -598,6 +920,15 @@ export class EmailInboxService {
           ...(row.sendState === null ? {} : { sendState: row.sendState }),
           readAt: row.readAt,
           createdAt: row.createdAt,
+          /*
+           * ‏שתי העמודות נקראות דרך העוזר המשותף, ולכן שורה פגומה
+           * ‏(סוג בלי מזהה, או סוג שאינו מוכר) יוצאת בלי תג ולא
+           * ‏כקישור שבור.
+           */
+          ...(() => {
+            const card = emailCardTag(row.cardKind, row.cardId);
+            return card === null || !visible[card.kind].has(card.id) ? {} : { card };
+          })(),
           attachments: attachmentsByMessage.get(row.id) ?? [],
         })),
       };
@@ -618,12 +949,35 @@ export class EmailInboxService {
     kind: string;
   }> {
     const tenantId = TenantContext.current().tenantId;
-    const row = await this.prisma.withTenant((tx) =>
-      tx.emailAttachment.findFirst({
+    const row = await this.prisma.withTenant(async (tx) => {
+      const attachment = await tx.emailAttachment.findFirst({
         where: { id: attachmentId, tenantId, uploadedAt: { not: null } },
-        select: { s3Key: true, contentType: true, sizeBytes: true, name: true, kind: true },
-      }),
-    );
+        select: {
+          s3Key: true,
+          contentType: true,
+          sizeBytes: true,
+          name: true,
+          kind: true,
+          messageId: true,
+        },
+      });
+      if (attachment === null) return null;
+      /*
+       * ‎**הקובץ יורש את ההרשאה של השיחה שהוא נשלח בה.**
+       *
+       * ‏זהו הנתיב היחיד שאינו מקבל `contactId` אלא מזהה קובץ, ולכן
+       * ‏הוא זה שהיה נשאר פתוח אחרי שכל השאר נסגרו: מזהה מתוך הודעה
+       * ‏שהמשתמש כן רשאי לראות, ומשם ניחוש. חוזה השכירות של הלקוח
+       * ‏של עמית הוא בדיוק מה שיושב שם.
+       */
+      const message = await tx.emailMessage.findFirst({
+        where: { id: attachment.messageId, tenantId },
+        select: { contactId: true },
+      });
+      if (message === null) return null;
+      await assertContactAccess(tx, tenantId, message.contactId);
+      return attachment;
+    });
     if (row === null) throw new NotFoundException("הקובץ לא נמצא");
     const obj = await this.storage.getObject(row.s3Key);
     return {
@@ -642,12 +996,13 @@ export class EmailInboxService {
   /** סימון השיחה כנקראה — בכניסה אליה, לא בהודעה-הודעה. */
   async markRead(contactId: string): Promise<void> {
     const ctx = TenantContext.current();
-    await this.prisma.withTenant((tx) =>
-      tx.emailMessage.updateMany({
+    await this.prisma.withTenant(async (tx) => {
+      await assertContactAccess(tx, ctx.tenantId, contactId);
+      return tx.emailMessage.updateMany({
         where: { tenantId: ctx.tenantId, contactId, direction: "in", readAt: null },
         data: { readAt: new Date(), readBy: ctx.userId === "" ? null : ctx.userId },
-      }),
-    );
+      });
+    });
   }
 
   /**
@@ -663,6 +1018,14 @@ export class EmailInboxService {
   ): Promise<{ state: "sent" | "unknown" }> {
     const ctx = TenantContext.current();
     const tenantId = ctx.tenantId;
+    /*
+     * ‎**השער הזה חשוב יותר מזה שברשימה.**
+     *
+     * ‏קריאה של התכתבות של עמית היא פגיעה בפרטיות; **כתיבה** אליה
+     * ‏היא שליחת מייל בשם המשרד ללקוח של סוכן אחר, שנראה ללקוח כמו
+     * ‏המשך השיחה שלו. לכן הבדיקה כאן, לפני כל שליחה.
+     */
+    await this.prisma.withTenant((tx) => assertContactAccess(tx, tenantId, contactId));
 
     /*
      * הקבצים היוצאים באותה רשימה סגורה כמו הנכנסים, ובתקרת הספק
@@ -672,7 +1035,7 @@ export class EmailInboxService {
       throw new BadRequestException(`עד ${EMAIL_ATTACHMENT_MAX_COUNT} קבצים בהודעה`);
     }
     const outgoing = files.map((file) => {
-      const kind = emailAttachmentKind(file.contentType);
+      const kind = emailAttachmentKind(file.contentType, file.content);
       if (kind === null) {
         throw new BadRequestException(`סוג הקובץ אינו נתמך: ${safeAttachmentName(file.name)}`);
       }
@@ -704,7 +1067,15 @@ export class EmailInboxService {
     });
 
     const subject = target.subject.startsWith("Re:") ? target.subject : `Re: ${target.subject}`;
-    const replyTo = await this.replyAddressFor(tenantId, contactId);
+    /*
+     * ‏המשיב הוא השולח — תשובת הלקוח עליה חוזרת אליו, לא לבעל הכרטיס.
+     *
+     * ‎**ובלי תג כרטיס.** התשובה נכתבת מתוך התיבה, שמסודרת לפי אדם:
+     * ‏הסוכן משיב לשיחה, לא מכרטיס. הכרטיס האחרון של אותו לקוח היה
+     * ‏ניחוש סביר ולכן מסוכן — לקוח עם קונה ונכס פתוחים היה מקבל
+     * ‏את השגוי.
+     */
+    const replyTo = await this.replyAddressFor(tenantId, contactId, actingUserId(), null);
 
     /*
      * ‎**הרשומה נכתבת לפני השליחה, ומאושרת אחריה.**
@@ -746,6 +1117,12 @@ export class EmailInboxService {
     try {
       // required: מסך שמראה "נשלח" אחרי שלא נשלח הוא תיעוד כוזב
       await this.email.send(target.to, subject, body, {
+        /*
+         * ‏שורת ההודעה נכתבה לפני השליחה עם `sendState: "pending"`,
+         * ‏ולכן היא בדיוק הזהות של השליחה הזו: ניסיון חוזר על אותה
+         * ‏שורה לא ישלח ללקוח עותק שני.
+         */
+        idempotency: { key: `inboxreply:${messageId}`, purpose: "inbox" },
         tenantId,
         required: true,
         ...(replyTo === null ? {} : { replyTo }),
@@ -761,27 +1138,21 @@ export class EmailInboxService {
       });
     } catch (error: unknown) {
       /*
-       * ‎**„נכשלה” רק כשידוע שלא יצאה.**
+       * ‎**„נכשלה” רק כשידוע שלא יצאה — והכלל אינו נכתב כאן.**
        *
-       * ‎`EmailRejectedError` פירושו שהספק **ענה ודחה** — ההודעה
-       * בוודאות לא יצאה, ושליחה חוזרת בטוחה. כל השאר — פסק זמן,
-       * נפילת רשת, ‎5xx — הוא „איננו יודעים”: ייתכן שהספק קלט ושלח
-       * ורק התשובה אבדה.
-       *
-       * הניסוח הראשון סימן **הכול** „נכשלה”, והמסך אמר „לא נשלחה”.
-       * הסוכן היה שולח שוב, והלקוח מקבל את אותה הודעה פעמיים
-       * (ביקורת Codex).
-       *
-       * ‎**וזו בדיוק ההבחנה שבניתי בעצמי ב-`EmailService`** בסבב
-       * מוקדם יותר, על אותו שיקול בדיוק — ואז לא השתמשתי בה כאן.
-       * ‎„לא ידוע” אינו „לא”, וזה נכון גם כשאני זה שכתב את הכלל.
+       * ‏הניסוח הזה נכתב בעצמו בארבעה נתיבי שליחה, וההערה הקודמת
+       * ‏כאן אפילו אמרה „וזו בדיוק ההבחנה שבניתי בעצמי ואז לא
+       * ‏השתמשתי בה” — כלומר הכפילות תועדה ולא בוטלה. עכשיו
+       * ‏`emailSendOutcome` היא המקום היחיד שבו הכלל מנוסח, ועמו
+       * ‏גם ההסבר למה הוא נשען על `EmailAmbiguousError` ולא על
+       * ‏שלילת `EmailRejectedError`.
        */
-      const certainlyNotSent = error instanceof EmailRejectedError;
+      const outcome = emailSendOutcome(error);
       await this.prisma
         .withTenant((tx) =>
           tx.emailMessage.updateMany({
             where: { id: messageId, tenantId },
-            data: { sendState: certainlyNotSent ? "failed" : "unknown" },
+            data: { sendState: outcome },
           }),
         )
         .catch(() => this.logger.error(`סימון מצב תשובה נכשל: ${messageId}`));
@@ -796,7 +1167,7 @@ export class EmailInboxService {
        * בדחייה ודאית אין מה לשמור: שום דבר לא יצא, והרשומה כבר
        * אומרת „לא נשלחה”.
        */
-      if (!certainlyNotSent) {
+      if (outcome === "unknown") {
         await this.storeOutgoingCopies(tenantId, messageId, outgoing);
         /*
          * ‎**תוצאה עמומה אינה נזרקת — היא מוחזרת.**

@@ -5,6 +5,7 @@ import { API_BASE, apiGet, apiPost, ApiError } from "@/lib/api";
 import { formatPrice, PROPERTY_TYPE_LABELS } from "@/lib/format";
 import { LogoMark } from "../../icons";
 import { Notice } from "../../notice";
+import { OfficeBrand } from "../../public-brand";
 
 /**
  * דף הנחיתה הציבורי של נכס — מה שהמתווך שולח ללקוחות ומטמיע במודעות.
@@ -26,6 +27,7 @@ interface LandingView {
   features: string[];
   images: { url: string; alt?: string }[];
   officeName: string;
+  logoUrl: string | null;
 }
 
 export default function LandingPage({ params }: { params: Promise<{ token: string }> }) {
@@ -76,6 +78,13 @@ export default function LandingPage({ params }: { params: Promise<{ token: strin
   if (view.status === "unavailable") {
     return (
       <div className="mx-auto max-w-lg py-16 text-center">
+        {/*
+          דווקא כאן המותג חשוב: זה הדף שממנו הלקוח פונה למשרד אחרי
+          שהנכס ירד. בלי הלוגו הוא נראה כמו הודעת שגיאה של המערכת.
+        */}
+        <div className="mb-5 flex justify-center">
+          <OfficeBrand officeName={view.officeName} logoUrl={view.logoUrl} />
+        </div>
         <h1 className="mb-2 text-xl font-extrabold">הנכס כבר לא זמין</h1>
         <p style={{ color: "var(--color-text-muted)" }}>
           לפרטים על נכסים דומים — פנו אל {view.officeName}.
@@ -97,9 +106,14 @@ export default function LandingPage({ params }: { params: Promise<{ token: strin
     <div className="mx-auto max-w-3xl pb-16">
       {/* כותרת */}
       <header className="mb-5 pt-4">
-        <p className="m-0 text-[length:var(--type-caption-lg)] font-bold" style={{ color: "var(--color-primary)" }}>
-          {view.officeName}
-        </p>
+        {/*
+          הלוגו של המשרד במקום שורת השם. דף נכס הוא חומר שיווקי של
+          המשרד — הוא נשלח בוואטסאפ ומוטמע במודעות — ושם אפור בראשו
+          גרם לו להיראות כמו דף של המערכת ולא של מי ששלח אותו.
+        */}
+        <div className="mb-3">
+          <OfficeBrand officeName={view.officeName} logoUrl={view.logoUrl} />
+        </div>
         <h1 className="m-0 mt-1" style={{ fontSize: "calc(27 / 16 * 1rem)", fontWeight: 800, letterSpacing: "-0.01em" }}>
           {view.title}
         </h1>

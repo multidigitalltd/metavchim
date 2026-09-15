@@ -5,6 +5,7 @@ import { Button } from "@metavchim/ui";
 import { apiGet, apiPost, ApiError } from "@/lib/api";
 import { SignaturePad } from "./signature-pad";
 import { Notice } from "../../notice";
+import { OfficeBrand } from "../../public-brand";
 
 /**
  * חתימה על הסכם — דף ציבורי ללקוח, בלי התחברות. הטוקן שבקישור הוא
@@ -18,6 +19,7 @@ interface AgreementView {
   kind: string;
   kindLabel: string;
   officeName: string;
+  logoUrl: string | null;
   body: string;
   status: string;
   signedAt?: string;
@@ -115,14 +117,45 @@ export default function SignPage({ params }: { params: Promise<{ token: string }
 
   return (
     <div className="mx-auto max-w-2xl py-6">
-      <h1 className="mb-1 text-2xl font-bold">{view.kindLabel}</h1>
-      <p className="mb-6" style={{ color: "var(--color-text-muted)" }}>
-        {view.officeName}
-      </p>
+      {/*
+        ‎**נייר מכתבים, ולא כותרת מסך.**
 
+        זהו מסמך שאדם חותם עליו, ולכן הוא נפתח כמו מסמך: הלוגו והשם
+        של המשרד למעלה, קו דק שמפריד, ואז הנוסח. קודם הוא נפתח
+        בכותרת „הסכם תיווך” ושורה אפורה עם שם המשרד — מה שנראה כמו
+        טופס אינטרנט גנרי, בדיוק במקום שבו אמון הוא כל העניין.
+      */}
+      <header
+        className="mb-5 flex flex-wrap items-center justify-between gap-3 border-b pb-4"
+        style={{ borderColor: "var(--color-border)" }}
+      >
+        <OfficeBrand
+          officeName={view.officeName}
+          logoUrl={view.logoUrl}
+          eyebrow="מסמך לחתימה"
+          size="lg"
+        />
+        <h1 className="m-0" style={{ fontSize: "calc(20 / 16 * 1rem)", fontWeight: 700 }}>
+          {view.kindLabel}
+        </h1>
+      </header>
+
+      {/*
+        ‎`leading-loose`: נוסח משפטי נקרא לאורך, ושורה בצפיפות רגילה
+        היא מה שגורם לאנשים לדלג. הרקע לבן והמסגרת דקה — דף, לא
+        כרטיס.
+
+        אין כאן `maxWidth` משלו. היה, וזה בדיוק מה שנראה שבור:
+        המכתב, נייר המכתבים שמעליו וכרטיס החתימה שמתחתיו קיבלו שלושה
+        רוחבים שונים על אותו מסך. הרוחב נקבע במעטפת אחת, ושלושתם
+        מיושרים לאותו קו.
+      */}
       <article
-        className="mb-6 whitespace-pre-wrap rounded-xl border p-5 leading-relaxed"
-        style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
+        className="mv-doc mb-6 whitespace-pre-wrap rounded-xl border p-6 leading-loose"
+        style={{
+          borderColor: "var(--color-border)",
+          background: "var(--color-surface)",
+        }}
       >
         {view.body}
       </article>
@@ -145,7 +178,9 @@ export default function SignPage({ params }: { params: Promise<{ token: string }
       ) : (
         <form
           onSubmit={onSign}
-          className="rounded-xl border p-5"
+          /* בהדפסה הטופס יורד: דף עם כפתור „אני חותם” נראה כמו הסכם
+             שלא נחתם, וזה בדיוק ההפך ממה שמדפיסים בשבילו */
+          className="mv-no-print rounded-xl border p-5"
           style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
         >
           <h2 className="mb-3 text-lg font-semibold">חתימה</h2>

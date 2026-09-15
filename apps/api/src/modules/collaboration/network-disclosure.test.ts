@@ -244,3 +244,91 @@ describe("הצהרת החשיפה לרשת — מול הסכימה ומול ה-D
     });
   }
 });
+
+/**
+ * ‎**הכותרת שחוצה את הגבול נגזרת — נבדק במקור, לא בזיכרון.**
+ *
+ * הבדיקה שמעליה משווה **שמות שדות**, והיא מתעדת בעצמה שאינה בודקת
+ * איזה ערך נכתב לתוכם. זה בדיוק הפער שדלף: `title` הוא שדה מאושר,
+ * ולכן שום שער לא ראה ש-`marketingTitle` — טקסט חופשי שנושא את
+ * הכתובת — יושב בתוכו.
+ *
+ * לכן כאן נבדק **מה מוצב**: שני מסלולי הכתיבה חייבים לגזור את
+ * הכותרת, ואסור להם להציב את הכותרת השיווקית.
+ */
+describe("הכותרת ברשת אינה טקסט חופשי", () => {
+  /** בלי הערות — טענה שמתקיימת בזכות הסבר בעברית אינה טענה. */
+  const code = (path: string): string =>
+    readFileSync(join(API_SRC, "modules", "collaboration", path), "utf8")
+      .split("\n")
+      .filter((line) => !/^\s*(\/\/|\*|\/\*)/u.test(line))
+      .join("\n");
+
+  const LISTINGS = code("listings.service.ts");
+  const OFFERS = code("collaboration.service.ts");
+
+  it("הנכס שמפורסם לרשת — כותרת נגזרת", () => {
+    expect(LISTINGS).toMatch(/title:\s*networkSafeTitle\(/u);
+  });
+
+  it("ההצעה על ביקוש — כותרת נגזרת", () => {
+    expect(OFFERS).toMatch(/withNetworkSafeTitle\(presentation\)/u);
+  });
+
+  it("גם בקריאה — הצעות שנשלחו לפני התיקון מפסיקות לדלוף", () => {
+    expect(OFFERS).toMatch(/presentation:\s*withNetworkSafeTitle\(row\.presentation/u);
+  });
+
+  /**
+   * ‎**הצד שהגרסה הראשונה של השער החמיצה.**
+   *
+   * היא דרשה גזירה בקריאה מההצעה, ולא מהפרסום. `snapshot()` מגן
+   * רק על פרסום חדש, ו-`toDto` המשיך להחזיר את `row.title` —
+   * כלומר כל פרסום שנוצר לפני התיקון המשיך לחשוף את הכתובת עד
+   * שהנכס שמאחוריו היה מתעדכן במקרה (ביקורת Codex).
+   */
+  const toDtoBody = (): string => {
+    const from = LISTINGS.indexOf("private toDto(");
+    expect(from, "לא נמצאה הפונקציה שבונה את התשובה").toBeGreaterThan(-1);
+    const end = LISTINGS.indexOf("\n  }", from);
+    return LISTINGS.slice(from, end === -1 ? undefined : end);
+  };
+
+  it("גם בקריאה — פרסומים שנוצרו לפני התיקון מפסיקים לדלוף", () => {
+    expect(toDtoBody()).toMatch(/title:\s*networkSafeTitle\(/u);
+    expect(toDtoBody()).not.toMatch(/title:\s*row\.title/u);
+  });
+
+  /**
+   * ‎**רק מה שחוצה את הגבול.**
+   *
+   * גרסה ראשונה של הטענה סרקה את הקובץ כולו ונפלה על `summarizeReach`
+   * — סיכום התפוצה שהמשרד רואה על **הנכסים של עצמו**, שם הכתובת
+   * בכותרת נכונה לחלוטין. שער שאוסר על משרד לראות את הנתונים שלו
+   * אינו שער אלא תקלה, ולכן הטענה מצומצמת לפונקציה שבונה את
+   * התמונה שנשלחת החוצה.
+   */
+  const snapshotBody = (): string => {
+    const from = LISTINGS.indexOf("private snapshot(");
+    expect(from, "לא נמצאה הפונקציה שבונה את התמונה לרשת").toBeGreaterThan(-1);
+    const end = LISTINGS.indexOf("\n  }", from);
+    return LISTINGS.slice(from, end === -1 ? undefined : end);
+  };
+
+  /**
+   * ה-`presentation` של ההצעה — הליטרל שנשמר בשורת `coopOffer`
+   * ונקרא בצד השני. מחוץ לו יש שימושים לגיטימיים ב-`marketingTitle`
+   * (למשל „ההתאמות שלי”, שהן הנכסים של הקורא עצמו).
+   */
+  const presentationBody = (): string => {
+    const from = OFFERS.indexOf("const presentation = {");
+    expect(from, "לא נמצא הליטרל של ההצעה").toBeGreaterThan(-1);
+    const end = OFFERS.indexOf("\n      };", from);
+    return OFFERS.slice(from, end === -1 ? undefined : end);
+  };
+
+  it("‎**הכותרת השיווקית אינה מוצבת לשדה שחוצה את הגבול**", () => {
+    expect(snapshotBody()).not.toMatch(/marketingTitle/u);
+    expect(presentationBody()).not.toMatch(/marketingTitle/u);
+  });
+});

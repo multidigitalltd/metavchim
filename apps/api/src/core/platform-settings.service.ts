@@ -45,6 +45,48 @@ export type PlatformSettingKey =
   | "whatsappAppSecret"
   | "whatsappVerifyToken"
   /**
+   * חיבור המספר של כל משרד דרך Embedded Signup (docs/12, ADR-006).
+   *
+   * ‎`whatsappAppId` הוא מזהה האפליקציה של הפלטפורמה — **ציבורי
+   * מעצם טיבו**, הוא נשלח לדפדפן כדי לפתוח את פופאפ החיבור, וההצפנה
+   * באחסון היא של המנגנון ואינה מעידה על סודיות (כמו `mapboxToken`).
+   * ‎`whatsappSignupConfigId` הוא מזהה הקונפיגורציה של Facebook Login
+   * for Business, המוגדרת פעם אחת אצל Meta. חסרים = כפתור החיבור
+   * מוסתר, במקום להיכשל בלחיצה.
+   */
+  | "whatsappAppId"
+  | "whatsappSignupConfigId"
+  /**
+   * איזו זרימה הפופאפ פותח: `whatsapp_business_app_onboarding` =
+   * דו-קיום (דורש אפליקציה מאושרת ל-Coexistence), ריק = Embedded
+   * Signup רגיל. הגדרה ולא קבוע, כי אפליקציה שאינה מאושרת מקבלת
+   * במקום הפופאפ את דיאלוג ההתחברות הרגיל של פייסבוק.
+   */
+  | "whatsappSignupFeatureType"
+  /**
+   * ‎**ה-App Secret של אפליקציית החיבור — כשהיא אפליקציה נפרדת.**
+   *
+   * מותר, ולעיתים עדיף, שקו הסוכן האישי ישב באפליקציה אחת ושחיבור
+   * המשרדים ישב באחרת: חסימה של אחת אינה מפילה את השנייה. אבל אז
+   * ‎**שני סודות שונים חותמים על אותו Webhook**, ו-Meta מחליפה
+   * ‎`code` לטוקן רק מול הצמד `app_id`+`app_secret` של אותה אפליקציה.
+   *
+   * ריק = אפליקציה אחת לשניהם, ו-`whatsappAppSecret` משמש לכול —
+   * בדיוק ההתנהגות שהייתה כאן קודם, כך שהתקנה קיימת אינה נוגעת בכלום.
+   */
+  | "whatsappConnectAppSecret"
+  /**
+   * ‎**טוקן האימות של אפליקציית החיבור — נתיב משלה.**
+   *
+   * שתי האפליקציות שולחות לאותו שרת, ולכן לכל אחת נתיב Webhook
+   * משלה: `/webhooks/whatsapp` לקו הסוכן, `/webhooks/whatsapp/connect`
+   * לחיבור המשרדים. טוקן משותף היה מחייב לדעת את הישן כדי לרשום את
+   * החדשה — והסודות אינם ניתנים לשליפה מהמסך, בכוונה.
+   *
+   * ריק = אפליקציה אחת לשניהם, ונתיב החיבור נופל ל-`whatsappVerifyToken`.
+   */
+  | "whatsappConnectVerifyToken"
+  /**
    * הסוכן האישי בוואטסאפ — האסימון והמספר שדרכם הוא עונה.
    *
    * ה-Access Token הוא של System User קבוע (לא הטוקן הזמני ממסך
@@ -141,6 +183,15 @@ export type PlatformSettingKey =
    */
   | "whatsappEmailReplyTemplate"
   | "whatsappEmailReplyTemplateLang"
+  /**
+   * ‏הסיכום החודשי לסוכן, מחוץ לחלון 24 השעות.
+   *
+   * ‏פנייה יזומה מובהקת: הסבב רץ בתחילת החודש, ורוב
+   * ‏הסוכנים לא כתבו לבוט ב-24 השעות שלפניו. ריק = הסיכום
+   * ‏בהתראות בלבד למי שמחוץ לחלון — התנהגות תקינה, לא תקלה.
+   */
+  | "whatsappOfficeDigestTemplate"
+  | "whatsappOfficeDigestTemplateLang"
   | "loginOtpEnabled"
   | "googleClientId"
   | "googleClientSecret"
@@ -277,6 +328,15 @@ export type PlatformSettingKey =
    * בלי שלושת הראשונים ההשכרה כבויה; המחיר הוא מספר עסקי שמוצג
    * במסך, כמו `referralFeePercent`.
    */
+  /**
+   * ‎**המספר העסקי של הבוט — גיבוי לשליפה מ-Meta.**
+   *
+   * ‎`display_phone_number` נשלף מ-Meta והוא המקור המוסמך; ההגדרה
+   * הזאת נכנסת רק כשהוא אינו זמין — הצד היוצא לא הוגדר (התקנה
+   * שקולטת בלבד), או ש-Meta לא ענתה. בלעדיה מסך חיבור המכשיר מציג
+   * קוד ואומר „שלחו ידנית” בלי לומר למי.
+   */
+  | "whatsappBotNumber"
   | "pbx015AuthUsername"
   | "pbx015AuthPassword"
   /** קבוצת הנכנסות שממנה נשלפים המספרים הפנויים (`ingroup`). */

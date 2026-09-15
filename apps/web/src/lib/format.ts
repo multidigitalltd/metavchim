@@ -1,6 +1,7 @@
 import { buyerSourceLabel, normalizePhoneForWhatsapp,
   JERUSALEM_TZ,
   type PropertyStatus,
+  type PropertyType,
 } from "@metavchim/shared";
 
 const nis = new Intl.NumberFormat("he-IL", {
@@ -75,6 +76,28 @@ export function timeAgo(value: string | Date | undefined): string {
   return days === 1 ? "אתמול" : `לפני ${days} ימים`;
 }
 
+/**
+ * ‎**„פעילות אחרונה” — ניסוח אחד, לרשימת הקונים ולכרטיס.**
+ *
+ * ‏זו אינה `timeAgo`, וההבדל מכוון: על פנייה בתור השאלה היא „כמה
+ * ‏זמן היא מחכה”, ולכן דקות ושעות; על לקוח השאלה היא „מתי נגעתי
+ * ‏בו”, ושם „לפני 7 שעות” ו„היום” הם אותו דבר — ואילו „לפני 45
+ * ‏ימים” הוא מספר שצריך לחלק בראש. ימים, ואז חודשים.
+ *
+ * ‏נכתבה כאן אחרי שנמצאה כפונקציה פרטית במסך הרשימה, בזמן שהכרטיס
+ * ‏הציג את אותו נתון בניסוח אחר. שתי תשובות לאותה שאלה על אותו
+ * ‏לקוח — וזה בדיוק מה שקורה כשכלל נכתב פעמיים.
+ */
+export function lastActivityText(value?: string | Date): string {
+  if (value === undefined) return "—";
+  const days = Math.floor((Date.now() - new Date(value).getTime()) / 86_400_000);
+  if (days === 0) return "היום";
+  if (days === 1) return "אתמול";
+  if (days < 30) return `לפני ${days} ימים`;
+  const months = Math.floor(days / 30);
+  return months === 1 ? "לפני חודש" : `לפני ${months} חודשים`;
+}
+
 export { MATURITY_LABELS } from "@metavchim/shared";
 
 /**
@@ -88,7 +111,19 @@ export const DEAL_TYPE_LABELS: Record<string, string> = {
   rent: "שוכר",
 };
 
-export const PROPERTY_TYPE_LABELS: Record<string, string> = {
+/**
+ * ‎**`satisfies` ולא טיפוס על המשתנה** — הוא מה שהופך סוג חסר לשגיאת
+ * הידור.
+ *
+ * הטבלה הזו נכתבה ביד ופיגרה אחרי הסכימה: חמישה סוגים היו חסרים בה
+ * בשקט, והמסך פשוט הציג את שם השדה באנגלית. `Record<string, string>`
+ * לבדו אינו תופס את זה — כל מפתח חוקי בו.
+ *
+ * הייצוא נשאר `Record<string, string>` בכוונה, כי רוב המסכים
+ * מאנדקסים אותה במחרוזת שהגיעה מהשרת. הטיפוס ההדוק על הליטרל נותן
+ * את הבדיקה; הייצוא הרחב נותן את הנוחות — בלי אף המרה שתסתיר פער.
+ */
+const PROPERTY_TYPE_LABEL_TABLE = {
   apartment: "דירה",
   garden_apartment: "דירת גן",
   penthouse: "פנטהאוז",
@@ -99,10 +134,70 @@ export const PROPERTY_TYPE_LABELS: Record<string, string> = {
   unit: "יחידת דיור",
   shared_tabu: "טאבו משותף",
   divisible_apartment: "דירה מתאימה לחלוקה",
+  accessible_apartment: "דירת נכה",
   plot: "מגרש",
-  commercial: "מסחרי",
+  /*
+   * ‎„מסחרי” נשאר כערך — הוא „מסחרי שלא נאמר איזה”, ולא רק תאימות
+   * לשורות קיימות. התווית מבחינה אותו מתשעת הענפים שתחתיו.
+   */
+  commercial: "מסחרי (לא צוין)",
+  commercial_shop: "חנות",
+  commercial_office: "משרד",
+  commercial_warehouse: "מחסן",
+  commercial_industrial: "תעשייה",
+  commercial_basement: "מרתף",
+  commercial_building: "בניין",
+  commercial_logistics: 'מרלו"ג',
+  commercial_parking: "חניה",
+  commercial_gas_station: "תחנת דלק",
   other: "אחר",
-};
+} satisfies Record<PropertyType, string>;
+
+export const PROPERTY_TYPE_LABELS: Record<string, string> = PROPERTY_TYPE_LABEL_TABLE;
+
+/**
+ * ‎**סוגי הנכס לבורר — עם „מסחרי” כקבוצה.**
+ *
+ * ## למה `optgroup` ולא שני בוררים משורשרים
+ *
+ * הבקשה הייתה „בוחרים מסחרי ונפתחות תת-קטגוריות”, וזה בדיוק מה
+ * ש-`optgroup` עושה: כותרת „מסחרי” ותשעת הענפים מתחתיה. ההבדל הוא
+ * שזו **לחיצה אחת** ולא שתיים, ואין מצב ביניים של „נבחר מסחרי ולא
+ * נבחר ענף” שצריך לאמת בשרת.
+ *
+ * וחשוב מזה: הבורר הזה חוזר בארבעה מסכים (נכס חדש, עריכת נכס,
+ * המרת ליד, דרישות קונה). קבוצה בטבלה אחת מגיעה לארבעתם; רכיב
+ * מדורג היה צריך להיכתב לכל אחד מהם בנפרד — או להפוך את ארבעתם
+ * לרכיב אחד, שינוי גדול בהרבה ממה שהתבקש.
+ *
+ * ‎**„מסחרי (לא צוין)” נשאר בתוך הקבוצה** ולא מחוצה לה: הוא ערך
+ * חוקי — „מסחרי שטרם דייקתי” — ולא כותרת.
+ */
+export interface PropertyTypeGroup {
+  /** ‎`undefined` = ערכים בשורש הרשימה, בלי כותרת קבוצה. */
+  label?: string;
+  options: { value: string; label: string }[];
+}
+
+export function propertyTypeGroups(): PropertyTypeGroup[] {
+  const entries = Object.entries(PROPERTY_TYPE_LABEL_TABLE) as [string, string][];
+  const isCommercial = (value: string): boolean =>
+    value === "commercial" || value.startsWith("commercial_");
+  return [
+    {
+      options: entries
+        .filter(([value]) => !isCommercial(value))
+        .map(([value, label]) => ({ value, label })),
+    },
+    {
+      label: "מסחרי",
+      options: entries
+        .filter(([value]) => isCommercial(value))
+        .map(([value, label]) => ({ value, label })),
+    },
+  ];
+}
+
 
 export const STATUS_LABELS: Record<PropertyStatus, string> = {
   draft: "טיוטה",
@@ -115,8 +210,6 @@ export const STATUS_LABELS: Record<PropertyStatus, string> = {
 
 /* התוויות יושבות ליד הסכימה — ראו `lead-labels.ts` לאותו נימוק. */
 export { FINANCING_LABELS } from "@metavchim/shared";
-
-export { BUYER_SOURCE_LABELS } from "@metavchim/shared";
 
 /** קישור צ'אט וואטסאפ מטלפון שמור (E.164) — wa.me דורש ספרות בלבד */
 export function waMeUrl(phone: string, text?: string): string {
@@ -132,18 +225,8 @@ export function formatBuyerSource(source: string): string {
   return buyerSourceLabel(source) ?? source;
 }
 
-export const FIELD_LABELS: Record<string, string> = {
-  city: "עיר",
-  neighborhood: "שכונה",
-  street: "רחוב",
-  propertyType: "סוג נכס",
-  dealType: "סוג עסקה",
-  rooms: "חדרים",
-  areaSqm: 'שטח במ"ר',
-  floor: "קומה",
-  hasElevator: "מעלית",
-  hasParking: "חניה",
-  priceAgorot: "מחיר",
-  entryType: "מועד כניסה/מסירה",
-  entryDate: "תאריך כניסה",
-};
+/** ‏1.2MB ⟵ "1.2MB"; 850KB ⟵ "850KB" — לתווית קובץ מצורף. */
+export function formatBytes(bytes: number): string {
+  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
+  return `${Math.max(1, Math.round(bytes / 1024))}KB`;
+}

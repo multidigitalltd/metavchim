@@ -168,15 +168,24 @@ describe("הקצאת המקום — נספרת, ניתנת להעברה, ומו�
       .replace(/^[ \t]*\/\/.*$/gmu, "");
 
   const SETTINGS = read("../../../../apps/api/src/modules/settings/settings.controller.ts");
+  /*
+   * ‎**השער עצמו יצא מהבקר** ל-`TeamService`, כדי ש„תוסיף סוכן”
+   * ‏מהוואטסאפ יעבור בו גם הוא — הסוכן אינו עובר בבקרים. הבדיקה
+   * ‏קוראת את שני הקבצים, וכל טענה נבדקת מול זה שמחזיק אותה:
+   * ‏הטריגר נשאר בבקר, האכיפה והנעילה עברו לשירות.
+   */
+  const TEAM_SERVICE = read("../../../../apps/api/src/modules/settings/team.service.ts");
   const TEAM = read("../../../../apps/web/src/app/settings/page.tsx");
   const MIGRATION = read(
     "../../../../apps/api/prisma/migrations/20260830070000_whatsapp_agent_seats/migration.sql",
   );
 
   it("המכסה נאכפת בהדלקה, ותחת הנעילה", () => {
-    expect(SETTINGS).toContain("private async assertWhatsappSeatAvailable(");
+    expect(TEAM_SERVICE).toContain("async assertWhatsappSeatAvailable(");
+    expect(TEAM_SERVICE).toContain("pg_advisory_xact_lock");
+    /* ‏והבקר עדיין קורא לו — שער שאיש אינו מפעיל אינו שער */
+    expect(SETTINGS).toContain("this.team.assertWhatsappSeatAvailable(");
     expect(SETTINGS).toMatch(/body\.whatsappAccess === true && !target\.whatsappAccess/u);
-    expect(SETTINGS).toContain("pg_advisory_xact_lock");
   });
 
   /*

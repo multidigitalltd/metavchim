@@ -88,6 +88,35 @@ export function rlsTables(prismaDir: string): Set<string> {
  * ‏`ON DELETE RESTRICT` (‏`users`, `properties`) אינו נספר: הן
  * חייבות להימחק במפורש, וכך הן אכן נמחקות.
  */
+/**
+ * ‏ההצהרה על `tenant_id` בתוך גוף `CREATE TABLE` — בשתי הצורות.
+ *
+ * ‎**עמודה** — `"tenant_id" CHAR(26) NOT NULL REFERENCES "tenants"…`
+ * ‏— הכול בשורה אחת, וזו הצורה הנפוצה.
+ *
+ * ‎**אילוץ בעל שם** — `CONSTRAINT … FOREIGN KEY ("tenant_id")` ואז
+ * ‏`REFERENCES "tenants"(…) ON DELETE CASCADE` בשורה הבאה.
+ *
+ * ‏הגרסה הקודמת חיפשה **שורה אחת** שיש בה גם `tenant_id` וגם
+ * ‏`REFERENCES tenants`, ולכן הצורה השנייה נעלמה ממנה לגמרי: הטבלה
+ * ‏לא נכנסה לרשימת ה-CASCADE, והבדיקה דרשה עבורה מחיקה מפורשת
+ * ‏שאינה עושה דבר. זו אותה משפחת כשל שההערה על שמות מצוטטים
+ * ‏מתארת — הגזירה טקסטואלית, ולכן **עיצוב הקוד** יכול לעוור אותה.
+ *
+ * ‏מחזיר את קטע ההצהרה שנמצא, או `null` כשאין `tenant_id` בטבלה.
+ */
+function tenantForeignKey(body: string): string | null {
+  const named =
+    /CONSTRAINT[\s\S]{0,120}?FOREIGN KEY\s*\(\s*"?tenant_id"?\s*\)[\s\S]{0,200}?REFERENCES\s+"?tenants"?[^,\n]*(?:\n[^,\n)]*)?/u.exec(
+      body,
+    );
+  if (named !== null) return named[0];
+  const column = body
+    .split("\n")
+    .find((line) => /"?tenant_id"?/u.test(line) && /REFERENCES\s+"?tenants"?/u.test(line));
+  return column ?? null;
+}
+
 export function cascadingFromTenants(prismaDir: string): Set<string> {
   const sql = migrationSql(prismaDir);
   /** טבלה ⟵ האם ההצהרה **האחרונה** עליה היא CASCADE. */
@@ -117,10 +146,22 @@ export function cascadingFromTenants(prismaDir: string): Set<string> {
     const created = match[2];
     const body = match[3];
     if (created === undefined || body === undefined) continue;
-    const column = body
-      .split("\n")
-      .find((line) => /"?tenant_id"?/u.test(line) && /REFERENCES\s+"?tenants"?/u.test(line));
-    if (column !== undefined) verdict.set(created, /ON DELETE CASCADE/u.test(column));
+    /*
+     * ‎**ההצהרה נקראת כטווח, ולא כשורה.**
+     *
+     * הגרסה הקודמת חיפשה **שורה אחת** שיש בה גם `tenant_id` וגם
+     * `REFERENCES tenants`. אילוץ בעל שם נכתב על פני שתי שורות —
+     * `CONSTRAINT … FOREIGN KEY ("tenant_id")` ואז `REFERENCES
+     * "tenants"(…) ON DELETE CASCADE` — ואז אף שורה אינה מכילה את
+     * שניהם. הטבלה נעדרה מרשימת ה-CASCADE, והבדיקה דרשה עבורה
+     * מחיקה מפורשת שאינה עושה דבר.
+     *
+     * זו אותה משפחת כשל שהערה למעלה מתארת על שמות מצוטטים: הגזירה
+     * טקסטואלית, ולכן **עיצוב הקוד** יכול לעוור אותה. טווח סוגר את
+     * הפער בלי להישען על כך שמישהו יזכור לכתוב את האילוץ בשורה אחת.
+     */
+    const declared = tenantForeignKey(body);
+    if (declared !== null) verdict.set(created, /ON DELETE CASCADE/u.test(declared));
   }
 
   return new Set([...verdict].filter(([, cascades]) => cascades).map(([table]) => table));

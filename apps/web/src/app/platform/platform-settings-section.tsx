@@ -141,6 +141,24 @@ interface PlatformSettings {
     configured: boolean;
     source: "db" | "env" | "none";
     webhookUrl: string;
+    /** מספר הבוט לתצוגה — גיבוי לשליפה מ-Meta. הערך עצמו. */
+    botNumber?: string;
+    /** אפליקציית החיבור — הנתיב שלה, והאם היא מוגדרת ומאיפה. */
+    connect?: {
+      configured: boolean;
+      source: "db" | "env" | "none";
+      /** ‎`WHATSAPP_CONNECT_APP_SECRET` קיים — גם כשערך המסד גובר עליו. */
+      envFallback?: boolean;
+      webhookUrl: string;
+      /** „מוגדר" לכל סוד בנפרד — מה שמאפשר להציג נקודות במקום שדה ריק. */
+      secretSet?: boolean;
+      verifyTokenSet?: boolean;
+      /** מזהים ציבוריים — הערך עצמו, לעריכה. */
+      appId?: string;
+      signupConfigId?: string;
+      /** איזו זרימה הפופאפ פותח — דו-קיום או Embedded Signup רגיל */
+      signupFeatureType?: string;
+    };
     assistant: {
       configured: boolean;
       source: "db" | "env" | "none";
@@ -160,6 +178,8 @@ interface PlatformSettings {
       viewingReminderTemplateButtons?: boolean;
       emailReplyTemplate?: string;
       emailReplyTemplateLang?: string;
+      officeDigestTemplate?: string;
+      officeDigestTemplateLang?: string;
     };
   };
   google: {
@@ -199,6 +219,14 @@ interface PlatformSettings {
   geocoding?: { provider: string; forward: boolean; reverse: boolean };
   /** כתובת התמיכה — הערך עצמו. אופציונלי לשמרנות מול שרת שטרם עודכן. */
   supportEmail?: string;
+  /**
+   * קוד מסלול השותפים, ולצדו מה הוא פותר לו עכשיו בקטלוג.
+   * ‎`partnerPlan: null` = הקוד ריק או שאינו קיים; הקוד שלצדו מבחין.
+   */
+  partnerPlanCode?: string;
+  partnerPlan?: { name: string; isFree: boolean } | null;
+  /** קטלוג המסלולים לבחירה; שרת ישן לא מחזיר אותו, ואז אין מה לבחור. */
+  partnerPlanOptions?: { code: string; name: string; isFree: boolean }[];
   /** השכרת מספרים מ-015 — הערכים העסקיים; הסיסמה רק "מוגדרת/לא". */
   numberRental?: {
     configured: boolean;
@@ -244,7 +272,11 @@ export function PlatformSettingsSection({
    * התוצאה, הלחיצה נראית כאילו לא עשתה כלום (דיווח המשתמש:
    * "הכפתור לא מגיב").
    */
-  const [probing, setProbing] = useState<"gemini" | "cardcom" | "whatsapp" | "linet" | null>(null);
+  const [probing, setProbing] = useState<
+    "gemini" | "cardcom" | "whatsapp" | "whatsapp-send" | "linet" | null
+  >(null);
+  /* מקומי למסך ואינו נשמר: בדיקה חד-פעמית, לא הגדרה */
+  const [testSendTo, setTestSendTo] = useState("");
   /*
    * שני סודות ה-Webhook נשמרים גם בזיכרון המסך, ולא רק ב-DOM: הכתובת
    * המלאה נבנית מהם, וזה הרגע היחיד שבו הדפדפן יודע אותם. הם אינם
@@ -380,6 +412,12 @@ export function PlatformSettingsSection({
       const verify = String(f.get("whatsappVerifyToken")).trim();
       const accessToken = String(f.get("whatsappAccessToken") ?? "").trim();
       const phoneNumberId = String(f.get("whatsappPhoneNumberId") ?? "").trim();
+      const appId = String(f.get("whatsappAppId") ?? "").trim();
+      const connectAppSecret = String(f.get("whatsappConnectAppSecret") ?? "").trim();
+      const connectVerify = String(f.get("whatsappConnectVerifyToken") ?? "").trim();
+      const signupConfigId = String(f.get("whatsappSignupConfigId") ?? "").trim();
+      const signupFeatureType = String(f.get("whatsappSignupFeatureType") ?? "").trim();
+      const botNumber = String(f.get("whatsappBotNumber") ?? "").trim();
       const prospectReply = String(f.get("whatsappProspectReply") ?? "").trim();
       const notifyTemplate = String(f.get("whatsappNotifyTemplate") ?? "").trim();
       const notifyTemplateLang = String(f.get("whatsappNotifyTemplateLang") ?? "").trim();
@@ -398,11 +436,40 @@ export function PlatformSettingsSection({
       const emailReplyTemplateLang = String(
         f.get("whatsappEmailReplyTemplateLang") ?? "",
       ).trim();
+      const officeDigestTemplate = String(f.get("whatsappOfficeDigestTemplate") ?? "").trim();
+      const officeDigestTemplateLang = String(
+        f.get("whatsappOfficeDigestTemplateLang") ?? "",
+      ).trim();
       await apiPatch("/platform/settings", {
         ...(secret !== "" ? { whatsappAppSecret: secret } : {}),
         ...(verify !== "" ? { whatsappVerifyToken: verify } : {}),
         ...(accessToken !== "" ? { whatsappAccessToken: accessToken } : {}),
         ...(phoneNumberId !== "" ? { whatsappPhoneNumberId: phoneNumberId } : {}),
+        ...(appId !== "" ? { whatsappAppId: appId } : {}),
+        /*
+         * ‎**ריק = „בלי שינוי", כמו כל סוד במסך הזה.**
+         *
+         * הייתה כאן תיבת „לחזור לאפליקציה אחת" ששלחה `""` לשני
+         * הערכים. היא הוסרה לבקשת בעל המוצר: היא ישבה בתוך `label`
+         * שעוטף פסקה ארוכה, ולכן סימון בטעות תוך כדי בחירת טקסט היה
+         * מוחק את שני הסודות בשמירה הבאה — בשקט.
+         */
+        ...(connectAppSecret !== "" ? { whatsappConnectAppSecret: connectAppSecret } : {}),
+        ...(connectVerify !== "" ? { whatsappConnectVerifyToken: connectVerify } : {}),
+        ...(signupConfigId !== "" ? { whatsappSignupConfigId: signupConfigId } : {}),
+        /*
+         * נשלח תמיד, ולעולם לא כמחרוזת ריקה: ריק בנתיב הזה פירושו
+         * „מחק את השורה”, ואז הבחירה ב„רגיל” הייתה נעלמת והדו-קיום
+         * חוזר. `standard` הוא הערך שנשמר בפועל.
+         */
+        whatsappSignupFeatureType:
+          signupFeatureType === "whatsapp_business_app_onboarding"
+            ? "whatsapp_business_app_onboarding"
+            : "standard",
+        // ‎`botNumber` נשלח תמיד, גם ריק: הוא גיבוי שמכוון למחוק אותו
+        // ברגע ש-Meta מתחילה לענות, וריק כאן פירושו „חזרו להסתמך על
+        // Meta בלבד” ולא „בלי שינוי”
+        whatsappBotNumber: botNumber,
         // נשלח תמיד, גם ריק: זה שדה ערך (כמו המסמכים המשפטיים),
         // וריקון מכוון הוא חזרה לנוסח המובנה — לא "בלי שינוי"
         whatsappProspectReply: prospectReply,
@@ -420,6 +487,8 @@ export function PlatformSettingsSection({
         whatsappViewingReminderTemplateButtons: reminderTemplateButtons,
         whatsappEmailReplyTemplate: emailReplyTemplate,
         whatsappEmailReplyTemplateLang: emailReplyTemplateLang,
+        whatsappOfficeDigestTemplate: officeDigestTemplate,
+        whatsappOfficeDigestTemplateLang: officeDigestTemplateLang,
       });
       form.reset();
       setMessage("✓ הגדרות הוואטסאפ נשמרו");
@@ -535,6 +604,36 @@ export function PlatformSettingsSection({
    * טוקן שפג (הזמני חי 24 שעות) או מזהה שגוי מתגלים כאן, לא אצל
    * המתווך הראשון שכותב לסוכן.
    */
+  /**
+   * המספר שאליו נשלחת הודעת הבדיקה. מקומי למסך ואינו נשמר: זו
+   * בדיקה חד-פעמית, ולא הגדרה שצריך לזכור.
+   */
+  async function testWhatsAppSend(): Promise<void> {
+    const to = testSendTo.trim();
+    if (to === "") {
+      setError("הזינו מספר לשליחת הודעת הבדיקה");
+      return;
+    }
+    setBusy(true);
+    setProbing("whatsapp-send");
+    setMessage(null);
+    setError(null);
+    try {
+      const res = await apiPost<{ ok: boolean; message: string }>(
+        "/platform/settings/test-whatsapp-send",
+        { to },
+      );
+      if (res.ok) setMessage(`✓ ${res.message}`);
+      else setError(res.message);
+    } catch (err: unknown) {
+      setError(err instanceof ApiError ? err.message : "שליחת הודעת הבדיקה נכשלה");
+    } finally {
+      setBusy(false);
+      setProbing(null);
+      showProbeResult();
+    }
+  }
+
   async function testWhatsApp(): Promise<void> {
     setBusy(true);
     setProbing("whatsapp");
@@ -1026,6 +1125,106 @@ export function PlatformSettingsSection({
         />
       </div>
 
+      {/*
+        ‎**מסלול השותפים — השדה שלא היה.**
+
+        התזכורות למי שלא הפעיל חשבון מבטיחות „מה שנשאר פתוח הוא מסלול
+        השותפים”, והשולח מעביר את המשרד לשם. אבל הקוד היה קריא וכתיב
+        ב-API בלבד: במסך לא היה שדה, ולכן ההגדרה נשארה ריקה לנצח —
+        התזכורות יצאו, אף משרד לא עבר, ואיש לא ראה למה.
+      */}
+      <div
+        id="partner-plan"
+        className="mb-4 rounded-xl border p-4"
+        style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
+      >
+        <h3 className="mb-1 font-semibold">מסלול השותפים</h3>
+        <p className="mb-3 text-sm" style={{ color: "var(--color-text-muted)" }}>
+          לשם יורד משרד שסיים ניסיון בלי להפעיל כרטיס אשראי, במקום להינעל.{" "}
+          <b>המסלול חייב להיות חינמי</b> — מסלול בתשלום פוקע בדיוק כמו הניסיון,
+          והמשרד היה ננעל בכל מקרה. ריק = אין הורדה, והתזכורת אומרת „החשבון ננעל”
+          בלי להמציא מסלול.
+        </p>
+        {/*
+          ‎**בחירה מהקטלוג ולא הקלדת קוד.**
+
+          קוד שמוקלד ביד יכול להיות שגוי — ואז אין העברה, אין שגיאה,
+          ואיש אינו יודע עד שמישהו קורא את היומן. רשימה סוגרת את זה
+          במקור: אי אפשר לבחור מסלול שאינו קיים.
+
+          מסלולים בתשלום מוצגים מנוטרלים ולא נעלמים: „למה המסלול שלי
+          לא ברשימה” היא שאלה שאין לה תשובה במסך, ו„בתשלום — לא
+          מתאים” היא תשובה.
+        */}
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            void saveSetting(
+              "partnerPlanCode",
+              new FormData(e.currentTarget).get("partnerPlanCode"),
+            );
+          }}
+          className="flex flex-wrap items-end gap-2"
+        >
+          <label className="grow">
+            <span className="mb-1 block text-sm font-semibold">המסלול</span>
+            <select
+              name="partnerPlanCode"
+              defaultValue={settings.partnerPlanCode ?? ""}
+              key={settings.partnerPlanCode ?? ""}
+              className="w-full rounded-lg border px-3 py-2.5"
+              style={inputStyle}
+            >
+              <option value="">— אין. החשבון ננעל בתום הניסיון —</option>
+              {(settings.partnerPlanOptions ?? []).map((plan) => (
+                <option key={plan.code} value={plan.code} disabled={!plan.isFree}>
+                  {plan.name}
+                  {plan.isFree ? "" : " — בתשלום, לא מתאים"}
+                </option>
+              ))}
+              {/*
+                המסלול השמור נמחק מהקטלוג? הוא עדיין הערך הנוכחי, ובלי
+                האפשרות הזאת ה-`select` היה מציג „אין” — כלומר משקר על
+                מה ששמור, ושמירה אחת בטעות הייתה מוחקת אותו.
+              */}
+              {(settings.partnerPlanCode ?? "") !== "" &&
+              !(settings.partnerPlanOptions ?? []).some(
+                (plan) => plan.code === settings.partnerPlanCode,
+              ) ? (
+                <option value={settings.partnerPlanCode}>
+                  {settings.partnerPlanCode} — אינו בקטלוג
+                </option>
+              ) : null}
+            </select>
+          </label>
+          <Button type="submit" disabled={busy}>שמור</Button>
+        </form>
+        {/*
+          ‎**מה הקוד פותר לו עכשיו** — לא רק מה נשמר. קוד שגוי אינו
+          נכשל בשמירה: הוא נכשל חודש אחר כך, בשקט, ביומן.
+        */}
+        <p className="m-0 mt-2 text-sm">
+          {(settings.partnerPlanCode ?? "") === "" ? (
+            <span style={{ color: "var(--color-text-muted)" }}>
+              לא הוגדר — התזכורות ייצאו בלי הצעת מסלול.
+            </span>
+          ) : settings.partnerPlan === null || settings.partnerPlan === undefined ? (
+            <span style={{ color: "var(--color-danger)" }}>
+              ✗ הקוד אינו בקטלוג המסלולים — לא תתבצע אף העברה.
+            </span>
+          ) : settings.partnerPlan.isFree ? (
+            <span style={{ color: "var(--color-success)" }}>
+              ✓ „{settings.partnerPlan.name}” — מסלול חינמי, ההעברה תעבוד.
+            </span>
+          ) : (
+            <span style={{ color: "var(--color-danger)" }}>
+              ✗ „{settings.partnerPlan.name}” אינו חינמי — משרד שיועבר אליו ייחסם
+              בכל מקרה, ולכן אין העברה.
+            </span>
+          )}
+        </p>
+      </div>
+
       {/* ---------- חיבורי Google ---------- */}
       <div className="mb-4 rounded-xl border p-4" style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}>
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
@@ -1113,10 +1312,18 @@ export function PlatformSettingsSection({
           {/*
             מפתח Gemini באותו טופס: שני מפתחות Google, מסך אחד.
             "מוגדר" מציג גם את המודל שרץ בפועל — אחרת אין דרך לדעת.
+
+            ‎**התווית אמרה „פקודות קוליות” בלבד, וזה היה מטעה.**
+            אותו מפתח מפעיל גם את הבנת השיחות: הסיכום שנכתב אחרי
+            תמלול, וההפרדה בין המתווך ללקוח. מנהל שאינו משתמש
+            בפקודות קוליות דילג על השדה בהיגיון מלא — ואיבד את
+            שניהם בלי שאיש אמר לו. ההשבתה שקטה לגמרי: השיחה
+            מתומללת, הסיכום נופל לחילוץ דטרמיניסטי, ואין שגיאה.
           */}
           <div className="flex-1" style={{ minWidth: "220px" }}>
             <label htmlFor="geminiApiKey" className="mb-1 block font-medium">
-              Gemini API Key (פקודות קוליות){" "}
+              Gemini API Key{" "}
+              <span className="font-normal">(פקודות קוליות + סיכומי שיחות)</span>{" "}
               {settings.gemini?.configured ? (
                 <span className="font-normal">
                   ✓ מוגדר · {settings.gemini.model} (ריק = ללא שינוי)
@@ -1135,6 +1342,14 @@ export function PlatformSettingsSection({
               className="w-full rounded-lg border px-3 py-2.5"
               style={inputStyle}
             />
+            {settings.gemini?.configured ? null : (
+              <p className="mt-1 text-sm" style={{ color: "var(--color-warning)" }}>
+                ⚠️ בלי המפתח הזה שיחות עדיין מתומללות, אבל <strong>הסיכום נכתב
+                בחילוץ אוטומטי פשוט</strong> („הביע עניין · 4 חדרים”) ו<strong>אין
+                הפרדה בין המתווך ללקוח</strong> בתמלול. אין שגיאה ואין התראה —
+                זה פשוט נראה כאילו זו איכות המערכת.
+              </p>
+            )}
           </div>
           <div className="flex-1" style={{ minWidth: "220px" }}>
             <label htmlFor="geminiModel" className="mb-1 block font-medium">
@@ -1623,6 +1838,196 @@ export function PlatformSettingsSection({
               style={inputStyle}
             />
           </div>
+          {/*
+            ‎**המספר שהמשתמש רואה — לא זה ש-Meta מזהה לפיו.**
+
+            ‎`Phone Number ID` הוא מזהה פנימי ואי אפשר לחייג אליו.
+            המספר עצמו נשלף מ-Meta אוטומטית, והשדה הזה נכנס רק כשהיא
+            אינה עונה — או כשהצד היוצא כלל אינו מוגדר. בלעדיו מסך
+            חיבור המכשיר מציג קוד ואומר „שלחו ידנית” בלי לומר למי.
+          */}
+          <div className="flex-1" style={{ minWidth: "220px" }}>
+            <label htmlFor="whatsappBotNumber" className="mb-1 block font-medium">
+              מספר הבוט לתצוגה{" "}
+              <span className="font-normal">(ריק = נשלף מ-Meta)</span>
+            </label>
+            <input
+              id="whatsappBotNumber"
+              name="whatsappBotNumber"
+              type="tel"
+              dir="ltr"
+              autoComplete="off"
+              key={settings.whatsapp.botNumber ?? ""}
+              defaultValue={settings.whatsapp.botNumber ?? ""}
+              placeholder="0553142235"
+              className="w-full rounded-lg border px-3 py-2.5"
+              style={inputStyle}
+            />
+          </div>
+
+          {/*
+            ‎**חיבור עצמאי של מספרי המשרדים (docs/12) — קבוצה סגורה.**
+
+            ‏קודם זו הייתה כותרת ואחריה שדות שהיו אחים בשורת ה-flex
+            הכללית. כותרת אינה עוטפת דבר, ולכן השדות של קו הסוכן
+            שאחריה זלגו לתוך הסעיף והמסך נקרא כערבוביה (דיווח
+            מהשטח). עכשיו זו מסגרת אחת שמכילה בדיוק את ארבעת
+            השדות שלה, ומה שאחריה מתחיל מחוץ לה.
+          */}
+          <fieldset
+            className="w-full rounded-xl border p-4"
+            style={{ borderColor: "var(--color-border)", background: "var(--color-table-head)" }}
+          >
+            <legend className="px-2 font-medium">חיבור עצמאי של מספרי המשרדים</legend>
+            <p className="m-0 mb-1 text-sm" style={{ color: "var(--color-text-muted)" }}>
+              מה שמאפשר לכל משרד לחבר את המספר שלו בעצמו, בלי לוותר על אפליקציית
+              WhatsApp Business בטלפון. <b>ריקים = כפתור החיבור מוסתר</b> במסך
+              ההגדרות של המשרדים.
+            </p>
+            <p className="m-0 mb-4 text-sm" style={{ color: "var(--color-text-muted)" }}>
+              הכתובת לרישום ב-Meta:{" "}
+              <code dir="ltr" style={{ direction: "ltr", unicodeBidi: "isolate" }}>
+                {settings.whatsapp.connect?.webhookUrl ?? "/api/v1/webhooks/whatsapp/connect"}
+              </code>{" "}
+              — נתיב נפרד מזה של קו הסוכן, ולכן מה שמוגדר כאן אינו נוגע בו.
+            </p>
+
+            <div className="flex flex-wrap gap-4">
+              {/*
+                שני המזהים מוצגים חזרה כערך — הם ציבוריים, ובלי זה
+                מי שהזין ושמר ראה שדה ריק ולא ידע אם נשמר.
+              */}
+              <div className="flex-1" style={{ minWidth: "220px" }}>
+                <label htmlFor="whatsappAppId" className="mb-1 block font-medium">
+                  App ID <span className="font-normal">(ספרות בלבד)</span>
+                </label>
+                <p className="mb-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
+                  מלוח הבקרה של האפליקציה ב-Meta ← App settings ← בסיסי.
+                </p>
+                <input
+                  id="whatsappAppId"
+                  name="whatsappAppId"
+                  type="text"
+                  dir="ltr"
+                  inputMode="numeric"
+                  autoComplete="off"
+                  key={settings.whatsapp.connect?.appId ?? ""}
+                  defaultValue={settings.whatsapp.connect?.appId ?? ""}
+                  className="w-full rounded-lg border px-3 py-2.5"
+                  style={inputStyle}
+                />
+              </div>
+
+              <div className="flex-1" style={{ minWidth: "220px" }}>
+                <label htmlFor="whatsappSignupConfigId" className="mb-1 block font-medium">
+                  Embedded Signup Configuration ID{" "}
+                  <span className="font-normal">(ספרות בלבד)</span>
+                </label>
+                <p className="mb-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
+                  נוצר תחת Facebook Login for Business ← Configurations.
+                </p>
+                <input
+                  id="whatsappSignupConfigId"
+                  name="whatsappSignupConfigId"
+                  type="text"
+                  dir="ltr"
+                  inputMode="numeric"
+                  autoComplete="off"
+                  key={settings.whatsapp.connect?.signupConfigId ?? ""}
+                  defaultValue={settings.whatsapp.connect?.signupConfigId ?? ""}
+                  className="w-full rounded-lg border px-3 py-2.5"
+                  style={inputStyle}
+                />
+              </div>
+
+              <div className="flex-1" style={{ minWidth: "220px" }}>
+                <label htmlFor="whatsappSignupFeatureType" className="mb-1 block font-medium">
+                  זרימת החיבור
+                </label>
+                <p className="mb-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
+                  „דו-קיום” הוא ברירת המחדל של המוצר — המספר ממשיך לעבוד
+                  באפליקציה בטלפון. Meta פותחת אותה <b>רק</b> לאפליקציה שאושרה
+                  ל-Coexistence; אפליקציה שלא אושרה מקבלת במקום הפופאפ את דיאלוג
+                  ההתחברות הרגיל של פייסבוק („להמשיך בתור…”), בלי בחירת מספר.
+                  אם זה מה שהמתווכים רואים — עברו ל„רגיל”.
+                </p>
+                <select
+                  id="whatsappSignupFeatureType"
+                  name="whatsappSignupFeatureType"
+                  key={settings.whatsapp.connect?.signupFeatureType ?? "standard"}
+                  defaultValue={settings.whatsapp.connect?.signupFeatureType ?? "standard"}
+                  className="w-full rounded-lg border px-3 py-2.5"
+                  style={inputStyle}
+                >
+                  <option value="whatsapp_business_app_onboarding">
+                    דו-קיום — מספר שכבר באפליקציית WhatsApp Business
+                  </option>
+                  <option value="standard">רגיל — Embedded Signup ללא דו-קיום</option>
+                </select>
+              </div>
+
+              {/*
+                ‏שני הסודות מוצגים כ„מוגדר" ולא כערך, ולכן הם צריכים
+                את הנקודות בשדה — אחרת „ריק" נראה כמו „לא נשמר".
+              */}
+              <div className="flex-1" style={{ minWidth: "220px" }}>
+                <label htmlFor="whatsappConnectAppSecret" className="mb-1 block font-medium">
+                  App Secret של אפליקציית החיבור{" "}
+                  <span className="font-normal">(ריק = ללא שינוי)</span>
+                </label>
+                <p className="mb-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
+                  רק אם חיבור המשרדים יושב באפליקציה נפרדת מזו של קו הסוכן.
+                  בלעדיו ההודעות ממנה נדחות, והחיבור נראה מוצלח בלי שאף הודעה
+                  מגיעה.
+                  {settings.whatsapp.connect?.envFallback === true ? (
+                    <b style={{ display: "block", color: "var(--color-danger)" }}>
+                      מוגדר גם במשתנה סביבה
+                      (<code dir="ltr">WHATSAPP_CONNECT_APP_SECRET</code>) — הערך שם
+                      גובר כשאין ערך שמור כאן.
+                    </b>
+                  ) : null}
+                </p>
+                <input
+                  id="whatsappConnectAppSecret"
+                  name="whatsappConnectAppSecret"
+                  type="password"
+                  dir="ltr"
+                  autoComplete="new-password"
+                  data-1p-ignore
+                  data-lpignore="true"
+                  placeholder={settings.whatsapp.connect?.secretSet === true ? "••••••••" : ""}
+                  className="w-full rounded-lg border px-3 py-2.5"
+                  style={inputStyle}
+                />
+              </div>
+
+              <div className="flex-1" style={{ minWidth: "220px" }}>
+                <label htmlFor="whatsappConnectVerifyToken" className="mb-1 block font-medium">
+                  Verify Token של אפליקציית החיבור{" "}
+                  <span className="font-normal">(ריק = ללא שינוי)</span>
+                </label>
+                <p className="mb-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
+                  אתם ממציאים אותו, 16 תווים לפחות. נפרד מזה של קו הסוכן — ולכן
+                  אין צורך לדעת את הישן.
+                </p>
+                <input
+                  id="whatsappConnectVerifyToken"
+                  name="whatsappConnectVerifyToken"
+                  type="password"
+                  dir="ltr"
+                  autoComplete="new-password"
+                  data-1p-ignore
+                  data-lpignore="true"
+                  placeholder={
+                    settings.whatsapp.connect?.verifyTokenSet === true ? "••••••••" : ""
+                  }
+                  className="w-full rounded-lg border px-3 py-2.5"
+                  style={inputStyle}
+                />
+              </div>
+            </div>
+          </fieldset>
+
           <div className="w-full">
             <label htmlFor="whatsappProspectReply" className="mb-1 block font-medium">
               מענה למספר לא רשום{" "}
@@ -1910,11 +2315,83 @@ export function PlatformSettingsSection({
               />
             </div>
           </div>
+          <div>
+            <label htmlFor="whatsappOfficeDigestTemplate" className="mb-1 block font-medium">
+              תבנית הסיכום החודשי לסוכן{" "}
+              <span className="font-normal">(ריק = הסיכום בהתראות בלבד)</span>
+            </label>
+            <p className="mb-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
+              גם היא נשלחת ל<b>סוכן</b>, והיא פנייה <b>יזומה</b>: הסבב
+              רץ בתחילת החודש, ורוב הסוכנים לא כתבו לבוט ב-24 השעות
+              שלפניו — כלומר בלי תבנית הוא מגיע בוואטסאפ רק למיעוט.
+              שלושה משתנים: ‎{"{{agent_name}}"}‎, ‎{"{{month_name}}"}‎
+              ו-‎{"{{rank}}"}‎. הפירוט המלא תמיד מחכה בהתראות במערכת.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <input
+                id="whatsappOfficeDigestTemplate"
+                name="whatsappOfficeDigestTemplate"
+                dir="ltr"
+                key={settings.whatsapp.assistant.officeDigestTemplate ?? ""}
+                defaultValue={settings.whatsapp.assistant.officeDigestTemplate ?? ""}
+                placeholder="metavchim_office_digest"
+                className="min-w-[220px] flex-1 rounded-lg border px-3 py-2.5"
+                style={inputStyle}
+              />
+              <input
+                id="whatsappOfficeDigestTemplateLang"
+                name="whatsappOfficeDigestTemplateLang"
+                dir="ltr"
+                aria-label="שפת תבנית הסיכום החודשי"
+                key={`dlang-${settings.whatsapp.assistant.officeDigestTemplateLang ?? "he"}`}
+                defaultValue={settings.whatsapp.assistant.officeDigestTemplateLang ?? "he"}
+                placeholder="he"
+                className="w-24 rounded-lg border px-3 py-2.5"
+                style={inputStyle}
+              />
+            </div>
+          </div>
           <Button type="submit" disabled={busy}>שמור</Button>
           {settings.whatsapp.assistant.configured ? (
             <Button type="button" variant="secondary" disabled={busy} onClick={() => void testWhatsApp()}>
               {probing === "whatsapp" ? "בודק מול Meta…" : "בדוק חיבור"}
             </Button>
+          ) : null}
+          {settings.whatsapp.assistant.configured ? (
+            <div className="mt-3 w-full">
+              <p className="mb-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
+                <b>שליחת הודעת בדיקה.</b> „בדוק חיבור” רק <i>קורא</i> את פרטי
+                המספר מ-Meta — טוקן שחסרה לו הרשאת שליחה עובר אותו בהצלחה ונכשל
+                רק בהודעה הראשונה של מתווך אמיתי. הודעה שיוצאת באמת היא הראיה
+                היחידה. הנוסח קבוע, ונשלח מספר אחד בכל פעם.
+                <br />
+                ‏Meta מתירה טקסט חופשי רק בתוך 24 שעות מהודעה של הנמען — אם
+                המספר לא כתב למערכת לאחרונה, שלחו ממנו הודעה ואז נסו.
+              </p>
+              <div className="flex flex-wrap items-center gap-2">
+                <input
+                  id="whatsappTestSendTo"
+                  type="tel"
+                  dir="ltr"
+                  inputMode="tel"
+                  autoComplete="off"
+                  aria-label="מספר לשליחת הודעת בדיקה"
+                  placeholder="0501234567"
+                  value={testSendTo}
+                  onChange={(event) => setTestSendTo(event.target.value)}
+                  className="w-48 rounded-lg border px-3 py-2.5"
+                  style={inputStyle}
+                />
+                <Button
+                  type="button"
+                  variant="secondary"
+                  disabled={busy}
+                  onClick={() => void testWhatsAppSend()}
+                >
+                  {probing === "whatsapp-send" ? "שולח…" : "שלח הודעת בדיקה"}
+                </Button>
+              </div>
+            </div>
           ) : null}
         </form>
       </div>

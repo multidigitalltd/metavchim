@@ -18,28 +18,37 @@
 /* ---------- הפונט העברי של המותג ----------
    מוגש מהשרת עצמו (public/fonts) ולא מ-CDN: אין בקשה לצד שלישי,
    ואין תלות ברשת חיצונית בזמן טעינה. font-display: swap מציג טקסט
-   מיד בפונט המערכת ומחליף כשהקובץ מוכן — עדיף על מסך ריק. */
+   מיד בפונט המערכת ומחליף כשהקובץ מוכן — עדיף על מסך ריק.
+   ‏woff2 קודם (‏~22% קטן יותר); ה-woff נשאר לדפדפנים עתיקים. */
 @font-face {
   font-family: Almoni;
-  src: url("/fonts/almoni-regular-aaa.woff") format("woff");
+  src:
+    url("/fonts/almoni-regular-aaa.woff2") format("woff2"),
+    url("/fonts/almoni-regular-aaa.woff") format("woff");
   font-weight: 400;
   font-display: swap;
 }
 @font-face {
   font-family: Almoni;
-  src: url("/fonts/almoni-medium-aaa.woff") format("woff");
+  src:
+    url("/fonts/almoni-medium-aaa.woff2") format("woff2"),
+    url("/fonts/almoni-medium-aaa.woff") format("woff");
   font-weight: 500 600;
   font-display: swap;
 }
 @font-face {
   font-family: Almoni;
-  src: url("/fonts/almoni-bold-aaa.woff") format("woff");
+  src:
+    url("/fonts/almoni-bold-aaa.woff2") format("woff2"),
+    url("/fonts/almoni-bold-aaa.woff") format("woff");
   font-weight: 700;
   font-display: swap;
 }
 @font-face {
   font-family: Almoni;
-  src: url("/fonts/almoni-ultrabold-aaa.woff") format("woff");
+  src:
+    url("/fonts/almoni-ultrabold-aaa.woff2") format("woff2"),
+    url("/fonts/almoni-ultrabold-aaa.woff") format("woff");
   font-weight: 800 900;
   font-display: swap;
 }
@@ -448,6 +457,8 @@
   --dm-chip-neutral-fg: #c3cfc6; /* 11.1:1 */
   /* מקבילו הכהה של ‎`ink-3` — מרוסן מהטקסט הראשי, ועדיין נתון */
   --dm-data-muted: #a9b6ac;
+  /* ‏על ‎#151D17‎ — 4.76:1; על הרקע הסגול הכהה — 4.44:1 */
+  --dm-mn-control-line: #8f74e6;
   --dk-shadow-card: 0 1px 2px rgba(0, 0, 0, 0.4);
   --dk-shadow-pop: 0 16px 38px rgba(0, 0, 0, 0.5);
   --dk-header-bg: rgba(13, 19, 15, 0.85);
@@ -475,6 +486,7 @@
     --color-warning-bg: var(--dk-warning-bg);
     --color-border: var(--dk-border);
     --color-input-border: var(--dk-input-border);
+  --mn-control-line: var(--dm-mn-control-line);
     --color-border-hover: var(--dk-border-hover);
     --color-field: var(--dk-field);
     --color-hover-soft: var(--dk-hover-soft);
@@ -543,6 +555,7 @@
   --color-warning-bg: var(--dk-warning-bg);
   --color-border: var(--dk-border);
   --color-input-border: var(--dk-input-border);
+  --mn-control-line: var(--dm-mn-control-line);
   --color-border-hover: var(--dk-border-hover);
   --color-field: var(--dk-field);
   --color-hover-soft: var(--dk-hover-soft);
@@ -1062,6 +1075,7 @@ code {
   --domain-amber-fg: #4a3300;
   --domain-violet-bg: #ffffff;
   --domain-violet-line: #000000;
+  --mn-control-line: #000000;
   --domain-violet-tile: #eeeeee;
   --domain-violet-fg: #3b0f8f;
   --domain-blue-bg: #ffffff;
@@ -1378,23 +1392,70 @@ code {
   min-height: 1em;
 }
 
+/*
+ * ‎**אריחים, שניים בשורה — ולא רשימה של תשע-עשרה שורות.**
+ *
+ * הסרגל מונה תשע-עשרה פריטים. כשורות ברוחב מלא זה כ-900 פיקסלים של
+ * ניווט, כלומר גלילה בתוך הסרגל כמעט בכל מסך — ומי שגולל בתוכו
+ * מאבד את חצי התפריט מהעין בדיוק כשהוא מחפש בו.
+ *
+ * שתי עמודות חוצות את מספר השורות. האריח גבוה משורה (הסמל מעל
+ * התווית במקום לצדה), ולכן החיסכון אינו מחצית — אבל הוא ממשי, והוא
+ * מה שמכניס את כל הניווט למסך אחד.
+ *
+ * ‎`align-content: start` — בלעדיו, כשהתפריט קצר מהסרגל, ה-grid
+ * מותח את השורות לגובה הזמין והאריחים מתנפחים.
+ */
 .mv-sidebar-nav {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
+  /*
+   * ‎**שורה לפריט.**
+   *
+   * הייתה כאן פריסת אריחים, שניים בשורה — היא אכן הכניסה את כל
+   * התפריט למסך בלי גלילה, אבל בעל המוצר קרא אותה כעמוסה לעין,
+   * וזו ההכרעה. שורה נקראת בסריקה אחת מלמעלה למטה; אריחים דורשים
+   * לסרוק שני צירים כדי למצוא פריט אחד.
+   *
+   * הגריד נשאר — עמודה אחת — ולא חזר ל-flex, וזה לא עניין של סגנון:
+   * ‎`grid-auto-rows: max-content` הוא מה שמונע את באג הנגישות שמתחת,
+   * ואין לו מקבילה ב-flex.
+   */
+  display: grid;
+  grid-template-columns: 1fr;
+  /*
+   * ‎**`max-content` ולא `auto`.**
+   *
+   * לתיבת הניווט יש גובה מוגדר (‎`flex: 1` בתוך סרגל בן ‎100dvh‎),
+   * ושורות `auto` בגובה מוגדר **מותאמות למקום הפנוי** במקום להיגזר
+   * מהתוכן. בסקלת נגישות 200% הגופן מכפיל את עצמו, השורה נשארת
+   * בגובה שהוקצה לה, והתווית גולשת ומכסה את הפריט שמתחת — כלומר
+   * דווקא ההגדרה שנועדה לעזור למי שמתקשה לקרוא הפכה את הניווט
+   * הראשי לבלתי שמיש. כך היה בפריסת השורות הראשונה, בכל שבעה־עשר
+   * הפריטים.
+   *
+   * ‎`max-content` מוציא את השורות מהחישוב: הן נגזרות מהתוכן, והתיבה
+   * גוללת כשצריך — וגלילה היא בדיוק מה ש-`overflow-y: auto` כאן
+   * נועד לעשות.
+   */
+  grid-auto-rows: max-content;
+  align-content: start;
+  gap: 3px;
   /*
    * הריפוד האופקי הוא גם המרחק שפס הפריט הפעיל צריך לחצות כדי
    * להגיע לשפת המסך, ולכן הוא משתנה ולא מספר שכתוב פעמיים.
    */
   --sidebar-nav-pad: 12px;
-  padding: 14px var(--sidebar-nav-pad);
+  padding: 12px var(--sidebar-nav-pad);
   flex: 1;
   overflow-y: auto;
 }
 .mv-sidebar-link {
+  /* המיקום היחסי נדרש לפס המסגרת של הפריט הפעיל — ראו למטה */
+  position: relative;
   display: flex;
+  /* סמל, תווית, ואז המונה או התג — בשורה אחת */
+  flex-direction: row;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   /*
    * ‎`min-height` ולא `height`, ועם ריפוד אנכי.
    *
@@ -1413,8 +1474,8 @@ code {
    * שומר על יעד המגע של 44 (WCAG 2.5.8) ומאפשר לשורה לגדול.
    */
   min-height: 44px;
-  padding: 8px 12px;
-  border-radius: 14px;
+  padding: 9px 12px;
+  border-radius: 12px;
   font-size: var(--type-nav);
   font-weight: 600;
   color: #b6c0b8; /* ‎`dark-text-2`‎ מהחבילה — על ‎#0B0E0C‎: ~9:1 */
@@ -1423,6 +1484,101 @@ code {
     background-color 0.15s ease,
     color 0.15s ease;
 }
+/*
+ * ‎**הסמל והתג אינם מתכווצים; התווית כן — והיא זו שעוטפת.**
+ *
+ * זו המלכודת שהפילה את פריסת השורות הראשונה: `flex-shrink` ברירת
+ * המחדל דחס את **כל** הילדים, כולל הסמל והתג, וכשהמכל צר מהתוכן
+ * הטקסט גלש מחוץ לתיבה במקום לרדת שורה.
+ *
+ * החלוקה כאן מפורשת: הסמל והתג שומרים על מידתם, והתווית מקבלת את
+ * מה שנשאר ועוטפת בתוכו. ‎`min-width: 0` הוא מה שמאפשר לה בכלל
+ * לרדת מתחת לרוחב התוכן שלה — בלעדיו פריט flex אינו מתכווץ מתחת
+ * ל-`min-content`, ושורה ארוכה הייתה מרחיבה את הסרגל.
+ *
+ * שורת ה-grid גדלה עם התווית (`grid-auto-rows: max-content`), ולכן
+ * ‎`min-height` נשאר רצפה ליעד המגע ולא תקרה שגולשים ממנה.
+ */
+.mv-sidebar-link > * {
+  flex: none;
+}
+.mv-sidebar-label {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/*
+ * ‏פריט משנה בתפריט — „נכסים לגיוס” תחת „נכסים”.
+ *
+ * ‏ההסטה היא מה שמראה את ההיררכיה, ולכן היא בצד ההתחלה (ימין ב-RTL)
+ * ונמדדת לפי הסמל של פריט האב: 20px סמל ועוד 10px רווח = 30px, כך
+ * שהתווית מתיישרת בדיוק מתחת לתוויות שמעליה ולא „בערך”.
+ */
+.mv-sidebar-link--sub {
+  padding-inline-start: calc(12px + 30px);
+  font-size: 14px;
+  min-height: 34px;
+}
+/*
+ * ‏קבוצה בתפריט: פריט האב והחץ באותה שורה.
+ *
+ * ‏החץ הוא כפתור נפרד ולא חלק מהקישור — לחיצה על „נכסים” חייבת
+ * ‏להמשיך לנווט לנכסים, וכפתור בתוך עוגן גם אינו HTML תקין.
+ */
+.mv-sidebar-group-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.mv-sidebar-group-row > .mv-sidebar-link {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.mv-sidebar-toggle {
+  flex: none;
+  display: grid;
+  place-items: center;
+  /* ‏יעד מגע 32px — קטן מהפריט עצמו, וגדול מכדי להחטיא */
+  inline-size: 32px;
+  block-size: 32px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+.mv-sidebar-toggle:hover {
+  background: var(--color-surface-2, rgba(0, 0, 0, 0.05));
+  color: var(--color-text);
+}
+.mv-sidebar-toggle:focus-visible {
+  outline: 2px solid var(--color-action);
+  outline-offset: 2px;
+}
+/*
+ * ‏החץ מצביע למטה כשפתוח, ולכיוון תחילת השורה כשסגור. בעברית זו
+ * ‏שמאלה, ולכן סיבוב חיובי: „v” שמסובב 90° מצביע שמאלה.
+ */
+.mv-sidebar-chev {
+  display: grid;
+  place-items: center;
+  transform: rotate(90deg);
+  transition: transform 140ms ease;
+}
+.mv-sidebar-chev.is-open {
+  transform: rotate(0deg);
+}
+@media (prefers-reduced-motion: reduce) {
+  .mv-sidebar-chev {
+    transition: none;
+  }
+}
+
+/* ‏פריט משנה פעיל מקבל את אותו טיפול, בלי הפס — הפס שייך לקטגוריה */
+.mv-sidebar-link--sub[aria-current="page"]::after {
+  content: none;
+}
+
 .mv-sidebar-link:hover {
   background: rgba(255, 255, 255, 0.06);
   color: #fff;
@@ -1456,15 +1612,19 @@ code {
 .mv-sidebar-link[aria-current="page"]::after {
   content: "";
   position: absolute;
-  inset-inline-start: calc(-1 * var(--sidebar-nav-pad));
-  width: 3px;
-  height: 22px;
-  border-radius: 2px;
-  background: #70ee91;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: inset 0 0 0 1.5px #70ee91;
+  pointer-events: none;
 }
-/* מונה ליד פריט ניווט (נכסים, קונים, התאמות) */
+/*
+ * מונה ליד פריט ניווט (נכסים, קונים, התאמות) — ‎**בפינת האריח.**
+ *
+ * ‎`margin-inline-start: auto` דחף אותו לקצה כל עוד הפריט היה שורה.
+ * באריח הכיוון הוא מאונך, ואותה שורה הייתה דוחפת את המספר אל מתחת
+ * לתווית — כלומר שורה שלישית לכל אריח שיש בו מונה.
+ */
 .mv-nav-count {
-  margin-inline-start: auto;
   font-size: var(--type-caption);
   font-weight: 700;
   color: #9aa89e;
@@ -1481,7 +1641,6 @@ code {
  * הערכות — באותה צורה שבה שאר תגי הסרגל נכתבים כאן במפורש.
  */
 .mv-nav-badge {
-  margin-inline-start: auto;
   background: rgba(245, 180, 142, 0.16);
   color: #f5b48e;
   font-size: var(--type-caption);
@@ -1491,7 +1650,7 @@ code {
 }
 /* תג "בקרוב" — פיצ'ר שהוכרז וטרם הושק. ירוק על כהה, לא כתום: הבטחה ולא דחיפות */
 .mv-nav-soon {
-  margin-inline-start: auto;
+  margin: 0;
   background: rgba(112, 238, 145, 0.16);
   color: #8cf2a6;
   font-size: var(--type-caption);
@@ -1506,7 +1665,7 @@ code {
  * תגים באותו צבע היו נקראים כאותו דבר.
  */
 .mv-nav-ai {
-  margin-inline-start: auto;
+  margin: 0;
   background: rgba(167, 139, 250, 0.18);
   color: #c4b5fd;
   font-size: var(--type-caption);
@@ -1515,9 +1674,21 @@ code {
   border-radius: 99px;
   padding: 2px 9px;
 }
-/* כששני התגים יחד — הראשון מוותר על הדחיפה לקצה */
+/* שני התגים יחד יושבים זה לצד זה בסוף השורה */
+/*
+ * הסימן ↗ על פריט שיוצא מהמערכת — „הדרכות”, שמפנה לתיעוד הציבורי.
+ *
+ * דהוי וקטן: הוא אומר „זה נפתח במקום אחר”, ואינו אמור להתחרות
+ * בתווית עצמה או בתגי „בקרוב” ו-AI שלצידו. `margin-inline-start:
+ * auto` דוחף אותו לקצה השורה, כמו התגים.
+ */
+.mv-nav-external {
+  margin-inline-start: auto;
+  color: rgba(255, 255, 255, 0.45);
+  font-size: var(--type-caption);
+}
 .mv-nav-ai + .mv-nav-soon {
-  margin-inline-start: 6px;
+  margin-inline-start: 4px;
 }
 .mv-sidebar-link:focus-visible {
   outline: 3px solid var(--dk-primary);
@@ -1579,7 +1750,7 @@ code {
 }
 /* שורת הכותרת — לפי העיצוב: 64px, רקע אחיד (בלי טשטוש), גבול תחתון */
 .mv-topbar {
-  height: 64px;
+  height: var(--mv-topbar-h);
   flex: none;
   display: flex;
   align-items: center;
@@ -1612,7 +1783,6 @@ code {
 }
 @media (min-width: 1024px) {
   .mv-topbar {
-    height: 78px;
     padding: 0 34px;
   }
 }
@@ -1965,16 +2135,12 @@ code {
 }
 .mv-content {
   flex: 1;
-  padding: 24px 16px 44px;
+  padding: var(--mv-content-pt) var(--mv-content-px) var(--mv-content-pb);
   max-width: 1240px;
   width: 100%;
   margin: 0 auto;
 }
-@media (min-width: 640px) {
-  .mv-content {
-    padding: 30px 34px 44px;
-  }
-}
+
 /*
  * מסכים גדולים — התקרה עולה במדרגות.
  *
@@ -2021,15 +2187,70 @@ code {
   */
   position: relative;
 }
+/*
+ * ‎**הכותרת והשורות מתחילות באותו מקום.**
+ *
+ * ‏השורה אינה ילדה ישירה של הכרטיס: היא יושבת בתוך
+ * ‎`mv-list-select-row` יחד עם תיבת הסימון שלפניה, כי השורה כולה
+ * היא `button` ניווט ותיבת סימון בתוך כפתור אינה נגישה. המחיר הוא
+ * שהעמודה הראשונה של **השורה** מתחילה אחרי הריפוד של המכל, התיבה
+ * והמרווח — בזמן שהעמודה הראשונה של **הכותרת** מתחילה בריפוד שלה
+ * בלבד. שתי רשתות באותן פרופורציות, בשתי נקודות התחלה שונות:
+ * הכותרות אינן עומדות מעל העמודות שלהן, וההפרש גדל ככל שהעמודה
+ * רחוקה יותר. בעל המוצר דיווח על כך מצילום של המערכת החיה.
+ *
+ * המספרים אינם נכתבים פעמיים. שלושת חלקי „עמודת הסימון” הם
+ * טוקנים, `--mv-select-lead` הוא הסכום שלהם, וגם הריפוד האופקי
+ * של השורה עצמה הוא טוקן — כך שהזחת הכותרת אינה יכולה להיפרד
+ * ממה שהיא מיישרת אליו בשינוי הבא.
+ */
+:root {
+  --mv-list-row-pad: 20px;
+  --mv-select-pad: 12px;
+  --mv-select-box: 15px;
+  --mv-select-gap: 10px;
+  --mv-select-lead: calc(
+    var(--mv-select-pad) + var(--mv-select-box) + var(--mv-select-gap)
+  );
+}
 .mv-list-head {
   display: grid;
   gap: 10px;
-  padding: 11px 20px;
+  padding: 11px var(--mv-list-row-pad);
   background: var(--color-table-head);
   border-bottom: 1px solid var(--color-card-head-border);
   font-size: var(--type-caption);
   font-weight: 700;
   color: var(--color-text-muted);
+}
+/* יש עמודת סימון לפני השורות — הכותרת מוזחת בדיוק ברוחבה */
+.mv-list-head--select {
+  position: relative;
+  padding-inline-start: calc(var(--mv-list-row-pad) + var(--mv-select-lead));
+}
+/*
+ * ‎„בחר הכל” **במרזב שנפתח**, ולא בתוך התא הראשון.
+ *
+ * ‏בעמוד הקונים היא ישבה בתוך תא „שם”, כלומר דחפה את הכותרת הזו
+ * ימינה בזמן שהשורות שמתחתיה מתחילות בשם. עכשיו היא יושבת בדיוק
+ * מעל תיבות הסימון של השורות — אותו מקום, אותו רוחב — והתא הראשון
+ * חוזר להיות תווית בלבד. הרקע של פס הכותרת נשאר מקצה לקצה, מה
+ * שלא היה קורה אילו עטפנו את הפס כולו בשורת סימון.
+ */
+/*
+ * ‎**בורר צאצא ולא מחלקה על הפקד**, כמו אצל תיבות השורות שמעליו.
+ * שער הניגודיות דורש שכל מחלקה שיושבת על `input` תגדיר לו מסגרת —
+ * כלל נכון לשדה טקסט, ש-Preflight מפשיט; תיבת סימון מציירת את
+ * עצמה, ומחלקה שתיתן לה מסגרת רק תשבש אותה.
+ */
+.mv-list-head--select > input[type="checkbox"] {
+  position: absolute;
+  inset-inline-start: var(--mv-select-pad);
+  top: 50%;
+  transform: translateY(-50%);
+  width: var(--mv-select-box);
+  height: var(--mv-select-box);
+  margin: 0;
 }
 .mv-list-row {
   display: grid;
@@ -2037,7 +2258,7 @@ code {
   align-items: center;
   width: 100%;
   text-align: start;
-  padding: 13px 20px;
+  padding: 13px var(--mv-list-row-pad);
   border: none;
   border-bottom: 1px solid var(--color-row-border);
   background: var(--color-surface);
@@ -2577,6 +2798,20 @@ button.mv-list-row:hover {
   padding: 4px;
   box-shadow: 0 1px 2px rgb(20 40 28 / 6%);
 }
+/*
+ * ‏פס שנשבר לשתי שורות במקום לדחוף את העמוד הצידה.
+ *
+ * ‏עם לשונית רביעית („הצעות ששלחתי”) הפס מגיע ל-434px, והמסך של
+ * טלפון הוא 390 — כלומר העמוד כולו קיבל גלילה אופקית, וזו תמיד
+ * תקלה ולא פריסה. שבירה לשתי שורות ולא גלילה בתוך הפס: בפס נגלל
+ * הלשונית הרביעית פשוט אינה קיימת עד שמגלים אותה, ובארבע לשוניות
+ * שתי שורות של גלולות נקראות בבת אחת.
+ */
+.mv-seg--wrap {
+  flex-wrap: wrap;
+  row-gap: 3px;
+  max-width: 100%;
+}
 .mv-seg > button {
   border: none;
   border-radius: 999px;
@@ -2613,6 +2848,32 @@ button.mv-list-row:hover {
 }
 
 /*
+ * המונה שעל הלשונית — „קונים ברשת ⟨32⟩”.
+ *
+ * ‏פס לשוניות בלי מספרים מחייב ללחוץ על כל אחת כדי לדעת אם יש בה
+ * משהו, ובאזור הרשת זו בדיוק השאלה: מתווך פותח את המסך כדי לראות
+ * אם יש לו שם עבודה. המספר על הלשונית עונה עליה בלי לחיצה.
+ *
+ * ‏`currentColor` בשקיפות ולא צבע כתוב: הלשונית הנבחרת ירוקה מלאה
+ * והשאר על משטח בהיר, והמונה חייב להיקרא בשתיהן. כך הוא יורש את
+ * צבע הטקסט של הלשונית שהוא יושב בה — גם בערכה הכהה וגם בניגודיות
+ * גבוהה — במקום להיות בהיר על בהיר באחת מהן.
+ */
+.mv-seg-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, currentcolor 14%, transparent);
+  font-size: var(--type-caption);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.5;
+}
+
+/*
  * לשוניות פנימיות במסך (ניהול משרד). נגללות לרוחב במובייל במקום
  * להישבר לשלוש שורות — פס לשוניות שמתפרס על חצי מסך הוא ניווט שקשה
  * לסרוק בעין.
@@ -2624,10 +2885,6 @@ button.mv-list-row:hover {
   background: var(--color-seg-track);
   border-radius: 12px;
   overflow-x: auto;
-  scrollbar-width: none;
-}
-.mv-tabs::-webkit-scrollbar {
-  display: none;
 }
 .mv-tabs > button {
   border: none;
@@ -2727,7 +2984,6 @@ button.mv-list-row:hover {
   display: flex;
   gap: 8px;
   overflow-x: auto;
-  scrollbar-width: none;
   /*
    * הריווח מתחת לסרגל שייך לסרגל, לא לעוטף.
    *
@@ -2765,17 +3021,20 @@ button.mv-list-row:hover {
  * CSS אינו יודע לשאול „האם נשאר מה לגלול”.
  */
 .mv-entity-tabs[data-fade="end"],
-.mv-tabs[data-fade="end"] {
+.mv-tabs[data-fade="end"],
+.mv-chiprow[data-fade="end"] {
   mask-image: linear-gradient(to right, transparent 0, #000 34px);
   -webkit-mask-image: linear-gradient(to right, transparent 0, #000 34px);
 }
 .mv-entity-tabs[data-fade="start"],
-.mv-tabs[data-fade="start"] {
+.mv-tabs[data-fade="start"],
+.mv-chiprow[data-fade="start"] {
   mask-image: linear-gradient(to left, transparent 0, #000 34px);
   -webkit-mask-image: linear-gradient(to left, transparent 0, #000 34px);
 }
 .mv-entity-tabs[data-fade="both"],
-.mv-tabs[data-fade="both"] {
+.mv-tabs[data-fade="both"],
+.mv-chiprow[data-fade="both"] {
   mask-image: linear-gradient(
     to right,
     transparent 0,
@@ -3310,12 +3569,19 @@ a.mv-bar-row:focus-visible {
  * ה-inline הופכת אותה נכון ב-RTL: ההודעות שלי בצד אחד, של הסוכן
  * בצד השני, כמו בכל צ'אט.
  */
+/*
+ * בועת שיחה — טקסט שקוראים, לא תווית. גוף מלא (15.5px) ומשקל 500,
+ * בצבע הטקסט המלא: במשקל 400 על רקע לבן פסקה של המנטור נראתה
+ * דקה וקשה לקריאה (בקשת המשתמש). אותו כלל למנטור ולסוכן.
+ */
 .mv-chat-bubble {
   max-width: 88%;
   border-radius: 16px;
-  padding: 10px 14px;
-  font-size: var(--type-body-sm);
-  line-height: 1.55;
+  padding: 11px 15px;
+  font-size: var(--type-body);
+  font-weight: 500;
+  line-height: 1.6;
+  color: var(--color-text);
   overflow-wrap: anywhere;
 }
 .mv-chat-user {
@@ -3561,6 +3827,40 @@ a.mv-bar-row:focus-visible {
   margin: auto;
   box-shadow: 0 24px 60px rgb(0 0 0 / 18%);
 }
+/*
+ * ‎`X` הסגירה — בפינה הפותחת של החלון (שמאל ב-RTL).
+ *
+ * ‎`position: relative` על `.mv-dialog` נדרש כדי שהמיקום המוחלט
+ * יימדד מול החלון ולא מול העמוד; בלעדיו ה-X נודד לפינת המסך.
+ */
+.mv-dialog {
+  position: relative;
+}
+.mv-dialog-dismiss {
+  position: absolute;
+  inset-inline-end: 14px;
+  inset-block-start: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  /* יעד נגיעה של 40px — האצבע אינה מכוונת לתו אחד */
+  width: 40px;
+  height: 40px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: var(--type-body-sm);
+  cursor: pointer;
+}
+.mv-dialog-dismiss:hover:not(:disabled) {
+  background: var(--color-surface-sunken);
+  color: var(--color-text);
+}
+.mv-dialog-dismiss:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
 .mv-dialog::backdrop {
   background: rgb(12 20 15 / 45%);
   backdrop-filter: blur(2px);
@@ -3577,6 +3877,24 @@ a.mv-bar-row:focus-visible {
 /* חלון רחב לתצוגת מסמך */
 .mv-dialog--wide {
   width: min(760px, calc(100vw - 32px));
+}
+
+/*
+ * ‏גוף חלונית שגדלה מעבר למסך — גלילה פנימית, וכותרת שנשארת.
+ *
+ * ‏חלונית ההשלמה של נכס לגיוס נושאת תצוגה וטופס של שמונה־עשר
+ * ‏שדות. בלי הגבול הזה החלון גדל לגובה התוכן, כפתור „שמירת
+ * ‏שינויים” יוצא מהמסך, ומי שמילא הכול לא מוצא איפה לשמור —
+ * ‏אותו לקח בדיוק של תצוגת המסמך שמתחת.
+ *
+ * ‏הריפוד השלילי וההשלמה בריפוד פנימי: הגלילה חייבת להיות על
+ * ‏מיכל שנוגע בקצה החלון, אחרת פס הגלילה מרחף באמצע.
+ */
+.mv-dialog-scroll {
+  max-height: min(70vh, 640px);
+  overflow-y: auto;
+  margin-inline: -28px;
+  padding-inline: 28px;
 }
 
 /*
@@ -3763,8 +4081,22 @@ a.mv-bar-row:focus-visible {
 .mv-list-select-row {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding-inline-start: 12px;
+  gap: var(--mv-select-gap);
+  padding-inline-start: var(--mv-select-pad);
+}
+/*
+ * ‎**רוחב נקוב לתיבה, ולא ברירת המחדל של הדפדפן.**
+ *
+ * ‏ברירת המחדל היא 13px עם שוליים א-סימטריים (3 מצד אחד, 4 מהשני),
+ * והיא נבדלת בין דפדפנים. הזחת הכותרת נמדדת מול הרוחב הזה, ולכן
+ * הוא חייב להיות מספר שאנחנו קובעים — אחרת היישור נכון בכרום
+ * ושגוי בספארי.
+ */
+.mv-list-select-row > input[type="checkbox"] {
+  flex: none;
+  width: var(--mv-select-box);
+  height: var(--mv-select-box);
+  margin: 0;
 }
 
 /*
@@ -4514,6 +4846,73 @@ a.mv-bar-row:focus-visible {
 .mv-net-badge--quiet {
   background: var(--color-hover-soft);
   color: var(--color-text-soft);
+}
+
+/*
+ * רצועת ההתאמות — הקטע המתקפל שבתוך כרטיס הרשת.
+ *
+ * ‏צבעי הדומיין הסגול (`mv-domain-violet` על האלמנט) ולא צבע כתוב:
+ * זה אותו סגול שאריח „מחכים לפעולה” נושא בכרטיס הפתיחה, וזה אותו
+ * דבר בדיוק — מה שמחכה לי לעשות. ‏`--d-line` ולא `--color-border`
+ * כדי שהרצועה תישאר רצועה גם כשהיא סגורה: בלי גבול בצבע שלה היא
+ * הייתה מלבן אפור בתוך כרטיס לבן.
+ */
+.mv-net-strip {
+  margin-bottom: 12px;
+  border: 1px solid var(--d-line);
+  border-radius: 12px;
+  background: var(--d-bg);
+  overflow: hidden;
+}
+.mv-net-strip-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  cursor: pointer;
+  color: var(--d-fg);
+  font-size: var(--type-caption-lg);
+  font-weight: 800;
+  /* המשולש הדיפולטי יורד — השברון בקצה הוא הסימן, והוא גם מסתובב */
+  list-style: none;
+}
+.mv-net-strip-head::-webkit-details-marker {
+  display: none;
+}
+.mv-net-strip-title {
+  min-width: 0;
+}
+.mv-net-strip-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  /*
+   * ‏שקיפות של צבע הטקסט עצמו ולא טוקן נוסף: הרצועה יכולה לקבל
+   * דומיין אחר ביום שיהיה כאן קטע שני, והמונה ימשיך להיקרא בלי
+   * לבחור מחדש זוג צבעים.
+   */
+  background: color-mix(in srgb, currentcolor 16%, transparent);
+  font-size: var(--type-caption);
+  font-variant-numeric: tabular-nums;
+}
+.mv-net-strip-chevron {
+  display: inline-flex;
+  margin-inline-start: auto;
+  transition: transform 0.15s ease;
+}
+.mv-net-strip[open] .mv-net-strip-chevron {
+  transform: rotate(180deg);
+}
+@media (prefers-reduced-motion: reduce) {
+  .mv-net-strip-chevron {
+    transition: none;
+  }
+}
+.mv-net-strip-body {
+  padding: 0 12px 12px;
 }
 
 /* גיבור: אווטאר + מה מחפשים + סוג העסקה */
@@ -5294,6 +5693,15 @@ a.mv-bar-row:focus-visible {
  */
 .mv-agent {
   position: relative;
+  /*
+   * ‎**עמודה שמרכזת את תוכנה.** הפאנל ירד לתחתית העמוד לצד רשת
+   * האריחים, והרשת גבוהה ממנו במעט. `stretch` מותח אותו לגובהה,
+   * ובלי המרכוז הכותרת והשדה נצמדים לקצה העליון ומשאירים רצועה
+   * ריקה מתחתם — בדיוק אותו „ריק” שהאריח המצומצם בא להסיר.
+   */
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
   border: 1px solid var(--domain-green-line);
   border-radius: 24px;
   padding: 26px 28px;
@@ -5513,6 +5921,31 @@ a.mv-bar-row:focus-visible {
 }
 .mv-announce-cta:hover {
   background: var(--color-primary-hover);
+}
+/*
+ * שורת הפעולות: הקריאה לפעולה ולידה „לא להציג יותר” — כפתור טקסט,
+ * לא כפתור שני. שני כפתורים מלאים היו שוקלים אותו דבר, והבחירה
+ * המרכזית היא לפגוש את היכולת, לא להיפטר מההודעה.
+ */
+.mv-announce-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 18px;
+}
+.mv-announce-dismiss {
+  background: transparent;
+  border: none;
+  padding: 6px 0;
+  font-size: var(--type-caption-lg);
+  font-weight: 600;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.mv-announce-dismiss:hover {
+  color: var(--color-text);
 }
 /*
  * האיקס בפינה הפותחת של השורה — היכן שהעין מסיימת לקרוא ב-RTL.
@@ -5863,6 +6296,63 @@ a.mv-bar-row:focus-visible {
   padding: 18px;
 }
 
+/*
+ * ‎**האריח המצומצם של מסך הרשימה** — אותה הכרעה כמו במונים שבדשבורד,
+ * ומאותה סיבה.
+ *
+ * ‏ארבעה אריחים ברוחב רבע-מסך מעל טבלת הנכסים דוחקים את השורה
+ * הראשונה אל מתחת לקיפול, ובעל המוצר אמר זאת במפורש: „הקוביות
+ * תופסות הרבה מקום… שיהיו 2 בשורה, 2 שורות אחד מתחת לשני, ובאותו
+ * סקשן בצד ימין את איזור החיפוש”. בטור 372 האריח המלא (כותרת 18.5,
+ * אריח אייקון 44, ריפוד 18) פשוט אינו נכנס.
+ *
+ * ‎**המספר וההערה על קו בסיס אחד**, כמו ב-`mv-kpi--sm`: זה מה שממלא
+ * את הרוחב שהמספר הותיר במקום להוסיף שורה שלישית. ‎`margin-top: auto`
+ * על אותה שורה שומר על יישור המספרים בין שני האריחים שבשורה, גם
+ * כשתווית אחת נשברת לשתי שורות.
+ */
+.mv-stat-tile--sm {
+  gap: 0;
+  padding: 12px 14px;
+}
+.mv-stat-tile--sm > .mv-card-head {
+  gap: 9px;
+}
+.mv-stat-tile--sm .mv-tile {
+  width: 30px;
+  height: 30px;
+  border-radius: 10px;
+}
+.mv-stat-tile--sm .mv-tile svg {
+  width: 16px;
+  height: 16px;
+}
+.mv-stat-tile--sm .mv-card-head__title {
+  font-size: var(--type-body-sm);
+  letter-spacing: normal;
+  line-height: 1.25;
+}
+.mv-stat-tile__foot {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  /* ‎`auto` למעלה — זה מה שמיישר את המספרים בין אריחי אותה שורה */
+  margin: auto 0 0;
+  padding-top: 8px;
+}
+.mv-stat-tile__value {
+  font-size: var(--type-counter);
+  font-weight: 900;
+  letter-spacing: var(--type-kpi-track);
+  line-height: 1;
+}
+.mv-stat-tile__note {
+  min-width: 0;
+  font-size: var(--type-caption);
+  color: var(--color-text-muted);
+  line-height: 1.25;
+}
+
 .mv-tile {
   display: inline-flex;
   align-items: center;
@@ -6062,6 +6552,71 @@ a.mv-bar-row:focus-visible {
 .mv-kpi--compact .mv-tile svg {
   width: 16px;
   height: 16px;
+}
+
+/*
+ * ‎**האריח המצומצם — כשהמונים אינם ראש המסך.**
+ *
+ * ‏§24 העמידה ארבעה אריחים בשורה מלאה, מיד מתחת לפאנל הסוכן ומעל
+ * הרשת. בעל המוצר הוריד את שניהם לתחתית העמוד („זה פחות חשוב”),
+ * ובאותה נשימה אמר גם „הקוביות מדי ריקות”. שתי הבקשות מתלכדות
+ * לאותו תיקון: אריח בגובה 150 שכל תוכנו תווית, מספר ושורת משנה
+ * קצרה הוא ריק **בגלל** גודלו, ואריח שיורד לטור ברוחב 372 חייב
+ * להצטמצם ממילא.
+ *
+ * שני שינויי מבנה, ולא רק מספרים קטנים יותר:
+ *
+ * ‎**1. המספר וההערה על קו בסיס אחד.** בצורה המלאה הם שתי שורות,
+ * ולאריח שאין לו הערה נשמרה שורה ריקה בגובה `1.2em` רק כדי לשמור
+ * על יישור — כלומר חלל שנוסף בכוונה. כאן ההערה יושבת לצד המספר
+ * וממלאת את הרוחב שהוא הותיר.
+ *
+ * ‎**2. ‎`min-height` יורד ל-0.** ‎`margin: auto 0 0` על השורה
+ * התחתונה ממשיך להצמיד אותה לתחתית, ולכן „ALL TILES IN A ROW SHARE
+ * ONE HEIGHT” נשמר — הפעם מה-`stretch` של הרשת ולא מגובה קשיח.
+ * הרשת עצמה נמתחת לגובה פאנל הסוכן שלצדה, וכך אין חלל מת באף אחד
+ * מן השניים.
+ *
+ * הרקע, המסגרת והמעבר לניטרלי באפס נשארים מ-`mv-kpi`: זו אותה
+ * צורה בקנה מידה אחר, ולא רכיב שני.
+ */
+.mv-kpi--sm {
+  min-height: 0;
+  padding: 13px 15px;
+}
+.mv-kpi--sm .mv-kpi__head {
+  gap: 9px;
+}
+.mv-kpi--sm .mv-tile {
+  width: 30px;
+  height: 30px;
+  border-radius: 10px;
+}
+.mv-kpi--sm .mv-tile svg {
+  width: 16px;
+  height: 16px;
+}
+.mv-kpi--sm .mv-kpi__label {
+  font-size: var(--type-caption-lg);
+  line-height: 1.25;
+}
+.mv-kpi__foot {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  /* ‎`auto` למעלה — זה מה שמיישר את השורה התחתונה בין האריחים */
+  margin: auto 0 0;
+  padding-top: 10px;
+}
+.mv-kpi--sm .mv-kpi__value {
+  margin-top: 0;
+  /* דרגת „מונה” (30) ולא דרגת KPI (46): אותו תפקיד, רבע מהשטח */
+  font-size: var(--type-counter);
+}
+.mv-kpi--sm .mv-kpi__note {
+  min-width: 0;
+  margin-top: 0;
+  line-height: 1.25;
 }
 
 /*
@@ -6576,8 +7131,3019 @@ a.mv-bar-row:focus-visible {
   color: var(--color-text-muted);
 }
 
+/* ==================================================================
+   הדפסה — המסמך שנחתם, ולא המסך שממנו חתמו.
+
+   ‎**למה זה כאן.** אדם שחותם על הסכם תיווך מדפיס אותו או שומר PDF.
+   בלי הכללים האלה יוצא לו דף עם כפתור „אני חותם על ההסכם”, תיבת
+   סימון ריקה ולוח חתימה — כלומר מסמך שנראה כאילו לא נחתם. מה שכן
+   חייב לצאת: נייר המכתבים של המשרד, נוסח ההסכם, ואישור החתימה עם
+   מזהה המסמך — הראיה עצמה.
+
+   ‎`!important` בכוונה: המחלקות של Tailwind יושבות באותה ספציפיות,
+   וכלל הדפסה שמפסיד להן אינו כלל.
+   ================================================================== */
+/* ==========================================================================
+   סליידר — פריט אחד בכל פעם
+   ==========================================================================
+
+   פריט אחד ולא קיר: רשימה שלמה על המסך היא רשימה שגוללים מעליה.
+
+   המעבר הוא הצללה קצרה ולא החלקה: החלקה אומרת „יש עוד משם”, כלומר
+   רצף — ופריטים שאינם סדרה שממשיכה זו את זו אינם צריכים לומר זאת.
+
+   ‏שימשו את משפטי המוטבציה, ומשמשים עכשיו את הכרזות המערכת בדשבורד.
+   ‏שמות נייטרליים ולא `mv-quote-*`, כדי שהקורא הבא לא יחפש ציטוט. */
+.mv-slide-in {
+  animation: mv-slide-in 300ms ease-out;
+}
+@keyframes mv-slide-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+/* מי שביקש פחות תנועה מקבל את הפריט מיד, בלי הצללה */
+@media (prefers-reduced-motion: reduce) {
+  .mv-slide-in {
+    animation: none;
+  }
+}
+
+/* גרש פתיחה גדול מאחורי המשפט. דקורטיבי בלבד, ולכן aria-hidden
+   בסימון — קורא מסך שהיה מקריא אותו היה פותח בתו חסר משמעות. */
+.mv-quote-mark {
+  font-size: calc(34 / 16 * 1rem);
+  /* קו קצר ולא שורה שלמה: התיבה של 34 פיקסלים סביב גרש אחד הייתה
+     דוחפת את המשפט מטה ומשאירה מעליו חלל שנראה כמו טעות */
+  line-height: 0.7;
+  color: var(--domain-violet-fg);
+  opacity: 0.4;
+  user-select: none;
+}
+
+/* נקודות הניווט — מצב, ולא רק קישוט: הרחבה היא היכן שאתה.
+ *
+ * הנוכחית מסומנת ב**רוחב** ולא רק בצבע, וזו אינה החמצה עיצובית
+ * אלא התיקון: צבע לבדו נשען על היכולת להבחין בין שני גוונים
+ * קרובים, ובמצב ניגודיות גבוהה שני הטוקנים נופלים לאותו שחור.
+ * גלולה רחבה פי שלושה נקראת גם שם, וגם למי שאינו מבחין בצבע.
+ * הטבעת סביבה מפרידה אותה מהמשטח כשהם באותו כיוון. */
+.mv-slide-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  background: var(--color-input-border);
+  transition: width 160ms ease, background 160ms ease;
+}
+.mv-slide-dot[aria-current="true"] {
+  width: 22px;
+  background: var(--color-text);
+  box-shadow: 0 0 0 1px var(--color-text);
+}
+
+
+@media print {
+  /* מה שאין לו משמעות על נייר: טפסים, כפתורים וניווט */
+  .mv-no-print {
+    display: none !important;
+  }
+
+  body {
+    background: #ffffff !important;
+    color: #000000 !important;
+  }
+
+  /* הדף כבר ממוסגר בנייר עצמו — מסגרת, פינות מעוגלות וצל סביבו הם
+     שאריות של כרטיס במסך, ועל נייר הם נראים כמו טעות דפוס */
+  .mv-doc {
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    max-width: none !important;
+    background: transparent !important;
+    /* נוסח משפטי שנקטע באמצע משפט בין עמודים קשה לקריאה ולציטוט */
+    orphans: 3;
+    widows: 3;
+  }
+
+  /* הכתובת שמאחורי כל קישור אינה מעניינת כאן — היא טוקן ארוך */
+  a[href]::after {
+    content: "" !important;
+  }
+}
+
+/* ============================================================
+   רשת שיתופי הפעולה — התאמה לקובץ העיצוב (בקשת בעל המוצר)
+   ------------------------------------------------------------
+   הצילומים שהגיעו מגדירים שפה אחת לכל מסכי הרשת, ולכן הכללים כאן
+   מחליפים כמה מהקודמים במקום להוסיף מחלקות מקבילות: שתי שפות
+   לאותו רכיב הן מה שיתפצל בעריכה הראשונה.
+   ============================================================ */
+
+/*
+ * המונה בלשונית — עיגול ולא מספר חשוף.
+ *
+ * בקובץ העיצוב הוא תג עגול אפור בלשונית רגילה, וירוק בלשונית
+ * הפעילה (הכהה). הצורה היא מה שהופך אותו למונה שנסרק במבט אחד
+ * במקום למילה נוספת בתווית.
+ */
+.mv-tab-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: calc(24 / 16 * 1rem);
+  height: calc(24 / 16 * 1rem);
+  padding: 0 7px;
+  border-radius: 999px;
+  background: var(--color-hover-soft);
+  color: var(--color-text-soft);
+  font-size: var(--type-caption);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+/*
+ * ‏בלשונית הפעילה (הכהה) המונה מקבל את זוג הירוק של מערכת הדומיינים
+ * ולא את ירוק הפעולה: `--color-on-action` על `--color-primary` נותן
+ * ‎2.7:1 בערכה הבהירה — כלומר מספר שאי אפשר לקרוא בדיוק בלשונית
+ * שמסתכלים עליה. ‎`domain-green-tile/fg` הוא זוג שנבדק בשלוש
+ * הערכות.
+ */
+.mv-entity-tabs > button[aria-selected="true"] .mv-tab-count {
+  background: var(--domain-green-tile);
+  color: var(--domain-green-fg);
+}
+
+/*
+ * שורת הלשוניות — הסרגל ולצידו פקד שאינו לשונית.
+ *
+ * ‏„איך עובדת הרשת?” אינו מציג פאנל־אחות אלא פותח הסבר, ולכן הוא
+ * יושב **מחוץ** ל-`role="tablist"` ובאותה שורה: ילד שאינו `tab`
+ * בתוך רשימת לשוניות שובר את הניווט של קורא המסך.
+ */
+.mv-tabrow {
+  display: flex;
+  align-items: center;
+  /*
+   * עוטף, כדי שההסבר שנפתח מהקצה יקבל שורה משלו ברוחב מלא במקום
+   * למתוח את העמוד לרוחב (הוא ילד של אותה שורה — ראו `guide.tsx`).
+   */
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+.mv-tabrow > section {
+  flex: 1 0 100%;
+  margin-bottom: 0;
+}
+.mv-tabrow > .mv-entity-tabs {
+  margin-bottom: 0;
+  min-width: 0;
+}
+.mv-tabrow__aside {
+  margin-inline-start: auto;
+  flex: none;
+}
+
+/*
+ * תת-לשוניות הרשת — גלולות נפרדות, והפעילה בירוק בהיר.
+ *
+ * ‏הן אינן הסרגל הראשי ואסור להן להיקרא כמוהו: הראשי מחליף **אזור**
+ * והפעילה בו כהה, ואלה מחליפות **כיוון בתוך אותו אזור**. אותה
+ * גלולה שחורה בשתי הרמות הייתה אומרת שיש כאן שני ניווטים שווים.
+ */
+.mv-subtabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.mv-subtabs > button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 0 16px;
+  border: 1px solid var(--color-input-border);
+  border-radius: 999px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: var(--type-caption-lg);
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color 0.14s ease, border-color 0.14s ease;
+}
+.mv-subtabs > button > svg {
+  flex: none;
+  opacity: 0.6;
+}
+.mv-subtabs > button:hover {
+  border-color: var(--color-border-hover);
+  background: var(--color-surface-sunken);
+}
+.mv-subtabs > button[aria-selected="true"] {
+  background: var(--color-primary-soft);
+  /* גבול בצבע הפעולה ולא מילוי בלבד — 1.4.11 על פקד במצב נבחר */
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+  font-weight: 800;
+}
+.mv-subtabs > button[aria-selected="true"] > svg {
+  opacity: 1;
+}
+.mv-subtab-count {
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-muted);
+}
+.mv-subtabs > button[aria-selected="true"] .mv-subtab-count {
+  color: inherit;
+}
+
+/*
+ * שורת החיפוש — שדה רחב עם זכוכית מגדלת בתוכו, ו„עוד סינונים” בקצה.
+ *
+ * כפתור „חפש” נפרד ירד: השדה נשלח ב-Enter, והכפתור שלצידו רק גזל
+ * מרוחב השדה בלי להוסיף דרך פעולה.
+ */
+.mv-searchrow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.mv-searchbox {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: 1 1 240px;
+  min-width: 0;
+}
+.mv-searchbox > svg {
+  position: absolute;
+  /* בעברית תחילת השדה מימין — ‎`inset-inline-start` ולא `left` */
+  inset-inline-start: 15px;
+  color: var(--color-text-muted);
+  pointer-events: none;
+}
+.mv-searchbox > input {
+  width: 100%;
+  min-height: 46px;
+  border: 1px solid var(--color-input-border);
+  border-radius: 14px;
+  background: var(--color-field);
+  color: var(--color-text);
+  padding-inline-start: 44px;
+  padding-inline-end: 14px;
+  font-size: var(--type-body-sm);
+}
+.mv-morefilters {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  min-height: 46px;
+  padding: 0 16px;
+  border: 1px solid var(--color-input-border);
+  border-radius: 14px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: var(--type-caption-lg);
+  font-weight: 700;
+  cursor: pointer;
+}
+.mv-morefilters:hover {
+  border-color: var(--color-border-hover);
+  background: var(--color-surface-sunken);
+}
+.mv-morefilters > svg {
+  flex: none;
+  opacity: 0.65;
+}
+.mv-morefilters__chevron {
+  display: inline-flex;
+  transition: transform 0.15s ease;
+}
+.mv-morefilters[aria-expanded="true"] .mv-morefilters__chevron {
+  transform: rotate(180deg);
+}
+@media (prefers-reduced-motion: reduce) {
+  .mv-morefilters__chevron {
+    transition: none;
+  }
+}
+
+/* ההערה שבקצה כותרת הכרטיס — מה הקטע הזה, במשפט אחד */
+.mv-card-head__note {
+  margin: 0;
+  margin-inline-start: auto;
+  min-width: 0;
+  font-size: var(--type-caption-lg);
+  color: var(--color-text-muted);
+}
+
+/* ------------------------------------------------------------
+   כרטיס הרשת — הגרסה שבקובץ העיצוב
+   ------------------------------------------------------------ */
+
+/* הכרטיס נושא את צבע הקטע שלו: כחול לנכסים, סגול להתאמות, ניטרלי לשאר */
+.mv-net-card {
+  border-color: var(--d-line, var(--color-border));
+}
+
+/* פס עליון: מי פרסם (מימין) ומצב ההתאמה (משמאל) */
+.mv-net-top {
+  align-items: flex-start;
+  margin-bottom: 14px;
+}
+
+/*
+ * המשרד המפרסם — עיגול, שם, ועיר.
+ *
+ * הוא היה צ'יפ בין צ'יפים, כלומר פרט ברשימת פרטים. בפועל הוא
+ * הראשון שמסתכלים עליו: מודעה של משרד מוכר נקראת אחרת ממודעה של
+ * משרד שלא שמעו עליו, וההחלטה אם בכלל לקרוא נופלת שם.
+ */
+.mv-net-office {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.mv-net-office__avatar {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: calc(38 / 16 * 1rem);
+  height: calc(38 / 16 * 1rem);
+  border-radius: 50%;
+  background: var(--d-tile, var(--domain-neutral-tile));
+  color: var(--d-fg, var(--domain-neutral-fg));
+  font-size: var(--type-caption-lg);
+  font-weight: 800;
+  overflow: hidden;
+}
+.mv-net-office__avatar > img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.mv-net-office__name {
+  display: block;
+  font-size: var(--type-caption-lg);
+  font-weight: 800;
+  line-height: 1.25;
+}
+.mv-net-office__place {
+  display: block;
+  font-size: var(--type-caption);
+  color: var(--color-text-muted);
+}
+
+/* שורת הכותרת — מה זה (מימין) ומה מיוחד בו (משמאל) */
+.mv-net-titlerow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.mv-net-titlerow .mv-net-hero-title {
+  min-width: 0;
+}
+.mv-net-sub {
+  margin: 4px 0 12px;
+  font-size: var(--type-caption-lg);
+  color: var(--color-text-muted);
+}
+
+/* תיבת הכסף — בצבע הקטע, ולא בירוק אחיד בכל כרטיס */
+.mv-net-money {
+  align-items: center;
+  padding: 13px 16px;
+  border-color: var(--d-line, var(--color-border));
+  background: var(--d-bg, var(--color-surface-sunken));
+}
+.mv-net-money-label {
+  color: var(--color-text-muted);
+  font-weight: 700;
+}
+.mv-net-money-value {
+  color: var(--d-fg, var(--color-text));
+}
+
+/*
+ * אריחי המספרים — תווית מעל, ערך מתחת, בלי אייקון.
+ *
+ * האייקון שהיה כאן דרש לפענח סמל („סרגל = שטח?”), ואילו המילה
+ * אומרת זאת. באריח בגובה שתי שורות המילה גם אינה עולה במקום.
+ */
+.mv-net-fact {
+  gap: 3px;
+  padding: 9px 8px;
+  background: var(--color-surface);
+}
+.mv-net-fact-label {
+  order: -1;
+  font-weight: 700;
+}
+.mv-net-fact-value {
+  font-size: var(--type-body-sm);
+}
+
+/* ההערה — תיבה מלאה ולא קו צד; אותה צורה כמו שאר תיבות הכרטיס */
+.mv-net-say {
+  border-inline-start: none;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--color-surface-sunken);
+  padding: 10px 14px;
+}
+.mv-net-say-label {
+  color: var(--color-text-muted);
+}
+
+/*
+ * רצועת ההתאמות — כותרת בשתי שורות, וסגורה כברירת מחדל.
+ *
+ * ‎**סגורה**: כך היא בקובץ העיצוב, ושורת התקציר („2 קונים · הגבוה
+ * 94”) היא מה שמאפשר זאת — כשהיא סגורה עדיין יודעים כמה יש וכמה
+ * טובה ההתאמה הטובה ביותר, וזו כל ההחלטה אם לפתוח.
+ */
+.mv-net-strip {
+  border-radius: 14px;
+}
+.mv-net-strip-head {
+  gap: 10px;
+  padding: 10px 12px;
+  color: var(--color-text);
+}
+.mv-net-strip__tile {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: calc(34 / 16 * 1rem);
+  height: calc(34 / 16 * 1rem);
+  border-radius: 11px;
+  background: var(--d-tile);
+  color: var(--d-fg);
+}
+.mv-net-strip-title {
+  flex: 1 1 auto;
+  color: var(--d-fg);
+}
+.mv-net-strip__sub {
+  display: block;
+  font-size: var(--type-caption);
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+.mv-net-strip-count {
+  background: var(--color-surface);
+  color: var(--d-fg);
+  font-weight: 800;
+}
+.mv-net-strip-chevron {
+  margin-inline-start: 0;
+  color: var(--d-fg);
+}
+
+/*
+ * „אין התאמה” — תיבה מקווקוות וממורכזת.
+ *
+ * המקווקו אומר „עדיין לא”, ולא „שגיאה”: אין כאן תקלה אלא מצב שיכול
+ * להשתנות ברגע שייכנס נכס מתאים, וזה בדיוק מה שכפתור המעקב מציע.
+ */
+.mv-net-nomatch {
+  display: block;
+  text-align: center;
+  border-color: var(--color-border-hover);
+  background: var(--color-surface-sunken);
+  padding: 12px 14px;
+}
+.mv-net-nomatch__head {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: var(--type-caption-lg);
+  font-weight: 800;
+}
+.mv-net-nomatch__head > svg {
+  flex: none;
+  color: var(--color-text-muted);
+}
+.mv-net-nomatch__hint {
+  margin: 4px 0 0;
+  font-size: var(--type-caption);
+  color: var(--color-text-soft);
+}
+
+/*
+ * תחתית הכרטיס — המזהה בשורה משלו, והפעולות בשתי גלולות שוות.
+ *
+ * שוות ברוחבן ובכוונה: „כל הפרטים” ו„עקוב” הן שתי דרכים סבירות
+ * להמשיך, ולא פעולה ראשית ומשנית. שם שיש פעולה ראשית אמיתית
+ * ‎(„בקש שיתוף”) היא זו שמקבלת מילוי.
+ */
+.mv-net-cardfoot {
+  display: block;
+  padding-top: 12px;
+}
+.mv-net-cardfoot .mv-net-meta {
+  justify-content: flex-start;
+  margin-bottom: 10px;
+}
+.mv-net-actions {
+  display: grid;
+  /*
+   * ‏עמודות שנגזרות ממספר הילדים ולא מספר קבוע: כרטיס שלי מציג רק
+   * „כל הפרטים”, וב-`1fr 1fr` הוא היה תופס חצי שורה ומשאיר חצי ריק.
+   */
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 10px;
+}
+.mv-net-act {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 42px;
+  padding: 0 12px;
+  border: 1px solid var(--color-input-border);
+  border-radius: 12px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: var(--type-caption-lg);
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color 0.14s ease, border-color 0.14s ease;
+}
+.mv-net-act:hover:not(:disabled) {
+  border-color: var(--color-border-hover);
+  background: var(--color-surface-sunken);
+}
+.mv-net-act:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+.mv-net-act > svg {
+  flex: none;
+  opacity: 0.7;
+}
+.mv-net-act--go {
+  border-color: var(--color-primary);
+  background: var(--color-primary-soft);
+  color: var(--color-primary);
+  font-weight: 800;
+}
+.mv-net-act--go:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-primary) 14%, var(--color-surface));
+  border-color: var(--color-primary);
+}
+.mv-net-act--go > svg {
+  opacity: 1;
+}
+/* מצב „כבר עוקב” — מסומן במילוי **ובגבול**, לא במילוי לבדו */
+.mv-net-act--on {
+  border-color: var(--color-primary);
+  background: var(--color-primary-soft);
+  color: var(--color-primary);
+}
+
+/* „איך עובדת הרשת?” — נראה כלשונית אף שאינו אחת מהן */
+.mv-tabrow__aside > button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 44px;
+  margin: 0;
+  padding: 0 16px;
+  border: 1px solid var(--color-input-border);
+  border-radius: 14px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: var(--type-caption-lg);
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.mv-tabrow__aside > button:hover {
+  border-color: var(--color-border-hover);
+  background: var(--color-surface-sunken);
+}
+
+/*
+ * בורר „בקש שיתוף” — נפתח מעל תחתית הכרטיס.
+ *
+ * הוא היה `<details>` עם שורת פתיחה משלו בתוך הכרטיס; עכשיו הכפתור
+ * שבתחתית פותח אותו, וכך יש **פעולה אחת** ולא פעולה וקיצור־דרך.
+ */
+.mv-net-ask {
+  margin-bottom: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--color-primary-accent);
+  border-radius: 14px;
+  background: var(--color-primary-soft);
+}
+
+/* ------------------------------------------------------------
+   שורת רשת — הצעות, הפניות ועסקאות ברשימה ולא ברשת כרטיסים
+   ------------------------------------------------------------
+   ‏רשימה שכל פריט בה נסרק ולא נקרא: „מה זה, באיזה מצב, ומה עושים”.
+   כרטיס מלא לכל הצעה היה נותן לכל אחת גובה של מודעה, ורשימה של חמש
+   הצעות הפכה למסך שגוללים.
+   ------------------------------------------------------------ */
+.mv-net-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.mv-net-line {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 12px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  background: var(--color-surface-sunken);
+}
+.mv-net-line__main {
+  flex: 1 1 240px;
+  min-width: 0;
+}
+.mv-net-line__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 0;
+  font-size: var(--type-row-title);
+  font-weight: 800;
+}
+.mv-net-line__sub {
+  display: block;
+  margin-top: 2px;
+  font-size: var(--type-caption);
+  color: var(--color-text-muted);
+}
+.mv-net-line__aside {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-inline-start: auto;
+}
+.mv-net-line__meta {
+  font-size: var(--type-caption);
+  color: var(--color-text-muted);
+}
+
+/* מתג התצוגה בשורת החיפוש — אותו גובה כמו השדה ו„עוד סינונים” */
+.mv-searchrow .mv-seg {
+  min-height: 46px;
+  border-radius: 14px;
+}
+.mv-searchrow .mv-seg > button {
+  border-radius: 11px;
+}
+
+/*
+ * ‏„להציע נכס אחר” — שורה שקטה, לא כפתור שלישי.
+ *
+ * היא הגרסה הידנית של הפעולה שכבר יש בכרטיס, ולכן היא מקופלת
+ * ובמשקל של הערת שוליים.
+ */
+.mv-net-foot {
+  border-top: none;
+  padding-top: 0;
+  margin-bottom: 10px;
+  display: block;
+}
+
+/* ============================================================
+   לשונית „בעל הנכס” — לפי קובץ העיצוב
+   ============================================================ */
+
+/*
+ * ‏„מה נחסם בלי בעל נכס” — תיבה מקווקוות עם רשימת מנעולים.
+ *
+ * המקווקו אומר „חסר משהו”, לא „שגיאה”. הרשימה אומרת בדיוק אילו
+ * פעולות במסך הזה לא יעבדו — וזה מה שהופך „הוסף בעל נכס” להחלטה
+ * במקום להצעה.
+ */
+.mv-blocked {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border: 1px dashed color-mix(in srgb, var(--color-danger) 40%, transparent);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--color-danger) 5%, var(--color-surface));
+}
+.mv-blocked__label {
+  display: block;
+  margin-bottom: 8px;
+  font-size: var(--type-caption);
+  font-weight: 800;
+  color: var(--color-text-muted);
+}
+.mv-blocked__list {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.mv-blocked__list > li {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: var(--type-caption-lg);
+  color: var(--color-text-soft);
+}
+.mv-blocked__list > li > svg {
+  flex: none;
+  color: var(--color-danger);
+}
+
+/*
+ * ‏שורת בחירה — „מי גר בנכס”, ובכל מקום שבו בוחרים אחד מכמה מצבים.
+ *
+ * הצורה היא שאומרת „אחד מהם”: עיגול בקצה, כותרת, ומה שנגזר ממנה.
+ * המצב הנבחר מסומן במילוי, בגבול **ובעיגול מלא** — שלושה סימנים,
+ * כי מילוי לבדו אינו עומד ב-1.4.11 ואינו נראה בערכת ניגודיות
+ * גבוהה.
+ */
+.mv-choices {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.mv-choice {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid var(--color-input-border);
+  border-radius: 14px;
+  background: var(--color-surface);
+  text-align: start;
+  cursor: pointer;
+  transition: background-color 0.14s ease, border-color 0.14s ease;
+}
+.mv-choice:disabled {
+  cursor: default;
+}
+/*
+  ‏‎`:not([aria-pressed="true"])` אינו קישוט — הוא תיקון.
+
+  ‏‎`.mv-choice:hover:not(:disabled)` הוא (0,3,0) ו-
+  ‎`.mv-choice[aria-pressed="true"]` הוא (0,2,0), כלומר הריחוף
+  **גובר** על הבחירה: שורה שנבחרה חוזרת להיראות לא-נבחרה ברגע
+  שהעכבר עליה. נתפס בבדפדפן — הרקע היה `--color-surface-sunken`
+  ולא הירוק — ולא בקריאה.
+*/
+.mv-choice:hover:not(:disabled):not([aria-pressed="true"]) {
+  border-color: var(--color-border-hover);
+  background: var(--color-surface-sunken);
+}
+.mv-choice__text {
+  flex: 1;
+  min-width: 0;
+}
+.mv-choice__title {
+  display: block;
+  font-size: var(--type-body-sm);
+  font-weight: 800;
+}
+.mv-choice__note {
+  display: block;
+  font-size: var(--type-caption);
+  color: var(--color-text-muted);
+}
+.mv-choice__mark {
+  flex: none;
+  width: calc(20 / 16 * 1rem);
+  height: calc(20 / 16 * 1rem);
+  border-radius: 50%;
+  border: 2px solid var(--color-input-border);
+  background: var(--color-surface);
+}
+/*
+  ‏סימון **מרובה** ולא בחירה אחת מתוך רשימה.
+
+  ‏העיגול של `.mv-choice` אומר „אחד מהם”; ריבוע אומר „אפשר את
+  שניהם”, וזו בדיוק ההבחנה שהמשתמש עושה בלי לקרוא. שאר המחלקה
+  זהה, ולכן זה וריאנט של צורת הסימון ולא רכיב שני.
+*/
+.mv-choice--check .mv-choice__mark {
+  border-radius: 6px;
+}
+.mv-choice:disabled {
+  /* ‏רקע שקוע ולא שקיפות: שקיפות שוברת את יחס הניגודיות של הטקסט */
+  background: var(--color-field);
+}
+.mv-choice:disabled .mv-choice__title,
+.mv-choice:disabled .mv-choice__note {
+  color: var(--color-text-muted);
+}
+.mv-choice[aria-pressed="true"] {
+  border-color: var(--color-primary);
+  background: var(--color-primary-soft);
+}
+.mv-choice[aria-pressed="true"] .mv-choice__title {
+  color: var(--color-primary);
+}
+.mv-choice[aria-pressed="true"] .mv-choice__mark {
+  border-color: var(--color-primary);
+  /* טבעת פנימית — הנקודה שבתוך העיגול, בלי אלמנט נוסף */
+  box-shadow: inset 0 0 0 3px var(--color-surface);
+  background: var(--color-primary);
+}
+
+/*
+ * ‏שני הכרטיסים הראשונים בלשונית — זה לצד זה בשולחן, זה מתחת לזה
+ * בטלפון. הם שתי תשובות לאותה שאלה („מי מולי בנכס הזה”), ולכן הם
+ * נקראים יחד.
+ */
+.mv-owner-grid {
+  display: grid;
+  gap: 18px;
+  align-items: start;
+}
+@media (min-width: 900px) {
+  .mv-owner-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+/*
+ * ‏ציטוט של הלקוח — התוכן שהוא כתב, בתיבה משלו.
+ *
+ * זה הטקסט היחיד בכרטיס שאיש אחר כתב, וכשהוא היה פסקה רגילה אי אפשר
+ * היה להבדיל בינו לבין מה שהמערכת מוסיפה עליו.
+ */
+.mv-quote {
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--color-primary-accent);
+  border-radius: 14px;
+  background: var(--color-primary-soft);
+  font-size: var(--type-body-sm);
+  line-height: 1.55;
+}
+
+/* ------------------------------------------------------------
+   תצוגת „שורות” של הפיד — אותה מודעה, במסת מבט אחת
+   ------------------------------------------------------------ */
+.mv-net-rows > .mv-net-card {
+  padding: 12px 14px;
+  border-radius: 16px;
+}
+.mv-net-rowline {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.mv-net-rowline__tile {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: calc(40 / 16 * 1rem);
+  height: calc(40 / 16 * 1rem);
+  border-radius: 13px;
+  background: var(--d-tile, var(--domain-neutral-tile));
+  color: var(--d-fg, var(--domain-neutral-fg));
+}
+.mv-net-rowline__main {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+/*
+ * המספרים באמצע: המחיר בשורה משלו ומעליו כלום — הוא הדבר שסורקים
+ * לרוחב הרשימה, וכשהוא ישב בין הפרטים אי אפשר היה להשוות בין שורות.
+ */
+.mv-net-rowline__figures {
+  flex: 0 1 auto;
+  min-width: 0;
+  text-align: center;
+}
+.mv-net-rowline__money {
+  display: block;
+  font-size: var(--type-row-title);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+.mv-net-rowline__act {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-inline-start: auto;
+}
+/* בשורה הכפתורים בגודלם הטבעי ולא בשתי עמודות שוות */
+.mv-net-rowline__act > .mv-net-act,
+.mv-net-rowline__act > * > .mv-net-act {
+  min-width: 0;
+}
+
+/*
+ * ‏שדה מועד עם תווית — „מועד 📅”, ולא `mm/dd/yyyy` חשוף.
+ *
+ * ‎`datetime-local` ריק מציג בעברית „mm/dd/yyyy, --:--” בסדר הפוך,
+ * ואינו אומר למה הוא שם. התווית והאייקון עונים על זה, והשדה עצמו
+ * נשאר נייטיב — בורר התאריך של הדפדפן טוב מכל אחד שנכתוב.
+ */
+.mv-datefield {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 0 12px;
+  border: 1px solid var(--color-input-border);
+  border-radius: 12px;
+  background: var(--color-surface);
+  cursor: pointer;
+}
+.mv-datefield > svg {
+  flex: none;
+  color: var(--color-text-muted);
+}
+.mv-datefield__label {
+  font-size: var(--type-caption-lg);
+  font-weight: 700;
+}
+.mv-datefield > input {
+  border: none;
+  background: transparent;
+  color: var(--color-text);
+  font-size: var(--type-caption);
+  padding: 0;
+}
+.mv-datefield:focus-within {
+  border-color: var(--color-primary);
+}
+
+/*
+ * גלולת פעולה ראשית — מילוי מלא.
+ *
+ * ‎`--go` הוא ירוק רך לפעולה מוזמנת; זו הפעולה שהמסך קיים בשבילה,
+ * והיא היחידה בשורה שמקבלת מילוי מלא. שתיהן באותה משפחה כדי ששורת
+ * פעולות תקרא כשורה אחת ולא כשלוש מערכות כפתורים.
+ */
+.mv-net-act--solid {
+  border-color: var(--color-action);
+  background: var(--color-action);
+  color: var(--color-on-action);
+  font-weight: 800;
+}
+.mv-net-act--solid:hover:not(:disabled) {
+  border-color: var(--color-action-hover, var(--color-action));
+  background: var(--color-action-hover, var(--color-action));
+}
+.mv-net-act--solid > svg {
+  opacity: 1;
+}
+
+/*
+ * ‏תפריט פנימי לעמוד — „מה יש בעמוד הזה”, בלי לגלול כדי לגלות.
+ *
+ * ‏עוגנים רגילים, ולכן הנחיתה כבר נכונה: הכלל על
+ * ‎`:is(h1,h2,h3)[id]` נותן `scroll-margin-top` שמונע מהכותרת
+ * ‏להיחתך מתחת להידר הדביק.
+ *
+ * ‏גלילה אופקית ולא גלישה לשורה שנייה: ברוחב צר עשר תוויות היו
+ * ‏דוחפות את תוכן העמוד למטה, כלומר בדיוק את מה שהתפריט בא למנוע.
+ */
+.mv-page-menu__list {
+  display: flex;
+  gap: 8px;
+  margin: 0;
+  padding: 0 0 4px;
+  list-style: none;
+  overflow-x: auto;
+}
+.mv-page-menu__list a {
+  text-decoration: none;
+  white-space: nowrap;
+  display: inline-block;
+}
+
+/* ==========================================================================
+   כרטיס הקונה — החלקים שהעיצוב הוסיף
+   ==========================================================================
+
+   ‏השפה העיצובית עצמה כבר בטוקנים (הקנבס החם, הירוק, הסגול,
+   ‏הכרטיס והפינות) — היא נכנסה בסבבי העיצוב הקודמים. מה שנוסף כאן
+   ‏הוא רק מה שלא היה לו ייצוג: הבאנר הסגול, שורות השדה המלא/החסר,
+   ‏הכרטיס הכהה של הטופס, וסרגל הניווט התחתון במובייל.
+
+   ‏הכול דרך טוקנים ולא ערכי hex: המסך הזה אינו ערכה משלו, והוא
+   ‏חייב להתהפך נכון במצב כהה ובניגודיות גבוהה כמו כל השאר. */
+
+/* ‎**מונוגרמה גדולה — ריבוע מעוגל, לא עיגול.**
+ *
+ * ‏עיגול הוא תמונת פרופיל; ריבוע מעוגל הוא **כרטיס**. ההבדל קטן
+ * ‏ומכוון: אין כאן תמונה, ויש כאן ישות.
+ *
+ * ‏המילוי הוא המדרג הירוק של המותג ולא משטח שטוח, וזה גם מה
+ * ‏שמייצר את הניגודיות מול הטקסט הכהה שעליו — לכן שניהם קבועים
+ * ‏ולא נגזרים מהערכה. */
+.mv-avatar--lg {
+  width: 58px;
+  height: 58px;
+  border-radius: 18px;
+  font-size: calc(24 / 16 * 1rem);
+  font-weight: 900;
+  background: linear-gradient(160deg, #7df39c, #3fbf63);
+  color: #08240f;
+}
+
+/* ‎**„הפעולה הבאה” — באנר, ולא עוד כרטיס.**
+ *
+ * ‏הוא סגול כי זו שפת ההתאמות במערכת (`mv-domain-violet`), והוא
+ * ‏רחב-שורה כדי שלא יתחרה על תשומת לב עם הכרטיסים שמתחתיו: הוא
+ * ‏אומר משפט אחד ומציע פעולה אחת. */
+/* ‎**פס נגלל בלי סקרולבר — הגדרה אחת לכל הקוראים.**
+ *
+ * ‏שני העותקים הפרטיים (`mv-tabs`, `mv-entity-tabs`) אוחדו לכאן
+ * ‏כשנוסף השלישי — שורת השאלות של המנטור. שלוש העתקות של אותו
+ * ‏האק ספק-יצרן הן שלושה מקומות לתקן ביום שדפדפן משנה את הכלל.
+ *
+ * ‎**נגלל אינו „בלי אפשרות להגיע”**: הסתרת הסקרולבר לגיטימית רק
+ * ‏כשיש רמז אחר שאפשר לגלול — ראו `verify:scroll` על סרגל
+ * ‏הלשוניות, שאוכף בדיוק את זה.
+ */
+.mv-chiprow,
+.mv-tabs,
+.mv-entity-tabs {
+  scrollbar-width: none;
+}
+.mv-chiprow::-webkit-scrollbar,
+.mv-tabs::-webkit-scrollbar,
+.mv-entity-tabs::-webkit-scrollbar {
+  display: none;
+}
+/*
+ * ‎**סרגל שמסתיר סקרולבר חייב רמז אחר.** שורת השאלות של המנטור
+ * ‏קיבלה בתחילה `overflow-x-auto` והסתרת סקרולבר בלי מסכה — כלומר
+ * ‏שאלות שמעבר לקצה נראו פשוט כלא-קיימות (ביקורת Codex). היא
+ * ‏מחוברת עכשיו לאותו `useScrollAffordance` ולאותה מסכה כמו שני
+ * ‏הסרגלים האחרים.
+ */
+.mv-chiprow {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+}
+
+/* ‎**עמוד המנטור — השיחה היא המסך, והנתונים ברייל שלצידה.**
+ *
+ * ‏חבילת העיצוב `handoff-mentor`. הסבב הראשון הזיז סעיפים לשני
+ * ‏טורים והשאיר את הכרטיסים בשפה הגנרית של המערכת — כלומר עשה
+ * ‏פריסה ולא עיצוב. כאן נבנית השפה של העמוד עצמה: כותרת משלו,
+ * ‏בועות שיחה, כרטיס יעד כהה, אריחים צבועים לפי משמעות.
+ *
+ * ## ‏מאיפה הצבעים
+ *
+ * ‏הסגול של המנטור הוא הדומיין הסגול של המערכת
+ * ‎(`--domain-violet-*`) ולא פלטה שנייה כמעט-זהה: ‎#4A2691‎ שבחבילה
+ * ‏הוא בדיוק `--domain-violet-fg`, והשאר במרחק יחידות ספורות. סט
+ * ‏שני היה נראה זהה ומתפרק לאורך זמן — וגם מאבד את מצב כהה, שכבר
+ * ‏מוגדר לדומיין.
+ *
+ * ‏מה שאין לו מקבילה במערכת — הגרדיאנט הסגול והכהה של כרטיס
+ * ‏היעד — מקבל טוקן משלו, עם ערך כהה לצידו.
+ *
+ * ## ‏גלילה פנימית לכל אזור (החלטת בעל המוצר)
+ *
+ * ‏שני האזורים גוללים בעצמם ואינם נגררים עם העמוד: „לא יכול להיות
+ * ‏מצב שהאזור בצד ימין נגמר ואז נגלל למעלה”. לכן המעטפת בגובה
+ * ‏המסך פחות הכותרת, ובתוכה שני `overflow-y: auto`.
+ *
+ * ‎**ולצידו רצפה.** יש כאן סרגל נגישות שמגדיל טקסט, ומסך נמוך עם
+ * ‏טקסט מוגדל יכול להצר את המעטפת עד שהכותרת והמחבר לבדם ממלאים
+ * ‏אותה. `min-height` מחזיר במצב הזה את גלילת העמוד — הגלילה
+ * ‏הפנימית נשארת, והתוכן לעולם אינו נחתך.
+ */
+:root {
+  /* ‏גובה הכותרת ומרווחי התוכן — נקראים גם ע״י מעטפת המנטור, ולכן
+     ‏הם טוקן ולא מספר שכתוב פעמיים */
+  --mv-topbar-h: 64px;
+  --mv-content-px: 16px;
+  --mv-content-pt: 24px;
+  --mv-content-pb: 44px;
+  /* ‏אקסנט המנטור — ייחודי לעמוד (README §שפה עיצובית) */
+  /*
+   * ‎**החצי הכהה של הגרדיאנט, ולא הבהיר.** בחבילה הוא
+   * ‎`#9C6DFF → #7A4AE0`, אבל לבן על ‎#9C6DFF‎ הוא 3.47:1 — מתחת
+   * ‏לסף, ושער הניגודיות תפס את זה. אותו סגול, מהחצי שעומד בו.
+   */
+  --mn-grad-from: #7a4ae0;
+  --mn-grad-to: #6b36db;
+  /*
+   * ‏מסגרת של פקד סגול. ‎`--domain-violet-line` הוא קו דקורטיבי
+   * ‏של כרטיס (1.78:1) — הוא לא נועד לגבול של פקד, ולכן זה טוקן
+   * ‏משלו: 5.4:1 על לבן, 4.3:1 על רקע סגול רך.
+   */
+  --mn-control-line: #7a4ae0;
+  --mn-dark-from: #1b1233;
+  --mn-dark-to: #0b0e0c;
+  /* ‏על ‎#0B0E0C‎: הטקסט 16.5:1, המשני 10.4:1, המסגרת 4.1:1 */
+  --mn-dark-fg: #e9eeea;
+  --mn-dark-muted: #b6c0b8;
+  --mn-dark-line: #6b756d;
+}
+@media (min-width: 640px) {
+  :root {
+    --mv-content-px: 34px;
+    --mv-content-pt: 30px;
+  }
+}
+@media (min-width: 1024px) {
+  :root {
+    --mv-topbar-h: 78px;
+  }
+}
+
+.mv-mentor {
+  /* ‏מבטל את ריפוד עמודת התוכן: הכותרת והרייל נוגעים בקצה, כמו
+     ‏בקובץ העיצוב */
+  margin: calc(var(--mv-content-pt) * -1) calc(var(--mv-content-px) * -1)
+    calc(var(--mv-content-pb) * -1);
+  height: calc(100dvh - var(--mv-topbar-h));
+  min-height: 640px;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-bg);
+  overflow: hidden;
+}
+
+/* ---------- הכותרת (70px) ---------- */
+
+.mv-mentor__bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 70px;
+  padding: 10px 16px;
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+}
+@media (min-width: 640px) {
+  .mv-mentor__bar {
+    padding: 10px 28px;
+  }
+}
+.mv-mentor__avatar {
+  position: relative;
+  width: 42px;
+  height: 42px;
+  flex: none;
+  border-radius: 14px;
+  background: linear-gradient(140deg, var(--mn-grad-from), var(--mn-grad-to));
+  display: grid;
+  place-items: center;
+  color: #fff;
+  animation: mn-glow 3.4s ease-in-out infinite;
+}
+@keyframes mn-glow {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(122, 74, 224, 0.35);
+  }
+  50% {
+    box-shadow: 0 0 0 12px rgba(122, 74, 224, 0);
+  }
+}
+/* ‏נקודת „זמין” — יושבת על פינת האווטאר ולכן מסגרת בצבע המשטח */
+.mv-mentor__dot {
+  position: absolute;
+  inset-block-end: -2px;
+  inset-inline-start: -2px;
+  width: 13px;
+  height: 13px;
+  border-radius: 99px;
+  background: var(--color-success);
+  border: 2.5px solid var(--color-surface);
+}
+.mv-mentor__dot[data-off="true"] {
+  background: var(--color-text-muted);
+}
+.mv-mentor__title {
+  font-size: 19px;
+  font-weight: 900;
+  letter-spacing: -0.02em;
+  margin: 0;
+}
+.mv-mentor__state {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--type-body-sm);
+  font-weight: 700;
+  color: var(--color-success);
+  margin: 0;
+}
+.mv-mentor__state[data-off="true"] {
+  color: var(--color-text-muted);
+}
+.mv-mentor__state::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 99px;
+  background: currentColor;
+  flex: none;
+}
+.mv-mentor__barend {
+  margin-inline-start: auto;
+  flex: none;
+  display: flex;
+  gap: 9px;
+}
+
+/* ---------- שני האזורים ---------- */
+
+.mv-mentor__panes {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.mv-mentor__chat {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background:
+    radial-gradient(
+      1100px 420px at 78% -8%,
+      var(--domain-violet-bg) 0%,
+      transparent 62%
+    ),
+    var(--color-bg);
+}
+/*
+ * ‏שורת השיחות — מעל השיחה עצמה, ולכן אינה נגללת איתה. היא ניווט,
+ * ‏לא תוכן, ולכן היא נמוכה וללא רקע משלה.
+ */
+/*
+ * ‏שורת הפעולות מתחת לתשובת המנטור. שקופה עד ריחוף או דירוג: היא
+ * ‏שייכת להודעה ולא מתחרה בה, ומי שלא מדרג לא צריך לראות אותה.
+ */
+.mv-msg__acts {
+  display: flex;
+  gap: 4px;
+  margin-top: 6px;
+  opacity: 0.45;
+  transition: opacity 120ms ease;
+}
+
+.mv-msg:hover .mv-msg__acts,
+.mv-msg__acts:focus-within {
+  opacity: 1;
+}
+
+.mv-msg__act {
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 2px 6px;
+  background: transparent;
+  cursor: pointer;
+  font-size: var(--type-caption-lg);
+  line-height: 1.4;
+}
+
+.mv-msg__act:hover,
+.mv-msg__act:focus-visible {
+  border-color: var(--color-input-border);
+  background: var(--color-row-hover);
+}
+
+/* ‏מה שנבחר נשאר מסומן גם בלי ריחוף — אחרת הדירוג נעלם מהעין */
+.mv-msg__act[data-on="true"] {
+  opacity: 1;
+  border-color: var(--color-input-border);
+  background: var(--color-row-hover);
+}
+
+.mv-mentor__threadbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 10px 16px 0;
+}
+
+.mv-mentor__threadnote {
+  font-size: var(--type-caption);
+  color: var(--color-text-muted);
+}
+
+/*
+ * ‏רשימת השיחות הקודמות. תקרה על הגובה כדי שלא תדחוף את השיחה
+ * ‏מהמסך, ומעליה גלילה משלה — כמו כל אזור אחר בעמוד הזה.
+ */
+.mv-mentor__history {
+  margin: 8px 16px 0;
+  padding: 8px;
+  border: 1px solid var(--color-card-border);
+  border-radius: 12px;
+  background: var(--color-surface);
+  max-height: 240px;
+  overflow-y: auto;
+  font-size: var(--type-caption-lg);
+}
+
+/*
+ * ‏שורה ברשימה. `border` ולא `none` — שער הניגודיות דורש שלכל פקד
+ * ‏תהיה מסגרת מוגדרת, ובצדק: בלי הגדרה Preflight של Tailwind משאיר
+ * ‏כפתור בלי מסגרת ובלי רקע, כלומר בלי פקד נראה.
+ */
+.mv-mentor__historyrow {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  text-align: start;
+  background: transparent;
+  cursor: pointer;
+}
+
+.mv-mentor__historyrow:hover,
+.mv-mentor__historyrow:focus-visible {
+  background: var(--color-row-hover);
+  border-color: var(--color-input-border);
+}
+
+/* ‏השיחה הפתוחה מסומנת — אחרת הרשימה אינה אומרת איפה אתה עומד */
+.mv-mentor__historyrow[data-open="true"] {
+  background: var(--color-row-hover);
+  border-color: var(--color-input-border);
+}
+
+.mv-mentor__historytitle {
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.mv-mentor__historymeta {
+  font-size: var(--type-caption);
+  color: var(--color-text-muted);
+}
+
+/*
+ * ‏שורת נעוץ נושאת משפט שלם ולא כותרת קצרה. שתי שורות ואז חיתוך:
+ * ‏מספיק כדי לזהות איזה משפט זה, בלי ששורה אחת תמלא את הרשימה.
+ */
+/*
+ * ‏שורת הכרטיס המצורף — „מה מצורף” ו„להסיר”, יחד. `border` מפורש
+ * ‏ולא `none`: שער הניגודיות דורש שלכל פקד תהיה מסגרת מוגדרת,
+ * ‏ובלי הגדרה Preflight של Tailwind משאיר כפתור בלי מסגרת ובלי רקע.
+ */
+.mv-mentor__subject {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 260px;
+  padding: 2px 4px 2px 8px;
+  border: 1px solid var(--color-input-border);
+  border-radius: 999px;
+  background: var(--color-row-hover);
+  font-size: var(--type-caption);
+}
+
+.mv-mentor__subjecttitle {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-text);
+}
+
+.mv-mentor__subjectoff {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  line-height: 1;
+}
+
+.mv-mentor__subjectoff:hover,
+.mv-mentor__subjectoff:focus-visible {
+  border-color: var(--color-input-border);
+  color: var(--color-text);
+}
+
+/* ‏שורת הסינון מעל רשימת הבחירה: שני סוגים וחיפוש */
+.mv-mentor__subjectbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.mv-mentor__subjectsearch {
+  flex: 1;
+  min-width: 0;
+}
+
+.mv-mentor__pintext {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  font-weight: 500;
+}
+
+.mv-mentor__stream {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: none;
+  padding: 20px 16px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.mv-mentor__stream::-webkit-scrollbar,
+.mv-mentor__rail::-webkit-scrollbar {
+  display: none;
+}
+@media (min-width: 640px) {
+  .mv-mentor__stream {
+    padding: 26px 30px 10px;
+  }
+}
+.mv-mentor__foot {
+  flex: none;
+  padding: 12px 16px 18px;
+  background: linear-gradient(180deg, transparent, var(--color-bg) 34%);
+}
+@media (min-width: 640px) {
+  .mv-mentor__foot {
+    padding: 12px 30px 22px;
+  }
+}
+.mv-mentor__rail {
+  width: 352px;
+  flex: none;
+  background: var(--color-surface);
+  border-inline-start: 1px solid var(--color-border);
+  overflow-y: auto;
+  scrollbar-width: none;
+  /*
+   * ‏הריפוד בקצה החיצוני גדול מהשאר: שתי לשוניות צפות — „נגישות”
+   * ‏ו„תמיכה” — מרותקות לקצה החלון ורוחבן 42px. בשאר העמודים גלישת
+   * ‏עמודת התוכן מרחיקה מהן את התוכן; כאן המעטפת נוגעת בקצה בכוונה,
+   * ‏ולכן המרחק צריך להיאמר במפורש. בלעדיו „לסיים” של היעד המשני
+   * ‏יושב מתחת ללשונית ואי אפשר ללחוץ עליו.
+   *
+   * ‎**פיזי ולא לוגי:** הלשוניות עצמן מרותקות ב-`left: 0`, ולכן
+   * ‏המרחק מהן שייך לשמאל ולא לקצה הלוגי.
+   */
+  padding: 22px 20px 28px;
+  padding-left: 48px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+/*
+ * ‎**מתחת ל-1200px: מסך שיחה מלא, והרייל זורם מתחתיו.**
+ *
+ * ‏קובץ העיצוב (1b) מראה במובייל מסך שיחה אחד עם מחבר נעוץ בתחתית,
+ * ‏בלי רייל. הרייל אינו נמחק — הוא תוכן אמיתי — ולכן הוא יורד מתחת
+ * ‏למסך השיחה כזרימה רגילה של העמוד.
+ *
+ * ‏שני גוללים על מסך של 844px היו נותנים לכל אחד כ-350px: מסך שיחה
+ * ‏שאי אפשר לשוחח בו ורייל שאי אפשר לקרוא בו. מסך אחד ומתחתיו
+ * ‏העמוד — זה מה שהעיצוב מבקש, וזה גם מה שעובד באגודל.
+ */
+@media (max-width: 74.99em) {
+  .mv-mentor {
+    height: auto;
+    min-height: 0;
+    overflow: visible;
+  }
+  .mv-mentor__panes {
+    flex-direction: column;
+  }
+  .mv-mentor__chat {
+    /* ‏מסך השיחה תופס את החלון פחות הכותרות; המחבר נשאר בתחתיתו */
+    height: calc(100dvh - var(--mv-topbar-h) - 70px);
+    min-height: 420px;
+    flex: none;
+  }
+  .mv-mentor__rail {
+    width: auto;
+    border-inline-start: none;
+    border-top: 1px solid var(--color-border);
+    padding: 16px 16px 28px;
+    overflow: visible;
+  }
+}
+
+/*
+ * ‎**תפריט העמוד ברייל — נשבר לשורות, ולא נגלל לרוחב.**
+ *
+ * ‏הוא נכתב לרוחב עמוד מלא, וברייל של 352px הוא נעשה סרגל של 974px
+ * ‏שמסתיים באמצע מילה — כלומר בדיוק „תוכן שנראה חתוך” שהשער
+ * ‎`verify:scroll` נבנה בגללו. אינדקס שמסתיר חצי מהפריטים שלו הוא
+ * ‏אינדקס גרוע; שתי שורות צ׳יפים קטנים עולות פחות.
+ */
+.mv-mentor__rail .mv-page-menu__list {
+  flex-wrap: wrap;
+  overflow-x: visible;
+}
+
+/* ---------- כרטיס הפתיח ---------- */
+
+.mv-mentor__greet {
+  background: var(--color-surface);
+  border: 1px solid var(--domain-violet-line);
+  border-radius: 22px;
+  padding: 20px;
+  box-shadow: var(--shadow-card);
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+}
+.mv-mentor__greeticon {
+  width: 52px;
+  height: 52px;
+  flex: none;
+  border-radius: 17px;
+  background: linear-gradient(140deg, var(--mn-grad-from), var(--mn-grad-to));
+  display: grid;
+  place-items: center;
+  color: #fff;
+  animation: mn-float 5s ease-in-out infinite;
+}
+@keyframes mn-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-5px);
+  }
+}
+.mv-mentor__greettitle {
+  font-size: 22px;
+  font-weight: 900;
+  letter-spacing: -0.03em;
+  line-height: 1.2;
+  margin: 0;
+  text-wrap: balance;
+}
+@media (min-width: 640px) {
+  .mv-mentor__greettitle {
+    font-size: 27px;
+  }
+}
+.mv-mentor__greetbody {
+  font-size: var(--type-row-title);
+  color: var(--color-text-muted);
+  line-height: 1.55;
+  margin: 6px 0 0;
+  text-wrap: pretty;
+}
+.mv-mentor__greetactions {
+  display: flex;
+  gap: 9px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+}
+
+/* ---------- בועות השיחה ---------- */
+
+.mv-msg {
+  display: flex;
+}
+.mv-msg__in {
+  max-width: 88%;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+@media (min-width: 640px) {
+  .mv-msg__in {
+    max-width: 82%;
+  }
+}
+.mv-msg__meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 4px;
+  font-size: var(--type-caption-lg);
+  color: var(--color-text-muted);
+}
+.mv-msg__who {
+  font-weight: 800;
+}
+.mv-msg__body {
+  border-radius: 20px 20px 20px 6px;
+  padding: 14px 17px;
+  font-size: var(--type-row-title);
+  line-height: 1.6;
+  box-shadow: var(--shadow-card);
+  text-wrap: pretty;
+  white-space: pre-line;
+  background: var(--color-surface);
+  border: 1px solid var(--domain-violet-line);
+  color: var(--color-text);
+}
+/* ‏המתווך — ירוק, ובקצה השני */
+.mv-msg--me {
+  justify-content: flex-end;
+}
+.mv-msg--me .mv-msg__in {
+  align-items: flex-end;
+  max-width: 78%;
+}
+.mv-msg--me .mv-msg__body {
+  background: var(--color-success-soft);
+  border-color: var(--color-primary-accent);
+  color: var(--color-primary);
+  border-radius: 20px 20px 6px 20px;
+}
+/* ‏כרטיסי פעולה בתוך בועת המנטור */
+.mv-msg__cards {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 2px;
+}
+.mv-actioncard {
+  min-width: 210px;
+  flex: 1 1 210px;
+  text-align: start;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 16px;
+  padding: 13px 15px;
+  cursor: pointer;
+  transition:
+    transform 0.17s cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 0.2s ease,
+    border-color 0.17s ease;
+}
+.mv-actioncard:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--shadow-pop);
+  border-color: var(--domain-violet-line);
+}
+.mv-actioncard__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--type-body);
+  font-weight: 900;
+}
+.mv-actioncard__sub {
+  font-size: var(--type-body-sm);
+  color: var(--color-text-muted);
+  margin: 7px 0 0;
+  line-height: 1.45;
+  /* ‏גוף המנטור נכתב שורה לכל פריט — בלי זה הדפדפן מאחד אותן לפסקה. */
+  white-space: pre-line;
+}
+.mv-actioncard__cta {
+  font-size: var(--type-body-sm);
+  font-weight: 900;
+  color: var(--domain-violet-fg);
+  margin-top: 9px;
+  border: 1px solid var(--color-input-border);
+  border-radius: 999px;
+  padding: 4px 12px;
+  background: var(--color-surface);
+  cursor: pointer;
+  transition:
+    transform 0.16s ease,
+    background 0.16s ease,
+    border-color 0.16s ease;
+}
+.mv-actioncard__cta:hover:not(:disabled) {
+  transform: translateY(-2px);
+  background: var(--domain-violet-bg);
+  border-color: var(--mn-control-line);
+}
+.mv-actioncard__cta:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+/* ‏שלוש הנקודות — „המנטור בודק את הנתונים שלך…” */
+.mv-typing {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+.mv-typing span {
+  width: 8px;
+  height: 8px;
+  border-radius: 99px;
+  background: var(--mn-grad-from);
+  animation: mn-blink 1.1s ease-in-out infinite;
+}
+.mv-typing span:nth-child(2) {
+  animation-delay: 0.16s;
+}
+.mv-typing span:nth-child(3) {
+  animation-delay: 0.32s;
+}
+@keyframes mn-blink {
+  0%,
+  100% {
+    opacity: 0.28;
+    transform: translateY(0);
+  }
+  50% {
+    opacity: 1;
+    transform: translateY(-3px);
+  }
+}
+
+/* ---------- צ׳יפי השאלות והמחבר ---------- */
+
+.mv-askchip {
+  flex: none;
+  height: 38px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 15px;
+  border: 1px solid var(--mn-control-line);
+  border-radius: 999px;
+  background: var(--color-surface);
+  font-size: var(--type-body);
+  font-weight: 800;
+  color: var(--domain-violet-fg);
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    transform 0.16s ease,
+    background 0.16s ease;
+}
+.mv-askchip:hover:not(:disabled) {
+  transform: translateY(-2px);
+  background: var(--domain-violet-bg);
+}
+.mv-askchip:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.mv-composer {
+  background: var(--color-surface);
+  border: 1px solid var(--color-input-border);
+  border-radius: 20px;
+  padding: 10px 12px;
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  box-shadow: var(--shadow-card);
+  transition:
+    border-color 0.18s ease,
+    box-shadow 0.2s ease;
+}
+.mv-composer:focus-within {
+  border-color: var(--mn-control-line);
+  box-shadow: var(--shadow-pop);
+}
+.mv-composer textarea {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: none;
+  resize: none;
+  font: inherit;
+  font-size: var(--type-row-title);
+  color: var(--color-text);
+  padding: 9px 4px;
+  outline: none;
+}
+.mv-composer__send {
+  width: 52px;
+  height: 42px;
+  flex: none;
+  border: none;
+  border-radius: 13px;
+  background: linear-gradient(180deg, var(--mn-grad-from), var(--mn-grad-to));
+  color: #fff;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  box-shadow: 0 12px 24px -14px rgba(122, 74, 224, 0.9);
+  transition: transform 0.16s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.mv-composer__send:hover:not(:disabled) {
+  transform: translateY(-2px) scale(1.03);
+}
+.mv-composer__send:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.mv-mentor__privacy {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 9px 0 0;
+  padding: 0 4px;
+  font-size: var(--type-body-sm);
+  color: var(--color-text-muted);
+}
+
+/* ---------- כרטיס היעד הכהה ---------- */
+
+.mv-goalcard {
+  background: linear-gradient(150deg, var(--mn-dark-from), var(--mn-dark-to));
+  border-radius: 20px;
+  padding: 19px;
+  color: #fff;
+}
+.mv-goalcard__head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: var(--type-body);
+  font-weight: 900;
+}
+.mv-goalcard__pace {
+  margin-inline-start: auto;
+  flex: none;
+  font-size: var(--type-caption-lg);
+  font-weight: 900;
+  color: var(--color-on-action);
+  background: var(--color-action);
+  border-radius: 999px;
+  padding: 3px 10px;
+}
+.mv-goalcard__n {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  margin-top: 11px;
+}
+.mv-goalcard__n b {
+  font-size: 40px;
+  font-weight: 900;
+  letter-spacing: -0.04em;
+  line-height: 1;
+}
+.mv-goalcard__n span {
+  font-size: var(--type-row-title);
+  font-weight: 700;
+  color: var(--mn-dark-muted);
+  padding-bottom: 6px;
+}
+.mv-goalcard__bar {
+  display: block;
+  height: 9px;
+  border-radius: 99px;
+  background: rgba(255, 255, 255, 0.14);
+  margin-top: 12px;
+  overflow: hidden;
+}
+.mv-goalcard__bar > span {
+  display: block;
+  height: 100%;
+  border-radius: 99px;
+  background: linear-gradient(90deg, var(--color-action), #3fbf63);
+}
+.mv-goalcard__note {
+  font-size: var(--type-body-sm);
+  color: var(--mn-dark-muted);
+  margin: 10px 0 0;
+  line-height: 1.5;
+}
+.mv-goalcard__actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 13px;
+}
+.mv-goalcard__go {
+  flex: 1;
+  height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 12px;
+  background: var(--color-action);
+  color: var(--color-on-action);
+  font-size: var(--type-body);
+  font-weight: 900;
+  cursor: pointer;
+  transition: transform 0.16s ease;
+}
+.mv-goalcard__alt {
+  flex: none;
+  height: 38px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 14px;
+  border-radius: 12px;
+  border: 1px solid var(--mn-dark-line);
+  background: var(--mn-dark-to);
+  color: var(--mn-dark-fg);
+  font-size: var(--type-body);
+  font-weight: 800;
+  cursor: pointer;
+  transition: background 0.16s ease;
+}
+.mv-goalcard__go:hover {
+  transform: translateY(-2px);
+}
+.mv-goalcard__alt:hover {
+  background: var(--mn-dark-from);
+}
+
+/* ---------- הרצף ואריחי השבוע ---------- */
+
+.mv-railhead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 10px;
+  font-size: var(--type-body);
+  font-weight: 900;
+}
+.mv-railhead__end {
+  margin-inline-start: auto;
+  flex: none;
+  font-size: var(--type-body-sm);
+  font-weight: 800;
+  color: var(--color-text-muted);
+}
+.mv-streak {
+  display: flex;
+  gap: 6px;
+}
+.mv-streak__day {
+  flex: 1;
+  height: 44px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  font-size: var(--type-caption-lg);
+  font-weight: 900;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+}
+.mv-streak__day[data-when="past"] {
+  background: var(--color-success-soft);
+  border-color: var(--color-primary-accent);
+  color: var(--color-primary);
+}
+.mv-streak__day[data-when="today"] {
+  background: var(--domain-violet-bg);
+  border-color: var(--domain-violet-line);
+  color: var(--domain-violet-fg);
+}
+.mv-statgrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 9px;
+}
+.mv-stat {
+  border: 1px solid var(--color-border);
+  background: var(--color-bg);
+  border-radius: 15px;
+  padding: 12px 13px;
+}
+.mv-stat__label {
+  font-size: var(--type-body-sm);
+  font-weight: 800;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mv-stat__n {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.mv-stat__n b {
+  font-size: 25px;
+  font-weight: 900;
+  letter-spacing: -0.03em;
+  line-height: 1.2;
+}
+.mv-stat__n span {
+  font-size: var(--type-caption-lg);
+  font-weight: 800;
+}
+.mv-stat[data-tone="green"] {
+  background: var(--color-success-soft);
+  border-color: var(--color-primary-accent);
+  color: var(--color-primary);
+}
+.mv-stat[data-tone="violet"] {
+  background: var(--domain-violet-bg);
+  border-color: var(--domain-violet-line);
+  color: var(--domain-violet-fg);
+}
+.mv-stat[data-tone="blue"] {
+  background: var(--domain-blue-bg);
+  border-color: var(--domain-blue-line);
+  color: var(--domain-blue-fg);
+}
+.mv-stat[data-tone="amber"] {
+  background: var(--domain-amber-bg);
+  border-color: var(--domain-amber-line);
+  color: var(--domain-amber-fg);
+}
+.mv-stat[data-tone="peach"] {
+  background: var(--domain-peach-bg);
+  border-color: var(--domain-peach-line);
+  color: var(--domain-peach-fg);
+}
+
+/* ---------- כרטיסי הרייל ---------- */
+
+.mv-railcard {
+  border: 1px solid var(--color-border);
+  border-radius: 18px;
+  padding: 16px;
+  background: var(--color-surface);
+}
+.mv-railcard--accent {
+  border-color: var(--domain-violet-line);
+  background: linear-gradient(
+    160deg,
+    var(--domain-violet-bg),
+    var(--color-surface)
+  );
+}
+.mv-railcard__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--type-body);
+  font-weight: 900;
+  margin: 0;
+}
+.mv-railcard__icon {
+  width: 30px;
+  height: 30px;
+  flex: none;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  background: var(--domain-violet-bg);
+  color: var(--domain-violet-fg);
+}
+.mv-railcard__pill {
+  margin-inline-start: auto;
+  flex: none;
+  font-size: var(--type-caption-lg);
+  font-weight: 900;
+  color: var(--domain-violet-fg);
+  background: var(--domain-violet-bg);
+  border-radius: 999px;
+  padding: 3px 10px;
+}
+.mv-railcard__date {
+  margin-inline-start: auto;
+  flex: none;
+  font-size: var(--type-caption-lg);
+  font-weight: 700;
+  color: var(--color-text-muted);
+}
+.mv-railcard__text {
+  font-size: var(--type-body);
+  line-height: 1.6;
+  color: var(--color-text-muted);
+  margin: 10px 0 0;
+  text-wrap: pretty;
+}
+.mv-railcard__link {
+  display: inline-block;
+  font-size: var(--type-body);
+  font-weight: 900;
+  color: var(--domain-violet-fg);
+  margin-top: 11px;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+.mv-minigrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 12px;
+}
+.mv-mini {
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-sunken);
+  border-radius: 13px;
+  padding: 10px 12px;
+}
+.mv-mini__label {
+  font-size: var(--type-caption-lg);
+  font-weight: 800;
+  color: var(--color-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mv-mini__n {
+  font-size: 19px;
+  font-weight: 900;
+  letter-spacing: -0.03em;
+  line-height: 1.25;
+}
+
+/* ‏שורות התרחישים בתרגול — רדיו אמיתי, והעיגול הוא ה-`::before` שלו */
+.mv-scenario {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  border-radius: 13px;
+  padding: 10px 12px;
+  cursor: pointer;
+  font-size: var(--type-body);
+  font-weight: 800;
+  transition:
+    transform 0.16s ease,
+    border-color 0.16s ease,
+    background 0.16s ease;
+}
+.mv-scenario:hover {
+  transform: translateY(-2px);
+  border-color: var(--domain-violet-line);
+  background: var(--domain-violet-bg);
+}
+.mv-scenario:has(input:checked) {
+  border-color: var(--domain-violet-line);
+  background: var(--domain-violet-bg);
+}
+.mv-scenario:has(input:focus-visible) {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+.mv-scenario__emoji {
+  margin-inline-start: auto;
+  flex: none;
+  font-size: var(--type-body);
+}
+.mv-scenario__go {
+  width: 100%;
+  height: 44px;
+  margin-top: 12px;
+  border: none;
+  border-radius: 13px;
+  background: linear-gradient(180deg, var(--mn-grad-from), var(--mn-grad-to));
+  color: #fff;
+  font-size: var(--type-body);
+  font-weight: 900;
+  cursor: pointer;
+  box-shadow: 0 12px 24px -16px rgba(122, 74, 224, 0.9);
+  transition: transform 0.16s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.mv-scenario__go:hover:not(:disabled) {
+  transform: translateY(-2px);
+}
+.mv-scenario__go:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* ‏צ׳יפ הסגנון — הנבחר כהה, כמו בקובץ */
+.mv-tonechip {
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 13px;
+  border: 1px solid var(--color-input-border);
+  border-radius: 999px;
+  background: var(--color-surface);
+  font-size: var(--type-body-sm);
+  font-weight: 800;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: transform 0.15s ease;
+}
+.mv-tonechip:hover:not(:disabled) {
+  transform: translateY(-2px);
+}
+.mv-tonechip[aria-pressed="true"] {
+  background: var(--color-tab-active-bg);
+  border-color: var(--color-tab-active-bg);
+  color: var(--color-tab-active-fg);
+}
+
+/* ---------- כפתורי הכותרת והפתיח ---------- */
+
+.mv-mentor__icon {
+  width: 42px;
+  height: 42px;
+  border: 1px solid var(--color-input-border);
+  border-radius: 13px;
+  background: var(--color-surface);
+  color: var(--domain-violet-fg);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition:
+    transform 0.16s ease,
+    border-color 0.16s ease,
+    background 0.16s ease;
+}
+.mv-mentor__icon:hover {
+  transform: translateY(-2px);
+  border-color: var(--mn-control-line);
+  background: var(--domain-violet-bg);
+}
+.mv-btn-ink {
+  height: 42px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 17px;
+  border: none;
+  border-radius: 13px;
+  background: var(--color-tab-active-bg);
+  color: var(--color-tab-active-fg);
+  font-size: var(--type-body);
+  font-weight: 900;
+  cursor: pointer;
+  transition:
+    transform 0.16s ease,
+    background 0.16s ease;
+}
+.mv-btn-ink:hover:not(:disabled) {
+  transform: translateY(-2px);
+}
+.mv-btn-violet {
+  height: 42px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 17px;
+  border: 1px solid var(--mn-control-line);
+  border-radius: 13px;
+  background: var(--domain-violet-bg);
+  color: var(--domain-violet-fg);
+  font-size: var(--type-body);
+  font-weight: 900;
+  cursor: pointer;
+  transition:
+    transform 0.16s ease,
+    background 0.16s ease;
+}
+.mv-btn-violet:hover:not(:disabled) {
+  transform: translateY(-2px);
+}
+
+/* ‏צמצום תנועה — הריחוף, ההילה והנקודות עוצרים */
+@media (prefers-reduced-motion: reduce) {
+  .mv-mentor__avatar,
+  .mv-mentor__greeticon,
+  .mv-typing span {
+    animation: none;
+  }
+}
+
+/* ‎**שורת הפעולות של כותרת הכרטיס — שתי צורות, עץ DOM אחד.**
+ *
+ * ‏במובייל: כפתור ראשי מלא-רוחב, ומתחתיו גריד ארבע פעולות גלוי —
+ * ‏כך בקובץ העיצוב, וכך הן במרחק אגודל.
+ *
+ * ‏בדסקטופ: חמישה כפתורים פתוחים כל הזמן היו „עומס” (בעל המוצר),
+ * ‏ולכן הראשי נשאר גלוי והשאר נאספים מאחורי „פעולות נוספות”.
+ *
+ * ‎**הפקדים כתובים פעם אחת.** במובייל העטיפה מתרדדת
+ * ‏(`display: contents`) והפאנל *הוא* הגריד; בדסקטופ הוא צף מתחת
+ * ‏לכפתור. הניסיון הקודם לגשר על הפער הזה ב-`order` הזיז את העין
+ * ‏ולא את המקלדת, ולכן אין כאן `order` בשום מקום.
+ *
+ * ‎„מהמרכזייה” אינו בקובץ העיצוב — הוא קיים רק כשהטלפוניה
+ * ‏מחוברת. הוא אחרון ב-DOM, ולכן אחרון גם על המסך. */
+.mv-cardactions {
+  display: grid;
+  gap: 8px;
+  width: 100%;
+}
+.mv-moreactions {
+  /* ‏במובייל אין עטיפה — הפאנל הוא ילד ישיר של שורת הפעולות */
+  display: contents;
+}
+.mv-moreactions__toggle {
+  display: none;
+}
+.mv-moreactions__panel {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+.mv-moreactions__panel > * {
+  min-width: 0;
+}
+.mv-act {
+  justify-content: center;
+  overflow: hidden;
+}
+
+@media (min-width: 60em) {
+  .mv-cardactions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    width: auto;
+    margin-inline-start: auto;
+  }
+  .mv-moreactions {
+    display: block;
+    position: relative;
+  }
+  .mv-moreactions__toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 36px;
+    padding-inline: 13px;
+    font-size: var(--type-caption-lg);
+  }
+  /*
+   * ‏הפאנל צף מעל התוכן שמתחת לכותרת — הבאנר והכרטיסים. בלי
+   * ‎`z-index` הוא היה נחתך מאחוריהם.
+   */
+  .mv-moreactions__panel {
+    position: absolute;
+    inset-inline-start: 0;
+    top: calc(100% + 8px);
+    z-index: 20;
+    grid-template-columns: 1fr;
+    gap: 2px;
+    min-width: 220px;
+    padding: 8px;
+    border: 1px solid var(--color-border);
+    border-radius: 16px;
+    background: var(--color-surface);
+    box-shadow:
+      0 1px 2px rgb(16 24 18 / 4%),
+      0 14px 32px -18px rgb(16 24 18 / 32%);
+  }
+  .mv-moreactions__panel[data-open="false"] {
+    display: none;
+  }
+  /* ‏בתוך הפאנל הפריטים הם שורות: אייקון, ואחריו התווית */
+  .mv-moreactions__panel > * {
+    justify-content: flex-start;
+    width: 100%;
+    border-color: transparent;
+    gap: 10px;
+  }
+}
+
+.mv-nextaction {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  border: 1px solid var(--domain-violet-line);
+  background: var(--domain-violet-bg);
+  color: var(--domain-violet-fg);
+  border-radius: 18px;
+  padding: 16px 20px;
+  /*
+   * ‎**הרווח אל הטורים שמתחת — 18px, כמו בקובץ העיצוב.**
+   *
+   * ‏שם הבאנר והגריד יושבים באותו טור flex עם `gap:18px`; כאן הם
+   * ‏אחים ישירים בלשונית, ולגריד יש `gap` פנימי בלבד — ולכן
+   * ‏הבאנר נגע בכרטיסים. השוליים על הבאנר ולא על הגריד, כי
+   * ‏כשאין התאמה ממתינה הבאנר אינו מוצג ואז גם אין מה להפריד.
+   */
+  margin-bottom: 18px;
+}
+
+/* ‎**שורת שדה — מלא, או חסר.**
+ *
+ * ‏ההבחנה היא הנקודה: שדה מלא הוא עובדה, ושדה חסר הוא **הזמנה
+ * ‏למלא**. מסגרת מקווקוות אומרת „כאן חסר משהו” בלי מילה, וההשלמה
+ * ‏יושבת בשורה עצמה ולא בכפתור רחוק. */
+/*
+ * ‎`--color-input-border` ולא `--color-border`: השורה הזו **נלחצת**
+ * ‏במצב „חסר”, ולכן היא פקד ולא קישוט — והסף הוא 3:1 (‎WCAG 1.4.11‎),
+ * ‏לא הגבול הדקורטיבי של הכרטיסים (מאמת הניגודיות).
+ */
+.mv-fieldrow {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  border: 1px solid var(--color-input-border);
+  background: var(--color-surface-sunken);
+  border-radius: 14px;
+  padding: 12px 14px;
+}
+.mv-fieldrow--filled {
+  border-color: var(--domain-green-line);
+  background: var(--domain-green-bg);
+  color: var(--domain-green-fg);
+}
+.mv-fieldrow--missing {
+  border-style: dashed;
+  background: transparent;
+  cursor: pointer;
+  transition:
+    border-color 0.16s ease,
+    background 0.16s ease;
+}
+.mv-fieldrow--missing:hover,
+.mv-fieldrow--missing:focus-visible {
+  border-color: var(--color-primary);
+  background: var(--color-primary-soft);
+}
+
+/* ‎**הכרטיס הכהה — „הלקוח ממלא בעצמו”.**
+ *
+ * ‏כהה בכוונה, וזו ההצדקה היחידה שלו: הוא הפעולה היחידה בעמוד
+ * ‏שמוציאה משהו **החוצה אל הלקוח**, וההיפוך הוא מה שמפריד אותה
+ * ‏מכל מה שהסוכן עושה לעצמו. הצבעים קבועים כאן ולא נגזרים
+ * ‏מהערכה, כי הוא כהה בשתי הערכות — ולכן גם הטקסט שעליו קבוע. */
+.mv-invitecard {
+  border-radius: 20px;
+  padding: 22px;
+  background: linear-gradient(150deg, #101613, #0b2814);
+  color: #ffffff;
+}
+.mv-invitecard p {
+  color: #c4cfc7;
+}
+/* ‏כותרת הכרטיס יורשת `--color-text` — כהה על כהה */
+.mv-invitecard .mv-card-head__title {
+  color: #ffffff;
+}
+.mv-invitecard hr {
+  border: 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  margin: 14px 0 12px;
+}
+/* ‏אריח הסמל — הירוק הבהיר של הכרטיס, מרוכך על הרקע הכהה */
+.mv-invitecard__tile {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 38px;
+  height: 38px;
+  border-radius: 13px;
+  background: rgba(112, 238, 145, 0.16);
+  color: #70ee91;
+}
+/* ‏הפעולה עצמה — הדבר הבהיר היחיד בכרטיס, ולכן זה שמושך את היד */
+.mv-invitecard__cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 44px;
+  padding-inline: 20px;
+  border: 0;
+  border-radius: 13px;
+  background: linear-gradient(180deg, #7df39c 0%, #5fe083 100%);
+  color: #08240f;
+  font-size: var(--type-body-sm);
+  font-weight: 900;
+  cursor: pointer;
+}
+.mv-invitecard__cta:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+/* ‎**הצבעים הפנימיים אטומים ולא שקופים** (שער הניגודיות).
+ *
+ * ‏‎`rgba(255,255,255,.06)` על הכרטיס הכהה נראה נכון בעין — אבל
+ * ‏אין דרך למדוד אותו: הוא מרוכב על `linear-gradient`, והשער חישב
+ * ‏אותו מול לבן ומצא 1.2:1. „לא נמדד” אינו „עבר”, ולכן כל ערך כאן
+ * ‏הוא צבע אטום שאפשר לבדוק — ובדיוק אותו מראה. */
+
+/* ‏פעולה משנית על רקע כהה: שקטה, כדי שלא תתחרה ב-CTA */
+.mv-invitecard__ghost {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 44px;
+  padding-inline: 16px;
+  border: 1px solid #6b8879;
+  border-radius: 13px;
+  background: #16241b;
+  color: #e6ece7;
+  font-size: var(--type-body-sm);
+  font-weight: 800;
+  cursor: pointer;
+}
+.mv-invitecard__ghost:hover {
+  border-color: #9ab5a7;
+  background: #1e3024;
+}
+/* ‏שורת קישור בהיסטוריה — אותו תפקיד כמו `mv-fieldrow`, על רקע כהה */
+.mv-invitecard__row {
+  border: 1px solid #2c3b31;
+  border-radius: 14px;
+  background: #16241b;
+  padding: 12px 14px;
+  color: #c4cfc7;
+}
+/* ‏תג משלו ולא `.mv-tag` בדריסת-צאצא: דריסה כזו מעצבת מחלקה
+   ‏משותפת ממקום אחד, ואז „מה הרקע של תג” תלוי איפה הוא יושב. */
+.mv-invitecard__tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border-radius: 999px;
+  padding: 3px 10px;
+  background: #22332a;
+  color: #c4cfc7;
+  font-size: var(--type-caption);
+  font-weight: 700;
+}
+/* ‏פוקוס גלוי גם על הכהה — הטבעת הרגילה נבלעת בו */
+.mv-invitecard :is(button, a):focus-visible {
+  outline: 2px solid #7df39c;
+  outline-offset: 2px;
+}
+
+/* ‎**סרגל ניווט תחתון — כרטיס הקונה בלבד** (בקשת המשתמש).
+ *
+ * ‏הוא מופיע רק ברוחב שבו התפריט הראשי אינו על המסך. `env(safe-
+ * ‏area-inset-bottom)` הוא ההפרש בין „בתחתית” לבין „מתחת לפס
+ * ‏המחווה של האייפון”.
+ *
+ * ‎**`fixed` ולא `sticky`** (ביקורת Codex, P2): הפס יושב בסוף
+ * ‏הזרימה, אחרי הלשונית הפעילה. `sticky` אינו מרים אל המסך רכיב
+ * ‏שנמצא מתחתיו — הוא רק מונע ממנו לצאת — ולכן פס „במרחק אגודל”
+ * ‏היה מתגלה רק אחרי גלילה של כל הלשונית, כלומר בדיוק כשכבר לא
+ * ‏צריך אותו. `fixed` הופך אותו לפס שנמצא שם מהרגע הראשון.
+ *
+ * ‎`--mv-bottomnav-h` מוצהר פעם אחת ונקרא גם מהפס וגם מהמרווח
+ * ‏שמחזיק לו מקום, כדי ששניהם לא יוכלו להיפרד זה מזה. */
+:root {
+  --mv-bottomnav-h: calc(68px + env(safe-area-inset-bottom));
+}
+.mv-bottomnav {
+  position: fixed;
+  inset-inline: 0;
+  bottom: 0;
+  /* מתחת לסקרים של המגירה (40) — תפריט פתוח מכסה גם אותו */
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: var(--mv-bottomnav-h);
+  padding: 8px 8px calc(8px + env(safe-area-inset-bottom));
+  background: var(--color-surface);
+  border-top: 1px solid var(--color-border);
+}
+/* ‏הפס מרחף, ולכן התוכן האחרון בעמוד היה נחבא מתחתיו */
+.mv-bottomnav-space {
+  height: var(--mv-bottomnav-h);
+}
+/* ‎**הפינה השמאלית התחתונה כבר תפוסה.**
+ *
+ * ‏שם יושבים שבב הסופטפון ולשונית התמיכה — וזו הסיבה שהתמיכה
+ * ‏הועברה לשם מלכתחילה (ראו ההערה אצלה). פס שמרחף על פני כל הרוחב
+ * ‏היה מכסה אותם, ושיחה נכנסת שמוסתרת מאחורי כפתור „ציר זמן” היא
+ * ‏בדיוק ההחלפה הגרועה. הם מתרוממים בגובה הפס — מאותו משתנה, ולכן
+ * ‏אי אפשר לשנות אחד בלי השני — ורק ברוחב שבו הפס באמת קיים. */
+@media (max-width: 59.99em) {
+  body:has(.mv-bottomnav) .mv-floatbottom {
+    bottom: calc(12px + var(--mv-bottomnav-h));
+  }
+}
+/* ‏שתי הלשוניות שיורדות לאותה פינה במסך צר — תמיכה ונגישות. הן
+   יושבות על 76px, שנבלעים בפס ברגע שיש `safe-area-inset`. */
+@media (max-width: 640px) {
+  body:has(.mv-bottomnav) .mv-support-tab,
+  body:has(.mv-bottomnav) .mv-a11y-tab {
+    bottom: calc(24px + var(--mv-bottomnav-h));
+  }
+}
+.mv-bottomnav > button {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  min-height: 52px;
+  padding: 6px 4px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: var(--type-caption);
+  font-weight: 700;
+  cursor: pointer;
+}
+.mv-bottomnav > button[aria-current="true"] {
+  color: var(--color-primary);
+  background: var(--color-primary-soft);
+}
+@media (min-width: 60em) {
+  .mv-bottomnav,
+  .mv-bottomnav-space {
+    display: none;
+  }
+}
+
+/* ============================================================
+   ‏„המשרד שלנו” — טבלת התחרות של סוכנות
+
+   ‎**המסך היחיד במערכת שמדרג אנשים בשמם.** הוא נועד להיתלות על
+   ‏הקיר, ולכן הוא נושא משקל חזותי שאין לדוחות: כרטיס כהה למוביל,
+   ‏ופסי יעד שנקראים ממרחק. שאר המערכת נשארת שקטה.
+   ============================================================ */
+.mv-board__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px 16px;
+  margin-bottom: 20px;
+}
+.mv-board__title {
+  margin: 0;
+  font-size: var(--type-screen-title);
+  font-weight: 800;
+}
+.mv-board__sub {
+  margin: 4px 0 0;
+  color: var(--color-text-muted);
+  font-size: var(--type-caption);
+}
+
+/* ‏שלוש התקופות — קבוצה אחת, לא שלושה כפתורים מרוחקים */
+.mv-board__tabs {
+  display: inline-flex;
+  padding: 4px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  gap: 2px;
+}
+.mv-board__tab {
+  min-height: 34px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: var(--type-caption);
+  font-weight: 700;
+  cursor: pointer;
+}
+.mv-board__tab[data-on="true"] {
+  background: var(--color-bg);
+  color: var(--color-text);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 8%);
+}
+
+/*
+ * ‏המוביל תופס את מחצית הרוחב, וארבעת „הכי הרבה” מתחלקים בשנייה.
+ * ‏מתחת ל-900px הכול נערם — כרטיס כהה ברוחב חצי מסך בנייד אינו
+ * ‏קריא, והוא הדבר הראשון שרוצים לראות.
+ */
+.mv-board__top {
+  display: grid;
+  grid-template-columns: minmax(280px, 1fr) minmax(280px, 1fr);
+  gap: 16px;
+}
+@media (max-width: 56.24em) {
+  .mv-board__top {
+    grid-template-columns: 1fr;
+  }
+}
+
+.mv-board__leader {
+  border-radius: 22px;
+  padding: 22px;
+  background: linear-gradient(150deg, #0f231a 0%, #0b1a14 60%, #0a1512 100%);
+  color: #f2fbf6;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.mv-board__leadereyebrow {
+  margin: 0;
+  color: #7ee2a8;
+  font-size: var(--type-caption);
+  font-weight: 700;
+}
+.mv-board__leaderhead {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.mv-board__leaderavatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 62px;
+  height: 62px;
+  flex: none;
+  border-radius: 999px;
+  background: #45d483;
+  color: #06281a;
+  font-weight: 800;
+  font-size: var(--type-panel);
+}
+.mv-board__leadername {
+  margin: 0;
+  font-size: var(--type-h1);
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+.mv-board__leadernote {
+  margin: 2px 0 0;
+  color: #a9c9ba;
+  font-size: var(--type-caption);
+}
+.mv-board__leaderscore {
+  margin: 0;
+  margin-inline-start: auto;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+}
+.mv-board__leaderscore span {
+  color: #45d483;
+  font-size: var(--type-kpi);
+  font-weight: 800;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.mv-board__leaderscore small {
+  color: #a9c9ba;
+  font-size: var(--type-caption);
+}
+.mv-board__leadertiles {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+}
+@media (max-width: 37.49em) {
+  .mv-board__leadertiles {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+.mv-board__leadertile {
+  border-radius: 14px;
+  padding: 12px;
+  background: rgb(255 255 255 / 6%);
+}
+.mv-board__leadertilevalue {
+  margin: 0;
+  font-size: var(--type-metric);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+.mv-board__leadertilelabel {
+  margin: 2px 0 0;
+  color: #a9c9ba;
+  font-size: var(--type-caption);
+}
+
+.mv-board__supers {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+@media (max-width: 37.49em) {
+  .mv-board__supers {
+    grid-template-columns: 1fr;
+  }
+}
+.mv-board__super {
+  border: 1px solid var(--color-border);
+  border-radius: 16px;
+  padding: 14px;
+  background: var(--color-surface);
+}
+.mv-board__superhead {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--type-caption);
+}
+.mv-board__supername {
+  margin: 4px 0 0;
+  font-size: var(--type-row-title);
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+.mv-board__supernote {
+  margin: 2px 0 0;
+  color: var(--color-text-muted);
+  font-size: var(--type-caption);
+}
+
+.mv-board__formula {
+  margin: 0 0 12px;
+  color: var(--color-text-muted);
+  font-size: var(--type-caption);
+}
+
+/* ‏הטבלה גולשת בתוך המכל שלה בלבד — העמוד לעולם לא לרוחב */
+.mv-board__tablewrap {
+  overflow-x: auto;
+}
+.mv-board__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--type-caption);
+}
+.mv-board__table th,
+.mv-board__table td {
+  padding: 12px 10px;
+  text-align: start;
+  border-bottom: 1px solid var(--color-border);
+  white-space: nowrap;
+}
+.mv-board__table th {
+  color: var(--color-text-muted);
+  font-weight: 700;
+}
+.mv-board__table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.mv-board__rank {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 10px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+/* ‏שלושת הראשונים בולטים — זו כל תכלית הטבלה */
+.mv-board__rank[data-top="true"] {
+  background: var(--color-success);
+  border-color: var(--color-success);
+  color: #fff;
+}
+
+.mv-board__agent {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.mv-board__avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  flex: none;
+  border-radius: 999px;
+  background: var(--domain-violet-bg);
+  color: var(--domain-violet-fg);
+  font-weight: 800;
+  font-size: var(--type-caption);
+}
+.mv-board__agentname {
+  display: block;
+  font-weight: 700;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.mv-board__agentnote {
+  display: block;
+  color: var(--color-text-muted);
+  font-size: var(--type-caption);
+  white-space: normal;
+}
+
+.mv-board__goal {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.mv-board__bar {
+  display: inline-block;
+  width: 120px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--color-field);
+  overflow: hidden;
+}
+.mv-board__barfill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--color-success);
+}
+
+.mv-board__summary {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+@media (max-width: 56.24em) {
+  .mv-board__summary {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+.mv-board__tile {
+  border: 1px solid var(--color-border);
+  border-radius: 16px;
+  padding: 14px;
+  background: var(--color-surface);
+}
+.mv-board__tilelabel {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--type-caption);
+}
+.mv-board__tilevalue {
+  margin: 6px 0 0;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: var(--type-metric);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+.mv-board__trend {
+  font-size: var(--type-caption);
+  font-weight: 700;
+  color: var(--color-danger);
+}
+.mv-board__trend[data-up="true"] {
+  color: var(--color-success);
+}
+
+/* ‏הכפתור בהידר — טקסט, כי „המשרד שלנו” אינו דבר שמנחשים מאייקון */
+/*
+ * ‎**אותה פינה של שאר הכפתורים בסרגל, ולא גלולה.**
+ *
+ * ‏הכפתור ישב על `999px` — עיגול מלא — בזמן שהפעמון והפרופיל שלידו
+ * ‏(`mv-icon-button`) הם `15px`. שלושה כפתורים באותה שורה עם שתי
+ * ‏שפות צורה קוראים כמו שני רכיבים שהודבקו זה לזה, וזה בולט במיוחד
+ * ‏במובייל: שם התווית יורדת, הכפתור הופך לסמל בלבד, והגלולה הופכת
+ * ‏לעיגול גמור ליד ריבוע מעוגל.
+ *
+ * ‎`15px` ולא ערך משלו — הפינה נגזרת מהשכן, ולא מוחלטת פעם שנייה.
+ */
+.mv-board-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 38px;
+  padding: 0 14px;
+  border-radius: 15px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: var(--type-caption);
+  font-weight: 700;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.mv-board-link:hover,
+.mv-board-link:focus-visible {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+@media (max-width: 47.99em) {
+  .mv-board-link .mv-topbar-label {
+    display: none;
+  }
+}
+
 /* ======================================================================
-   הפורום המקצועי (docs/14)
+   הפורום המקצועי (docs/16)
    ----------------------------------------------------------------------
    מעט מחלקות משלו: שורת שרשור, תגובה, גוף טקסט של משתמש, תיבת
    „בעילום שם”, כוכבים ותוצאת מחשבון. כל השאר — כרטיסים, גלולות,

@@ -1,4 +1,17 @@
--- ‎**המנטור האישי — יעדים, סיכומים ושיחה (docs/13).**
+-- המנטור הקודם (#377–#385) השאיר `mentor_goals` בסכימה אחרת, ומשרדים
+-- שהריצו אותו מחזיקים בה שורות. הטבלה והאינדקסים שלה עוברים לשם
+-- legacy — הנתונים נשארים, והשם מתפנה למנטור הזה. `IF EXISTS` כי
+-- בסיס חדש (CI) מגיע לכאן בלי המנטור הקודם. שלוש הטבלאות האחרות של
+-- אותו מנטור (`mentor_weekly_scores`, `mentor_achievements`,
+-- `mentor_quotes`) אינן מתנגשות בשם ונשארות כמו שהן.
+ALTER TABLE IF EXISTS "mentor_goals" RENAME TO "mentor_goals_legacy";
+ALTER INDEX IF EXISTS "mentor_goals_pkey" RENAME TO "mentor_goals_legacy_pkey";
+ALTER INDEX IF EXISTS "mentor_goals_tenant_id_user_id_horizon_period_start_key"
+  RENAME TO "mentor_goals_legacy_tenant_id_user_id_horizon_period_start_key";
+ALTER INDEX IF EXISTS "mentor_goals_tenant_id_user_id_horizon_idx"
+  RENAME TO "mentor_goals_legacy_tenant_id_user_id_horizon_idx";
+
+-- ‎**המנטור האישי — יעדים, סיכומים ושיחה (docs/14).**
 --
 -- שלוש טבלאות, וכולן **של המשתמש** ולא של המשרד: היעד הוא מה
 -- שהמתווך ביקש מעצמו, הסיכום הוא מה שהמנטור אמר לו, והשיחה היא

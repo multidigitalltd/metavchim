@@ -30,6 +30,13 @@ import {
   RECORDING_YOUNG_CALL_MS,
   RECORDING_EARLY_RETRY_MS,
   RECORDING_BLOCKED_REASON,
+  RECORDING_PROVIDER_REFUSAL,
+  RECORDING_REFUSALS_BEFORE_PAUSE,
+  RECORDING_SWEEP_MAX,
+  RECORDING_SWEEP_FAIR_SHARE,
+  RECORDING_SWEEP_TICK_MS,
+  RECORDING_IMPORT_QUEUE_LIMIT,
+  recordingPullResultOf,
 } from "@metavchim/shared";
 import { ulid } from "ulid";
 import { CryptoService } from "../../core/crypto.service";
@@ -67,20 +74,29 @@ import { TranscriptionService } from "../voice-intake/transcription.service";
  * קובץ פעמיים.
  */
 
-/** כל חמש דקות — הקלטה שנוצרה בינתיים תיאסף בסבב הבא. */
-const TICK_MS = 5 * 60 * 1000;
+/**
+ * ‏קצב הסבב — **מיובא ולא נכתב שוב**, מאותו נימוק כמו
+ * ‎`GIVE_UP_AFTER_MS`: המסך אומר למי שלחץ „ייבוא” כמה זמן זה
+ * ‏ייקח, והמשפט הזה נגזר מהמספרים האלה. כל עוד הם ישבו כאן בלבד,
+ * ‏„ייכנסו תוך כמה דקות” היה ניחוש שנכתב פעם אחת ולא זז יותר.
+ *
+ * ‎`TICK_MS` — כל חמש דקות, הקלטה שנוצרה בינתיים תיאסף בסבב הבא.
+ * ‎`MAX_PER_SWEEP` — כמה בסבב אחד, **סך הכול על פני כל המשרדים**:
+ * ‏הגנה על משך הסבב ולא מדיניות, כי כל משיכה היא קריאת רשת עם פסק
+ * ‏זמן של דקה. מה שלא נכנס לתקציב ייתפס בסבב הבא — התנאי לשליפה
+ * ‏עדיין מתקיים.
+ */
+const TICK_MS = RECORDING_SWEEP_TICK_MS;
+const MAX_PER_SWEEP = RECORDING_SWEEP_MAX;
+
+/**
+ * ‏המנה של משרד אחד בסבב אחד — **מיובאת ולא נכתבת**, מאותו נימוק
+ * ‏כמו התקציב עצמו. ההסבר המלא יושב לצד ההגדרה.
+ */
+const FAIR_SHARE_PER_SWEEP = RECORDING_SWEEP_FAIR_SHARE;
 
 /** דקה אחרי העלייה, כדי לא להתחרות על החיבורים בזמן המיגרציות. */
 const FIRST_TICK_DELAY_MS = 60 * 1000;
-
-/**
- * כמה הקלטות בסבב אחד, **סך הכול על פני כל המשרדים**.
- *
- * הגנה על משך הסבב ולא מדיניות: כל משיכה היא קריאת רשת עם פסק זמן
- * של דקה, ותקציב גלובלי הוא מה שמונע מסבב אחד לגלוש אל תוך הבא.
- * מה שלא נכנס לתקציב ייתפס בסבב הבא — התנאי לשליפה עדיין מתקיים.
- */
-const MAX_PER_SWEEP = 20;
 
 /**
  * כמה זמן ממשיכים לנסות שיחה שהמשיכה שלה נכשלת.
@@ -151,7 +167,14 @@ const PAUSE_BETWEEN_REQUESTS_MS = 1_000;
  * מה שנעצר אינו אבוד: התנאי לשליפה עדיין מתקיים, והסבב הבא ייקח
  * אותן.
  */
-const REFUSALS_BEFORE_PAUSE = 3;
+/*
+ * ‎**המספר יושב ב-`shared` כי הוא משמש גם את המסך.**
+ *
+ * ‏„מתי הסבב מפסיק לנסות” ו„מתי שולחן החיבורים אומר שבור” הן אותה
+ * ‏הכרעה. שני מספרים היו נפרדים ביום שאחד מהם זז — ואז המסך מכריז
+ * ‏„תקין” על משרד שהסבב כבר ויתר עליו.
+ */
+const REFUSALS_BEFORE_PAUSE = RECORDING_REFUSALS_BEFORE_PAUSE;
 
 /**
  * גבול העמודה `provider_recording_detail` — **מספר של המסד, לא העדפה.**
@@ -188,14 +211,42 @@ function joinDetail(providerDetail: string, asked: string): string {
  * נושאת שם משתמש וסיסמה. קוד מרשימה ידועה אפשר להציג, לתרגם
  * ולחפש — ואי אפשר לדלוף דרכו.
  */
+/**
+ * ‎**החיבור שממנו נמשכות הקלטות** — תנאי אחד, לא שלושה עותקים.
+ *
+ * בחירת העבודות, קריאת האישורים ורישום האבחון חייבים להסכים על
+ * „מי זה”: אם הבחירה מסננת לפי 015 פעיל והרישום אינו, תוצאה של
+ * בקשה שיצאה נוחתת על חיבור אחר לגמרי.
+ */
+const PULLING_CONNECTION = {
+  kind: "telephony",
+  provider: "015",
+  status: "active",
+} as const;
+
 export const RECORDING_ERRORS = {
   path: "path_unreadable",
   credentials: "missing_credentials",
-  provider: "provider_rejected",
+  /*
+   * ‎**גם הוא מיובא, ומאותו נימוק בדיוק כמו `integration` שמתחתיו.**
+   * הקוד המלא הוא `provider_rejected_<סטטוס>`, ו-`recordingReasonLabel`
+   * בצד המשותף מפרק אותו לפי אותה קידומת. שתי מחרוזות זהות בשני
+   * קבצים מסכימות רק במקרה.
+   */
+  provider: RECORDING_PROVIDER_REFUSAL,
   unreadable: "response_unreadable",
   empty: "empty_audio",
   tooLarge: "too_large",
   network: "network_error",
+  /*
+   * ‎**חריגה שנפלה מחוץ לכל מסלול מוכר.**
+   *
+   * ‏הסבב תפס חריגה כזו, רשם שורת יומן והמשיך — ועל **השורה** לא
+   * ‏נכתב דבר. כלומר השיחה נשארה בלי סיבה, והמסך המשיך להבטיח
+   * ‏„ההקלטה בדרך מהמרכזייה” עד הניסיון הבא, ושוב אחריו. מי שראה
+   * ‏את זה בשטח ראה הבטחה שחוזרת על עצמה שעות ואינה מתממשת.
+   */
+  unexpected: "unexpected_error",
   /*
    * ‎**הערך היחיד ברשימה שיש לו משמעות גם בצד המשותף**, ולכן הוא
    * מיובא משם. `recordingStateOf` מבדילה לפיו בין „ננסה שוב” לבין
@@ -244,6 +295,18 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
   private first: NodeJS.Timeout | null = null;
   /** סבב אחד בכל רגע — שניים היו מושכים את אותן שורות פעמיים. */
   private running = false;
+  /**
+   * ‎**מי פותח את הסבב הבא.**
+   *
+   * ‏רשימת המשרדים יציבה (`orderBy: id`), ולכן בלי הסמן הזה אותו
+   * ‏משרד היה ראשון **תמיד** — ואחרי שכל אחד קיבל את מנתו, גם
+   * ‏חלוקת היתרה הייתה מתחילה ממנו בכל פעם. הסמן מזיז את ההתחלה
+   * ‏בכל סבב, כך שהבכורה עוברת.
+   *
+   * ‏בזיכרון בלבד: אחרי הפעלה מחדש הוא מתאפס לאפס, וזה בסדר גמור
+   * ‏— ההגינות נשענת על **המנה**, והסיבוב רק מחלק את היתרה.
+   */
+  private sweepCursor = 0;
   /**
    * מתי יצאה הבקשה האחרונה ל-015 — **לכל הבקשות, לא לכל שיחה.**
    *
@@ -338,9 +401,23 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
          * אין כאן השהיה: היא יושבת ב-`pace()` שנקראת לפני **כל**
          * בקשה לספק, כולל אלה שמסלול הכישלון של שיחה בודדת שולח.
          */
-        const result = await this.fetchOne(job).catch((error: unknown) => {
+        const result = await this.fetchOne(job).catch(async (error: unknown) => {
           // כשל בשיחה אחת אינו עוצר את הסבב — הבאה בתור עשויה להצליח
           this.logger.warn(`משיכת הקלטה נכשלה (${job.callId}): ${String(error)}`);
+          /*
+           * ‎**והסיבה נרשמת על השורה, ולא רק ביומן.**
+           *
+           * ‏כל מסלול כישלון מוכר קורא ל-`note` בעצמו; חריגה
+           * ‏בלתי צפויה עוקפת את כולם, ועד כה השאירה את השיחה בלי
+           * ‏סיבה כלל. הצירוף „נוסתה + אין סיבה” הוא בדיוק מה
+           * ‏ש-`recordingStateOf` קוראת „ממתינה”, ולכן המסך הבטיח
+           * ‏„נמשכת בדרך כלל תוך 10 דקות” על משיכה שכבר נפלה —
+           * ‏שעה אחר שעה.
+           *
+           * ‏הפירוט אינו נכתב: הוא מגיע מהחריגה עצמה, ואין ערובה
+           * ‏שאין בו אישורי גישה או כתובת מלאה.
+           */
+          await this.note(job, RECORDING_ERRORS.unexpected);
           return "other" as PullResult;
         });
         /*
@@ -413,6 +490,15 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
     tenantId: string,
     from: Date,
     to: Date,
+    /**
+     * ‎**מי הריץ, כשזה לא המשרד עצמו.**
+     *
+     * ‏מנהל הפלטפורמה יכול להריץ ייבוא בשם משרד משולחן החיבורים.
+     * ‏התמורה לכך שאינו צריך לבקש רשות מראש היא שהפעולה נרשמת
+     * ‏ביומן הפעילות **של המשרד** ומייצרת אצלו התראה — אותה
+     * ‏עסקה, כך שאין ייבוא בשמו בלי עקבה.
+     */
+    by?: { platformAdminEmail: string },
   ): Promise<{
     found: number;
     linked: number;
@@ -429,12 +515,14 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
     withoutCall: number;
     /** הקלטות שהספק החזיר ואין בהן מזהה הורדה שאנחנו מכירים */
     withoutRecordId: number;
+    /** שורות שהתור התמלא לפניהן ולכן לא נבדקו — ראו הלולאה למטה. */
+    remaining: number;
     /** שמות השדות בשורה הראשונה — שמות בלבד; ראו `pbx015ListRowKeys` */
     rowKeys: string[];
   }> {
     const integration = await this.prisma.withExplicitTenant(tenantId, (tx) =>
       tx.integration.findFirst({
-        where: { tenantId, kind: "telephony", provider: "015", status: "active" },
+        where: { tenantId, ...PULLING_CONNECTION },
         select: { secretsEncrypted: true, config: true },
       }),
     );
@@ -531,8 +619,33 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
     let alreadyHad = 0;
     let withoutCall = 0;
     let withoutRecordId = 0;
+    /**
+     * ‎**כמה שורות נפתחו בכלל** — וממנו נגזר מה שנשאר.
+     *
+     * ‏מוגדר מחוץ לעסקה כי הוא נקרא אחריה.
+     */
+    let examined = 0;
     await this.prisma.withExplicitTenant(tenantId, async (tx) => {
       for (const row of rows) {
+        /*
+         * ‎**התור נעצר כאן, ובכוונה.**
+         *
+         * ‏הייבוא אינו מוריד אודיו — הוא מסמן, ואיפוס חותמת
+         * ‏הניסיון מכניס כל שיחה שסומנה לראש **התור המשותף לכל
+         * ‏המשרדים**. בלי התקרה, לחיצה אחת על טווח של תשעים יום
+         * ‏מכניסה מאות שיחות של משרד אחד לתור ומשביתה את המשיכה
+         * ‏אצל כל השאר לשעות.
+         *
+         * ‏רק `linked` נספר לתקרה: שיחה שלא נענתה מקבלת נתיב ואינה
+         * ‏נמשכת (`pendingFor` מסנן אותה), ולכן אינה תופסת מקום
+         * ‏בתור. וכך גם `alreadyHad`, `withoutCall` ו-`withoutRecordId`.
+         *
+         * ‏מה שנשאר אינו אובד: התנאי לסימון עדיין מתקיים, ולחיצה
+         * ‏נוספת על אותו טווח ממשיכה ממנו — מה שכבר סומן נספר
+         * ‏כ-`alreadyHad` ומדולג מיד.
+         */
+        if (linked >= RECORDING_IMPORT_QUEUE_LIMIT) break;
+        examined += 1;
         /*
          * ‎`recordings/get` דורש `recordid`, ולכן הקלטה בלעדיו אינה
          * ניתנת למשיכה. היא עדיין **נספרת**: „הספק החזיר ארבעים
@@ -576,6 +689,49 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
           skipped += 1;
         }
       }
+
+      /*
+       * ‎**היומן וההתראה — אצל המשרד, באותה עסקה.**
+       *
+       * ‏`userId: null` כי לא משתמש של המשרד פעל כאן; מי שפעל
+       * ‏מופיע במפורש ב-`metadata`. אותה תבנית בדיוק ששולחן
+       * ‏החיבורים משתמש בה על חיבור המרכזייה ועל שיוך מספרים,
+       * ‏ומאותה סיבה: שקיפות היא התחליף להסכמה-מראש.
+       */
+      if (by !== undefined) {
+        await tx.auditLog.create({
+          data: {
+            id: ulid(),
+            tenantId,
+            userId: null,
+            action: "integration.platform_recordings_import",
+            entityType: "integration",
+            entityId: tenantId,
+            metadata: {
+              kind: "telephony",
+              platformAdmin: by.platformAdminEmail,
+              days: Math.round((to.getTime() - from.getTime()) / (24 * 60 * 60 * 1000)),
+              found: rows.length,
+              linked,
+              alreadyHad,
+            } as object,
+          },
+        });
+        await tx.notification.create({
+          data: {
+            id: ulid(),
+            tenantId,
+            userId: null,
+            type: "integration_platform_change",
+            title: "מנהל הפלטפורמה הריץ ייבוא הקלטות",
+            body:
+              `${by.platformAdminEmail} ביקש מהמרכזייה את ההקלטות של השיחות שלכם ` +
+              `וסימן ${linked} מהן למשיכה. ההקלטות ייכנסו לכרטיסי השיחות.`,
+            entityType: "integration",
+            entityId: tenantId,
+          },
+        });
+      }
     });
 
     /*
@@ -585,9 +741,11 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
      * מספרי טלפון.
      */
     const rowKeys = pbx015ListRowKeys(body);
+    const remaining = rows.length - examined;
     this.logger.log(
       `ייבוא הקלטות (${tenantId}): ${rows.length} אצל הספק, ${linked} סומנו למשיכה` +
-        (withoutRecordId > 0 ? `, ${withoutRecordId} בלי מזהה הורדה` : ""),
+        (withoutRecordId > 0 ? `, ${withoutRecordId} בלי מזהה הורדה` : "") +
+        (remaining > 0 ? `, ${remaining} לא נבדקו — התור התמלא` : ""),
     );
     return {
       found: rows.length,
@@ -596,6 +754,7 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
       alreadyHad,
       withoutCall,
       withoutRecordId,
+      remaining,
       rowKeys,
     };
   }
@@ -622,13 +781,62 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
     const tenants = await this.prisma.tenant.findMany({
       where: { status: { in: ["active", "trial"] } },
       select: { id: true },
+      /*
+       * ‎**סדר יציב, כדי שהסיבוב יהיה סיבוב.** בלי `orderBy` הסדר
+       * ‏הוא מה שהמסד מחזיר, והוא יכול להשתנות בין ריצות — ואז
+       * ‏„הבא בתור” אינו הבא בתור אלא הגרלה.
+       */
+      orderBy: { id: "asc" },
     });
+    if (tenants.length === 0) return [];
+
+    /*
+     * ‎**מי פותח מתחלף בכל סבב.** ראו `sweepCursor`.
+     */
+    const start = this.sweepCursor % tenants.length;
+    this.sweepCursor = (start + 1) % tenants.length;
+    const order = [...tenants.slice(start), ...tenants.slice(0, start)];
 
     const jobs: RecordingJob[] = [];
-    for (const tenant of tenants) {
+
+    /*
+     * ‎**מעבר ראשון — מנה שווה, ולא „מי שהגיע ראשון”.**
+     *
+     * ‏זה התיקון עצמו: קודם הלולאה נתנה למשרד הראשון את **כל**
+     * ‏התקציב הפנוי, ומשרד עם מאה הקלטות ממתינות הרעיב את כל
+     * ‏השאר — סבב אחר סבב, עד שסיים. עכשיו אף אחד אינו יכול לקחת
+     * ‏יותר מ-`FAIR_SHARE_PER_SWEEP` לפני שכולם קיבלו.
+     */
+    for (const tenant of order) {
       // התקציב גלובלי, ולכן נבדק לפני כל משרד ולא רק בסופו
       if (jobs.length >= MAX_PER_SWEEP) break;
-      jobs.push(...(await this.pendingFor(tenant.id, now, MAX_PER_SWEEP - jobs.length)));
+      const room = Math.min(FAIR_SHARE_PER_SWEEP, MAX_PER_SWEEP - jobs.length);
+      jobs.push(...(await this.pendingFor(tenant.id, now, room)));
+    }
+
+    /*
+     * ‎**מעבר שני — היתרה, למי שמנתו לא הספיקה לו.**
+     *
+     * ‏בלי זה מנה שווה הייתה הופכת לבזבוז: משרד יחיד שעובד לבדו
+     * ‏היה מושך חמש הקלטות בסבב במקום עשרים, וההגינות הייתה עולה
+     * ‏למי שאין לו מתחרים כלל.
+     *
+     * ‎`mine.length < FAIR_SHARE_PER_SWEEP` הוא הסימן ש**נגמרו לו**:
+     * ‏מי שלא מילא את מנתו אין לו עוד מה למשוך, ושאילתה נוספת עליו
+     * ‏תחזור ריקה. מי שמילא אותה — נשאל שוב, בלי מה שכבר נבחר.
+     */
+    for (const tenant of order) {
+      if (jobs.length >= MAX_PER_SWEEP) break;
+      const mine = jobs.filter((job) => job.tenantId === tenant.id);
+      if (mine.length < FAIR_SHARE_PER_SWEEP) continue;
+      jobs.push(
+        ...(await this.pendingFor(
+          tenant.id,
+          now,
+          MAX_PER_SWEEP - jobs.length,
+          mine.map((job) => job.callId),
+        )),
+      );
     }
     return jobs;
   }
@@ -650,10 +858,21 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
    * מתעדכנת גם אם התהליך נופל באמצע הסבב. הכתיבה היחידה הזו היא גם
    * מה שמונע משתי הרצות במקביל לבחור את אותן שורות.
    */
-  private async pendingFor(tenantId: string, now: number, take: number): Promise<RecordingJob[]> {
+  private async pendingFor(
+    tenantId: string,
+    now: number,
+    take: number,
+    /**
+     * ‏שיחות שכבר נבחרו לסבב הזה — למעבר היתרה.
+     *
+     * ‏בלעדיו המעבר השני היה מחזיר בדיוק את אותן שורות: החותמת
+     * ‏נכתבת רק כשמתחילים למשוך (`claim`), ולא בבחירה.
+     */
+    exclude: readonly string[] = [],
+  ): Promise<RecordingJob[]> {
     return this.prisma.withExplicitTenant(tenantId, async (tx) => {
       const integration = await tx.integration.findFirst({
-        where: { tenantId, kind: "telephony", provider: "015", status: "active" },
+        where: { tenantId, ...PULLING_CONNECTION },
         select: { secretsEncrypted: true, config: true },
       });
       /*
@@ -711,6 +930,8 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
           providerRecordingPath: { not: null },
           recordingKey: null,
           providerCallId: { not: null },
+          /* ‏מה שכבר נבחר בסבב הזה — ראו `exclude` */
+          ...(exclude.length > 0 ? { id: { notIn: [...exclude] } } : {}),
           /*
            * שיחה שלא נענתה אינה נמשכת — ראו `recordingWorthPulling`.
            * מה שיש בקובץ שלה הוא הודעת הפתיחה של המשרד ואולי צפצוף
@@ -817,6 +1038,66 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
+   * ‎**אבחון המשיכה, על שורת החיבור עצמה.**
+   *
+   * ‏עד כה סיבת הכישלון נכתבה על השיחה בלבד — כלומר מי שרצה לדעת
+   * ‏למה ההקלטות של משרד מסוים אינן נמשכות היה צריך גישה לשיחות
+   * ‏שלו. `integrations` היא הגדרת החיבור, וכבר נושאת בדיוק את
+   * ‏השלישייה הזו עבור הוובהוק (`lastEvent*`); שולחן החיבורים קורא
+   * ‏אותה ממילא, ולכן התצוגה אינה עולה שאילתה נוספת.
+   *
+   * ‎`increment` ולא קריאה-ואז-כתיבה: הרצף נכון גם כששני תהליכים
+   * ‏מושכים במקביל, ואין כאן סבב קריאה נוסף.
+   *
+   * ‏כשל בכתיבה הזו **אינו** מפיל את המשיכה: זה אבחון, ולא התוצאה.
+   */
+  private async notePull(tenantId: string, issue: string | null): Promise<void> {
+    await this.prisma
+      .withExplicitTenant(tenantId, (tx) =>
+        tx.integration.updateMany({
+          /*
+           * ‎**אותו תנאי שבחר את העבודה מלכתחילה** (`PULLING_CONNECTION`).
+           * בלעדיו, בקשה שיצאה ל-015 ועוד לא חזרה הייתה חותמת את
+           * תוצאתה על חיבור שבינתיים הוחלף לספק אחר — כלומר מחזירה
+           * אבחון ישן בדיוק אחרי שהחלפת הספק ניקתה אותו, ולתמיד:
+           * ‎`pendingFor` מושכת רק מ-015, ולכן שום משיכה לא תדרוס
+           * אותו (ביקורת Codex).
+           */
+          where: { tenantId, ...PULLING_CONNECTION },
+          data:
+            issue === null
+              ? { lastPullAt: new Date(), lastPullOk: true, lastPullIssue: null, pullFailStreak: 0 }
+              : {
+                  lastPullAt: new Date(),
+                  lastPullOk: false,
+                  /* ‏גבול העמודה — קוד ארוך מזה אינו קיים, וחיתוך עדיף על זריקה */
+                  lastPullIssue: issue.slice(0, 40),
+                  /*
+                   * ‎**רק סירוב מקדם — בדיוק כמו בסבב.**
+                   *
+                   * המונה הזה נקרא ב-`recordingPullHealth` מול
+                   * ‎`RECORDING_REFUSALS_BEFORE_PAUSE`, כלומר מול הסף
+                   * שבו הסבב מפסיק לנסות. קידום על כל כישלון היה עושה
+                   * את שני הקוראים לשני מונים שונים באותה עמודה: שלוש
+                   * תקלות רשת, והמסך מכריז „הסבב עצר” על משרד שהסבב
+                   * ממשיך למשוך ממנו כרגיל.
+                   *
+                   * ‎`other` אינו מאפס וגם אינו מקדם — זו בדיוק
+                   * ההכרעה של `nextRefusalStreak`, ולכן היא נלקחת ממנה
+                   * ולא נכתבת כאן שוב.
+                   */
+                  ...(recordingPullResultOf(issue) === "refused"
+                    ? { pullFailStreak: { increment: 1 } }
+                    : {}),
+                },
+        }),
+      )
+      .catch((error: unknown) =>
+        this.logger.warn(`רישום אבחון משיכה נכשל (${tenantId}): ${String(error)}`),
+      );
+  }
+
+  /**
    * רישום סיבת הכישלון על השורה.
    *
    * הכתיבה מותנית ב-`recordingKey: null` מאותו נימוק שהתפיסה
@@ -842,6 +1123,7 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
       .catch((error: unknown) =>
         this.logger.warn(`רישום סיבת כישלון נכשל (${job.callId}): ${String(error)}`),
       );
+    await this.notePull(job.tenantId, reason);
   }
 
   /**
@@ -1276,7 +1558,7 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
        *
        * התיאור **נבנה מצונזר** ואינו קיצור של הגוף: שמות מפתחות
        * תמיד, ערכים רק לשדות טכניים, כתובות נמחקות והסודות
-       * מוחלפים. אותו עיקרון של `TelephonyWebhookHit`.
+       * מוחלפים. אותו עיקרון של `WebhookHit`.
        */
       const detail = describeProviderResponse(payload, [authUsername, authPassword]);
       /*
@@ -1359,6 +1641,15 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
         );
       return;
     }
+    /*
+     * ‏הצלחה מאפסת את הרצף על שורת החיבור — כמו שהיא מנקה את סיבת
+     * ‏הכישלון על השיחה. בלי זה משרד שתוקן היה נשאר „שבור” במסך עד
+     * ‏שמישהו היה מנקה ידנית.
+     *
+     * ‏מסלול המפתח היתום למעלה יוצא לפני כאן **בכוונה**: הוא מרוץ
+     * ‏אצלנו ולא תשובה של הספק, ואינו מעיד דבר על החיבור.
+     */
+    await this.notePull(job.tenantId, null);
     this.logger.log(`הקלטה נמשכה מ-015 לשיחה ${job.callId} (${audio.length} בתים)`);
   }
 

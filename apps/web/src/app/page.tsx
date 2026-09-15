@@ -8,6 +8,7 @@ import {
   isTaskUrgent,
   jerusalemDayRange,
   JERUSALEM_TZ,
+  jerusalemDayLabel,
   readinessFieldLabel,
   recommendationCapabilities,
   recommendationHref,
@@ -26,6 +27,7 @@ import { DuplicateContacts } from "./duplicate-contacts";
 import { LoadError } from "./load-error";
 import { SetupBanner } from "./setup-banner";
 import { SystemUpdate } from "./system-update";
+import { readDismissed, todayLabel, writeDismissed } from "./dismissed-actions";
 import { NowStamp } from "./now-stamp";
 import { Celebration, type CelebrationEvent } from "./celebration";
 import {
@@ -117,9 +119,24 @@ interface MentorPulse {
   goalsDone: { id: string; label: string; period: "week" | "month"; periodStart: string }[];
   wins: {
     id?: string;
-    kind: "deal_closed" | "exclusivity_signed" | "offer_interested" | "coop_deal";
+    kind: "deal_closed" | "exclusivity_signed" | "offer_interested" | "coop_deal" | "goal_reached";
     title: string;
+    goalId?: string;
+    periodKey?: string;
   }[];
+}
+
+/**
+ * ההצלחות שמוצגות: יעד שכבר ברשימת היעדים שהושגו (אותו יעד, אותה
+ * תקופה) אינו מוצג פעמיים; יעד שהופסק אחרי שהושג נשאר כהצלחה.
+ */
+function pulseWins(pulse: MentorPulse): MentorPulse["wins"] {
+  const celebrated = new Set(
+    pulse.goalsDone.map((g) => `${g.id}:${jerusalemDayLabel(new Date(g.periodStart))}`),
+  );
+  return pulse.wins.filter(
+    (w) => w.kind !== "goal_reached" || !celebrated.has(`${w.goalId}:${w.periodKey}`),
+  );
 }
 
 /** אותם אירועים כמו במסך המנטור — ובאותם מפתחות, כדי שחגיגה שיצאה שם לא תחזור כאן. */
@@ -128,7 +145,8 @@ function celebrationEvents(pulse: MentorPulse): CelebrationEvent[] {
     key: `goal:${g.id}:${g.periodStart}`,
     label: `היעד הושג: ${g.label}`,
   }));
-  const wins = pulse.wins.map((w, i) => ({
+  const wins = pulseWins(pulse)
+    .map((w, i) => ({
     key: `win:${w.id ?? `${pulse.weekStart}:${w.kind}:${w.title}:${i}`}`,
     label: winLabel(w),
   }));
@@ -145,6 +163,8 @@ function winLabel(win: MentorPulse["wins"][number]): string {
       return `קונה אמר „מעוניין” על ${win.title}`;
     case "coop_deal":
       return `עסקת שיתוף פעולה — ${win.title}`;
+    case "goal_reached":
+      return `היעד הושג: ${win.title}`;
   }
 }
 
@@ -353,6 +373,40 @@ export default function DashboardPage() {
    */
   const dayRange = jerusalemDayRange(now);
   const dayKey = dayRange.start.getTime();
+  /*
+   * ‎**„הבנתי” — שורות שהמתווך סימן שראה, עד מחר.**
+   *
+   * המפתח הוא היום הישראלי ולא חותמת זמן, כי זו בדיוק הרזולוציה של
+   * ההבטחה שהכפתור נותן. הקריאה יושבת ב-`useEffect` ולא ברינדור:
+   * ‎`localStorage` אינו קיים בשרת, וערך התחלתי שנקרא ממנו היה
+   * מייצר אי-התאמה בין הרינדור בשרת לזה שבדפדפן.
+   */
+  /* ‎`todayLabel` ולא `today`: `today` כבר תפוס כאן לפגישות היום */
+  const dismissDay = todayLabel(now);
+  const [dismissed, setDismissed] = useState<ReadonlySet<string>>(
+    () => new Set<string>(),
+  );
+  const userId = user?.id ?? null;
+  useEffect(() => {
+    if (userId === null) return;
+    setDismissed(readDismissed(userId, dismissDay));
+  }, [userId, dismissDay]);
+  const dismiss = useCallback(
+    (key: string) => {
+      setDismissed((current) => {
+        const next = new Set(current);
+        next.add(key);
+        if (userId !== null) writeDismissed(userId, dismissDay, next);
+        return next;
+      });
+    },
+    [userId, dismissDay],
+  );
+  const restoreDismissed = useCallback(() => {
+    const empty = new Set<string>();
+    setDismissed(empty);
+    if (userId !== null) writeDismissed(userId, dismissDay, empty);
+  }, [userId, dismissDay]);
   /*
    * ‎**„של היום” נקבע מהערך, לא ממקורו.**
    *
@@ -965,15 +1019,28 @@ export default function DashboardPage() {
    * המקורות — יציב בין רינדורים, וזה מה שחשוב כאן.
    */
   const seen = new Set<string>();
-  const shownTasks = [...candidates]
+  const ranked = [...candidates]
     .sort((a, b) => b.priority - a.priority)
     .filter((t) => {
       if (t.href === null) return true;
       if (seen.has(t.href)) return false;
       seen.add(t.href);
       return true;
-    })
-    .slice(0, 6);
+    });
+  /*
+   * ‎**ההסתרה אחרי הסרת הכפילויות, ולפני החיתוך לשש.**
+   *
+   * ‏אחרי — כי שתי שורות שמובילות לאותו כרטיס הן אותה פעולה, ומי
+   * שסימן „הבנתי” על המנצחת היה רואה את המפסידה עולה במקומה עם
+   * אותו יעד בדיוק. כלומר לחיצה שלא עשתה כלום.
+   *
+   * ולפני החיתוך — כי זו כל הנקודה: השורה שהוסתרה מפנה מקום
+   * לשביעית, ולא משאירה חור ברשימה.
+   */
+  const visibleRanked = ranked.filter((t) => !dismissed.has(t.key));
+  const shownTasks = visibleRanked.slice(0, 6);
+  /** כמה מהשורות של היום כבר סומנו „הבנתי” — לניסוח המצב הריק. */
+  const hiddenToday = ranked.length - visibleRanked.length;
 
   const todayEvents = (today ?? [])
     .filter((a) => a.status === "scheduled" && startsToday(a))
@@ -1194,59 +1261,6 @@ export default function DashboardPage() {
       <SystemUpdate mentor={featuresReady && hasCoach} />
 
       {/*
-        הסוכן הקולי בראש המסך ולא בתחתיתו: הוא נקודת הכניסה לפעולה,
-        והמונים הם הרקע שמאחוריה. מאחורי אותו שער מסלול כמו הקידום
-        שהיה כאן — אין טעם להזמין לפיצ'ר שהשרת יחסום.
-      */}
-      {canVoice ? <VoiceConsole /> : null}
-
-      {statCards.length > 0 ? (
-      <section aria-labelledby="counts-heading" className="mb-7">
-        <h2 id="counts-heading" className="mv-visually-hidden">מונים</h2>
-        <dl className="grid grid-cols-2 items-stretch gap-4 lg:grid-cols-4">
-          {statCards.map((card) => (
-            /*
-              ‎**אפס עובר לניטרלי — מהנתון, לא מהמסך.**
-
-              „Any tile whose value is 0 switches to Neutral tokens
-              automatically — that is a data-driven rule, not
-              hard-coded”. הכלל הזה הוא מה שמונע מ„אין הצעות
-              פתוחות” להיראות כמו התרעה: אריח סגול עם 0 גדול קורא
-              כמו משהו שדורש טיפול, ובדיוק ההפך נכון.
-
-              ‎`undefined` (טרם נטען) אינו אפס ואינו עובר לניטרלי:
-              „עוד לא יודעים” ו„אין” הם שני מצבים שונים.
-            */
-            <Link
-              key={card.label}
-              href={card.href}
-              className={`mv-kpi no-underline ${
-                card.value === 0 ? "mv-domain-neutral" : `mv-domain-${card.domain}`
-              }`}
-            >
-              {/*
-                התווית בתחילת השורה והאריח בקצה — כמו במוקאפ: העין
-                הסורקת ימין-לשמאל פוגשת קודם את המילים, והאייקון
-                יושב בפינה כסימן זיהוי ולא כתחילת משפט.
-              */}
-              <dt className="mv-kpi__head">
-                <span className="mv-kpi__label">{card.label}</span>
-                <span className="mv-tile" aria-hidden="true">
-                  {card.icon}
-                </span>
-              </dt>
-              <dd className="mv-kpi__value mv-ltr m-0">{card.value ?? "…"}</dd>
-              <dd className="mv-kpi__note m-0" style={{ minHeight: "1.2em" }}>
-                {card.sub}
-              </dd>
-            </Link>
-          ))}
-        </dl>
-      </section>
-      ) : null}
-
-
-      {/*
         ‎`align-items: stretch` (ברירת המחדל) ולא `items-start`, ו-372
         ולא 340 — שניהם מ-§24. הכלל שם הוא „Both columns must end at
         the same height… No dead space at the bottom of either
@@ -1325,6 +1339,29 @@ export default function DashboardPage() {
 
             {loading ? (
               <p aria-live="polite" className="px-5 py-4">טוען…</p>
+            ) : shownTasks.length === 0 && hiddenToday > 0 ? (
+              /*
+                ‎**„הכל מטופל” אינו נכון כשהמתווך רק סימן שראה.**
+
+                אותו מסך ריק בדיוק, ושתי משמעויות הפוכות: „אין מה
+                לעשות” מול „יש מה לעשות, ובחרת לדחות להיום”. משפט
+                אחד לשניהם היה מברך על עבודה שלא נעשתה — ולכן כאן
+                נאמר מה קרה, ויש דרך חזרה.
+              */
+              <div className="px-5 py-6 text-center">
+                <p className="m-0" style={{ color: "var(--color-text-muted)" }}>
+                  {hiddenToday === 1
+                    ? "הסתרת שורה אחת להיום. היא תחזור מחר אם עדיין תהיה רלוונטית."
+                    : `הסתרת ${hiddenToday} שורות להיום. הן יחזרו מחר אם עדיין יהיו רלוונטיות.`}
+                </p>
+                <button
+                  type="button"
+                  className="mv-button mv-button--secondary mt-3"
+                  onClick={restoreDismissed}
+                >
+                  הצג אותן שוב
+                </button>
+              </div>
             ) : shownTasks.length === 0 ? (
               <p className="px-5 py-6 text-center" style={{ color: "var(--color-text-muted)" }}>
                 הכל מטופל ✓ — אפשר לקלוט נכס או קונה חדשים.
@@ -1368,16 +1405,49 @@ export default function DashboardPage() {
                       <span className="mv-row__title block">{t.title}</span>
                       <span className="mv-row__why block">{t.why}</span>
                     </span>
-                    {t.href ? (
-                      <Link
-                        href={t.href}
-                        className={`mv-row__action mv-button ${
-                          index === 0 ? "mv-button--primary" : "mv-button--secondary"
-                        } flex-none no-underline`}
+                    {/*
+                      ‎**שני כפתורים בעטיפה אחת, ולא שניים זה לצד זה.**
+
+                      ‎`mv-row__action` דוחף לקצה השורה, ובטלפון הכלל
+                      ‎`.mv-row--action > .mv-row__action` מוריד אותו
+                      לשורה משלו ברוחב מלא. שני ילדים ישירים עם אותה
+                      מחלקה היו יורדים לשתי שורות נפרדות, כל אחת
+                      ברוחב מלא. העטיפה שומרת עליהם כזוג.
+                    */}
+                    <span className="mv-row__action flex flex-none items-center gap-2">
+                      {t.href ? (
+                        <Link
+                          href={t.href}
+                          className={`mv-button ${
+                            index === 0 ? "mv-button--primary" : "mv-button--secondary"
+                          } flex-none no-underline`}
+                        >
+                          {t.action}
+                        </Link>
+                      ) : null}
+                      {/*
+                        ‎**„הבנתי” ולא „בוצע”.**
+
+                        מאחורי השורה אין רשומה שאפשר לסגור — היא
+                        נגזרת מחדש מהנתונים בכל טעינה, ותיעלם כשהמצב
+                        עצמו ישתנה. הכפתור אומר בדיוק מה שהוא עושה:
+                        מסתיר אותה עד מחר, ומפנה את המקום לשורה
+                        הבאה. „בוצע” היה מבטיח שינוי נתונים שלא קרה.
+
+                        ‎`mv-button--ghost` ולא עוד כפתור מסגרת: §13
+                        מקצה קריאה לפעולה **אחת** לשורה, ושני כפתורים
+                        באותו משקל היו מבטלים את הדירוג שהכרטיס הזה
+                        כולו בנוי עליו.
+                      */}
+                      <button
+                        type="button"
+                        className="mv-button mv-button--ghost flex-none"
+                        onClick={() => dismiss(t.key)}
+                        title="מסתיר את השורה עד מחר"
                       >
-                        {t.action}
-                      </Link>
-                    ) : null}
+                        הבנתי
+                      </button>
+                    </span>
                   </li>
                 ))}
               </ul>
@@ -1750,7 +1820,7 @@ export default function DashboardPage() {
                   {mentorPulse.goalsDone.map((g) => (
                     <li key={`g-${g.id}`}>🎯 היעד הושג: {g.label}</li>
                   ))}
-                  {mentorPulse.wins.map((w, i) => (
+                  {pulseWins(mentorPulse).map((w, i) => (
                     <li key={`w-${i}`}>🎉 {winLabel(w)}</li>
                   ))}
                 </ul>
@@ -1762,6 +1832,124 @@ export default function DashboardPage() {
           ) : null}
         </div>
       </div>
+
+      {/*
+        ‎**המונים והסוכן — בתחתית המסך, ובאותו סקשן** (בקשת בעל המוצר).
+
+        ‏§24 העמידה כאן בדיוק את ההפך: „voice-agent panel, full
+        width” ומיד אחריו „four KPI tiles, one row”, שניהם מעל
+        הרשת. ההערה שישבה על הסוכן אף נימקה זאת במפורש — „בראש
+        המסך ולא בתחתיתו”. בעל המוצר הפך את ההכרעה אחרי שראה את
+        המסך המלא: שני הבלוקים תופסים יחד את כל הקיפול הראשון,
+        וכשמתווך פותח דשבורד הוא בא לראות **מה לעשות עכשיו** ולא
+        ארבעה מספרים ושדה קלט ריק. „הכי חשוב שלא יהיה בראש
+        הדשבורד” — ולכן גם השער `verify:dashboard`, כי ההערה הישנה
+        מוכיחה שזה בדיוק סוג הסדר שמישהו יחזיר בתום לב.
+
+        ‎**ולמה יחד, ולא זה מתחת לזה.** שניהם „פחות חשוב” באותה
+        מידה, ושניהם צרים מכדי למלא שורה שלמה: אריח KPI ברוחב
+        רבע-מסך הוא בעיקר שטח לבן — התלונה השנייה של בעל המוצר,
+        „הקוביות מדי ריקות” — ופאנל הסוכן הוא שורת קלט אחת שנמתחה
+        על אלף פיקסלים. החלוקה כאן היא 1fr/372, **אותה חלוקה בדיוק
+        כמו הרשת שמעליה**, ולכן התפר האנכי נמשך עד תחתית העמוד:
+        הסוכן מתחת לטור הראשי, האריחים מתחת לטור הצדדי וברוחבו.
+
+        ‎`stretch` של הרשת מותח את פאנל הסוכן לגובה טור האריחים,
+        והפאנל ממרכז את תוכנו; שני הצדדים נגמרים באותו גובה —
+        אותו כלל של §24 שחל על הטורים שמעליהם.
+
+        וכשאחד מהשניים נעדר (אין הרשאת סוכן קולי, או שאין ולו
+        מונה אחד שמותר להציג) הנותר פורש על כל הרוחב: טור 372
+        בודד בקצה המסך היה נראה כמו שריד של משהו שלא נטען.
+      */}
+      {canVoice || statCards.length > 0 ? (
+        <div
+          className={`mt-4 grid gap-4 ${
+            canVoice && statCards.length > 0
+              ? "lg:[grid-template-columns:1fr_372px]"
+              : ""
+          }`}
+        >
+          {canVoice ? <VoiceConsole /> : null}
+          {statCards.length > 0 ? (
+            <section
+              aria-labelledby="counts-heading"
+              /*
+                ‎**האריחים בגובהם הטבעי — הפאנל הוא זה שנמתח.**
+
+                בארבעה אריחים שני הצדדים יוצאים באותו גובה מעצמם
+                (‏104+12+98 מול 174 שנמתחים ל-214), אבל זה מקרי:
+                לסוכן שאינו רואה הצעות או נכסים יש שני אריחים
+                בלבד, והרשת נמוכה מהפאנל. ‎`flex-1` היה מותח אותה
+                לגובהו, `margin-top: auto` היה דוחף את המספר
+                לתחתית האריח המנופח, ובין התווית למספר היה נפער
+                בדיוק החלל שבגללו נאמר „הקוביות מדי ריקות” — גובה
+                שנכפה מבחוץ אינו תוכן.
+
+                ‎`justify-center` נותן את שניהם: האריחים נשארים
+                בגודל תוכנם, והקבוצה ממורכזת מול הפאנל במקום
+                להיצמד לראש הטור.
+              */
+              className="flex flex-col justify-center"
+            >
+              <h2 id="counts-heading" className="mv-visually-hidden">מונים</h2>
+              <dl
+                className={`m-0 grid grid-cols-2 items-stretch gap-3 ${
+                  canVoice ? "" : "lg:grid-cols-4"
+                }`}
+              >
+                {statCards.map((card) => (
+                  /*
+                    ‎**אפס עובר לניטרלי — מהנתון, לא מהמסך.**
+
+                    „Any tile whose value is 0 switches to Neutral tokens
+                    automatically — that is a data-driven rule, not
+                    hard-coded”. הכלל הזה הוא מה שמונע מ„אין הצעות
+                    פתוחות” להיראות כמו התרעה: אריח סגול עם 0 גדול קורא
+                    כמו משהו שדורש טיפול, ובדיוק ההפך נכון.
+
+                    ‎`undefined` (טרם נטען) אינו אפס ואינו עובר לניטרלי:
+                    „עוד לא יודעים” ו„אין” הם שני מצבים שונים.
+                  */
+                  <Link
+                    key={card.label}
+                    href={card.href}
+                    className={`mv-kpi mv-kpi--sm no-underline ${
+                      card.value === 0 ? "mv-domain-neutral" : `mv-domain-${card.domain}`
+                    }`}
+                  >
+                    {/*
+                      התווית בתחילת השורה והאריח בקצה — כמו במוקאפ: העין
+                      הסורקת ימין-לשמאל פוגשת קודם את המילים, והאייקון
+                      יושב בפינה כסימן זיהוי ולא כתחילת משפט.
+                    */}
+                    <dt className="mv-kpi__head">
+                      <span className="mv-kpi__label">{card.label}</span>
+                      <span className="mv-tile" aria-hidden="true">
+                        {card.icon}
+                      </span>
+                    </dt>
+                    {/*
+                      ‎**המספר וההערה על קו בסיס אחד, ולא זה מתחת לזה.**
+
+                      בצורה המלאה הם שתי שורות, ולאריח בלי הערה נשמרה
+                      שורה ריקה בגובה `1.2em` רק כדי לשמור על יישור —
+                      כלומר חלל שנוסף בכוונה. באריח המצומצם ההערה יושבת
+                      לצד המספר וממלאת את הרוחב שהוא הותיר, וזה בדיוק
+                      החלל שנקרא „ריק”. היישור בין האריחים מגיע עכשיו
+                      מ-`margin-top: auto` על השורה הזו, ולא מגובה קבוע.
+                    */}
+                    <dd className="mv-kpi__foot m-0">
+                      <span className="mv-kpi__value mv-ltr">{card.value ?? "…"}</span>
+                      <span className="mv-kpi__note">{card.sub}</span>
+                    </dd>
+                  </Link>
+                ))}
+              </dl>
+            </section>
+          ) : null}
+        </div>
+      ) : null}
     </>
   );
 }

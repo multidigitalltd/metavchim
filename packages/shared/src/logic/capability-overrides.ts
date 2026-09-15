@@ -16,6 +16,18 @@ import { CAPABILITIES, ROLE_CAPABILITIES, type Capability } from "../rbac.js";
 
 export type OverrideEffect = "grant" | "deny";
 
+/**
+ * ‏שורת חריג כפי שהיא יושבת במסד — לפני ההמרה לטיפוס.
+ *
+ * ‏קיימת כדי ש-`effectiveCapabilities` תקבל את השורה כמות שהיא:
+ * ‏המרה ידנית אצל כל קורא היא בדיוק העותק שנפרד.
+ */
+export type StoredCapabilityOverride = {
+  capability: string;
+  effect: string;
+  expiresAt: Date | null;
+};
+
 export type CapabilityOverride = {
   capability: Capability;
   effect: OverrideEffect;
@@ -61,6 +73,7 @@ export type CapabilityModule = {
 
 export const CAPABILITY_LABELS: Record<Capability, string> = {
   "properties.view": "צפייה בנכסים",
+  "properties.view_all": "בעלי הנכסים של כל המשרד",
   "properties.create": "הוספת נכס",
   "properties.edit": "עריכת נכס",
   "properties.delete": "מחיקת נכס",
@@ -95,7 +108,13 @@ export const CAPABILITY_MODULES: readonly CapabilityModule[] = [
     key: "properties",
     label: "נכסים",
     description: "רשימת הנכסים, כרטיס נכס והוספת נכס חדש",
-    capabilities: ["properties.view", "properties.create", "properties.edit", "properties.delete"],
+    capabilities: [
+      "properties.view",
+      "properties.view_all",
+      "properties.create",
+      "properties.edit",
+      "properties.delete",
+    ],
   },
   {
     key: "buyers",
@@ -231,6 +250,134 @@ export function applyBlockedModules(
     }
   }
   return result;
+}
+
+/**
+ * ‎**יכולת שמרחיבה — ומה שהיא מרחיבה** (ביקורת Codex, P1).
+ *
+ * ‏`view_all` אינה דרגה שנייה של `view_own`: `view_own` הוא כרטיס
+ * ‏הכניסה למודול והוא שנבדק ב-`@RequireCapability` על נתיב הרשימה,
+ * ‏ו-`view_all` רק מרחיב בתוכו את הסינון. `rbac.ts` אומר את זה
+ * ‏במילים כבר היום.
+ *
+ * ‏מה שלא היה כתוב בקוד הוא מה קורה כשמנהל חוסם את **כרטיס
+ * ‏הכניסה** בלבד: התפקיד ממשיך לתת את `view_all`, הנתיב עצמו נסגר
+ * ‏— אבל כל מי ששואל „האם מודול הקונים פתוח אצלו” ראה `OR` ואמר
+ * ‏„כן”. משם `notifiableContactOwnerSource` שולח התראה מפוענחת,
+ * ‏ושערי הלקוח המשותפים פותחים את אותם אנשים בנתיבים אחרים.
+ *
+ * ‏הטבלה היא הכלל היחיד, והנרמול קורה פעם אחת ב-
+ * ‎`effectiveCapabilities` — כלומר כל אחד מחמשת הקוראים מקבל אותו,
+ * ‏ולא רק השואל שהממצא הצביע עליו.
+ */
+export const CAPABILITY_REQUIRES: Partial<Record<Capability, Capability>> = {
+  "properties.view_all": "properties.view",
+  "buyers.view_all": "buyers.view_own",
+  "leads.view_all": "leads.view_own",
+  /* ‏נתיבי המשימות מוגנים ב-`calendar.manage`, ו-`view_all` מרחיב בתוכם */
+  "tasks.view_all": "calendar.manage",
+};
+
+/**
+ * ‎**הענקה שאינה משנה דבר — נדחית, ולא מדווחת כהצלחה**
+ * ‏(ביקורת Codex, P2).
+ *
+ * ‏הנרמול הוריד `view_all` שכרטיס הכניסה שלה חסום, ולכן המסך הציג
+ * ‏אותה כבויה — נכון. אבל כפתור „הענק” לצידה שלח בקשה, השרת ענה
+ * ‏„בוצע”, ואחרי רענון היא נשארה כבויה. מנהל שמנסה פעמיים ומוותר
+ * ‏אינו לומד דבר על **מה** חוסם.
+ *
+ * ‎**ולמה דחייה ולא השלמה שקטה של כרטיס הכניסה.** לחיצה אחת שמעניקה
+ * ‏שתי יכולות — כשאחת מהן נחסמה במפורש — היא בדיוק ההרחבה השקטה
+ * ‏שכל התיקון הזה בא למנוע. המנהל מקבל את שם החוסם, ומחליט על
+ * ‏שתיהן בעצמו.
+ *
+ * ‎`effective` הוא המצב **אחרי** הפעולה, ולא לפניה: „הענק את
+ * ‏שתיהן יחד” חייבת לעבור, והיא לא הייתה עוברת מול המצב הקודם.
+ */
+export function orphanedGrantReason(
+  capability: Capability,
+  effective: ReadonlySet<Capability>,
+): string | null {
+  const entry = CAPABILITY_REQUIRES[capability];
+  if (entry === undefined || effective.has(capability)) return null;
+  if (effective.has(entry)) return null;
+  return `„${CAPABILITY_LABELS[capability]}” נשענת על „${CAPABILITY_LABELS[entry]}”, שחסומה — הסירו את החסימה ממנה תחילה`;
+}
+
+/**
+ * ‏מסירה יכולת מרחיבה שכרטיס הכניסה שלה נחסם.
+ *
+ * ‏מיוצאת לבדיקה בלבד — הנרמול עצמו קורה ב-`effectiveCapabilities`,
+ * ‏וקורא שיריץ אותה בעצמו הוא בדיוק העותק שייפרד.
+ */
+export function withoutOrphanedCapabilities(
+  capabilities: ReadonlySet<Capability>,
+): Set<Capability> {
+  const result = new Set(capabilities);
+  for (const [wide, entry] of Object.entries(CAPABILITY_REQUIRES) as [
+    Capability,
+    Capability,
+  ][]) {
+    if (result.has(wide) && !result.has(entry)) result.delete(wide);
+  }
+  return result;
+}
+
+/**
+ * ‎**שלוש השכבות, במקום אחד — התפקיד, החריגים, וחסימות המשרד.**
+ *
+ * ## ‏למה זה חייב להיות פונקציה אחת
+ *
+ * ‏הצירוף הזה נכתב בחמישה מקומות: כניסה למערכת, העוזר שבוואטסאפ,
+ * ‏שער ההתראות, סבב ההתראות של העובד, ומסך ההרשאות. חמישה עותקים
+ * ‏של „מי רשאי למה” הם חמש הזדמנויות שהם ייפרדו — ואחד מהם כבר
+ * ‏נפרד: מסך ההרשאות הציג `resolveCapabilities` **בלי** חסימות
+ * ‏המודולים, כלומר אמר למנהל שלסוכן יש יכולת שהפלטפורמה חסמה. מסך
+ * ‏שמשקר על ההרשאות הוא בדיוק המסך שאסור לו לשקר.
+ *
+ * ‏ומעבר לכך: העוזר ה-AI רץ **כמשתמש שהפעיל אותו**, והקבוצה הזו
+ * ‏היא כל מה שמפריד בינו לבין הנתונים של סוכן אחר. עותק שנפרד שם
+ * ‏פירושו עוזר שרואה יותר מהאדם ששאל אותו.
+ *
+ * ## ‏הסדר, ולמה הוא כזה
+ *
+ * ‏חסימת המודול מוחלת **אחרי** חריגי המנהל, ולא כחריג נוסף: חריג
+ * ‏`deny` ברמת המשתמש נמחק בלחיצה של מנהל המשרד, וחסימה שהנחסם
+ * ‏יכול להסיר אינה חסימה. הכיוון חד־צדדי — היא מורידה יכולות
+ * ‏ולעולם לא מוסיפה.
+ *
+ * ‎`overrides` מתקבל בצורתו במסד (`string`), כי ההמרה ידנית בכל
+ * ‏קורא הייתה העותק השישי.
+ */
+export function effectiveCapabilities(
+  user: {
+    role: string;
+    overrides: readonly StoredCapabilityOverride[];
+    blockedModules: readonly string[];
+  },
+  now: Date,
+): Set<Capability> {
+  /*
+   * ‏הנרמול אחרון, ואחרי **שתי** ההחסרות: גם חריג `deny` על כרטיס
+   * ‏הכניסה וגם חסימת מודול יכולים להשאיר `view_all` יתום, ובדיקה
+   * ‏באמצע הייתה רואה רק אחת מהן.
+   */
+  return withoutOrphanedCapabilities(
+    applyBlockedModules(
+      resolveCapabilities(
+        user.role,
+        user.overrides.map((row) => ({
+          capability: row.capability as Capability,
+          /* ‏כל ערך שאינו `grant` שולל — ולא מוסיף בטעות */
+          effect: row.effect === "grant" ? "grant" : "deny",
+          expiresAt: row.expiresAt,
+        })),
+        now,
+      ),
+      user.blockedModules,
+    ),
+  );
 }
 
 /* ==================== מי רשאי לשנות למי ==================== */

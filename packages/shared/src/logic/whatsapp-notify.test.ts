@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
+import { MENTOR_PLAYBOOK } from "./mentor-playbook.js";
 import {
   DEFAULT_WHATSAPP_NOTIFY_PREFS,
   formatNotifyMessage,
   inQuietHours,
   MENTOR_QUICK_COMMANDS,
-  NOTIFY_DEFAULT_BUTTONS,
   notifyCategory,
+  notifyFollowUp,
+  dominantNotifyCategory,
   notifyQuickReplies,
   parseWhatsAppNotifyPrefs,
   sessionWindowOpen,
@@ -13,6 +15,8 @@ import {
   templateParams,
   type NotifyItem,
 } from "./whatsapp-notify.js";
+import { WA_BUTTON_TITLE_MAX } from "./whatsapp-buttons.js";
+import { agentAction } from "../agent/actions.js";
 
 const item = (over: Partial<NotifyItem> = {}): NotifyItem => ({
   type: "lead",
@@ -31,8 +35,63 @@ describe("notifyCategory", () => {
     expect(notifyCategory("daily_brief")).toBe("digests");
   });
 
+  /*
+   * ‏שם עם נקודה הוא שם חוקי, והוא זה שהתחמק גם מהמפה וגם מהשער
+   * שנועד לשמור עליה — כי שניהם סיננו נקודות (ביקורת Codex).
+   */
+  it("שם עם נקודה נשלט כמו כל שם אחר", () => {
+    expect(notifyCategory("task.due")).toBe("tasks");
+  });
+
   it("סוג שאינו במפה נופל להודעות מערכת ולא נעלם", () => {
     expect(notifyCategory("something_new")).toBe("system");
+  });
+
+  /*
+   * שישה סוגים שנוצרים בפועל נפלו ל-`system`, ולכן קיבלו אייקון
+   * ומשפט סיום כלליים — וגרוע מכך, לא היו ניתנים לכיבוי בקטגוריה
+   * שאליה הם שייכים. הבדיקה הזו היא מה שמונע נפילה חוזרת בשקט.
+   */
+  it("ההצעות, ההתאמות והרשת אינן הודעות מערכת", () => {
+    /*
+     * ‏„נכנס נכס שמתאים לביקוש שאתה עוקב אחריו” נפל ל-`system`
+     * בדיוק כמו השישה שלפניו (ביקורת Codex): מי שכיבה „רשת” המשיך
+     * לקבל אותו כהודעה שאי אפשר לכבות.
+     */
+    expect(notifyCategory("coop_demand_match")).toBe("network");
+    expect(notifyCategory("offer_opened")).toBe("matches");
+    expect(notifyCategory("offer_interested")).toBe("matches");
+    expect(notifyCategory("matches_found")).toBe("matches");
+    expect(notifyCategory("opportunity_opened")).toBe("matches");
+    expect(notifyCategory("lead_requires_human")).toBe("leads");
+    expect(notifyCategory("whatsapp_bot_escalation")).toBe("leads");
+    expect(notifyCategory("coop_offer_received")).toBe("network");
+    expect(notifyCategory("shared_lead_sold")).toBe("network");
+    expect(notifyCategory("appointment_scheduled")).toBe("tasks");
+  });
+
+  it("מי שכיבה „התאמות” מפסיק לקבל גם את פתיחת ההצעה", () => {
+    const prefs = parseWhatsAppNotifyPrefs({ categories: { matches: false } });
+    expect(shouldNotifyByWhatsApp("offer_opened", prefs)).toBe(false);
+    expect(shouldNotifyByWhatsApp("matches_found", prefs)).toBe(false);
+  });
+});
+
+describe("dominantNotifyCategory", () => {
+  it("הקטגוריה השכיחה היא זו שקובעת", () => {
+    expect(
+      dominantNotifyCategory([
+        item({ type: "call_missed" }),
+        item({ type: "call_missed" }),
+        item({ type: "lead" }),
+      ]),
+    ).toBe("calls");
+  });
+
+  it("תקציר יומי מזוהה — הוא היחיד שנשאר עם „מה דחוף היום?”", () => {
+    expect(dominantNotifyCategory([item({ type: "daily_brief" })])).toBe(
+      "digests",
+    );
   });
 });
 
@@ -188,6 +247,103 @@ describe("formatNotifyMessage", () => {
   it("רשימה ריקה אינה מייצרת הודעה", () => {
     expect(formatNotifyMessage([], "https://x")).toBe("");
   });
+
+  /*
+   * ‏הבקשה עצמה: המתווך שהציע קיבל בוואטסאפ „נפתח חדר עסקה משותף”
+   * ולא קיבל לאן. שורת הקישור נשמטת בדיוק כש-`notificationUrl`
+   * מחזירה `"/"`, ולכן ישות חסרה בטבלה נראית כאן כהודעה תקינה
+   * בלי כתובת — ולא ככשל.
+   */
+  it("„נפתח חדר עסקה” נושאת קישור ישיר לחדר", () => {
+    const text = formatNotifyMessage(
+      [
+        item({
+          title: "נפתח חדר עסקה משותף",
+          type: "coop_deal",
+          entityType: "coop_deal",
+          entityId: "D7",
+        }),
+      ],
+      "https://app.example.com",
+    );
+    expect(text).toContain("https://app.example.com/collaboration/deals/D7");
+  });
+});
+
+describe("formatNotifyMessage — הפרטים שמאחורי הכותרת", () => {
+  const offerDetail = {
+    kind: "offer" as const,
+    ownerUserId: "agent1",
+    person: { name: "דנה לוי", phone: "050-1111111" },
+    property: "4 חדרים · הרצל 12, רמת גן",
+    price: "2,100,000 ₪",
+    openCount: 3,
+    why: null,
+  };
+  const notification = item({
+    id: "n1",
+    type: "offer_opened",
+    title: "הקונה פתח את ההצעה ששלחת",
+    entityType: "offer",
+    entityId: "o1",
+  });
+
+  it("השם והטלפון נכנסים להודעה — בלי להיכנס למערכת", () => {
+    const message = formatNotifyMessage(
+      [notification],
+      "https://app.example.com",
+      {
+        viewer: { userId: "agent1", capabilities: ["buyers.view_own"] },
+        byNotificationId: new Map([["n1", offerDetail]]),
+      },
+    );
+    expect(message).toContain("דנה לוי");
+    expect(message).toContain("050-1111111");
+    expect(message).toContain("4 חדרים · הרצל 12, רמת גן");
+  });
+
+  it("נמען שאינו רשאי לראות את הקונה מקבל את הכותרת בלבד", () => {
+    const message = formatNotifyMessage(
+      [notification],
+      "https://app.example.com",
+      {
+        viewer: { userId: "agent2", capabilities: ["buyers.view_own"] },
+        byNotificationId: new Map([["n1", offerDetail]]),
+      },
+    );
+    expect(message).toContain("הקונה פתח את ההצעה ששלחת");
+    expect(message).not.toContain("דנה לוי");
+    expect(message).not.toContain("050-1111111");
+  });
+
+  it("בלי מפת פרטים ההודעה נשארת בדיוק כפי שהייתה", () => {
+    const before = formatNotifyMessage(
+      [notification],
+      "https://app.example.com",
+    );
+    const after = formatNotifyMessage(
+      [notification],
+      "https://app.example.com",
+      {
+        viewer: { userId: "agent1", capabilities: [] },
+        byNotificationId: new Map(),
+      },
+    );
+    expect(after).toBe(before);
+  });
+
+  it("הפרטים באים לפני הקישור, לא במקומו", () => {
+    const message = formatNotifyMessage(
+      [notification],
+      "https://app.example.com",
+      {
+        viewer: { userId: "agent1", capabilities: ["buyers.view_all"] },
+        byNotificationId: new Map([["n1", offerDetail]]),
+      },
+    );
+    expect(message.indexOf("דנה לוי")).toBeLessThan(message.indexOf("👈"));
+    expect(message).toContain("👈 https://app.example.com/offers");
+  });
 });
 
 describe("sessionWindowOpen", () => {
@@ -226,43 +382,413 @@ describe("templateParams", () => {
     expect(detail).toBe("א · ב · ג");
   });
 
-  it("משטח שורות חדשות — תבנית של Meta דוחה אותן", () => {
+  /*
+   * ‏השורה הופכת ל-`·` ולא נבלעת: גוף ההתראה בנוי שורה לכל פריט,
+   * ‏והדבקה ברווח החזירה בדיוק את גוש הטקסט שהשורות באו למנוע.
+   */
+  it("שורה חדשה הופכת למפריד — תבנית של Meta דוחה ירידת שורה", () => {
     const [, detail] = templateParams([
       item({ title: "כותרת", body: "שורה\nשנייה" }),
     ]);
-    expect(detail).toBe("שורה שנייה");
+    expect(detail).toBe("שורה · שנייה");
+    expect(detail).not.toContain("\n");
+  });
+
+  /* שורה ריקה בין פריטים היא אותו גבול — מפריד אחד, לא שניים */
+  it("שורה ריקה בין פריטים אינה מכפילה את המפריד", () => {
+    const [, detail] = templateParams([
+      item({ title: "כותרת", body: "ראשון\n\nשני" }),
+    ]);
+    expect(detail).toBe("ראשון · שני");
+  });
+});
+
+describe("notifyFollowUp", () => {
+  /*
+   * ‎**כל היכולות** — הבדיקות כאן על הגזירה, לא על ההרשאות; אלה
+   * נבדקות בנפרד למטה.
+   */
+  const ALL = [
+    "show_callbacks",
+    "show_leads",
+    "show_tasks",
+    "show_matches",
+    "show_network_inbox",
+  ];
+
+  it("שיחה שלא נענתה מזמינה את „למי לחזור”, לא את „מה דחוף היום”", () => {
+    const step = notifyFollowUp([item({ type: "call_missed" })], ALL);
+    expect(step).not.toBeNull();
+    expect(step?.label).toContain("למי לחזור");
+    expect(step?.text).not.toBe("");
+  });
+
+  it("פנייה מהרשת מזמינה את הפניות הממתינות", () => {
+    const step = notifyFollowUp([item({ type: "coop_offer" })], ALL);
+    expect(step?.label).toContain("מה מחכה ברשת");
+  });
+
+  /*
+   * ‎**התקציר היומי הוא המקרה שבו הכפתור הישן היה נכון.** `null`
+   * כאן אינו „לא מצאנו” אלא „הכללי מתאים”, והקורא נשען על זה.
+   */
+  it("תקציר יומי נשאר עם הכפתור הכללי", () => {
+    expect(notifyFollowUp([item({ type: "daily_brief" })], ALL)).toBeNull();
+  });
+
+  /*
+   * ‎**הקטגוריה השכיחה, ולא הפריט הראשון.** אגד של חמש התראות
+   * לידים ושיחה אחת הוא אגד לידים, וזו גם הקטגוריה שממנה כבר נגזר
+   * משפט הסיום של אותה הודעה.
+   */
+  it("אגד מעורב הולך אחרי הרוב", () => {
+    const items = [
+      item({ type: "call_missed" }),
+      item({ type: "lead" }),
+      item({ type: "lead_sla" }),
+      item({ type: "lead_stale" }),
+    ];
+    expect(notifyFollowUp(items, ALL)?.label).toContain("הלידים שלי");
+  });
+
+  /*
+   * ‎**כפתור לפעולה חסומה שולח את המתווך אל „אין לך הרשאה” על משהו
+   * שהמערכת עצמה הציעה.** אותו כלל בדיוק כמו בהצעות הסוכן.
+   */
+  it("פעולה שאינה מותרת אינה נהפכת לכפתור", () => {
+    expect(notifyFollowUp([item({ type: "call_missed" })], [])).toBeNull();
+    expect(
+      notifyFollowUp([item({ type: "call_missed" })], ["show_leads"]),
+    ).toBeNull();
+  });
+
+  it("אגד ריק אינו מייצר כפתור", () => {
+    expect(notifyFollowUp([], ALL)).toBeNull();
+  });
+
+  /* ==================== „המר ללקוח” ==================== */
+
+  const WITH_CONVERT = [...ALL, "convert_call"];
+  const ID = "01JCAAAAAAAAAAAAAAAAAAAAAA";
+
+  /*
+   * ‎**סיכום של שיחה אחת — הצעד הבא הוא הלקוח, לא הרשימה.**
+   *
+   * ‏„למי לחזור” מתחת לסיכום של שיחה אחת שולח את המתווך לרשימה
+   * ‏שבה השיחה הזו כבר נמצאת. מה שהוא צריך שם הוא לפתוח ממנה
+   * ‏לקוח (בקשת המשתמש).
+   */
+  it("סיכום של שיחה אחת מזמין המרה ולא את רשימת החזרות", () => {
+    const step = notifyFollowUp(
+      [item({ type: "call_transcribed", entityType: "call", entityId: ID })],
+      WITH_CONVERT,
+    );
+    expect(step?.label).toContain("המר ללקוח");
+    expect(step?.text).toContain(`[call:${ID}]`);
+  });
+
+  /*
+   * ‎**מה שהכפתור שולח נכנס למנוע כאילו הוקלד**, ולכן הוא חייב
+   * ‏להיות הניסוח שהקטלוג מבטיח שהמערכת מכירה — ולא מחרוזת שנכתבה
+   * ‏כאן ותתיישן בשקט ביום שהקטלוג משתנה. אותו כלל של שאר הכפתורים.
+   */
+  it("והמשפט והכיתוב מגיעים מהקטלוג, לא מהקוד כאן", () => {
+    const action = agentAction("convert_call")!;
+    const step = notifyFollowUp(
+      [item({ type: "call_transcribed", entityType: "call", entityId: ID })],
+      WITH_CONVERT,
+    );
+    expect(step?.text.startsWith(`${action.examples[0]} `)).toBe(true);
+    expect(step?.label).toContain(action.title);
+  });
+
+  /*
+   * ‎**וההתראה על שיחה שלא נענתה — המקרה שבשבילו זה נבנה.** היא
+   * ‏אינה מצביעה על השיחה אלא על מי שהתקשר: ליד אם נפתח, ואחרת
+   * ‏הכרטיס. מצביע מסוג אחד היה מכסה את הסיכום ומחמיץ בדיוק את זה.
+   */
+  it("וגם שיחה שלא נענתה — לפי מה שההתראה מצביעה עליו", () => {
+    for (const kind of ["lead", "contact"] as const) {
+      const step = notifyFollowUp(
+        [item({ type: "call_missed", entityType: kind, entityId: ID })],
+        WITH_CONVERT,
+      );
+      expect(step?.text, kind).toContain(`[${kind}:${ID}]`);
+    }
+  });
+
+  /*
+   * ‎**כותרת כפתור נחתכת ב-20 תווים אצל Meta** — כיתוב שנחתך
+   * ‏באמצע מילה נראה כמו תקלה.
+   */
+  it("והכיתוב נכנס בתקרת הכותרת של Meta", () => {
+    const step = notifyFollowUp(
+      [item({ type: "call_transcribed", entityType: "call", entityId: ID })],
+      WITH_CONVERT,
+    );
+    expect([...(step?.label ?? "")].length).toBeLessThanOrEqual(WA_BUTTON_TITLE_MAX);
+  });
+
+  /*
+   * ‎**אגד של כמה שיחות הוא רשימה, ולא שיחה.** „המר ללקוח” שם
+   * ‏היה שואל על אחת מהן בלי לומר איזו, ו„למי לחזור” הוא בדיוק
+   * ‏הצעד הנכון.
+   */
+  it("אבל אגד של כמה שיחות נשאר „למי לחזור”", () => {
+    const step = notifyFollowUp(
+      [
+        item({ type: "call_missed", entityType: "contact", entityId: ID }),
+        item({ type: "call_transcribed", entityType: "call", entityId: ID }),
+      ],
+      WITH_CONVERT,
+    );
+    expect(step?.label).toContain("למי לחזור");
+  });
+
+  /*
+   * ‎**התראה שהוסתרה לנמען הזה מגיעה בלי מצביע** — ואסור שיהיה לו
+   * ‏כפתור לפתוח כרטיס על מי שאינו רשאי לראות.
+   */
+  it("והתראה בלי מצביע אינה נותנת כפתור המרה", () => {
+    for (const over of [
+      { entityType: null, entityId: null },
+      /* ‏חצי מצביע אינו מצביע — כפתור עם מזהה ריק היה שואל על אחר */
+      { entityType: "contact", entityId: null },
+    ] as const) {
+      const step = notifyFollowUp([item({ type: "call_missed", ...over })], WITH_CONVERT);
+      expect(step?.label, String(over.entityType)).toContain("למי לחזור");
+    }
+  });
+
+  /*
+   * ‎**הצלצול קודם לשורת השיחה** (ביקורת Codex, P2).
+   *
+   * ‏`incoming_call` נשלחת בזמן שהטלפון מצלצל, לפני ש-`TelephonyService`
+   * ‏כותב את השיחה. המצביע על הכרטיס היה נפתר לשיחה **קודמת** של
+   * ‏אותו לקוח, או לא נפתר כלל — שאלה על משהו אחר ממה שההתראה
+   * ‏הציגה. הכפתור חוזר עם ההתראה שאחרי.
+   */
+  it("והצלצול עצמו אינו מזמין המרה — השיחה עוד לא נכתבה", () => {
+    const step = notifyFollowUp(
+      [item({ type: "incoming_call", entityType: "contact", entityId: ID })],
+      WITH_CONVERT,
+    );
+    expect(step?.label).toContain("למי לחזור");
+  });
+
+  /* ‏„המרכזייה שותקת” היא בקטגוריית השיחות ואינה שיחה */
+  it("ו„המרכזייה שותקת” אינה שיחה להמרה", () => {
+    expect(
+      notifyFollowUp([item({ type: "pbx_silent" })], WITH_CONVERT)?.label,
+    ).toContain("למי לחזור");
+  });
+
+  /* ‏ליד שנכנס מהאתר אינו שיחה — גם כשהוא מצביע על ליד */
+  it("וליד שאינו משיחה אינו מזמין המרה", () => {
+    const step = notifyFollowUp(
+      [item({ type: "lead_form_inquiry", entityType: "lead", entityId: ID })],
+      WITH_CONVERT,
+    );
+    expect(step?.label).toContain("הלידים שלי");
+  });
+
+  /* ‏אותו שער כמו לכל פעולה: בלי היכולת אין כפתור שמבטיח אותה */
+  it("ובלי היכולת — חוזרים לכפתור של הקטגוריה", () => {
+    const step = notifyFollowUp(
+      [item({ type: "call_transcribed", entityType: "call", entityId: ID })],
+      ALL,
+    );
+    expect(step?.label).toContain("למי לחזור");
+  });
+
+  /*
+   * ‎**`allowed` הוא מזהי פעולות, לא יכולות** — וזו הבחנה ששוברת
+   * בשקט. רשימת יכולות (`leads.view_own`) לעולם אינה מכילה
+   * ‎`show_callbacks`, ולכן קורא שמעביר אותה מכבה את הכפתור הנגזר
+   * תמיד ומקבל את הכללי — בלי שגיאה, בלי לוג, ובלי בדיקה אדומה.
+   * זו בדיוק הטעות שנעשתה בקורא הראשון, והבדיקה הזו מקבעת אותה.
+   */
+  it("רשימת יכולות אינה רשימת פעולות — והיא אינה פותחת כפתור", () => {
+    const capabilities = [
+      "leads.view_own",
+      "leads.view_all",
+      "collaboration.offer",
+    ];
+    expect(
+      notifyFollowUp([item({ type: "call_missed" })], capabilities),
+    ).toBeNull();
+  });
+
+  /*
+   * ‎**המסלול המלא כפי שהקורא בונה אותו:** תפקיד ⟵ יכולות ⟵
+   * הפעולות המותרות ⟵ כפתור. בעלים אמור לקבל כפתור על שיחה
+   * שלא נענתה; אם הגזירה נשברת, זה נשבר כאן ולא אצל המתווך.
+   */
+  it("בעלים מקבל כפתור דרך הגזירה האמיתית מהתפקיד", async () => {
+    const { AGENT_ACTIONS, mayUseAction } = await import("../agent/actions.js");
+    const { ROLE_CAPABILITIES } = await import("../rbac.js");
+    const capabilities = new Set(ROLE_CAPABILITIES["owner"] ?? []);
+    const ids = AGENT_ACTIONS.filter((a) => mayUseAction(a, capabilities)).map(
+      (a) => a.id,
+    );
+    expect(
+      notifyFollowUp([item({ type: "call_missed" })], ids)?.label,
+    ).toContain("למי לחזור");
+  });
+
+  /*
+   * ‎**המשפט חייב להיות אחד שהמנוע מכיר.** הוא נשלח כאילו הוקלד,
+   * ולכן הוא נלקח מהקטלוג ולא נכתב כאן — הבדיקה מקבעת את המקור.
+   */
+  it("המשפט מגיע מהדוגמאות של הפעולה בקטלוג", async () => {
+    const { agentAction } = await import("../agent/actions.js");
+    const step = notifyFollowUp([item({ type: "task_reminder" })], ALL);
+    expect(step?.text).toBe(agentAction("show_tasks")?.examples[0]);
+  });
+
+  /*
+   * ‎**כיתוב שנחתך הוא כיתוב שגוי, לא כיתוב קצר.** Meta חותכת ב-20
+   * תווים ומוסיפה „…”, ו„פניות ממתינות מה…” אינו אומר דבר. הבדיקה
+   * עוברת על *כל* הקטגוריות ולא על אחת, כדי שגם כיתוב שיתארך בעתיד
+   * ייתפס כאן ולא אצל המתווך.
+   */
+  it("שום כיתוב אינו נחתך על ידי Meta", async () => {
+    const { buttonTitle } = await import("./whatsapp-buttons.js");
+    const types = [
+      "call_missed",
+      "lead",
+      "task_reminder",
+      "matches_refreshed",
+      "coop_offer",
+    ];
+    for (const type of types) {
+      const step = notifyFollowUp([item({ type })], ALL);
+      expect(step, type).not.toBeNull();
+      expect(buttonTitle(step!.label), type).toBe(step!.label);
+    }
   });
 });
 
 describe("notifyQuickReplies — המנטור מקבל כפתורים משלו", () => {
-  it("סיכום שבועי: מתחייב, לענות למנטור, היעדים שלי — כולם פקודות שהשיחה מבינה", () => {
-    const buttons = notifyQuickReplies([
-      item({ type: "mentor_weekly", title: "הסיכום" }),
-    ]);
-    expect(buttons.map((b) => b.action)).toEqual(["cmd", "cmd", "cmd"]);
-    for (const button of buttons) {
+  const VIEWER = { userId: "u1", capabilities: [] as string[] };
+  const weeklyWith = (ask: boolean, reflection: boolean) =>
+    notifyQuickReplies(
+      [item({ type: "mentor_weekly", title: "הסיכום", id: "n1" })],
+      {
+        viewer: VIEWER,
+        byNotificationId: new Map([
+          [
+            "n1",
+            {
+              kind: "mentor_review" as const,
+              ownerUserId: "u1",
+              ask,
+              reflection,
+            },
+          ],
+        ]),
+      },
+    );
+
+  it("סיכום שבועי עם בקשה ושאלה: מתחייב, לענות למנטור, היעדים שלי — כולם פקודות שהשיחה מבינה", () => {
+    const buttons = weeklyWith(true, true);
+    expect(buttons?.map((b) => b.action)).toEqual(["cmd", "cmd", "cmd"]);
+    for (const button of buttons ?? []) {
       expect(button.arg).toBeDefined();
       expect(MENTOR_QUICK_COMMANDS).toHaveProperty(button.arg as string);
     }
-    expect(buttons[0]?.arg).toBe("mentor_commit");
+    expect(buttons?.[0]?.arg).toBe("mentor_commit");
   });
 
-  it("דחיפה וחגיגה: היעדים שלי לפני ברירת המחדל", () => {
+  /*
+   * ‎**רק מה שיש בסיכום.** סיכום בלי בקשה לשבוע הבא (יעד חודשי בלבד,
+   * או שבוע שכל היעדים בו הושגו) אינו מציע „מתחייב”; סיכום בלי שאלה
+   * אינו מציע „לענות למנטור”. כפתור שמוביל ל„אין בקשה” הוא הבטחה
+   * שנשברת.
+   */
+  it("סיכום בלי בקשה או בלי שאלה — הכפתור המתאים חסר, „היעדים שלי” נשאר", () => {
+    expect(weeklyWith(false, true)?.map((b) => b.arg)).toEqual([
+      "mentor_reflect",
+      "mentor_status",
+    ]);
+    expect(weeklyWith(true, false)?.map((b) => b.arg)).toEqual([
+      "mentor_commit",
+      "mentor_status",
+    ]);
+    expect(weeklyWith(false, false)?.map((b) => b.arg)).toEqual([
+      "mentor_status",
+    ]);
+  });
+
+  it("בלי פרטים (ההעשרה נכשלה) — „היעדים שלי” בלבד, לא כפתורים שאולי אין להם כיסוי", () => {
+    const buttons = notifyQuickReplies([
+      item({ type: "mentor_weekly", title: "הסיכום" }),
+    ]);
+    expect(buttons?.map((b) => b.arg)).toEqual(["mentor_status"]);
+  });
+
+  it("דחיפה וחגיגה: „היעדים שלי” בלבד — בלי כפתור זר מתחת למנטור", () => {
     for (const type of ["mentor_nudge", "mentor_win"]) {
       const buttons = notifyQuickReplies([item({ type })]);
-      expect(buttons[0]?.arg).toBe("mentor_status");
-      expect(buttons.slice(1)).toEqual(NOTIFY_DEFAULT_BUTTONS);
+      expect(buttons?.map((b) => b.arg)).toEqual(["mentor_status"]);
     }
   });
 
-  it("אגד מעורב — ליד עם סיכום — נשאר עם ברירת המחדל", () => {
+  it("הבוקר: משוב על הרעיון — קשור לרעיון שהוצג — ואז „היעדים שלי”; שלושה בדיוק", () => {
+    const idea = MENTOR_PLAYBOOK.offers_sent.ideas[2]!;
+    const daily = item({
+      type: "mentor_daily",
+      body: `בוקר טוב דנה. 5 הצעות בשבוע: 2 הצעות עד עכשיו. רעיון להיום: ${idea} יום טוב — ואני כאן.`,
+    });
+    const buttons = notifyQuickReplies([daily]);
+    expect(buttons?.map((b) => b.arg)).toEqual([
+      "הרעיון עזר לי [offers_sent:2]",
+      "הרעיון לא בשבילי [offers_sent:2]",
+      "mentor_status",
+    ]);
+    expect(buttons).toHaveLength(3);
+    // בוקר בלי רעיון — „היעדים שלי” בלבד
+    expect(
+      notifyQuickReplies([
+        item({ type: "mentor_daily", body: "בוקר טוב." }),
+      ])?.map((b) => b.arg),
+    ).toEqual(["mentor_status"]);
+  });
+
+  it("הבוקר באגד מעורב — ליד יחד עם הרעיון: המשוב נשאר, ו„מה דחוף היום?” שלישי", () => {
+    const idea = MENTOR_PLAYBOOK.viewings_held.ideas[0]!;
+    const buttons = notifyQuickReplies([
+      item({ type: "lead" }),
+      item({ type: "mentor_daily", body: `רעיון להיום: ${idea}` }),
+    ]);
+    expect(buttons?.map((b) => b.arg)).toEqual([
+      "הרעיון עזר לי [viewings_held:0]",
+      "הרעיון לא בשבילי [viewings_held:0]",
+      "urgent",
+    ]);
+    // בוקר בלי רעיון באגד מעורב — הודעה רגילה
+    expect(
+      notifyQuickReplies([
+        item({ type: "lead" }),
+        item({ type: "mentor_daily", body: "בוקר טוב." }),
+      ]),
+    ).toBeNull();
+  });
+
+  /*
+   * ‎**מי שאינו מנטור אינו מקבל כאן דבר** — `null`, לא רשימה: הכפתור
+   * של הודעה רגילה נגזר ממה שכתוב בה (`notifyFollowUp`), וזה עניינו
+   * של הקורא. אגד מעורב הוא הודעה רגילה.
+   */
+  it("אגד מעורב — ליד עם סיכום — ורשימה ריקה אינם של המנטור", () => {
     expect(
       notifyQuickReplies([
         item({ type: "mentor_weekly" }),
         item({ type: "lead" }),
       ]),
-    ).toEqual(NOTIFY_DEFAULT_BUTTONS);
-    expect(notifyQuickReplies([])).toEqual(NOTIFY_DEFAULT_BUTTONS);
+    ).toBeNull();
+    expect(notifyQuickReplies([])).toBeNull();
+    expect(notifyQuickReplies([item({ type: "lead" })])).toBeNull();
   });
 
   it("משפט הפעולה של הסיכום השבועי מזמין מחויבות, לא „מה דחוף היום”", () => {

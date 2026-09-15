@@ -1,7 +1,9 @@
 import { describe, expect, it, test } from "vitest";
 import {
+  MENTOR_REPLY_JSON_SCHEMA,
   buildMentorPrompt,
   mentorFallbackReply,
+  parseGoalRequest,
   type MentorChatContext,
 } from "./mentor-chat.js";
 import type { MentorGoalProgress } from "./mentor.js";
@@ -127,4 +129,142 @@ test("הדפוסים נכנסים לפרומפט כזיכרון — במילים
   expect(prompt).toContain(
     "הצעות שנשלחו: מאחור ב-3 מתוך 5 השבועות האחרונים. בפעמים הקודמות אמרת: „לא היה זמן”.",
   );
+});
+
+describe("השיחה מייעצת — הניתוח והמשפך בפרומפט, והעצה גם בלי מודל", () => {
+  const quiet = {
+    deals_closed: 0,
+    offers_sent: 0,
+    viewings_held: 0,
+    leads_answered: 0,
+    new_buyers: 0,
+    new_properties: 0,
+    calls_made: 0,
+    calls_answered: 0,
+    leads_answered_fast: 0,
+    followups_done: 0,
+    owner_updates_sent: 0,
+  };
+  const advised: MentorChatContext = {
+    ...base,
+    activity: { ...quiet, offers_sent: 2 },
+    previousActivity: { ...quiet, offers_sent: 5 },
+    funnel: {
+      history: { ...quiet, new_buyers: 6, offers_sent: 18, viewings_held: 3 },
+      weeks: 13,
+    },
+    advice: [
+      {
+        kind: "behind_goal",
+        metric: "offers_sent",
+        title: "5 הצעות בשבוע: 2 הצעות עד עכשיו — מאחור",
+        body: "לקבוע שעה קבועה להצעות.",
+        question: "איך להגיע ל5 הצעות בשבוע?",
+      },
+    ],
+  };
+
+  it("הפרומפט: כללי העצה, הפעילות, המגמה, המשפך מול המקובל והניתוח", () => {
+    const prompt = buildMentorPrompt(advised);
+    expect(prompt).toContain("10. כשמבקשים עצה, רעיון, טיפ");
+    expect(prompt).toContain("11. כששואלים על המשפך");
+    expect(prompt).toContain("השבוע עד עכשיו: 2 הצעות.");
+    expect(prompt).toContain("מול שבוע שעבר: פחות הצעות שנשלחו (5 ⟵ 2).");
+    expect(prompt).toContain("הצעה ⟵ סיור: כל 6 (מקובל: כל 3)");
+    expect(prompt).toContain(
+      "- 5 הצעות בשבוע: 2 הצעות עד עכשיו — מאחור. לקבוע שעה קבועה להצעות.",
+    );
+    expect(prompt).toContain("רעיונות מספר המשחק");
+  });
+
+  it("בלי פעילות בהקשר (קורא ישן) — הפרומפט כמו קודם, בלי ניתוח", () => {
+    expect(buildMentorPrompt(base)).not.toContain("השבוע עד עכשיו");
+  });
+
+  it("בלי מודל — העצה הראשונה מצטרפת למצב היעדים, וגם בלי יעדים", () => {
+    const withGoals = mentorFallbackReply(advised);
+    expect(withGoals).toContain("5 הצעות בשבוע — 2 הצעות, מאחור.");
+    expect(withGoals).toMatch(/מאחור\. לקבוע שעה קבועה להצעות\.$/u);
+    const noGoals = mentorFallbackReply({ ...advised, goals: [] });
+    expect(noGoals).toContain("אינה זמינה כרגע");
+    expect(noGoals).toContain("לקבוע שעה קבועה להצעות.");
+    expect(noGoals).not.toContain("עדיין אין לך יעדים");
+  });
+});
+
+describe("יעד מהשיחה — המודל מציע, המתווך לוחץ, הקוד כותב", () => {
+  it("הסכמה מקבלת proposedGoal רשות, והפרומפט אומר מתי למלא אותו ומה הקודים", () => {
+    const props = MENTOR_REPLY_JSON_SCHEMA.properties as Record<
+      string,
+      unknown
+    >;
+    expect(props.proposedGoal).toBeDefined();
+    expect(MENTOR_REPLY_JSON_SCHEMA.required).toEqual(["reply"]);
+    const prompt = buildMentorPrompt(base);
+    expect(prompt).toContain("ממלאים proposedGoal");
+    expect(prompt).toContain("offers_sent = הצעות שנשלחו");
+    expect(prompt).toContain(
+      "יעד שהמתווך רק שוקל או שואל עליו — בלי proposedGoal",
+    );
+  });
+
+  it("parseGoalRequest: בקשה מפורשת עם מספר ומדד — יעד; שבוע כברירת מחדל", () => {
+    expect(parseGoalRequest("תקבע לי יעד של 5 הצעות בשבוע")).toEqual({
+      metric: "offers_sent",
+      target: 5,
+      period: "week",
+    });
+    expect(parseGoalRequest("רוצה יעד: 3 סיורים")).toEqual({
+      metric: "viewings_held",
+      target: 3,
+      period: "week",
+    });
+    expect(parseGoalRequest("היעד שלי החודש: עסקה אחת")).toEqual({
+      metric: "deals_closed",
+      target: 1,
+      period: "month",
+    });
+    expect(parseGoalRequest("תקבע לי יעד של עסקה בחודש")).toEqual({
+      metric: "deals_closed",
+      target: 1,
+      period: "month",
+    });
+    expect(parseGoalRequest("להגדיר יעד של עשר שיחות יוצאות בשבוע")).toEqual({
+      metric: "calls_made",
+      target: 10,
+      period: "week",
+    });
+    // הספציפי קודם — שיחות נכנסות אינן שיחות יוצאות; „תוך שעה” אינו לידים
+    expect(parseGoalRequest("תקבע יעד 8 שיחות נכנסות בשבוע")?.metric).toBe(
+      "calls_answered",
+    );
+    expect(parseGoalRequest("יעד: 4 לידים תוך שעה בשבוע")?.metric).toBe(
+      "leads_answered_fast",
+    );
+    // בלי המילה „יעד” — כשיש תקופה מפורשת זו בקשה (ביקורת Codex)
+    expect(parseGoalRequest("רוצה 3 סיורים בשבוע")).toEqual({
+      metric: "viewings_held",
+      target: 3,
+      period: "week",
+    });
+  });
+
+  it("parseGoalRequest: מילים שלמות ותקופות — שאלה על יעד קיים, משאלה בלי תקופה, ותקופה לא נתמכת אינן בקשה", () => {
+    // „שקבעתי” אינו „קבע”, ושאלה אינה בקשה
+    expect(parseGoalRequest("כמה השגתי מהיעד שקבעתי של 5 הצעות?")).toBeNull();
+    expect(parseGoalRequest("מה היעד שקבעתי — 5 הצעות בשבוע")).toBeNull();
+    // בלי „יעד” ובלי תקופה — לא מנחשים
+    expect(parseGoalRequest("רוצה 3 סיורים")).toBeNull();
+    // „ביום” אינו הופך לשבוע בשקט
+    expect(parseGoalRequest("תקבע לי יעד של 5 הצעות ביום")).toBeNull();
+    expect(parseGoalRequest("תקבע לי יעד של 50 הצעות בשנה")).toBeNull();
+  });
+
+  it("parseGoalRequest: שאלה על יעדים, בלי מספר, בלי מדד, או מעל הגבול — null", () => {
+    expect(parseGoalRequest("כמה הצעות שלחתי השבוע?")).toBeNull();
+    expect(parseGoalRequest("מה המצב ביעדים שלי?")).toBeNull();
+    expect(parseGoalRequest("תקבע לי יעד")).toBeNull();
+    expect(parseGoalRequest("תקבע לי יעד של 5 בשבוע")).toBeNull();
+    expect(parseGoalRequest("תקבע לי יעד של 999 הצעות בשבוע")).toBeNull();
+  });
 });

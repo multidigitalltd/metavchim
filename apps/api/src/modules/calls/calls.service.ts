@@ -1,23 +1,39 @@
 import type { Readable } from "node:stream";
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from "@nestjs/common";
 import { ulid } from "ulid";
 import {
   assertContactAccess,
   isOrphanContact,
+  leadOwnershipFilter,
+  leadIsVisible,
   seesAllContacts,
   visibleCallsCondition,
   visibleContactIds,
 } from "../../common/ownership";
+import {
+  agentHandover,
+  agentNameOf,
+  agentNames,
+  assertAgentInOffice,
+  assertCanAssignAgents,
+} from "../../common/agent-names";
 import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
 import { CryptoService } from "../../core/crypto.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import { StorageService } from "../../core/storage.service";
+import { LeadsService } from "../leads/leads.service";
 import {
   UNANSWERED_OUTCOMES,
   parseCallHighlights,
   RECORDING_BLOCKED_REASON,
   recordingStateOf,
+  type CallBulkResult,
   type CallHighlights,
   type RecordingStatus,
 } from "@metavchim/shared";
@@ -39,6 +55,25 @@ export interface CallDto {
   contactId?: string;
   contactName?: string;
   leadId?: string;
+  /**
+   * ‎**„אפשר להמיר את הליד הזה, והנה מצבו”** — שדה אחד לשתי שאלות.
+   *
+   * מסך השיחות מציע להמיר את הליד לקונה או לנכס, ושתי דרכים להגיע
+   * שם למבוי סתום אחרי מילוי טופס שלם:
+   *
+   * 1. הליד **כבר הומר** — ההמרה מחזירה 409.
+   * 2. הליד שייך לסוכן אחר — שירותי ההמרה מפעילים
+   *    ‎`leadOwnershipFilter()` ומחזירים 404, בעוד שהשיחה **כן**
+   *    נראית למשתמש (דרך נכס גלוי לכולם, או קונה שלו). ראות שיחה
+   *    וראות ליד אינן אותו דבר (ביקורת Codex).
+   *
+   * ולכן השליפה מסננת בעלות: חסר = אין ליד, או שהוא אינו שלך —
+   * ובשני המקרים אין מה להציע. המסך דורש **נוכחות** של השדה ולא רק
+   * ערך שאינו `converted`.
+   */
+  leadStatus?: string;
+  /** ‏הלקוח מסומן „טאבו משותף” — מסמן מראש את התיבה בהמרה לנכס. */
+  contactSharedTabu?: boolean;
   phone?: string;
   occurredAt: Date;
   durationMinutes?: number;
@@ -77,6 +112,23 @@ export interface CallDto {
   recording: RecordingStatus;
   /** פירוט טכני מצונזר של תשובת הספק — רק ל-`settings.manage`. */
   recordingDetail?: string;
+  /**
+   * ‎**לאיזה סוכן השיחה הגיעה — ורק למי שרואה את כל המשרד.**
+   *
+   * ‏חסר פירושו „לא ידוע”, **או** „אינך מי שרואה את זה” — ומבחינת
+   * ‏המסך אלה אותה תשובה: אין מה להציג. סוכן רגיל רואה ממילא רק
+   * ‏את השיחות שלו, ולכן שם הסוכן לידן היה רעש; מנהל שרואה את
+   * ‏כולן צריך את העמודה הזו כדי שהרשימה תהיה קריאה בכלל.
+   */
+  agentName?: string;
+  /**
+   * ‏השלוחה שענתה, כשאין לה סוכן מוכר במערכת.
+   *
+   * ‏מוחזר **רק** בהיעדר `agentName`: „שלוחה 203” היא תשובה
+   * ‏שימושית בהרבה מכלום, אבל לצד שם היא רק רעש. מוצג לאותו קהל
+   * ‏בדיוק.
+   */
+  agentExtension?: string;
   createdAt: Date;
 }
 
@@ -104,6 +156,7 @@ export class CallsService {
     private readonly audit: AuditService,
     private readonly storage: StorageService,
     private readonly transcription: TranscriptionService,
+    private readonly leads: LeadsService,
   ) {}
 
   async create(input: CreateCallInput): Promise<CallDto> {
@@ -119,13 +172,15 @@ export class CallsService {
        * (ביקורת Codex). הצילום נלקח פעם אחת ואינו משתנה איתו.
        */
       let propertyId: string | null = null;
+      let leadCreatedAt: Date | null = null;
       if (input.leadId !== undefined) {
         const lead = await tx.lead.findFirst({
           where: { id: input.leadId, tenantId },
-          select: { contactId: true, propertyId: true },
+          select: { contactId: true, propertyId: true, createdAt: true },
         });
         contactId = contactId ?? lead?.contactId;
         propertyId = lead?.propertyId ?? null;
+        leadCreatedAt = lead?.createdAt ?? null;
       }
 
       const row = await tx.call.create({
@@ -155,8 +210,17 @@ export class CallsService {
        * נחתם, ורק כשדיברו: „אין מענה”, „לא נענתה” ו„תא קולי” אינם
        * שיחה, וחתימה עליהם הייתה משתיקה גם את תזכורת ה-SLA של ליד
        * שאיש עוד לא דיבר איתו (ביקורת Codex).
+       *
+       * ורק שיחה **אחרי** שהליד נוצר: הטופס מאפשר לערוך את שעת
+       * השיחה, ושיחה שתוארכה לפני הליד הייתה נותנת זמן מענה שלילי —
+       * „ענה תוך שעה” בחינם, ונעילה של המענה האמיתי שיבוא אחריה.
        */
-      if (input.leadId !== undefined && input.outcome === "answered") {
+      if (
+        input.leadId !== undefined &&
+        input.outcome === "answered" &&
+        leadCreatedAt !== null &&
+        input.occurredAt >= leadCreatedAt
+      ) {
         await tx.lead.updateMany({
           where: { id: input.leadId, tenantId, firstResponseAt: null },
           data: { firstResponseAt: input.occurredAt },
@@ -170,7 +234,12 @@ export class CallsService {
         metadata: { direction: input.direction, outcome: input.outcome },
       });
 
-      return this.toDto(tx, row);
+      /*
+       * ‏שיחה שנרשמה **ידנית** אינה נושאת סוכן שקיבל אותה: השאלה
+       * ‏„לאיזו שלוחה זה הגיע” אינה קיימת כאן, ו-`createdBy` הוא
+       * ‏מי שהקליד — לא בהכרח מי שדיבר. מפה ריקה, ולא ניחוש.
+       */
+      return this.toDto(tx, row, undefined, undefined, new Map());
     });
   }
 
@@ -302,7 +371,36 @@ export class CallsService {
         tx,
         allowed.map((row) => row.contactId).filter((id): id is string => id !== null),
       );
-      return Promise.all(allowed.map((row) => this.toDto(tx, row, contactsById)));
+      /*
+       * ‎**שאילתה אחת לכל הלידים של העמוד** — אותו כלל של אנשי הקשר
+       * שמעליי. שליפה לכל שורה הייתה חמישים הלוך-ושוב על אותו חיבור.
+       */
+      const leadIds = [
+        ...new Set(allowed.map((row) => row.leadId).filter((id): id is string => id !== null)),
+      ];
+      const leadStatusById = new Map<string, string>(
+        leadIds.length === 0
+          ? []
+          : (
+              await tx.lead.findMany({
+                /*
+                 * ‎**פילטר הבעלות כאן ולא רק בהמרה עצמה** (ביקורת
+                 * Codex). הוא מה שהופך את השדה ל„אפשר להמיר”: ליד של
+                 * סוכן אחר פשוט אינו במפה, והמסך אינו מציע דבר.
+                 */
+                where: { tenantId, id: { in: leadIds }, ...leadOwnershipFilter() },
+                select: { id: true, status: true },
+              })
+            ).map((lead) => [lead.id, lead.status]),
+      );
+      const agentNamesById = await agentNames(
+        tx,
+        tenantId,
+        allowed.map((row) => row.agentUserId),
+      );
+      return Promise.all(
+        allowed.map((row) => this.toDto(tx, row, contactsById, leadStatusById, agentNamesById)),
+      );
     });
   }
 
@@ -351,7 +449,14 @@ export class CallsService {
         tx,
         rows.map((row) => row.contactId).filter((id): id is string => id !== null),
       );
-      return Promise.all(rows.map((row) => this.toDto(tx, row, contactsById)));
+      const agentNamesById = await agentNames(
+        tx,
+        tenantId,
+        rows.map((row) => row.agentUserId),
+      );
+      return Promise.all(
+        rows.map((row) => this.toDto(tx, row, contactsById, undefined, agentNamesById)),
+      );
     });
   }
 
@@ -374,12 +479,38 @@ export class CallsService {
     const { tenantId, userId } = TenantContext.current();
     const row = await tx.call.findFirst({
       where: { id, tenantId },
-      select: { contactId: true, createdBy: true },
+      select: { contactId: true, createdBy: true, leadId: true },
     });
     if (!row) throw new NotFoundException("שיחה לא נמצאה");
 
     // אותו ניסוח בדיוק כמו ברשימה — לא עותק שלו
     if (seesAllContacts()) return;
+
+    /*
+     * ‎**שיחה שמשויכת לליד נשפטת לפי הליד, ולא לפי הלקוח.**
+     *
+     * ‏שער הלקוח הוא **איחוד** מקורות. אותו אדם יכול להיות הקונה
+     * ‏שלי וגם הליד של עמית, ואז שיחה שהעמית ניהל על **הליד שלו**
+     * ‏עברה דרך כרטיס הקונה שלי. והשער הזה אינו רק לצפייה: `remove`,
+     * ‏`attachRecording` ושני הניסיונות החוזרים נשענים עליו, כלומר
+     * ‏אפשר היה **למחוק את תיעוד השיחה של עמית** (ביקורת Codex, P1).
+     *
+     * ‏ליד לא-משויך הוא הערימה המשותפת ונשאר גלוי — `leadIsVisible`
+     * ‏הוא אותו כלל של רשימת הלידים, ולא עותק שלו.
+     */
+    /*
+     * ‎ ולא `!== null`: שדה שלא נשלף כלל הוא `undefined`,
+     * ‏והשוואה ל-`null` לבדה הייתה שולחת אותנו לחפש ליד בלי מזהה.
+     */
+    if (typeof row.leadId === "string") {
+      const lead = await tx.lead.findFirst({
+        where: { id: row.leadId, tenantId },
+        select: { assignedToUserId: true },
+      });
+      if (lead !== null && !leadIsVisible(lead.assignedToUserId)) {
+        throw new NotFoundException("שיחה לא נמצאה");
+      }
+    }
     /*
      * „אני רשמתי” — רק על שיחה בלי בעלים, כמו ברשימה. שיחה בלי
      * איש קשר, או עם לקוח שאינו כרטיס של איש.
@@ -412,6 +543,377 @@ export class CallsService {
     });
   }
 
+
+  /**
+   * ‎**מחיקה מרוכזת — הצורה שבה מנקים יומן שיחות.**
+   *
+   * ‏אחת-אחת ולא `deleteMany` על כל המזהים, וזו אינה בזבוז: `remove`
+   * ‏מריץ `assertCallAccess` על כל שורה ורושם ביקורת לכל אחת.
+   * ‏שאילתה אחת על כל המזהים הייתה מסלול שני שמדלג על שניהם —
+   * ‏כלומר מחיקה של שיחות שהמשתמש אינו רשאי לראות, בלי עקבות.
+   * ‏אותה הכרעה בדיוק של `RecruitmentService.removeMany`.
+   *
+   * ‎`NotFound` נבלע ונספר כדילוג: שורה שנעלמה בין הטעינה ללחיצה
+   * ‏אינה שגיאה של מי שלחץ.
+   */
+  async removeMany(ids: readonly string[]): Promise<CallBulkResult> {
+    let done = 0;
+    for (const id of ids) {
+      try {
+        await this.remove(id);
+        done += 1;
+      } catch (error) {
+        if (error instanceof NotFoundException) continue;
+        throw error;
+      }
+    }
+    return { done, skipped: ids.length - done };
+  }
+
+  /**
+   * ‎**מה נספר כדילוג של שורה, ומה מפיל את הסבב.**
+   *
+   * ‏שלוש הדחיות האלה הן מצבים תקינים של שורה בודדת: השיחה נעלמה,
+   * ‏היא מחוץ להיקף הלקוח של המשתמש, או שאין לה מספר טלפון כלל —
+   * ‏ושיחה בלי מספר היא רשומה חוקית לגמרי (`create` מתיר להשמיט
+   * ‏אותו). בלי `BadRequest` ברשימה, שיחה אחת בלי מספר הייתה
+   * ‏מחזירה 400 על **כל** הבקשה אחרי שכבר נפתחו לידים — המסך אומר
+   * ‏„נכשל”, אינו מרענן, והמתווך לוחץ שוב (ביקורת Codex, P1).
+   *
+   * ‏כל השאר עולה כלפי מעלה: בליעה של תקלת מסד מאחורי „דולגו”
+   * ‏מסתירה תקלה אמיתית מאחורי מספר שנראה תקין.
+   */
+  private static isRowSkip(error: unknown): boolean {
+    return (
+      error instanceof NotFoundException ||
+      error instanceof ForbiddenException ||
+      error instanceof BadRequestException
+    );
+  }
+
+  /**
+   * ‎**פתיחת ליד לכמה שיחות — הצעד הראשון של „המר ללקוח”.**
+   *
+   * ‎`ensureLead` אידמפוטנטי, ולכן „כבר היה לה ליד” אינו כישלון
+   * ‏אלא מצב — והוא נספר בנפרד. בלי ההפרדה הזאת „0 לידים נפתחו”
+   * ‏על עשרים שיחות שכולן כבר משויכות נקרא ככישלון מלא.
+   *
+   * ‎`Forbidden` נספר כדילוג ולא מפיל את הסבב: מספר שהוא הקונה של
+   * ‏עמית נדחה בשער היקף הלקוח, וזה נכון — אבל אין סיבה שיבטל את
+   * ‏פתיחת הלידים לכל השאר.
+   */
+  async ensureLeadMany(ids: readonly string[]): Promise<CallBulkResult> {
+    let done = 0;
+    let already = 0;
+    let skipped = 0;
+    for (const id of ids) {
+      try {
+        const result = await this.ensureLead(id);
+        if (result.created) done += 1;
+        else already += 1;
+      } catch (error) {
+        if (CallsService.isRowSkip(error)) {
+          skipped += 1;
+          continue;
+        }
+        throw error;
+      }
+    }
+    return { done, already, skipped };
+  }
+
+  /**
+   * ‎**„שייך לנציג אחר” — הליד עובר, ולא תווית על השיחה.**
+   *
+   * ## ‏למה לא `Call.agentUserId`
+   *
+   * ‏העמודה הזאת מתעדת **מי ענה בפועל** (השלוחה שהתאימה), ואינה
+   * ‏קובעת מי רואה את השיחה: `assertCallAccess` שופט לפי הליד או
+   * ‏איש הקשר שמאחוריה. דריסה שלה הייתה מזייפת עובדה היסטורית —
+   * ‏ובכל זאת לא מעבירה את השיחה לאיש. מה שמעביר אחריות **וראייה**
+   * ‏הוא `Lead.assignedToUserId`, וזה מה שנכתב כאן.
+   *
+   * ## ‏הגדרות
+   *
+   * ‎`assertCanAssignAgents` — פעולת מנהל, אותו שער בדיוק של העברת
+   * ‏קונה ונכס. `assertAgentInOffice` בתוך הטרנזקציה הכותבת, ולא
+   * ‏לפניה, מאותו נימוק שם: בדיקה מוקדמת היא חלון שבו הסוכן הוסר
+   * ‏מהמשרד בין הבדיקה לכתיבה.
+   *
+   * ‏שיחה בלי ליד מקבלת אחד (`ensureLead`) ואז עוברת — כך שאף שיחה
+   * ‏שנבחרה אינה נשארת מאחור בשקט (הכרעת המשתמש).
+   *
+   * ‎**שתי שיחות של אותו אדם הן ליד אחד.** השנייה תיספר „כבר אצלו”,
+   * ‏וזה מדויק: היא אכן כבר עברה.
+   */
+  async assignMany(ids: readonly string[], agentUserId: string): Promise<CallBulkResult> {
+    assertCanAssignAgents();
+    const { tenantId } = TenantContext.current();
+
+    /*
+     * ‎**הנציג מאומת פעם אחת, לפני שנפתח ולו ליד אחד** (ביקורת
+     * ‏Codex, P1).
+     *
+     * ‏קודם הבדיקה ישבה בתוך הטרנזקציה של כל שורה — כלומר **אחרי**
+     * ‏‎`ensureLead`. מזהה סוכן ישן או שגוי היה פותח ליד לשיחה
+     * ‏הראשונה, ואז נדחה: הבקשה חוזרת 400, המתווך רואה כישלון,
+     * ‏ובמסד נשאר ליד שאיש לא ביקש.
+     *
+     * ‏הבדיקה בתוך הטרנזקציה הכותבת **נשארת** גם היא: היא סוגרת את
+     * ‏החלון שבו הסוכן הוסר מהמשרד בין הבדיקה המוקדמת לכתיבה.
+     */
+    await this.prisma.withTenant((tx) => assertAgentInOffice(tx, tenantId, agentUserId));
+
+    /*
+     * ‎**שלב א׳ — כל שיחה לליד שלה, לפני שהועברה ולו אחת.**
+     *
+     * ‏הסדר הזה אינו נוחות (ביקורת Codex, P2): `ensureLead` מריץ
+     * ‎`assertCallAccess`, ששופט לפי הליד. מנהל עם `tasks.assign`
+     * ‏ובלי `leads.view_all` שהעביר את הליד באמצע הלולאה היה מאבד
+     * ‏את הראייה שלו — והשיחה השנייה של אותו אדם הייתה נספרת
+     * ‏„דולגה” במקום „כבר אצלו”.
+     */
+    const leadByCall = new Map<string, string>();
+    let skipped = 0;
+    for (const id of ids) {
+      try {
+        const { leadId } = await this.ensureLead(id);
+        leadByCall.set(id, leadId);
+      } catch (error) {
+        if (CallsService.isRowSkip(error)) {
+          skipped += 1;
+          continue;
+        }
+        throw error;
+      }
+    }
+
+    /*
+     * ‎**שלב ב׳ — כל ליד פעם אחת.** שתי שיחות של אותו אדם הן ליד
+     * ‏אחד; העברה כפולה שלו הייתה כותבת פעמיים ורושמת שתי שורות
+     * ‏ביקורת על אותה העברה.
+     */
+    const outcomeByLead = new Map<string, "done" | "already" | "skipped">();
+    for (const leadId of new Set(leadByCall.values())) {
+      outcomeByLead.set(leadId, await this.moveLead(leadId, agentUserId, tenantId));
+    }
+
+    /* ‏הספירה חוזרת ליחידה שהמתווך בחר — שיחות, ולא לידים */
+    let done = 0;
+    let already = 0;
+    for (const leadId of leadByCall.values()) {
+      const outcome = outcomeByLead.get(leadId);
+      if (outcome === "done") done += 1;
+      else if (outcome === "already") already += 1;
+      else skipped += 1;
+    }
+    return { done, already, skipped };
+  }
+
+  /** ‏העברת ליד אחד — הכתיבה, השער והביקורת בטרנזקציה אחת. */
+  private async moveLead(
+    leadId: string,
+    agentUserId: string,
+    tenantId: string,
+  ): Promise<"done" | "already" | "skipped"> {
+    return this.prisma.withTenant(async (tx) => {
+      /* ‏שוב, ובתוך הכתיבה: סוכן שהוסר מהמשרד בין הבדיקה לכאן */
+      await assertAgentInOffice(tx, tenantId, agentUserId);
+      /*
+       * ‏הסינון לפי בעלות גם כאן, ולא רק על השיחה: מנהל בלי
+       * ‎`leads.view_all` אינו אמור להזיז ליד שאינו רואה.
+       */
+      const lead = await tx.lead.findFirst({
+        where: { id: leadId, tenantId, ...leadOwnershipFilter() },
+        select: { assignedToUserId: true },
+      });
+      if (lead === null) return "skipped";
+      const handover = agentHandover(lead.assignedToUserId, agentUserId);
+      if (handover === null) return "already";
+      await tx.lead.updateMany({
+        where: { id: leadId, tenantId },
+        data: { assignedToUserId: agentUserId },
+      });
+      await this.audit.record(tx, {
+        action: "lead.agent_changed",
+        entityType: "lead",
+        entityId: leadId,
+        metadata: handover,
+      });
+      return "done";
+    });
+  }
+
+  /**
+   * ‎**ליד לשיחה שאין לה אחד** — הדלת שדרכה שיחה הופכת ללקוח.
+   *
+   * ‏ההמרה מהמסך (קונה, מוכר, שוכר, משכיר) נשענת כולה על
+   * ‎`POST /leads/:id/convert` ועל `POST /properties/from-lead/:id`,
+   * ‏ולכן הייתה זמינה **רק לשיחה שכבר נשא עליה ליד**. שיחה שלא
+   * ‏נענתה ממספר לא מוכר — בדיוק זו שממנה מתחיל לקוח חדש — לא
+   * ‏הציגה שום דרך להמיר (בקשת המשתמש).
+   *
+   * ‎**אידמפוטנטי:** שיחה שכבר נושאת ליד מחזירה אותו. ו-`create`
+   * ‏עצמו מתמזג לליד פתוח קיים של אותו איש קשר, כך שהמרה של שתי
+   * ‏שיחות מאותו מתקשר אינה פותחת שני לידים.
+   *
+   * ‎`typedBy: "agent"` ולא `office`: הפעולה נעשית ממסך של סוכן,
+   * ‏ולכן היא עוברת את שער היקף הלקוח. מספר של קונה של עמית
+   * ‏נדחה — וזה נכון. מספר שאין עליו כרטיס כלל עובר, מאז שכרטיס
+   * ‏יתום הוכר כפנוי.
+   *
+   * ‎**מחוץ ל-`withTenant`** — `LeadsService.create` פותח טרנזקציה
+   * ‏משלו, וקינון שלה בתוך זו היה נעילה על עצמה.
+   */
+  async ensureLead(id: string): Promise<{ leadId: string; created: boolean }> {
+    const ctx = TenantContext.current();
+    /*
+     * ‎**היכולת נבדקת כאן, ולא רק בבקר** (ביקורת Codex, P1).
+     *
+     * ‏הנתיב נושא `@RequireCapability("leads.edit")`, וזה כיסה את
+     * ‏המסך. הבוט קורא לשירות הזה ישירות מתוך מצב ממתין — והמצב
+     * ‏הממתין שורד בין הודעות: „המר ללקוח” נשאל כשהיכולת הייתה,
+     * ‏והתשובה מגיעה אחרי שנשללה (חריג `deny` פר-משתמש, או חסימת
+     * ‏מודול למשרד). ההקשר נבנה מחדש בכל תור, אבל בדרך הזו אין שער
+     * ‏שקורא אותו.
+     *
+     * ‏השער יושב בשירות ולא בקורא: קורא שני שישכח אותו הוא בדיוק
+     * ‏מה שקרה כאן.
+     */
+    if (!ctx.capabilities.has("leads.edit")) {
+      throw new ForbiddenException("אין לך הרשאה לפתוח ליד מהשיחה");
+    }
+    const tenantId = ctx.tenantId;
+
+    const existing = await this.prisma.withTenant(async (tx) => {
+      await this.assertCallAccess(tx, id);
+      const row = await tx.call.findFirst({
+        where: { id, tenantId },
+        select: {
+          leadId: true,
+          contactId: true,
+          phoneEncrypted: true,
+          summary: true,
+          direction: true,
+          outcome: true,
+          occurredAt: true,
+        },
+      });
+      if (!row) throw new NotFoundException("שיחה לא נמצאה");
+      return row;
+    });
+    if (existing.leadId !== null) return { leadId: existing.leadId, created: false };
+
+    /*
+     * ‏השם והטלפון מגיעים מהכרטיס כשיש, ואחרת מהמספר שנרשם על
+     * ‏השיחה. בלי מספר אין ממה לפתוח ליד — וזו שגיאה מפורשת, לא
+     * ‏ליד ריק.
+     */
+    const contact =
+      existing.contactId === null
+        ? null
+        : await this.prisma.withTenant((tx) =>
+            this.contacts.getById(tx, existing.contactId as string),
+          );
+    const phone = contact?.phone ?? (existing.phoneEncrypted === null
+      ? null
+      : this.crypto.decrypt(existing.phoneEncrypted));
+    if (phone === null || phone === "") {
+      throw new BadRequestException("לשיחה אין מספר טלפון — אי אפשר לפתוח ממנה לקוח");
+    }
+
+    const lead = await this.leads.create({
+      contactName: contact?.name ?? phone,
+      contactPhone: phone,
+      source: "voice_call",
+      intent: "unknown",
+      ...(existing.summary ? { summary: existing.summary } : {}),
+      typedBy: "agent",
+    });
+
+    /*
+     * ‎**ליד שמוזג לליד של עמית אינו שלי** (ביקורת Codex, P1).
+     *
+     * ‎`create` ממזג לליד פתוח קיים של אותו איש קשר — ומחזיר
+     * ‎`visible: false` כשהליד ההוא שייך לסוכן אחר. חיבור השיחה
+     * ‏אליו היה מפיל אותה מהרשימה של הסוכן הנוכחי (מסנן השיחות
+     * ‏נשען על הליד), כלומר `onLead()` היה מרענן והשיחה הייתה
+     * ‏נעלמת מתחת לידיים באמצע ההמרה שהוא עצמו התחיל.
+     *
+     * ‏אין מה לגלגל אחורה: מיזוג לא יצר שום שורה חדשה.
+     */
+    if (!lead.visible) {
+      throw new ForbiddenException(
+        "המספר הזה משויך ללקוח שאינו נגיש לך, פנו למנהל המשרד",
+      );
+    }
+
+    /*
+     * ‎`leadId: null` בתנאי: שתי המרות במקביל על אותה שיחה יגיעו
+     * ‏שתיהן לכאן, והשנייה אינה דורסת. `create` ממזג לליד הפתוח,
+     * ‏ולכן שתיהן מצביעות ממילא לאותו מקום — אבל הכתיבה המותנית
+     * ‏היא מה שהופך את זה לוודאי ולא להסתמכות.
+     */
+    const leadId = await this.prisma.withTenant(async (tx) => {
+      const created = await tx.lead.findFirst({
+        where: { id: lead.id, tenantId },
+        select: { contactId: true, createdAt: true },
+      });
+      /*
+       * ‎**גם `contactId`, ולא רק הליד** (ביקורת Codex, P1).
+       *
+       * ‏במקרה שבשבילו הפעולה נבנתה — מתקשר לא מוכר — לשיחה אין
+       * ‏כרטיס, ו-`create` פותח גם ליד וגם כרטיס. כתיבת הליד בלבד
+       * ‏הייתה משאירה את השיחה **בלי כרטיס לתמיד**: היסטוריה לפי
+       * ‏לקוח (`list({ contactId })`) ועיבוד חזרה לא היו מוצאים
+       * ‏אותה גם אחרי שהליד הפך לקונה.
+       *
+       * ‏כרטיס שכבר על השיחה אינו נדרס — הוא מדויק ממה שנגזר.
+       */
+      await tx.call.updateMany({
+        where: { id, tenantId, leadId: null },
+        data: {
+          leadId: lead.id,
+          ...(existing.contactId === null && created?.contactId
+            ? { contactId: created.contactId }
+            : {}),
+        },
+      });
+      const after = await tx.call.findFirst({
+        where: { id, tenantId },
+        select: { leadId: true },
+      });
+      /*
+       * ‎**שיחה שנענתה היא מענה** (ביקורת Codex, P1).
+       *
+       * ‏ליד שנפתח משיחה שנענתה נולד עם `firstResponseAt` ריק,
+       * ‏ולכן אירוע `lead.created` קובע לו הסלמת SLA ומדדי
+       * ‏המנטור סופרים אותו כ„לא נענה” — על שיחה שבה כבר דיברו.
+       *
+       * ‏אותו סייג בדיוק כמו במסלול יצירת השיחה: רק שיחה
+       * ‏**אחרי** שהליד נוצר. במיזוג לליד ותיק, שיחה שקדמה לו
+       * ‏הייתה נותנת זמן מענה שלילי.
+       */
+      if (
+        existing.outcome === "answered" &&
+        existing.occurredAt !== null &&
+        created !== null &&
+        existing.occurredAt >= created.createdAt
+      ) {
+        await tx.lead.updateMany({
+          where: { id: lead.id, tenantId, firstResponseAt: null },
+          data: { firstResponseAt: existing.occurredAt },
+        });
+      }
+      await this.audit.record(tx, {
+        action: "call.lead",
+        entityType: "call",
+        entityId: id,
+      });
+      return after?.leadId ?? lead.id;
+    });
+    return { leadId, created: true };
+  }
 
   /**
    * צירוף הקלטה לשיחה קיימת.
@@ -639,14 +1141,39 @@ export class CallsService {
       providerRecordingAttemptAt?: Date | null;
       providerRecordingError?: string | null;
       providerRecordingDetail?: string | null;
+      agentUserId?: string | null;
+      agentExtension?: string | null;
       createdAt: Date;
     },
     /**
      * אנשי הקשר של העמוד, כשהקורא כבר שלף אותם. חסר ⇒ שליפה בודדת,
      * וזה הנתיב של יצירה או של כרטיס יחיד.
      */
-    contactsById?: Map<string, ContactDto>,
+    contactsById: Map<string, ContactDto> | undefined,
+    /** סטטוסי הלידים של העמוד — חסר ⇒ הסטטוס לא מוחזר. */
+    leadStatusById: Map<string, string> | undefined,
+    /**
+     * ‎**שמות הסוכנים של העמוד — פרמטר חובה, ובכוונה.**
+     *
+     * ‏אופציונלי היה נשכח באחד משלושת אתרי הקריאה, ואז שיחה
+     * ‏שנפתחה מנתיב אחד הייתה מציגה סוכן ומאותו נתיב השני לא —
+     * ‏בלי ששום דבר נשבר. חובה מכריח כל קורא להחליט, והמהדר הוא
+     * ‏זה שאוכף.
+     *
+     * ‏מפה ולא שאילתה כאן: עמוד של מאה שיחות היה מאה שאילתות.
+     */
+    agentNamesById: Map<string, string>,
   ): Promise<CallDto> {
+    /*
+     * ‎**מי רואה את זה — אותו תנאי שקובע מי רואה שיחות של אחרים.**
+     *
+     * ‏לא יכולת חדשה ולא רשימת תפקידים: מי ש-`visibleContactIds`
+     * ‏מחזירה לו `null` הוא בדיוק מי שהרשימה שלו כוללת את שיחות
+     * ‏כל הסוכנים — ולכן הוא היחיד שהעמודה הזו אומרת לו משהו.
+     * ‏תנאי שני היה נפרד ממנו ביום שאחד מהם משתנה.
+     */
+    const seesEveryone = seesAllContacts();
+    const agentName = agentNameOf(agentNamesById, row.agentUserId);
     const contact =
       row.contactId === null
         ? null
@@ -658,6 +1185,19 @@ export class CallsService {
       ...(row.contactId ? { contactId: row.contactId } : {}),
       ...(contact ? { contactName: contact.name } : {}),
       ...(row.leadId ? { leadId: row.leadId } : {}),
+      ...(row.leadId && leadStatusById?.has(row.leadId)
+        ? { leadStatus: leadStatusById.get(row.leadId)! }
+        : {}),
+      /*
+       * ‎**הסימון של הלקוח — כדי שההמרה מכאן תדע** (ביקורת Codex, P2).
+       *
+       * ‏טופס „המרה לנכס” מסמן את התיבה מראש לפי הסימון על הלקוח,
+       * ‏אבל רק כרטיס הליד העביר אותו. המרה מעמוד השיחות הרכיבה את
+       * ‏אותו טופס בלי הערך, התיבה נשארה ריקה ונשלח `sharedTabu:
+       * ‏false` — כלומר הנכס נוצר בלי האזהרה המשפטית, לאותו לקוח
+       * ‏שסומן במפורש.
+       */
+      ...(contact ? { contactSharedTabu: contact.sharedTabu } : {}),
       // הטלפון של איש הקשר מנצח — הוא המקור המעודכן
       ...(contact?.phone
         ? { phone: contact.phone }
@@ -687,6 +1227,11 @@ export class CallsService {
       ...(row.transcriptionStatus ? { transcriptionStatus: row.transcriptionStatus } : {}),
       ...(row.transcript ? { transcript: row.transcript } : {}),
       highlights: parseCallHighlights(row.highlights),
+      ...(seesEveryone && agentName !== undefined
+        ? { agentName }
+        : seesEveryone && row.agentExtension !== null && row.agentExtension !== undefined
+          ? { agentExtension: row.agentExtension }
+          : {}),
       createdAt: row.createdAt,
     };
   }

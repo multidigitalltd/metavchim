@@ -23,10 +23,12 @@
  */
 
 import { MATURITY_LABELS } from "../schemas/buyer.js";
+import { propertyConditionLabel } from "../schemas/property.js";
 import { labelOf } from "../schemas/labels.js";
 import { PROPERTY_TYPE_LABELS_HE } from "./csv-export.js";
 import { propertyFeatureLabel } from "./matching.js";
 import { describeDistance } from "./proximity.js";
+import { SHARED_TABU_NETWORK_LABEL } from "./shared-tabu.js";
 import { formatIsraeliNumber, formatJerusalemDate } from "./israel-time.js";
 
 /**
@@ -449,13 +451,18 @@ export function presentationDetailRows(
       value:
         p.condition === undefined
           ? undefined
-          : (CONDITION_LABELS[p.condition] ?? p.condition),
+          : (propertyConditionLabel(p.condition) ?? p.condition),
     },
     {
       label: p.dealType === "rent" ? "שכר דירה" : "מחיר",
       value: p.priceAgorot === undefined ? undefined : money(p.priceAgorot),
     },
     { label: "מועד כניסה", value: entry?.text },
+    {
+      label: "רישום",
+      /* ‏„רגיל” ולא `undefined`: היעדר אזהרה הוא בעצמו תשובה */
+      value: p.sharedTabu === undefined ? undefined : p.sharedTabu ? SHARED_TABU_NETWORK_LABEL : "רישום נפרד",
+    },
     {
       label: "מאפיינים",
       value:
@@ -482,15 +489,20 @@ export interface NetworkPresentationFields {
   entryDate?: string | Date | undefined;
   features?: string[] | undefined;
   title?: string | undefined;
+  /**
+   * ‎**רישום משותף — עובדה משפטית, ולכן היא נוסעת ומוצגת** (ביקורת
+   * ‏Codex, P1).
+   *
+   * ‏הצילום נשא אותה מהסבב הקודם והמנוע כיבד אותה, אבל שום מסך לא
+   * ‏הציג אותה: סוכן ממשרד אחר ראה מודעה רגילה לגמרי וביקש חיבור
+   * ‏בלי לדעת שאין חלקה נפרדת. „הגיע ל-DTO” אינו „נאמר”.
+   *
+   * ‏היא יושבת כאן, בצילום המשותף, ולא בכרטיס אחד: שלושת המסכים
+   * ‏(מודעה, הצעה שהתקבלה, הצעה שנשלחה) נגזרים מ-`presentationChips`
+   * ‏ומ-`presentationDetailRows`, ולכן הם מקבלים אותה יחד.
+   */
+  sharedTabu?: boolean | undefined;
 }
-
-const CONDITION_LABELS: Record<string, string> = {
-  new: "חדש מקבלן",
-  renovated: "משופץ",
-  good: "במצב טוב",
-  needs_renovation: "דורש שיפוץ",
-  preserved: "שמור",
-};
 
 /**
  * הנכס שהוצע, באותה שפה חזותית כמו הביקוש.
@@ -539,7 +551,7 @@ export function presentationChips(p: NetworkPresentationFields): NetworkChip[] {
   if (p.condition !== undefined) {
     chips.push({
       icon: "sparkle",
-      text: CONDITION_LABELS[p.condition] ?? p.condition,
+      text: propertyConditionLabel(p.condition) ?? p.condition,
     });
   }
   if (p.priceAgorot !== undefined) {
@@ -547,8 +559,66 @@ export function presentationChips(p: NetworkPresentationFields): NetworkChip[] {
   }
   const entry = entryChip(p.entryType, p.entryDate);
   if (entry !== null) chips.push(entry);
+  /*
+   * ‏אחרי המחיר ולפני המאפיינים, ובגוון אזהרה: זו אינה תכונה
+   * ‏נחמדה-שיהיה אלא תנאי שמשנה את העסקה כולה.
+   */
+  if (p.sharedTabu === true) {
+    /*
+     * ‎`bank` הוא הרישום עצמו — טאבו — ו-`hot` הוא הטון שכבר קיים
+     * ‏לתשומת לב. אייקון או טון חדש היו נוגעים ברינדור ובעיצוב בלי
+     * ‏שהממצא דורש זאת.
+     */
+    chips.push({ icon: "bank", text: SHARED_TABU_NETWORK_LABEL, tone: "hot" });
+  }
   for (const feature of p.features ?? []) {
     chips.push({ icon: "check", text: propertyFeatureLabel(feature) });
   }
   return chips;
+}
+
+/**
+ * ‎**הכותרת שנכס נושא ברשת — נגזרת, ולא טקסט חופשי.**
+ *
+ * ## הדליפה שזה סוגר
+ *
+ * הכרטיס ברשת מבטיח „כתובת מדויקת ופרטי קשר — רק אחרי אישור”,
+ * והכותרת שלו הייתה ‎`marketingTitle`‎ של הנכס: טקסט חופשי שהמשרד
+ * המפרסם כתב. מתווכים כותבים שם את הכתובת — „ירושלים 67” — כי זו
+ * הדרך הטבעית לזהות נכס. התוצאה היא כרטיס שמבטיח חיסיון בשורה אחת
+ * ומפר אותו בשורה שמעליה, וכל מתווך ברשת יכול לעקוף את המפרסם.
+ *
+ * ‎**השדות נבדקו, הערכים לא.** ההצהרה על מה חוצה את גבול הדייר
+ * בודקת שמות שדות; `title` הוא שדה מאושר, ולכן שום שער לא ראה מה
+ * יושב בתוכו. זה בדיוק הפער שהבדיקה עצמה מתעדת שאינה מכסה.
+ *
+ * ## ולמה נגזרת ולא מסוננת
+ *
+ * אי אפשר לזהות כתובת בטקסט חופשי בביטחון — „ירושלים 67” היא גם
+ * כתובת וגם שם של פרויקט. כותרת שנבנית משדות שממילא גלויים בכרטיס
+ * אינה יכולה לדלוף, ובלי להסתמך על ניחוש.
+ */
+export function networkSafeTitle(p: NetworkPresentationFields): string {
+  const type =
+    p.propertyType === undefined
+      ? undefined
+      : (PROPERTY_TYPE_LABELS_HE[p.propertyType as keyof typeof PROPERTY_TYPE_LABELS_HE] ??
+        p.propertyType);
+  const what = [type, p.rooms === undefined ? undefined : `${p.rooms} חדרים`]
+    .filter((part): part is string => part !== undefined && part !== "")
+    .join(" ");
+  /* השכונה לפני העיר, ורק אחת מהן: „אזור העיריה, בני ברק” כבר מופיע כתגית */
+  const where = p.neighborhood ?? p.city;
+  return [what, where].filter((part) => part !== undefined && part !== "").join(" · ") || "נכס";
+}
+
+/**
+ * מחליף את הכותרת השמורה בנגזרת — **גם ברשומות שנכתבו קודם.**
+ *
+ * הצעות שכבר יושבות במסד נושאות את הכותרת החופשית, ולכן תיקון בצד
+ * הכתיבה בלבד היה משאיר את הכתובת גלויה בכל מה שכבר נשלח. הגזירה
+ * בקריאה אינה דורשת מיגרציה ואינה יכולה לפספס שורה.
+ */
+export function withNetworkSafeTitle<T extends NetworkPresentationFields>(presentation: T): T {
+  return { ...presentation, title: networkSafeTitle(presentation) };
 }

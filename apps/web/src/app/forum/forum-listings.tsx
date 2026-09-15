@@ -21,7 +21,7 @@ import { SelectMenu } from "../select-menu";
 import { AuthorBadge, ReportDialog, StarInput, Stars, type ListingDto, type RatingDto } from "./forum-shared";
 
 /**
- * המדריך — כלים ובעלי מקצוע, אותו מסך עם `kind` שונה (docs/14).
+ * המדריך — כלים ובעלי מקצוע, אותו מסך עם `kind` שונה (docs/16).
  *
  * הדירוג הוא הלב: „מניסיון אישי” ולא „מה שמעתם”. כל אחד מדרג פעם
  * אחת (דירוג חוזר מחליף), אפשר בעילום שם, והממוצע מוצג בכוכבים עם

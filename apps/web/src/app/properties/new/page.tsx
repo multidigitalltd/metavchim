@@ -1,32 +1,28 @@
 "use client";
 
 import { Suspense, useState, type FormEvent } from "react";
+import { NeighborhoodInput } from "../../neighborhood-input";
 import { useRouter, useSearchParams } from "next/navigation";
 import { safeReturnPath, withQuery, type CustomFeature } from "@metavchim/shared";
 import { Button } from "@metavchim/ui";
 import { FormSection } from "../../form-section";
 import { apiPost, ApiError } from "@/lib/api";
-import { shekelsToAgorot, PROPERTY_TYPE_LABELS } from "@/lib/format";
+import { shekelsToAgorot } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
 import { DictateFor } from "../../dictation-field";
 import { PriceField } from "../../price-field";
+import { ConditionField } from "../condition-field";
+import { FacingField } from "../facing-field";
 import { FeatureChips } from "../feature-chips";
 import { EntryTimingField } from "../entry-timing-field";
-import { LocationPicker, type LocationValue } from "../location-picker";
+import { LocationPicker, type LocationValue } from "../location-picker-lazy";
 import { Notice } from "../../notice";
+import { PropertyTypeOptions } from "../../property-type-options";
 
 const inputStyle = {
   borderColor: "var(--color-input-border)",
   background: "var(--color-field)",
 } as const;
-
-/** נרמול טלפון ישראלי ל-E.164 — ‎050-1234567 → ‎+972501234567 */
-function normalizeOwnerPhone(raw: string): string {
-  const digits = raw.replace(/[^\d+]/gu, "");
-  if (digits.startsWith("+972")) return digits;
-  if (digits.startsWith("0")) return `+972${digits.slice(1)}`;
-  return digits;
-}
 
 function triState(form: FormData, name: string): boolean | undefined {
   const value = String(form.get(name) ?? "");
@@ -112,6 +108,21 @@ function NewPropertyForm() {
 
     try {
       const created = await apiPost<{ id: string }>("/properties", {
+        /*
+         * ‎**נכס שנקלט מהטופס הזה נולד פעיל** (בקשת בעל המוצר).
+         *
+         * ‏השרת עדיין מגדיר `draft` כברירת מחדל, וזה נכון למי שאינו
+         * המשרד: טופס הקליטה הציבורי של מוכר ושיחה שהסוכן הקולי
+         * הפך לנכס נוצרים מבחוץ ואמורים להמתין לעין אנושית. אבל
+         * מתווך שמילא את הטופס הזה ולחץ „שמירה” **כבר עשה** את
+         * הבדיקה הזו, והנכס שלו נחת ב„טיוטה להשלמה” — כלומר במקום
+         * שממנו צריך לזכור להוציא אותו.
+         *
+         * ‎`readiness` אינו מושפע: „חסרים 5 שדות” נשאר נכון ומוצג
+         * בדיוק כמו קודם. „פעיל” אומר „הנכס בשיווק”, ולא „הכרטיס
+         * מלא” — שתי שאלות שונות שהיו נענות באותה גלולה.
+         */
+        status: "active",
         city: String(f.get("city")).trim(),
         neighborhood: String(f.get("neighborhood") ?? "").trim() || undefined,
         street: String(f.get("street") ?? "").trim() || undefined,
@@ -136,6 +147,14 @@ function NewPropertyForm() {
         hasBalcony: triState(f, "hasBalcony"),
         hasSafeRoom: triState(f, "hasSafeRoom"),
         /*
+         * ‏עובדה משפטית ולא מאפיין, ולכן היא נשלחת כשדה משלה —
+         * ‏אותו שם בדיוק שהעריכה שולחת.
+         */
+        sharedTabu: f.get("sharedTabu") === "on",
+        /* ‏„לא צוין” נשאר חוסר ואינו נשלח כמחרוזת ריקה */
+        facing: String(f.get("facing") ?? "") || undefined,
+        condition: String(f.get("condition") ?? "") || undefined,
+        /*
          * JSON משדה חבוי אחד — הרשימה גדלה ומשתנה, ולכן אין לה שם
          * שדה קבוע כמו לחמשת הקבועים. השרת מנרמל אותה שוב בשער
          * הכתיבה, ולכן קלט פגום כאן אינו יכול להיכנס למסד.
@@ -153,7 +172,7 @@ function NewPropertyForm() {
         String(f.get("ownerPhone") ?? "").trim() !== ""
           ? {
               ownerName: String(f.get("ownerName")).trim(),
-              ownerPhone: normalizeOwnerPhone(String(f.get("ownerPhone"))),
+              ownerPhone: String(f.get("ownerPhone")).trim(),
             }
           : {}),
       });
@@ -209,13 +228,18 @@ function NewPropertyForm() {
               <label htmlFor="neighborhood" className="mb-1 block font-medium">
                 שכונה
               </label>
-              <input
+              {/*
+                העיר מצמצמת: „שיכון ג'” קיימת בכמה ערים ואינה אותה
+                שכונה, ולנכס יש עיר אחת ודאית — בשונה מקונה, שיכול
+                לחפש בכמה ערים בבת אחת.
+              */}
+              <NeighborhoodInput
                 id="neighborhood"
                 name="neighborhood"
-                onChange={(e) =>
-                  setAddress((a) => ({ ...a, neighborhood: e.target.value }))
+                city={address.city}
+                onValueChange={(neighborhood) =>
+                  setAddress((a) => ({ ...a, neighborhood }))
                 }
-                className="w-full rounded-lg border px-3 py-2.5"
                 style={inputStyle}
               />
             </div>
@@ -319,11 +343,7 @@ function NewPropertyForm() {
                 className="w-full rounded-lg border px-3 py-2.5"
                 style={inputStyle}
               >
-                {Object.entries(PROPERTY_TYPE_LABELS).map(([value, label]) => (
-                  <option key={value} value={value}>
-                    {label}
-                  </option>
-                ))}
+                <PropertyTypeOptions />
               </select>
             </div>
             <div>
@@ -412,6 +432,38 @@ function NewPropertyForm() {
               ["hasSafeRoom", 'ממ"ד'],
             ]}
           />
+
+          <FacingField />
+          <ConditionField />
+
+          {/*
+            ‎**גם במסלול הקליטה הראשי, ולא רק בעריכה** (ביקורת Codex, P2).
+            ‏הסימון נוסף לעריכה ולהמרה מליד ונשכח כאן — כלומר מתווך
+            ‏שקולט דירה במושאע נאלץ לבחור בין שתי טעויות: לשמור אותה
+            ‏כדירה רגילה בלי העובדה המשפטית, או לבחור בסוג הנכס הישן
+            ‏`shared_tabu` ולאבד את „דירה” — ואז `propertyTypeMatches`
+            ‏פוסל ממנה כל מחפש דירה.
+
+            ‏והוא נראה כמו עוד מאפיין ואינו כזה: מעלית ומחסן הם נוחות,
+            ‏ורישום בטאבו משותף הוא עובדה משפטית שמשנה את כל אופן
+            ‏העסקה. לכן שדה משלו עם משפט הסבר, ולא צ׳יפ שנבלע בשורה.
+          */}
+          <div
+            className="mt-4 rounded-xl border p-3"
+            style={{ borderColor: "var(--color-border)", background: "var(--color-field)" }}
+          >
+            <label className="flex items-center gap-2 font-medium">
+              <input type="checkbox" name="sharedTabu" />
+              רשום בטאבו משותף (מושאע)
+            </label>
+            <p
+              className="m-0 mt-1 text-[length:var(--type-caption-lg)]"
+              style={{ color: "var(--color-text-muted)" }}
+            >
+              אין חלקה נפרדת — העסקה דורשת הסכמת שותפים, והמימון מורכב יותר.
+              כדאי לדעת את זה בהתחלה ולא בסוף.
+            </p>
+          </div>
         </FormSection>
 
         <FormSection

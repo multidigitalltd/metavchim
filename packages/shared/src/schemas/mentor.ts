@@ -5,9 +5,10 @@ import {
   MENTOR_GOAL_TARGET_MAX,
 } from "../logic/mentor.js";
 import { IdSchema } from "./common.js";
+import { MENTOR_NAME_MAX, MENTOR_STYLES } from "../logic/mentor-persona.js";
 
 /**
- * יעד של המנטור האישי — מה שהמתווך קובע לעצמו (docs/13 §5).
+ * יעד של המנטור האישי — מה שהמתווך קובע לעצמו (docs/14 §5).
  *
  * המדד והתקופה נגזרים מהרשימות הסגורות ב-`logic/mentor.ts` ולא
  * נכתבים כאן שוב: יעד קיים רק על מדד שה-API יודע לספור, ורשימה
@@ -36,7 +37,7 @@ export const MentorGoalInputSchema = z.object({
   why: z.string().trim().max(200).optional(),
   /**
    * כוונת יישום — „כל יום ב-11:00 שולח הצעות”. „כש… אז…” מכפיל
-   * את סיכוי הביצוע מול יעד ערום (docs/13 §2).
+   * את סיכוי הביצוע מול יעד ערום (docs/14 §2).
    */
   intention: z.string().trim().max(MENTOR_INTENTION_MAX).optional(),
 });
@@ -52,3 +53,27 @@ export const MentorGoalSchema = MentorGoalInputSchema.extend({
   endedAt: z.date().nullable(),
 });
 export type MentorGoal = z.infer<typeof MentorGoalSchema>;
+
+/**
+ * הפרסונה של המנטור — שם וסגנון (docs/14 §4.1). נשמרת ב-`preferences.mentor`
+ * של המשתמש דרך `PATCH /auth/profile`; המסך שולח את שניהם יחד.
+ */
+export const MentorPersonaSchema = z
+  .object({
+    name: z.string().trim().min(1).max(MENTOR_NAME_MAX),
+    style: z.enum(MENTOR_STYLES),
+  })
+  .strict();
+export type MentorPersonaInput = z.infer<typeof MentorPersonaSchema>;
+
+/**
+ * משוב על רעיון (docs/14 §7.2): המפתח הוא „offers_sent:2” — מדד ומיקום
+ * ברשימת ספר המשחק — ומאומת בשרת מול הרשימה עצמה.
+ */
+export const MentorIdeaFeedbackSchema = z
+  .object({
+    ideaKey: z.string().regex(/^[a-z_]+:\d{1,2}$/u),
+    verdict: z.enum(["helped", "dismissed"]),
+  })
+  .strict();
+export type MentorIdeaFeedbackInput = z.infer<typeof MentorIdeaFeedbackSchema>;

@@ -1,17 +1,25 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Button } from "@metavchim/ui";
 import {
   BUYER_TARGET_LABELS,
+  decodeImportBytes,
   LEAD_TARGET_LABELS,
   parseBuyersCsv,
+  parseCsvRecords,
   parseLeadsCsv,
   parsePropertiesCsv,
+  parseRecruitmentCsv,
   PROPERTY_TARGET_LABELS,
+  RECRUITMENT_TARGET_LABELS,
+  recruitmentSourceLabel,
+  recruitmentStatusLabel,
   type ParsedBuyerRow,
   type ParsedLeadRow,
+  type ParsedRecruitmentRow,
+  type ImportEncoding,
   type ParsedRow,
 } from "@metavchim/shared";
 import { ApiError, apiPost } from "@/lib/api";
@@ -41,13 +49,18 @@ interface ImportResult {
  */
 const MAX_ROWS = 250;
 
-type Mode = "properties" | "buyers" | "leads";
+type Mode = "properties" | "recruitment" | "buyers" | "leads";
 
 const SAMPLES: Record<Mode, string> = {
   properties: [
     "עיר,שכונה,רחוב,חדרים,שטח,קומה,מחיר,סוג,כותרת",
     "בני ברק,פרדס כץ,רבי עקיבא,4,95,3,2650000,דירה,דירה מרווחת במיקום מרכזי",
     "ירושלים,רמות,הרב שך,3.5,88,0,3200000,דירת גן,דירת גן עם כניסה פרטית",
+  ].join("\n"),
+  recruitment: [
+    "עיר,רחוב,חדרים,מחיר,מקור,קישור למודעה,שלב,בעל הנכס,טלפון בעלים",
+    "רעננה,אחוזה,4,2650000,יד2,https://www.yad2.co.il/item/123,קיבל שיחה,ישראל ישראלי,050-1234567",
+    "כפר סבא,ויצמן,3,2100000,שלט,,חדש,,",
   ].join("\n"),
   buyers: [
     "שם,טלפון,ערים,סוג עסקה,תקציב,חדרים,בשלות,מימון",
@@ -61,8 +74,17 @@ const SAMPLES: Record<Mode, string> = {
   ].join("\n"),
 };
 
+/** ‏שם הקידוד בשפה של המתווך, לא בשפה של התקן. */
+const ENCODING_LABELS: Record<ImportEncoding, string> = {
+  "utf-8": "UTF-8",
+  "utf-16le": "UTF-16",
+  "utf-16be": "UTF-16",
+  "windows-1255": "עברית של ווינדוס (Windows-1255)",
+};
+
 const MODE_LABELS: Record<Mode, string> = {
   properties: "נכסים",
+  recruitment: "נכסים לגיוס",
   buyers: "קונים",
   leads: "לידים",
 };
@@ -77,6 +99,7 @@ const LEAD_INTENT_LABELS: Record<string, string> = {
 
 const MODE_BACK: Record<Mode, string> = {
   properties: "/properties",
+  recruitment: "/properties/recruitment",
   buyers: "/buyers",
   leads: "/leads",
 };
@@ -84,6 +107,7 @@ const MODE_BACK: Record<Mode, string> = {
 /** שדות היעד למיפוי ידני — לכל מסלול הרשימה שלו. */
 const TARGET_LABELS: Record<Mode, Record<string, string>> = {
   properties: PROPERTY_TARGET_LABELS,
+  recruitment: RECRUITMENT_TARGET_LABELS,
   buyers: BUYER_TARGET_LABELS,
   leads: LEAD_TARGET_LABELS,
 };
@@ -96,6 +120,10 @@ const TEMPLATE_CSV: Record<Mode, string> = {
   properties: [
     "עיר,שכונה,רחוב,מספר בית,חדרים,שטח,קומה,מתוך קומות,מחיר,סוג עסקה,סוג,מצב,מעלית,חניה,מרפסת,ממד,מחסן,בעל הנכס,טלפון בעלים,סטטוס,כותרת,תיאור,הערות",
     'בני ברק,פרדס כץ,רבי עקיבא,10,3.5,80,2,6,1750000,מכירה,דירה,משופץ,כן,כן,לא,כן,לא,ישראל ישראלי,050-1234567,פעיל,"דירה משופצת ומוארת","קרובה לכל דבר","המפתח אצל השכן"',
+  ].join("\n"),
+  recruitment: [
+    "עיר,שכונה,רחוב,מספר בית,חדרים,שטח,קומה,מתוך קומות,מחיר,סוג עסקה,סוג,מקור,קישור למודעה,שלב,בעל הנכס,טלפון בעלים,הערות",
+    'רעננה,קרית שרת,אחוזה,10,4,95,3,6,2650000,מכירה,דירה,יד2,https://www.yad2.co.il/item/123,קיבל שיחה,ישראל ישראלי,050-1234567,"אמר שיחזור תשובה"',
   ].join("\n"),
   buyers: [
     // "סטטוס" אינו בתבנית בכוונה: הוא כינוי נרדף ל"בשלות" במפרק,
@@ -112,16 +140,45 @@ const TEMPLATE_CSV: Record<Mode, string> = {
 export default function ImportPage() {
   const { loading: authLoading } = useRequireAuth();
   const [mode, setMode] = useState<Mode>("properties");
+
+  /*
+   * ‎**המסלול מגיע מהכתובת — `/import?mode=recruitment`.**
+   *
+   * ‏לא רק נוחות. כפתור „ייבוא מאקסל” שיושב בנכסים לגיוס ומוביל
+   * ‏למסך שנפתח על „נכסים” מזמין בדיוק את הטעות שהתכונה כולה
+   * ‏נבנתה למנוע: קובץ של מודעות שהמשרד **אינו מייצג** נקלט
+   * ‏כנכסים שלו, ומשם הוא בהתאמות וברשת שיתופי הפעולה.
+   *
+   * ‎`useEffect` ולא קריאה בזמן האתחול: השרת אינו רואה את מחרוזת
+   * ‏השאילתה, וערך התחלתי שנקרא מ-`window` היה יוצר אי-התאמה
+   * ‏בהידרציה.
+   */
+  useEffect(() => {
+    const requested = new URLSearchParams(window.location.search).get("mode");
+    /*
+     * ‎`Object.hasOwn` ולא `in`: האופרטור סורק גם את שרשרת
+     * ‏האב-טיפוס, ולכן `?mode=constructor`, `?mode=toString`
+     * ‏ו-`?mode=__proto__` היו עוברים את הבדיקה. `MODE_LABELS[mode]`
+     * ‏היה מחזיר פונקציה במקום מחרוזת, והמסך היה נשבר על כתובת
+     * ‏שאפשר לשלוח למישהו בקישור (ביקורת Codex).
+     */
+    if (requested !== null && Object.hasOwn(MODE_LABELS, requested)) {
+      setMode(requested as Mode);
+    }
+  }, []);
   const [csv, setCsv] = useState("");
   /** מיפוי ידני: כותרת מהקובץ ⟵ שדה יעד. גובר על הזיהוי האוטומטי. */
   const [overrides, setOverrides] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<ImportResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** ‏הקידוד שזוהה בקובץ — נאמר למתווך כשהוא אינו UTF-8. */
+  const [encoding, setEncoding] = useState<ImportEncoding | null>(null);
 
   const parsed = useMemo(() => {
     const empty = {
       propertyRows: [] as ParsedRow[],
+      recruitmentRows: [] as ParsedRecruitmentRow[],
       buyerRows: [] as ParsedBuyerRow[],
       leadRows: [] as ParsedLeadRow[],
       unmappedHeaders: [] as string[],
@@ -131,6 +188,10 @@ export default function ImportPage() {
       if (mode === "properties") {
         const { rows, unmappedHeaders } = parsePropertiesCsv(csv, overrides);
         return { ...empty, propertyRows: rows, unmappedHeaders };
+      }
+      if (mode === "recruitment") {
+        const { rows, unmappedHeaders } = parseRecruitmentCsv(csv, overrides);
+        return { ...empty, recruitmentRows: rows, unmappedHeaders };
       }
       if (mode === "buyers") {
         const { rows, unmappedHeaders } = parseBuyersCsv(csv, overrides);
@@ -146,9 +207,11 @@ export default function ImportPage() {
   const rowCount =
     mode === "properties"
       ? parsed.propertyRows.length
-      : mode === "buyers"
-        ? parsed.buyerRows.length
-        : parsed.leadRows.length;
+      : mode === "recruitment"
+        ? parsed.recruitmentRows.length
+        : mode === "buyers"
+          ? parsed.buyerRows.length
+          : parsed.leadRows.length;
 
   /**
    * העמודות שמוצגות באזור המיפוי הידני: מה שלא זוהה + מה שכבר מופה
@@ -175,6 +238,26 @@ export default function ImportPage() {
   // קבצים גדולים נשלחים באצוות של 500 — התקרה כאן היא רק רשת ביטחון בדפדפן
   const tooMany = rowCount > 10_000;
 
+  /*
+   * ‎**„כל השורה בתא אחד”** — החתימה של מפריד שלא זוהה. עמודה
+   * ‏שלא מופתה היא בעיית מיפוי; שורה שלמה בתא אחד היא בעיית
+   * ‏פירוק, וההודעה חייבת להבדיל ביניהן.
+   *
+   * ‏נמדד על **צורת הרשומה** ולא על מספר השורות: מפרסרי הנכסים,
+   * ‏הקונים והלידים מחזירים שורה (ריקה) לכל שורה פיזית גם כשאף
+   * ‏כותרת לא מופתה, ולכן `rowCount > 0` והתנאי הקודם לעולם לא
+   * ‏היה נדלק על קובץ מופרד בקו אנכי (ביקורת Codex) — המתווך
+   * ‏היה רואה „ייבא 2” ומייבא רשומות ריקות.
+   *
+   * ‏עמודה אחת שכן מופתה אינה תקלה, ולכן `unmappedHeaders`.
+   */
+  const headerColumns = useMemo(
+    () => parseCsvRecords(csv.replace(/^\uFEFF/u, ""))[0]?.length ?? 0,
+    [csv],
+  );
+  const noDelimiter =
+    csv.trim() !== "" && headerColumns === 1 && parsed.unmappedHeaders.length === 1;
+
   function reset(): void {
     setResult(null);
     setError(null);
@@ -194,14 +277,26 @@ export default function ImportPage() {
       file
         .arrayBuffer()
         .then((buf) => import("@/lib/xlsx").then((m) => m.xlsxFileToCsv(buf)))
-        .then(setCsv)
+        .then((text) => {
+          setEncoding(null);
+          setCsv(text);
+        })
         .catch(() => setError("קריאת קובץ ה-xlsx נכשלה — אפשר לשמור אותו כ-CSV ולנסות שוב"));
       return;
     }
-    const reader = new FileReader();
-    reader.onload = () => setCsv(typeof reader.result === "string" ? reader.result : "");
-    reader.onerror = () => setError("קריאת הקובץ נכשלה");
-    reader.readAsText(file, "utf-8");
+    /*
+     * ‎**הקידוד נקבע מהתוכן ולא מהנחה.** `readAsText(file, "utf-8")`
+     * ‏— מה שהיה כאן — הפך ייצוא Windows-1255 (webtiv, אקסל עברי
+     * ‏ישן) לשורה שלמה של `?`. הקריאה כבייטים מאפשרת לזהות.
+     */
+    file
+      .arrayBuffer()
+      .then((buf) => {
+        const decoded = decodeImportBytes(new Uint8Array(buf));
+        setEncoding(decoded.encoding);
+        setCsv(decoded.text);
+      })
+      .catch(() => setError("קריאת הקובץ נכשלה"));
   }
 
   async function onSubmit(): Promise<void> {
@@ -221,9 +316,11 @@ export default function ImportPage() {
               ...(r.ownerPhone === undefined ? {} : { ownerPhone: r.ownerPhone }),
               ...(r.status === undefined ? {} : { status: r.status }),
             }))
-          : mode === "buyers"
-            ? parsed.buyerRows
-            : parsed.leadRows;
+          : mode === "recruitment"
+            ? parsed.recruitmentRows
+            : mode === "buyers"
+              ? parsed.buyerRows
+              : parsed.leadRows;
 
       /*
        * האצוות נחתכות לפי **בייטים**, לא לפי מספר שורות.
@@ -318,9 +415,11 @@ export default function ImportPage() {
       <p className="mb-4" style={{ color: "var(--color-text-muted)" }}>
         {mode === "properties"
           ? "העלו קובץ אקסל או CSV כדי לייבא נכסים קיימים בבת אחת. כותרות בעברית ובאנגלית ממופות אוטומטית — כתובת, חדרים, מחיר, סוג עסקה, מאפיינים, בעל הנכס ועוד. עמודה שלא זוהתה אפשר למפות ידנית."
-          : mode === "buyers"
-            ? "העלו קובץ אקסל או CSV של לקוחות מחפשים. כותרות: שם, טלפון, אימייל, ערים, שכונות, סוג נכס, סוג עסקה, תקציב, חדרים, בשלות, מימון, הערות. טלפונים מנורמלים אוטומטית."
-            : "העלו קובץ אקסל או CSV של פניות — מדף פייסבוק, מדוח קמפיין או מהמערכת הקודמת. לקוח שכבר קיים במערכת לא ייפתח פעמיים: הפנייה תצורף לליד הפתוח שלו."}{" "}
+          : mode === "recruitment"
+            ? "העלו קובץ אקסל או CSV של מודעות שאתם רוצים לגייס לייצוג. כותרות: עיר, רחוב, חדרים, מחיר, מקור, קישור למודעה, שלב בגיוס, בעל הנכס וטלפון. ‏נכס לגיוס אינו נכס של המשרד — הוא לא מופיע בהתאמות ולא ברשת שיתופי הפעולה עד שתלחצו „המר לנכס שלי”."
+            : mode === "buyers"
+              ? "העלו קובץ אקסל או CSV של לקוחות מחפשים. כותרות: שם, טלפון, אימייל, ערים, שכונות, סוג נכס, סוג עסקה, תקציב, חדרים, בשלות, מימון, הערות. טלפונים מנורמלים אוטומטית."
+              : "העלו קובץ אקסל או CSV של פניות — מדף פייסבוק, מדוח קמפיין או מהמערכת הקודמת. לקוח שכבר קיים במערכת לא ייפתח פעמיים: הפנייה תצורף לליד הפתוח שלו."}{" "}
         קבצים גדולים נשלחים אוטומטית באצוות של {MAX_ROWS}.
       </p>
 
@@ -345,7 +444,7 @@ export default function ImportPage() {
             });
             const a = document.createElement("a");
             a.href = URL.createObjectURL(blob);
-            a.download = mode === "properties" ? "תבנית-נכסים.csv" : "תבנית-לקוחות.csv";
+            a.download = `תבנית-${MODE_LABELS[mode]}.csv`;
             a.click();
             URL.revokeObjectURL(a.href);
           }}
@@ -355,6 +454,7 @@ export default function ImportPage() {
         <Button
           variant="ghost"
           onClick={() => {
+            setEncoding(null);
             setCsv(SAMPLES[mode]);
             reset();
           }}
@@ -370,6 +470,7 @@ export default function ImportPage() {
         id="csv-input"
         value={csv}
         onChange={(e) => {
+          setEncoding(null);
           setCsv(e.target.value);
           reset();
         }}
@@ -381,8 +482,52 @@ export default function ImportPage() {
         aria-describedby="csv-help"
       />
       <p id="csv-help" className="mv-visually-hidden">
-        שורה ראשונה היא כותרות העמודות, כל שורה נוספת היא רשומה. מפרידים בפסיקים.
+        שורה ראשונה היא כותרות העמודות, כל שורה נוספת היא רשומה. המפריד — פסיק, טאב או
+        נקודה-פסיק — והקידוד מזוהים מהקובץ עצמו.
       </p>
+
+      {/*
+        ‏הצהרה, לא אזהרה: הקובץ נקרא בהצלחה, ורק לא ב-UTF-8. שתיקה
+        ‏כאן הייתה משאירה את המתווך בלי לדעת למה הפעם זה עבד.
+      */}
+      {encoding !== null && encoding !== "utf-8" ? (
+        <p
+          role="status"
+          className="mb-4 rounded-lg border p-3"
+          style={{
+            borderColor: "var(--color-border)",
+            background: "var(--color-surface-muted, var(--color-surface))",
+            fontSize: "var(--type-caption)",
+          }}
+        >
+          הקובץ אינו UTF-8 — זוהה {ENCODING_LABELS[encoding]} ופוענח בהתאם. אין צורך להמיר אותו.
+        </p>
+      ) : null}
+
+      {/*
+        ‎**„עמודה אחת” אינה „עמודה שלא זוהתה”.** כשכל השורה נכנסה
+        ‏לתא אחד, המפריד הוא מה שלא נמצא — ולומר „1 עמודות לא זוהו”
+        ‏שולח את המתווך לתקן מיפוי שאינו הבעיה.
+      */}
+      {noDelimiter ? (
+        <div
+          role="alert"
+          className="mb-4 rounded-xl border-2 p-4"
+          style={{
+            borderColor: "var(--color-warning, #d97706)",
+            background: "var(--color-warning-bg)",
+            color: "var(--color-text)",
+          }}
+        >
+          <p className="m-0 font-bold" style={{ fontSize: "var(--type-button)" }}>
+            <IconWarning s={15} /> כל השורה נקראה כתא אחד — לא זוהה מפריד עמודות
+          </p>
+          <p className="m-0 mt-1" style={{ fontSize: "var(--type-caption)" }}>
+            נתמכים פסיק, טאב ונקודה-פסיק. אם הקובץ מופרד אחרת, שמירה מחדש כ-CSV תפתור.
+            הייבוא חסום עד אז, כדי שלא ייכנסו רשומות ריקות.
+          </p>
+        </div>
+      ) : null}
 
       {mappableHeaders.length > 0 ? (
         /*
@@ -479,6 +624,40 @@ export default function ImportPage() {
                   ))}
                 </tbody>
               </table>
+            ) : mode === "recruitment" ? (
+              <table className="w-full text-start">
+                <caption className="mv-visually-hidden">
+                  תצוגה מקדימה של הנכסים לגיוס שיובאו
+                </caption>
+                <thead style={{ background: "var(--color-surface)" }}>
+                  <tr>
+                    <th scope="col" className="p-2 text-start">#</th>
+                    <th scope="col" className="p-2 text-start">עיר</th>
+                    <th scope="col" className="p-2 text-start">רחוב</th>
+                    <th scope="col" className="p-2 text-start">חדרים</th>
+                    <th scope="col" className="p-2 text-start">מחיר</th>
+                    <th scope="col" className="p-2 text-start">מקור</th>
+                    <th scope="col" className="p-2 text-start">שלב</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {parsed.recruitmentRows.slice(0, 20).map((r, i) => (
+                    <tr key={i} className="border-t" style={{ borderColor: "var(--color-border)" }}>
+                      <td className="p-2">{i + 1}</td>
+                      <td className="p-2">{r.city ?? "—"}</td>
+                      <td className="p-2">{r.street ?? "—"}</td>
+                      <td className="p-2">{r.rooms ?? "—"}</td>
+                      <td className="p-2">{formatPrice(r.priceAgorot)}</td>
+                      <td className="p-2">
+                        {r.source === undefined ? "—" : recruitmentSourceLabel(r.source)}
+                      </td>
+                      <td className="p-2">
+                        {r.status === undefined ? "חדש" : recruitmentStatusLabel(r.status)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             ) : mode === "leads" ? (
               <table className="w-full text-start">
                 <caption className="mv-visually-hidden">תצוגה מקדימה של הלידים שיובאו</caption>
@@ -548,7 +727,11 @@ export default function ImportPage() {
         </>
       ) : null}
 
-      <Button onClick={onSubmit} disabled={submitting || rowCount === 0 || tooMany}>
+      {/* ‏רשומות ריקות אינן „ייבוא” — כשלא נמצא מפריד, אין מה לשלוח */}
+      <Button
+        onClick={onSubmit}
+        disabled={submitting || rowCount === 0 || tooMany || noDelimiter}
+      >
         {submitting ? "מייבא…" : `ייבא ${rowCount} ${MODE_LABELS[mode]}`}
       </Button>
 

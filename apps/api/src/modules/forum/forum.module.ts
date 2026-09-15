@@ -5,7 +5,7 @@ import { ForumNotifyService } from "./forum-notify.service";
 import { ForumService } from "./forum.service";
 
 /**
- * הפורום המקצועי (docs/14).
+ * הפורום המקצועי (docs/16).
  *
  * מודול עלה: אינו מייבא את הסוכן או את הוואטסאפ, כדי ששניהם יוכלו
  * לייבא אותו בלי מעגל — הסוכן בשיחה ובוואטסאפ מדבר עם אותו שירות

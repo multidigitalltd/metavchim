@@ -20,6 +20,7 @@ import { PlatformSettingsService } from "./platform-settings.service";
 import { OutboxService } from "./outbox.service";
 import { PrismaService } from "./prisma.service";
 import { StorageService } from "./storage.service";
+import { TenantLogoService } from "./tenant-logo.service";
 import { VatService } from "./vat.service";
 
 /** שירותי תשתית רוחביים — זמינים לכל מודול בלי ייבוא חוזר. */
@@ -47,6 +48,7 @@ import { VatService } from "./vat.service";
     AutomationQuotaService,
     LeadPricingService,
     StorageService,
+    TenantLogoService,
     VatService,
   ],
   exports: [
@@ -72,6 +74,7 @@ import { VatService } from "./vat.service";
     AutomationQuotaService,
     LeadPricingService,
     StorageService,
+    TenantLogoService,
     VatService,
   ],
 })

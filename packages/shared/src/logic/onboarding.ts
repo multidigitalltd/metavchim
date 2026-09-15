@@ -20,7 +20,7 @@ export interface OnboardingFacts {
   buyers: number;
   /** טופס הלידים מאתר המשרד מחובר */
   leadWebhookConfigured: boolean;
-  /** מספר וואטסאפ עסקי משויך למשרד */
+  /** לפחות סוכן אחד חיבר את המספר העסקי שלו (וואטסאפ ביזנס) */
   whatsappConfigured: boolean;
   /**
    * הדומיין של המשרד מחובר ומאומת — כלומר המיילים יוצאים בשמו.
@@ -143,9 +143,9 @@ export function onboardingSteps(facts: OnboardingFacts): OnboardingProgress {
       : []),
     {
       key: "whatsapp",
-      title: "מספר וואטסאפ עסקי",
-      why: "ההצעות יוצאות ללקוחות מהמספר של המשרד, והתשובות חוזרות לכרטיס שלהם.",
-      href: "/settings",
+      title: "וואטסאפ ביזנס — המספר שלכם",
+      why: "פניות של לקוחות למספר שלכם נכנסות כלידים עם ציר זמן מלא, ואתם ממשיכים לענות מהטלפון.",
+      href: "/settings#whatsapp",
       done: facts.whatsappConfigured,
       essential: false,
     },

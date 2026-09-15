@@ -12,7 +12,7 @@ import {
 } from "@metavchim/shared";
 import { API_BASE, apiGet } from "@/lib/api";
 
-export { extensionForAudioType, collectDictation, dictationErrorMessage };
+export { extensionForAudioType };
 export type { DictationResultSegment };
 
 /**

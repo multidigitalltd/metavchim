@@ -20,6 +20,21 @@ datasource db {
 
 model Tenant {
   id                         String           @id @db.Char(26)
+  /// ‏מספר הלקוח של המשרד — מה שאפשר להקריא בטלפון ולחפש לפיו.
+  ///
+  /// ‏ה-ULID מזהה שורה; הוא אינו נאמר, אינו מוקלד ואינו נזכר.
+  /// ‏שש ספרות תמיד, כי מספר קצר („משרד 7”) נקרא כמונה פנימי ולא
+  /// ‏כזהות, ומספרים באורך משתנה אינם נסרקים בעין בטור אחד.
+  ///
+  /// ‏מחולק מרצף במסד (`tenant_customer_no_seq`) ולא נגזר מסדר
+  /// ‏כלשהו: מספר לקוח שמשתנה כשמשרד נמחק גרוע ממספר שאינו קיים.
+  ///
+  /// ‏ומעל הרצף יושבת **תמורה** (`tenant_customer_no`): הרצף עצמו
+  /// ‏חילק 100000, 100001, 100002 — כלומר משרד שנרשם וראה „100004”
+  /// ‏ידע מיד שהוא הרביעי, ושתי ספרות מתוך שש הספיקו לספר את זה.
+  /// ‏הפונקציה חד-חד-ערכית על כל תחום שש הספרות, ולכן הייחודיות
+  /// ‏אינה נשענת על מזל — היא עדיין תכונה של המנגנון.
+  customerNo                 Int              @unique @map("customer_no") @default(dbgenerated("tenant_customer_no(nextval('tenant_customer_no_seq'))"))
   name                       String           @db.VarChar(120)
   /// מקומות **נוספים** שנרכשו לסוכן הוואטסאפ, מעבר לאחד שכלול.
   ///
@@ -33,6 +48,8 @@ model Tenant {
   /// סוף תקופת הניסיון. null = אין תפוגה — משרד שהוקם ידנית או ששילם.
   /// עמודה ולא שדה ב-settings: היא נבדקת בכל אימות Session.
   trialEndsAt                DateTime?        @map("trial_ends_at")
+  /// מתי הניסיון נגמר בכוונה. NULL = לא נגמר, כולל תאריך שאופס זמנית ויכול לחזור.
+  trialConcludedAt           DateTime?        @map("trial_concluded_at")
   /// עד מתי שולם. null = אין תפוגה (משרד שהוקם ידנית).
   ///
   /// יושבת כאן ולא רק ב-subscriptions **בכוונה**: זהו שער ההרשאה,
@@ -99,9 +116,12 @@ model Tenant {
   createdAt                  DateTime         @default(now()) @map("created_at")
   updatedAt                  DateTime         @updatedAt @map("updated_at")
 
-  users         User[]
-  properties    Property[]
-  whatsappLinks WhatsAppLink[]
+  users                       User[]
+  properties                  Property[]
+  funnelEnrollments           FunnelEnrollment[]
+  funnelMessages              FunnelMessage[]
+  whatsappLinks               WhatsAppLink[]
+  whatsappBusinessConnections WhatsAppBusinessConnection[]
 
   @@index([trialEndsAt])
   @@index([paidUntil])
@@ -126,6 +146,12 @@ model User {
   /// להעביר את המקום לסוכן אחר: הדגל שלו לא נשמר בשום מקום. כאן הוא
   /// נשמר לכולם, כולל לבעל המשרד, וההקצאה היא החלטה מפורשת שרואים.
   whatsappAccess       Boolean   @default(false) @map("whatsapp_access")
+  /// ‏ביקש לא לקבל את הסיכום החודשי בוואטסאפ. `NULL` = מקבל.
+  ///
+  /// ‎**חותמת ולא בוליאני**, כמו כל ביטול הצטרפות אחר במערכת: „מתי
+  /// ‏ביקש” היא שאלה שנשאלת כשמישהו טוען שלא ביקש. הוא **אינו**
+  /// ‏משתיק את ההתראה בפעמון — רק את ההודעה שמגיעה לטלפון.
+  officeDigestOptedOutAt DateTime? @map("office_digest_opted_out_at")
   totpSecret           String?   @map("totp_secret") @db.VarChar(255)
   // סיסמה זמנית שחובה להחליף בכניסה ראשונה (ביקורת Codex, PR #5)
   mustChangePassword   Boolean   @default(false) @map("must_change_password")
@@ -145,24 +171,27 @@ model User {
   createdAt            DateTime  @default(now()) @map("created_at")
   updatedAt            DateTime  @updatedAt @map("updated_at")
 
-  tenant              Tenant           @relation(fields: [tenantId], references: [id])
-  sessions            Session[]
-  capabilityOverrides UserCapability[]
-  agentEvents         AgentEvent[]
-  whatsappLinks       WhatsAppLink[]
-  nudgeOptOut         ActivationNudgeOptOut?
-  mentorGoals         MentorGoal[]
-  mentorReviews       MentorReview[]
-  mentorMessages      MentorMessage[]
-  mentorWins          MentorWin[]
-  forumThreads        ForumThread[]
-  forumPosts          ForumPost[]
-  forumVotes          ForumVote[]
-  forumFollows        ForumFollow[]
-  forumListings       ForumListing[]
-  forumRatings        ForumRating[]
-  forumReports        ForumReport[]
-  forumMailState      ForumMailState?
+  tenant               Tenant                       @relation(fields: [tenantId], references: [id])
+  sessions             Session[]
+  capabilityOverrides  UserCapability[]
+  agentEvents          AgentEvent[]
+  whatsappLinks        WhatsAppLink[]
+  whatsappConnections  WhatsAppBusinessConnection[]
+  nudgeOptOut          ActivationNudgeOptOut?
+  mentorGoals          MentorGoal[]
+  mentorReviews        MentorReview[]
+  mentorMonthlyReviews MentorMonthlyReview[]
+  mentorPractices      MentorPractice[]
+  mentorMessages       MentorMessage[]
+  mentorWins           MentorWin[]
+  forumThreads         ForumThread[]
+  forumPosts           ForumPost[]
+  forumVotes           ForumVote[]
+  forumFollows         ForumFollow[]
+  forumListings        ForumListing[]
+  forumRatings         ForumRating[]
+  forumReports         ForumReport[]
+  forumMailState       ForumMailState?
 
   @@index([tenantId, isActive])
   @@map("users")
@@ -227,6 +256,22 @@ model Integration {
   /// מספר חסוי הוא מצב נורמלי ולא תקלת מיפוי, וההבחנה היא ההבדל
   /// בין הודעה שמכוונת נכון להודעה ששולחת לחפש בעיה שאינה קיימת.
   lastEventIssue   String?   @map("last_event_issue") @db.VarChar(40)
+  /// ‏משיכת ההקלטה האחרונה — **שלישייה זהה לזו של האירוע, במכוון.**
+  ///
+  /// ‏„הוובהוק מגיע” ו„ההקלטה נמשכת” הם שני חיבורים נפרדים לאותו
+  /// ‏ספק, ומשרד יכול להיות תקין באחד ושבור בשני: אירועים נכנסים
+  /// ‏יפה בזמן שלחבילה אין הרשאה למשוך הקלטות. עד כה השני נראה רק
+  /// ‏על שיחה בודדת, כלומר מנהל הפלטפורמה היה צריך לבקש מהמשרד
+  /// ‏לפתוח שיחה ולהקריא לו את השורה.
+  lastPullAt       DateTime? @map("last_pull_at")
+  lastPullOk       Boolean?  @map("last_pull_ok")
+  /// ‏קוד מ-`RECORDING_ERRORS` — **רשימה סגורה שנבנתה כדי שלא ידלוף
+  /// ‏דרכה דבר**: לא נתיבים, לא מזהים, ולא כתובת המשיכה שנושאת שם
+  /// ‏משתמש וסיסמה. זה מה שמאפשר להציג אותו בשולחן החיבורים.
+  lastPullIssue    String?   @map("last_pull_issue") @db.VarChar(40)
+  /// ‏כמה כישלונות ברצף מאז ההצלחה האחרונה. ההבדל בין „הקלטה אחת
+  /// ‏שטרם הוכנה” לבין „החיבור שבור” הוא בדיוק המספר הזה.
+  pullFailStreak   Int       @default(0) @map("pull_fail_streak")
   createdBy        String?   @map("created_by") @db.Char(26)
   createdAt        DateTime  @default(now()) @map("created_at")
   updatedAt        DateTime  @updatedAt @map("updated_at")
@@ -312,12 +357,21 @@ model Contact {
   /// חתימת האימייל (HMAC) — התאמת שולח נכנס מ-Gmail לכרטיס קיים.
   emailHash      String?   @map("email_hash") @db.Char(64)
   optedOutAt     DateTime? @map("opted_out_at")
+  /**
+   * ‎**רישום בטאבו משותף (מושאע) — על הלקוח, כשהנכס עוד לא נכנס.**
+   *
+   * ‏מוכר שהתקשר ואמר „זה בטאבו משותף” אמר עובדה משפטית שמשנה את
+   * ‏כל העסקה, והיא צריכה מקום **לפני** שיש כרטיס נכס. הסימון על
+   * ‏הנכס עצמו יושב ב-`properties.shared_tabu`.
+   */
+  sharedTabu     Boolean   @default(false) @map("shared_tabu")
   createdAt      DateTime  @default(now()) @map("created_at")
   updatedAt      DateTime  @updatedAt @map("updated_at")
 
   phones     ContactPhone[]
   links      ContactLink[]  @relation("primaryContact")
   linkedFrom ContactLink[]  @relation("relatedContact")
+  optOutTokens ContactOptOutToken[]
 
   @@unique([tenantId, phoneHash])
   @@map("contacts")
@@ -370,6 +424,68 @@ model ContactLink {
   @@map("contact_links")
 }
 
+/// ‏נכס לגיוס — מודעה שהמתווך רודף אחריה, ולא נכס שהמשרד מייצג.
+///
+/// ‎**טבלה נפרדת ולא סטטוס על `Property`, וזו ההכרעה המרכזית כאן.**
+/// הכלל „לא מציעים נכס כזה” היה נדרש בכל מסלול קריאה — התאמות, רשת
+/// שיתופי הפעולה, הצעות, דפי נחיתה, המונים. בדיוק כך נראה הבאג של
+/// „נמכר”: הכלל נאכף בכתיבה והונח בקריאה, ושורה שברחה נשארה במסך
+/// לתמיד. כאן הדליפה חמורה יותר — הצעת נכס שהמשרד אינו מייצג היא
+/// הבטחה בלי כיסוי מול הקונה, וחשיפה מול בעלים שלא חתם.
+///
+/// שורה בטבלה אחת אינה יכולה לדלוף לשאילתה על טבלה אחרת.
+model RecruitmentTarget {
+  id        String  @id @db.Char(26)
+  tenantId  String  @map("tenant_id") @db.Char(26)
+  /// ראו RECRUITMENT_STATUSES בחבילה המשותפת — גם המסך צריך את התוויות.
+  status    String  @default("new") @db.VarChar(20)
+  /// ראו RECRUITMENT_SOURCES. רשימה סגורה, כדי שהדוח „מאיפה מגיעים
+  /// הגיוסים שלנו” יהיה בר-מענה.
+  source    String  @default("other") @db.VarChar(20)
+  /// הקישור למודעה המקורית — http/https בלבד, נאכף בסכימה.
+  sourceUrl String? @map("source_url") @db.VarChar(2000)
+
+  /// שדות הנכס — אותם שדות של Property, כי זה אותו טופס.
+  city         String?  @db.VarChar(80)
+  neighborhood String?  @db.VarChar(80)
+  street       String?  @db.VarChar(120)
+  houseNumber  String?  @map("house_number") @db.VarChar(10)
+  propertyType String?  @map("property_type") @db.VarChar(30)
+  dealType     String?  @map("deal_type") @db.VarChar(10)
+  rooms        Decimal? @db.Decimal(4, 1)
+  areaSqm      Int?     @map("area_sqm")
+  floor        Int?
+  totalFloors  Int?     @map("total_floors")
+  priceAgorot  BigInt?  @map("price_agorot")
+
+  /// הבעלים שמנסים לגייס — **טקסט ולא Contact**: איש קשר במערכת הוא
+  /// לקוח של המשרד, ומי שטרם חתם אינו כזה. הוא נהיה איש קשר בהמרה.
+  ownerName  String? @map("owner_name") @db.VarChar(120)
+  ownerPhone String? @map("owner_phone") @db.VarChar(20)
+
+  /// ‏רישום בטאבו משותף — אותה עובדה משפטית שיש לנכס ולאיש הקשר,
+  /// ובאותו שם. ‎`NOT NULL DEFAULT false`: „לא סומן” הוא ערך.
+  sharedTabu Boolean @default(false) @map("shared_tabu")
+
+  notes       String? @db.VarChar(4000)
+  agentUserId String? @map("agent_user_id") @db.Char(26)
+
+  /// הנכס שנוצר בהמרה. ייחודי בתוך הדייר — המרה כפולה בלתי אפשרית
+  /// ברמת המסד, ולא רק בקוד.
+  convertedPropertyId String?   @map("converted_property_id") @db.Char(26)
+  convertedAt         DateTime? @map("converted_at")
+
+  deletedAt DateTime? @map("deleted_at")
+  createdBy String?   @map("created_by") @db.Char(26)
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  @@unique([tenantId, convertedPropertyId])
+  @@index([tenantId, updatedAt])
+  @@index([tenantId, status])
+  @@map("recruitment_targets")
+}
+
 model Property {
   id                   String    @id @db.Char(26)
   tenantId             String    @map("tenant_id") @db.Char(26)
@@ -389,6 +505,39 @@ model Property {
   hasBalcony           Boolean?  @map("has_balcony")
   hasSafeRoom          Boolean?  @map("has_safe_room")
   hasStorage           Boolean?  @map("has_storage")
+  /**
+   * ‎**רישום בטאבו משותף (מושאע)** — עובדה משפטית, לא מאפיין נוחות.
+   *
+   * ‏אין חלקה נפרדת, נדרשת הסכמת שותפים, והמימון מסובך. לכן היא
+   * ‏אינה יושבת ב-`customFeatures` לצד „מעלית” ו„מחסן”: אלה
+   * ‏מאפיינים שהמשרד מגדיר לעצמו, וזה נתון שמשנה את העסקה.
+   *
+   * ‎`false` ולא `NULL`: „לא סומן” אינו „לא ידוע” — הסימון הוא של
+   * ‏המתווך, ושורה שלא סומנה היא שורה שלא סומנה. מצב שלישי „טרם
+   * ‏נבדק” הוא מצב שאיש אינו מתחזק.
+   */
+  sharedTabu           Boolean   @default(false) @map("shared_tabu")
+  /// ‎**מתי אדם ענה על השאלה — ולא „מצב שלישי”.**
+  ///
+  /// ‏הדגל שמעל נשאר בוליאני, והמנוע ממשיך לקרוא אותו בדיוק כמו
+  /// ‏קודם. מה שהיה חסר הוא ההבחנה בין „נבדק ואינו משותף” לבין
+  /// ‏„איש לא הסתכל”: המנוע **פוסל** נכס משותף מקונה שסירב, ולכן
+  /// ‏נכס שבאמת רשום במשותף ולא סומן מוצע דווקא למי שסירב.
+  ///
+  /// ‎`NULL` = טרם נשאל, וזו האמת על כל השורות שקדמו לעמודה.
+  /// ‏נכתב רק כשאדם ענה במפורש — במסך הסקירה, או בטופס המוכר
+  /// ‏שבו הבעלים עצמו נשאל. שמירה רגילה של כרטיס הנכס **אינה**
+  /// ‏חותמת: היא ראיה לכך שמישהו שמר טופס, לא לכך שמישהו בדק.
+  sharedTabuConfirmedAt DateTime? @map("shared_tabu_confirmed_at")
+  /// ‎**חזית / עורף / שניהם** — front | rear | both.
+  ///
+  /// ‏אחת השאלות הראשונות בטלפון, ועד עכשיו לא היה לה איפה לשבת:
+  /// ‏מי ששאל רשם בהערות, ומשם זה לא חוזר לאף מסך.
+  ///
+  /// ‎`NULL` = לא צוין, וזו האמת על כל השורות שקדמו לעמודה. שלושה
+  /// ‏ערכים ולא שניים, כי דירה שפונה לשני הכיוונים היא מצב נפוץ
+  /// ‏ובבחירה של שניים בלבד היא נרשמת בשקר.
+  facing               String?   @db.VarChar(10)
   condition            String?   @db.VarChar(20)
   priceAgorot          BigInt?   @map("price_agorot")
   priceFlexible        Boolean?  @map("price_flexible")
@@ -450,6 +599,48 @@ model Property {
   marketingTitle       String?   @map("marketing_title") @db.VarChar(160)
   marketingDescription String?   @map("marketing_description")
   internalNotes        String?   @map("internal_notes")
+  /// ‎**הסוכן המטפל בנכס.**
+  ///
+  /// עד כה לנכס לא היה סוכן כלל: הוא היה של המשרד, וכל סוכן ראה את
+  /// כולם. במשרד עם סוכן אחד זה נכון; בסוכנות עם כמה סוכנים זו
+  /// השאלה הראשונה שמנהל שואל על נכס — „של מי זה?” — ולא הייתה לה
+  /// תשובה בשום מסך.
+  ///
+  /// ‎**השדה מתעד, ואינו מסתיר.** הוא אינו משנה מי רואה מה: נכסים
+  /// נשארים גלויים לכל המשרד, כפי שהיו. הגבלת ראייה היא החלטה
+  /// נפרדת עם מחיר תפעולי משלה, ואינה נגררת בשקט מתוך שדה חדש.
+  ///
+  /// ‎`null` = נכס שקדם לעמודה, או שלא שויך. המסך אומר „לא משויך”
+  /// ואינו מנחש בעל.
+  agentUserId          String?   @map("agent_user_id") @db.Char(26)
+  /// ‏הסוכן השני על עסקה שנסגרה בשיתוף — אחד הביא את הנכס, השני
+  /// ‏את הקונה. ‎`NULL` = אין שת״פ, וזה המצב של כמעט כל השורות.
+  ///
+  /// ‎**עמודה ולא טבלה, ושניים ולא רשימה** (הכרעת בעל המוצר): שני
+  /// ‏סוכנים הם מה שקורה בפועל, וטבלת משתתפים הייתה מוסיפה הצטרפות
+  /// ‏וטופס לכל שורה כשברובן יש שם אדם אחד.
+  ///
+  /// ‎**והיא אינה נכנסת לניקוי הלוח.** `deals` ממשיך להיספר לפי
+  /// ‏`agentUserId` בלבד — השדה מתעד ואינו מחשב, ולכן אין על מה
+  /// ‏לריב וסוכן אינו מפסיד מסימון.
+  ///
+  /// ‏האינדקס עליו **חלקי** (רק שורות שיש בהן שותף) ולכן מוגדר
+  /// ‏במיגרציה 20260914180000 בלבד — Prisma אינו יודע לתאר אינדקס
+  /// ‏חלקי, ואינדקס מלא כאן היה כמעט כולו `NULL`. שם גם אילוץ
+  /// ‏ה-`CHECK` שחוסם שת״פ של סוכן עם עצמו.
+  partnerUserId        String?   @map("partner_user_id") @db.Char(26)
+  /// ‏מתי העסקה נסגרה — הרגע שבו הסטטוס עבר ל-`sold`/`rented`.
+  ///
+  /// ‎**עמודה ולא `updated_at`, וזו תיקון של באג אמיתי** (ביקורת
+  /// ‏Codex, P1): `updated_at` הוא „מתי מישהו נגע בשורה”, ולכן כל
+  /// ‏עריכה על נכס שנמכר לפני חצי שנה הייתה מזיזה אותו לתקופה
+  /// ‏הנוכחית — מנפחת את מונה העסקאות של החודש ומשנה את הדירוג.
+  ///
+  /// ‏הפער היה קיים קודם, אבל שדה „סוכן שותף” הופך עריכה על עסקה
+  /// ‏ישנה ל**פעולה שגרתית**: זה בדיוק מה שהוא מזמין.
+  ///
+  /// ‎`NULL` = לא נסגרה, או נסגרה לפני העמודה ובלי שנשמר מתי.
+  closedAt             DateTime? @map("closed_at")
   attributes           Json      @default("{}")
   readinessScore       Int       @default(0) @map("readiness_score")
   // דף הנחיתה הציבורי של הנכס — הטוקן הוא ההרשאה (פוליסת RLS ייעודית)
@@ -463,6 +654,12 @@ model Property {
 
   @@index([tenantId, status, updatedAt])
   @@index([tenantId, city, status])
+  /// „הנכסים של סוכן פלוני” — השאילתה שהמסך החדש עושה.
+  @@index([tenantId, agentUserId])
+  /// „לאיזה נכס הלקוח הזה קשור” — נשאל בכל שיחה נכנסת, ב-`OR` על
+  /// שתי העמודות; `OR` אינו יכול לנצל אינדקס מורכב, ולכן שניים.
+  @@index([tenantId, ownerContactId])
+  @@index([tenantId, occupantContactId])
   @@map("properties")
 }
 
@@ -650,40 +847,189 @@ model MentorReview {
   @@map("mentor_reviews")
 }
 
+/// הסיכום החודשי של המנטור — מה עבד ומה לא; טבלה משלו כדי שלא ייכנס לרצף ולדפוסים של השבועי.
+model MentorMonthlyReview {
+  id         String   @id @db.Char(26)
+  tenantId   String   @map("tenant_id") @db.Char(26)
+  userId     String   @map("user_id") @db.Char(26)
+  /// ה-1 בחודש 00:00 שעון ישראל, כ-UTC
+  monthStart DateTime @map("month_start")
+  headline   String   @db.VarChar(200)
+  /// הפסקאות, המיקוד והמספרים — ראו MentorMonthlyBody ב-shared
+  body       Json
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, userId, monthStart])
+  @@map("mentor_monthly_reviews")
+}
+
+/// תרגול שיחה — התרחיש, התורים והמשוב (docs/14 §7.3); לא בזיכרון השיחה עם המנטור.
+model MentorPractice {
+  id         String    @id @db.Char(26)
+  tenantId   String    @map("tenant_id") @db.Char(26)
+  userId     String    @map("user_id") @db.Char(26)
+  /// מתוך PRACTICE_SCENARIOS
+  scenario   String    @db.VarChar(40)
+  /// PracticeTurn[] — המתווך והדמות, לפי הסדר
+  turns      Json      @default("[]")
+  /// כמה תורים של המתווך — למכסה היומית ולתקרה של תרגול
+  agentTurns Int       @default(0) @map("agent_turns") @db.SmallInt
+  /// הדמות סיימה את השיחה — אין עוד תורים, רק משוב
+  closed     Boolean   @default(false)
+  /// MentorPracticeFeedback — ריק עד שביקשו משוב
+  feedback   Json?
+  score      Int?      @db.SmallInt
+  createdAt  DateTime  @default(now()) @map("created_at")
+  endedAt    DateTime? @map("ended_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, userId, createdAt])
+  @@map("mentor_practices")
+}
+
 /// הצלחה שנאמרת בשמה — נרשמת ברגע האירוע, עם מי שעשה אותה.
 model MentorWin {
   id         String   @id @db.Char(26)
   tenantId   String   @map("tenant_id") @db.Char(26)
   userId     String   @map("user_id") @db.Char(26)
-  /// deal_closed | exclusivity_signed | offer_interested | coop_deal
+  /// deal_closed | exclusivity_signed | offer_interested | coop_deal | goal_reached
   kind       String   @db.VarChar(30)
   entityType String   @map("entity_type") @db.VarChar(40)
   entityId   String   @map("entity_id") @db.Char(26)
-  /// כותרת הנכס — בלי שם הלקוח
+  /// התקופה שבה היעד הושג („2026-09-06”) — יעד שבועי הוא חגיגה לכל שבוע; ריק לאירוע חד-פעמי
+  periodKey  String   @default("") @map("period_key") @db.VarChar(10)
+  /// כותרת הנכס — בלי שם הלקוח; ליעד — תווית היעד
   title      String   @db.VarChar(200)
   happenedAt DateTime @default(now()) @map("happened_at")
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@unique([tenantId, kind, entityId])
+  @@unique([tenantId, kind, entityId, periodKey])
   @@index([tenantId, userId, happenedAt])
   @@map("mentor_wins")
 }
 
 /// תור בשיחה עם המנטור — של המשתמש בלבד.
 model MentorMessage {
-  id        String   @id @db.Char(26)
-  tenantId  String   @map("tenant_id") @db.Char(26)
-  userId    String   @map("user_id") @db.Char(26)
+  id       String @id @db.Char(26)
+  tenantId String @map("tenant_id") @db.Char(26)
+  userId   String @map("user_id") @db.Char(26)
+  /// ‏השיחה שההודעה שייכת לה — ומזהה השיחה הוא **מזהה ההודעה
+  /// הראשונה שבה**. אין טבלת שיחות: שם השיחה נגזר מהשאלה הראשונה
+  /// ‏(`mentorThreadTitle`), והמועד האחרון הוא ה-`MAX` שלה. כותרת
+  /// שמורה יכולה לחלוק על השיחה שהיא מתארת; נגזרת אינה יכולה.
+  threadId String @map("thread_id") @db.Char(26)
   /// user | mentor
-  role      String   @db.VarChar(10)
-  text      String   @db.VarChar(4000)
-  createdAt DateTime @default(now()) @map("created_at")
+  role String @db.VarChar(10)
+  text String @db.VarChar(4000)
+  /// ‏דירוג של המתווך על תשובת המנטור — `helpful` | `not_helpful`.
+  /// ‏עמודה נפרדת מ-`pinnedAt` כי אלה שתי פעולות: דירוג אומר „זה
+  /// ‏היה טוב”, נעיצה אומרת „אני רוצה למצוא את זה שוב”.
+  feedback  String?   @db.VarChar(12)
+  /// ‏מתי נעצה — ולא בוליאני, כי לרשימת הנעוצים יש סדר, והוא „מתי
+  /// ‏נעצתי” ולא „מתי נאמר”.
+  pinnedAt  DateTime? @map("pinned_at")
+  /// ‏מה ההודעה הזו אמרה על הכרטיס: `buyer` · `property` · `none`
+  /// ‏(ניתוק מפורש) · `null` (לא אמרה דבר, וזה הרוב).
+  ///
+  /// ‏על ההודעה ולא על השיחה: מתווך מצרף קונה, ובאמצע השיחה עובר
+  /// ‏לאחר, והשאלה הראשונה נשאלה בהקשר שהיה אז. ו-`none` שמור כי
+  /// ‏בלעדיו ניתוק היה נבלע — הגזירה הייתה מדלגת אחורה אל הכרטיס
+  /// ‏הקודם.
+  subjectKind String? @map("subject_kind") @db.VarChar(10)
+  /// ‏בלי מפתח זר: כרטיס שנמחק אינו מוחק את השיחה עליו. השרת
+  /// ‏מרענן את העובדות בכל שאלה, וכרטיס שאיננו פשוט אינו נטען.
+  subjectId String?  @map("subject_id") @db.Char(26)
+  createdAt DateTime  @default(now()) @map("created_at")
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([tenantId, userId, createdAt])
+  @@index([tenantId, userId, threadId, createdAt])
   @@map("mentor_messages")
+}
+
+/// ‎**המנטור הקודם (#377–#385) — נתונים בלבד.**
+///
+/// ‏ארבע הטבלאות של המנטור שקדם לזה (docs/14) נשארו במסד עם מה שנכתב
+/// בהן — יעדים, ציונים שבועיים, הישגים ומשפטי מוטיבציה שמישהו כתב
+/// ביד. אף מסך ואף שירות אינם קוראים מהן; המודלים כאן כדי ש-Prisma
+/// יכיר אותן: מחיקת משרד מנקה אותן, ובדיקת ה-RLS דורשת מודל לכל
+/// טבלה שתחת RLS. ‎`mentor_goals` הישנה קיבלה את הסיומת `_legacy`
+/// במיגרציה `20260903210000_mentor`, כי השם נדרש למנטור הזה.
+model LegacyMentorGoal {
+  id                      String    @id @db.Char(26)
+  tenantId                String    @map("tenant_id") @db.Char(26)
+  userId                  String    @map("user_id") @db.Char(26)
+  horizon                 String    @db.VarChar(10)
+  unit                    String    @db.VarChar(20)
+  targetAgorot            BigInt    @map("target_agorot")
+  averageCommissionAgorot BigInt?   @map("average_commission_agorot")
+  ratios                  Json      @default("{}")
+  commitment              Json      @default("{}")
+  obstacle                String?   @db.VarChar(400)
+  ifThenPlan              String?   @map("if_then_plan") @db.VarChar(400)
+  periodStart             DateTime  @map("period_start") @db.Date
+  periodEnd               DateTime  @map("period_end") @db.Date
+  achievedAt              DateTime? @map("achieved_at")
+  createdAt               DateTime  @default(now()) @map("created_at")
+  updatedAt               DateTime  @updatedAt @map("updated_at")
+
+  @@unique([tenantId, userId, horizon, periodStart])
+  @@index([tenantId, userId, horizon])
+  @@map("mentor_goals_legacy")
+}
+
+model LegacyMentorWeeklyScore {
+  id          String   @id @db.Char(26)
+  tenantId    String   @map("tenant_id") @db.Char(26)
+  userId      String   @map("user_id") @db.Char(26)
+  weekKey     String   @map("week_key") @db.VarChar(10)
+  committed   Json     @default("{}")
+  actual      Json     @default("{}")
+  percent     Int      @default(0)
+  onTrack     Boolean  @default(false) @map("on_track")
+  sentMoments Json     @default("[]") @map("sent_moments")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@unique([tenantId, userId, weekKey])
+  @@index([tenantId, userId, weekKey])
+  @@map("mentor_weekly_scores")
+}
+
+model LegacyMentorAchievement {
+  id               String    @id @db.Char(26)
+  tenantId         String    @map("tenant_id") @db.Char(26)
+  userId           String    @map("user_id") @db.Char(26)
+  weekKey          String    @map("week_key") @db.VarChar(10)
+  percent          Int
+  snapshot         Json      @default("{}")
+  reachedAt        DateTime  @map("reached_at")
+  feedbackText     String?   @map("feedback_text") @db.VarChar(400)
+  feedbackByUserId String?   @map("feedback_by_user_id") @db.Char(26)
+  feedbackAt       DateTime? @map("feedback_at")
+  createdAt        DateTime  @default(now()) @map("created_at")
+
+  @@unique([tenantId, userId, weekKey])
+  @@index([tenantId, feedbackAt, reachedAt])
+  @@map("mentor_achievements")
+}
+
+model LegacyMentorQuote {
+  id        String   @id @db.Char(26)
+  tenantId  String?  @map("tenant_id") @db.Char(26)
+  text      String   @db.VarChar(240)
+  author    String   @default("") @db.VarChar(80)
+  createdBy String?  @map("created_by") @db.Char(26)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
+
+  @@index([tenantId, createdAt])
+  @@map("mentor_quotes")
 }
 
 model PropertyMedia {
@@ -730,9 +1076,50 @@ model Buyer {
   /// יוכל לצרף אותו למועמדים בלי לפתוח את ה-JSON בכל שורה.
   /// אינדקס חלקי במיגרציה 20260815200000.
   hasSearchAreas     Boolean   @default(false) @map("has_search_areas")
+  /// ‏השכונות שהקונה נמצא לפיהן, **כמפתחות מקופלים**.
+  ///
+  /// ‏נגזר מ-`requirements` ונכתב יחד איתו, כמו `hasSearchAreas`
+  /// ‏ו-`sharedTabuStance` — ומשני המקורות שבהם קונה אומר
+  /// ‏איפה הוא מחפש: רשימת השכונות המוקלדת, ושמות
+  /// ‏הנעיצות על המפה. הגזירה יושבת ב-`buyerNeighborhoodKeys`,
+  /// ‏וכאן היא רק **נכתבת** — כדי שהסינון לא יפתח JSON
+  /// ‏בכל שורה.
+  ///
+  /// ‏מפתח ולא שם: „שיכון ג'” ו„שיכון ג” הן אותה שכונה,
+  /// ‏וסינון על השם הגולמי היה מחלק אותה לפי מי הקליד.
+  ///
+  /// ‏האינדקס עליו הוא GIN **חלקי** (רק שורות שלא נמחקו)
+  /// ‏ולכן מוגדר במיגרציה 20260914210000 בלבד — Prisma אינו יודע
+  /// ‏לתאר אינדקס חלקי, והכרזה כאן הייתה מייצרת סחיפה מול המסד.
+  neighborhoodKeys   String[]  @default([]) @map("neighborhood_keys")
+  /// עמדת הקונה כלפי רישום בטאבו משותף: `accepts` · `refuses`.
+  ///
+  /// `null` = **טרם נשאל**, וזה המצב של כל הכרטיסים שקדמו לשדה.
+  /// קריאה שלו כסירוב הייתה מסתירה נכסים בטאבו משותף מכל הקונים
+  /// הקיימים ברגע אחד; קריאה כהסכמה הייתה ממציאה הסכמה משפטית
+  /// בשם הלקוח. לכן הוא נשאר ידוע-כלא-ידוע, ומוצג ככזה.
+  ///
+  /// **נגזר מ-`requirements`** ונכתב יחד איתו, כמו `hasSearchAreas`
+  /// — כדי שהסינון והמנוע לא יפתחו JSON בכל שורה.
+  ///
+  /// האינדקס עליו **חלקי** (רק שורות שנשאלו) ולכן מוגדר במיגרציה
+  /// 20260906200000 בלבד — Prisma אינו יודע לתאר אינדקס חלקי,
+  /// והכרזה כאן הייתה מייצרת סחיפה מול המסד.
+  sharedTabuStance   String?   @map("shared_tabu_stance") @db.VarChar(10)
   financing          String    @default("unknown") @db.VarChar(20)
   maturity           String    @default("interested") @db.VarChar(20)
   maturityOverridden Boolean   @default(false) @map("maturity_overridden")
+  /// סטטוס המשרד — **מזהה** מתוך `tenants.settings -> 'buyerStatuses'`.
+  ///
+  /// שכבה שנייה מעל `maturity` ולא במקומה: כל סטטוס נושא דרגה שהוא
+  /// נשען עליה, ובחירה בו קובעת את שתיהן. כך המשרד מקבל את המילים
+  /// שלו והמערכת ממשיכה לקרוא `maturity` בדיוק כפי שקראה.
+  ///
+  /// מזהה ולא תווית: שינוי שם הסטטוס בהגדרות אינו אמור לנתק אותו
+  /// מהכרטיסים שנושאים אותו. `null` = שכבה א' בלבד, וזה תקין —
+  /// והוא גם הרוב המכריע של השורות, ולכן האינדקס **חלקי** ומוגדר
+  /// במיגרציה 20260901080000 בלבד (Prisma אינו יודע לתאר אותו).
+  officeStatus       String?   @map("office_status") @db.VarChar(24)
   source             String    @db.VarChar(60)
   aiNotes            String?   @map("ai_notes")
   agentNotes         String?   @map("agent_notes")
@@ -784,6 +1171,10 @@ model Lead {
   tenantId            String    @map("tenant_id") @db.Char(26)
   contactId           String    @map("contact_id") @db.Char(26)
   source              String    @db.VarChar(20)
+  /// ‏הטקסט של „אחר”: „דוכן ביריד”, „שלט על הרכב”. עמודה נפרדת ולא
+  /// דחיסה אל `source` — המקור נשאר ערך שאפשר לקבץ לפיו בדוח, וההערה
+  /// היא מה שרואים במקום המילה „אחר”.
+  sourceNote          String?   @map("source_note") @db.VarChar(60)
   intent              String    @default("unknown") @db.VarChar(20)
   status              String    @default("new") @db.VarChar(20)
   assignedToUserId    String?   @map("assigned_to_user_id") @db.Char(26)
@@ -826,6 +1217,18 @@ model EmailMessage {
   /// פעולה בלתי הפיכה, וכתיבה אחריה משמעה שכשל בכתיבה מוחק כל זכר
   /// להודעה שהלקוח כבר קיבל.
   sendState         String?   @map("send_state") @db.VarChar(10)
+  /// ‏באיזה כרטיס ההודעה עוסקת — `buyer` | `lead` | `property`.
+  ///
+  /// ‏התיבה מסודרת לפי **אדם** ונשארת כך: אותו לקוח כותב על הצעה,
+  /// ‏על הסכם ועל טופס קליטה, וזו שיחה אחת. התג הוא על ההודעה
+  /// ‏הבודדת בלבד.
+  ///
+  /// ‎`NULL` הוא ערך תקין ונפוץ, ולא חוסר: הוא נכתב **רק כשהוא
+  /// ‏עובדה** — שליחה שיצאה מכרטיס, ותשובה שירשה את התג דרך טוקן
+  /// ‏ה-Reply-To שהונפק עבורה. מייל נכנס שאינו תשובה לדבר אינו
+  /// ‏שייך לכרטיס, וניחוש שנראה סמכותי גרוע מתא ריק.
+  cardKind          String?   @map("card_kind") @db.VarChar(10)
+  cardId            String?   @map("card_id") @db.Char(26)
   createdBy         String?   @map("created_by") @db.Char(26)
   createdAt         DateTime  @default(now()) @map("created_at")
 
@@ -889,16 +1292,86 @@ model ActivationNudgeOptOut {
   @@map("activation_nudge_optouts")
 }
 
+model ContactOptOutToken {
+  id        String   @id @db.Char(26)
+  tenantId  String   @map("tenant_id") @db.Char(26)
+  contactId String   @map("contact_id") @db.Char(26)
+  /// ‏מה שבקישור — 256 ביט אקראיים, בלתי ניתן לניחוש.
+  token     String   @unique @db.Char(43)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  contact Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, contactId], map: "contact_optout_tokens_contact_key")
+  @@map("contact_optout_tokens")
+}
+
 model EmailReplyToken {
   id        String   @id @db.Char(26)
   tenantId  String   @map("tenant_id") @db.Char(26)
   contactId String   @map("contact_id") @db.Char(26)
+  /// מי שלח את ההודעה שהכתובת הזו מחזירה תשובה עליה.
+  ///
+  /// הטוקן היה מזוהה בלקוח בלבד, ולכן תשובה על הסכם ששלח סוכן ב׳
+  /// נותבה למי שאחראי על **הלקוח** — סוכן א׳, שיש לו כרטיס קונה
+  /// על אותו אדם. `contactOwnerCandidates` מעלה את השולח לראש
+  /// התור, ומשם הוא עובר את אותה בדיקת הרשאה כמו כל מועמד.
+  ///
+  /// `NULL` = שליחה אוטומטית (סבב ההצעות) או טוקן שנוצר לפני
+  /// השדה. אז הסדר הרגיל הוא התשובה הנכונה.
+  sentByUserId String? @map("sent_by_user_id") @db.Char(26)
+  /// ‏הכרטיס שבגינו הונפק הטוקן — התשובה עליו יורשת אותו.
+  ///
+  /// ‎**וזה חלק מזהות הטוקן, בדיוק כמו `sentByUserId`.** השימוש
+  /// ‏החוזר מחפש לפי (משרד, לקוח, שולח, כרטיס); בלי הכרטיס בחיפוש,
+  /// ‏טוקן שהונפק להצעה היה משמש גם לשליחת הסכם — והתשובה על
+  /// ‏ההסכם הייתה נושאת את התג של ההצעה. שדה שנכתב בהנפקה ואינו
+  /// ‏נכנס לחיפוש מתאר את השליחה הראשונה בלבד.
+  cardKind  String?  @map("card_kind") @db.VarChar(10)
+  cardId    String?  @map("card_id") @db.Char(26)
   createdAt DateTime @default(now()) @map("created_at")
 
   /// אינדקס ולא ייחודיות: מיזוג כרטיסים מעביר טוקנים לשורד, וכתובת
   /// Reply-To ישנה שבתיבת הלקוח חייבת להמשיך להגיע. נפתר לפי id.
   @@index([tenantId, contactId])
   @@map("email_reply_tokens")
+}
+
+/// ‎**זיכרון של שליחה — כי כישלון מסירה אינו בהכרח "לא נשלח".**
+///
+/// ‏‎4xx פירושו שהספק בדק ופסל, ולכן ההודעה בוודאות לא יצאה. פסק
+/// ‏זמן, נפילת רשת או ‎5xx פירושם ש**איננו יודעים**: ייתכן שהספק
+/// ‏קיבל את ההודעה ושלח אותה, ורק התשובה אבדה. בלי זיכרון, כל
+/// ‏ניסיון חוזר הוא הימור בין מייל כפול ללקוח לבין מייל שלא הגיע.
+///
+/// ‏השורה נכתבת **לפני** הקריאה לספק ומסומנת אחריה, והמפתח נשלח
+/// ‏גם כ-`Metadata` על ההודעה עצמה — ולכן מצב "עמום" ניתן להכרעה
+/// ‏בדיעבד מול חיפוש ההודעות היוצאות של הספק.
+///
+/// ‎**אין כאן נמען, נושא או תוכן.** להכרעה די במפתח, וכל מה שאינו
+/// ‏נחוץ הוא PII שנשמר בלי סיבה — הטבלה הזו היא תשתית ולא תיעוד;
+/// ‏התיעוד יושב ב-`email_messages` ובציר הלקוח.
+///
+/// ‏מחוץ ל-RLS במודע: אותה טבלה משרתת גם שליחות שאין להן דייר כלל
+/// ‏(הרשמה, התחברות, התראות פלטפורמה, תמיכה), ופוליסה הייתה חוסמת
+/// ‏דווקא אותן. `tenant_id` נשמר כשהוא ידוע, כדי שמחיקת משרד תוכל
+/// ‏למחוק גם אותו.
+model EmailSendAttempt {
+  /// ‏מפתח הזהות העסקית של השליחה — "אותו הסכם לאותו לקוח".
+  key               String   @id @db.VarChar(80)
+  tenantId          String?  @map("tenant_id") @db.Char(26)
+  /// ‏למה נשלח (agreement/offer/intake/...) — לאבחון ולמדידה בלבד
+  purpose           String   @db.VarChar(40)
+  /// sending | sent | unknown | rejected
+  status            String   @db.VarChar(10)
+  providerMessageId String?  @map("provider_message_id") @db.VarChar(120)
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  /// ‏שמירה קצרה — הזיכרון נחוץ לניסיון החוזר, לא לנצח
+  @@index([createdAt])
+  @@index([tenantId])
+  @@map("email_send_attempts")
 }
 
 /// חיבור Gmail — אימיילים נכנסים הופכים ללידים או מצטרפים לכרטיס
@@ -1022,6 +1495,12 @@ model SharedDemand {
   dealType        String    @map("deal_type") @db.VarChar(10)
   /// סוגי הנכס שהקונה מוכן לשקול. ריק = לא הגביל.
   propertyTypes   String[]  @default([]) @map("property_types")
+  /// **וגם הסירוב שלו לרישום משותף.**
+  ///
+  /// `null` = טרם נשאל, וזה המצב של כל ביקוש קיים. מה שחייב לנסוע
+  /// הוא דווקא `refuses`: בלעדיו המשרד המקבל קורא „לא נשאל”,
+  /// והמנוע מתיר התאמה שהקונה שלל במפורש.
+  sharedTabuStance String?  @map("shared_tabu_stance") @db.VarChar(10)
   /// שטח מינימלי במ״ר. אינו מזהה איש, ופוסל חצי מההצעות עוד לפניהן.
   areaSqmMin      Int?      @map("area_sqm_min")
   // טווח מעוגל ל-100 אלף ₪ — אנונימיזציה אמיתית, לא הסתרה.
@@ -1076,6 +1555,55 @@ model SharedDemand {
   @@map("shared_demands")
 }
 
+/// ‏מעקב אחרי ביקוש ברשת שאין לו כרגע נכס מתאים אצלנו.
+///
+/// ‏הסורק היומי בודק את הנכסים של המשרד מול הביקושים שעוקבים
+/// אחריהם, ושולח התראה לסוכן שלחץ כשנכנס נכס שמתאים.
+///
+/// ‏אין מפתח זר ל-`SharedDemand`: היא תחת RLS של המשרד **המפרסם**,
+/// ואילוץ חוצה-דיירים היה נאכף מחוץ לפוליסה ומדליף את עצם הקיום.
+model DemandFollow {
+  id        String   @id @db.Char(26)
+  tenantId  String   @map("tenant_id") @db.Char(26)
+  /// ‏הסוכן שלחץ, והנמען של ההתראה. המעקב אישי ולא משרדי: התראה
+  /// לכל הצוות על נכס שרק אחד מהם עוסק בו היא הדרך לכבות התראות.
+  userId    String   @map("user_id") @db.Char(26)
+  demandId  String   @map("demand_id") @db.Char(26)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  /// לחיצה חוזרת אינה יוצרת מעקב שני
+  @@unique([tenantId, userId, demandId])
+  /// „אחרי מה אני עוקב” — המסך, והסורק בכל דייר
+  @@index([tenantId, createdAt])
+  /// „מי עוקב אחרי הביקוש הזה” — הניקוי כשביקוש נסגר
+  @@index([demandId])
+  @@map("demand_follows")
+}
+
+/// „עקוב אחרי הנכס” — **הכיוון השני של אותה רשת.**
+///
+/// ‏מתווך שרואה נכס טוב ברשת ואין לו קונה מתאים היום היה מגיע
+/// ‏למבוי סתום, גם כשהקונה נכנס אליו שבוע אחר כך. אותו דגם בדיוק
+/// ‏כמו `DemandFollow`, ובכוונה — שתי טבלאות ולא עמודת „כיוון”,
+/// ‏כי השורה מצביעה על ישות אחרת לגמרי.
+model ListingFollow {
+  id        String   @id @db.Char(26)
+  tenantId  String   @map("tenant_id") @db.Char(26)
+  /// ‏הסוכן שלחץ, והנמען של ההתראה. המעקב אישי ולא משרדי: הקונה
+  /// שיתאים הוא הקונה שלו, והתראה לכל הצוות היא הדרך לכבות התראות.
+  userId    String   @map("user_id") @db.Char(26)
+  listingId String   @map("listing_id") @db.Char(26)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  /// לחיצה חוזרת אינה יוצרת מעקב שני
+  @@unique([tenantId, userId, listingId])
+  /// „אחרי מה אני עוקב” — המסך, והסורק בכל דייר
+  @@index([tenantId, createdAt])
+  /// „מי עוקב אחרי הנכס הזה” — הניקוי כשפרסום נסגר
+  @@index([listingId])
+  @@map("listing_follows")
+}
+
 // נכס שפורסם לרשת — **הכיוון השני של אותה רשת.**
 //
 // עד כה רק קונים התפרסמו: משרד יכול היה לומר "יש לי קונה, למי יש
@@ -1094,6 +1622,13 @@ model SharedListing {
   city             String?   @db.VarChar(80)
   neighborhood     String?   @db.VarChar(80)
   propertyType     String?   @map("property_type") @db.VarChar(30)
+  /// **הרישום המשותף נוסע איתו.**
+  ///
+  /// עד שהדגל נוסף, העובדה נשאה את עצמה דרך `property_type`
+  /// (`shared_tabu`), ולכן היא הגיעה למשרד המקבל. מרגע שהיא דגל,
+  /// נכס עם סוג רגיל איבד אותה בפרסום — כלומר הומלץ לקונה שסירב
+  /// למושאע, והמשרד המקבל לא ראה את מצב הרישום כלל.
+  sharedTabu       Boolean   @default(false) @map("shared_tabu")
   dealType         String?   @map("deal_type") @db.VarChar(10)
   rooms            Decimal?  @db.Decimal(4, 1)
   areaSqm          Int?      @map("area_sqm")
@@ -1626,6 +2161,114 @@ model WhatsAppLink {
   @@map("whatsapp_links")
 }
 
+/// חיבור וואטסאפ ביזנס של משרד — הקו **שלו**, לא של הפלטפורמה
+/// (docs/12, ADR-006). נוצר בסיום Embedded Signup, ומכאן כל הודעה
+/// שמגיעה לאותו קו יודעת לאיזה משרד היא שייכת.
+///
+/// ‎**אינו תחת RLS למרות ה-tenant_id** — כמו `WhatsAppLink` ומאותה
+/// סיבה בדיוק: הוא נקרא בנתיב הציבורי של ה-Webhook, ברגע שבו הדייר
+/// עדיין אינו ידוע, והוא עצמו מה שמגלה אותו.
+model WhatsAppBusinessConnection {
+  id                   String    @id @db.Char(26)
+  tenantId             String    @map("tenant_id") @db.Char(26)
+  /**
+   * ‎**הסוכן שחיבר את הקו — הקו הוא שלו, לא של המשרד.**
+   * כל סוכן מחבר את המספר שלו, והלקוחות שכותבים אליו הם הלקוחות
+   * שלו. לכן ליד שנוצר מהקו הזה נוחת אצלו (`assignedToUserId`)
+   * ולא במאגר אנונימי של המשרד — אחרת סוכן שחיבר את המספר הפרטי
+   * שלו היה מזין לידים לעמיתיו בלי לדעת.
+   * ‏`tenantId` נשאר לצד זה: הוא מה שמכריע לאיזה משרד ההודעה שייכת
+   * בנתיב הציבורי של הוובהוק, והוא גם מה שמאפשר לבעל משרד לנתק קו
+   * של סוכן שעזב.
+   */
+  userId               String    @map("user_id") @db.Char(26)
+  /// מזהי Meta — יציבים, לא-סודיים, מפתחות הניתוב
+  wabaId               String    @map("waba_id") @db.VarChar(32)
+  phoneNumberId        String    @map("phone_number_id") @db.VarChar(32)
+  /// המספר המוצג — ספרות בלבד (9725...), לתצוגה ולגיבוי ניתוב
+  displayPhone         String    @map("display_phone") @db.VarChar(20)
+  /// השם שהלקוחות רואים, כפי ש-Meta אישרה אותו
+  verifiedName         String?   @map("verified_name") @db.VarChar(120)
+  /**
+   * ה-business token של המתווך — הסוד של החיבור, מוצפן במנוחה.
+   * ‎**Nullable בכוונה**: בניתוק הסוד נמחק מיד והשורה נשארת, כי
+   * הסטטוס והסיבה הם מידע שהמשרד צריך לראות. עמודת חובה הייתה כופה
+   * בחירה בין החזקת סוד חי אחרי ניתוק לבין מחיקת כל המטא-דאטה.
+   */
+  accessTokenEncrypted String?   @map("access_token_encrypted") @db.Text
+  /**
+   * מתי הטוקן שמעליו פג — מה שהופך תפוגה שקטה לסבב רענון.
+   * ‎`null` = טוקן שאינו פג, ואז אין מה לרענן. ערך = מה ש-Meta
+   * החזירה ב-`expires_in` בהמרת ה-`code`. תצורות Embedded Signup
+   * מנפיקות היום טוקן קצוב (60 יום), וטוקן שפג מפסיק להביא הודעות
+   * **בלי ש-Meta מודיעה על כך בשום ערוץ**: המסך ממשיך להראות
+   * „מחובר”, הלידים פשוט מפסיקים להיכנס, והמתווך מגלה זאת מלקוח
+   * שמתלונן שלא ענו לו. זו העמודה שמאפשרת לסורק לפעול לפני כן.
+   */
+  accessTokenExpiresAt DateTime? @map("access_token_expires_at")
+  /**
+   * ‎**הגדרות הבוט של הסוכן** (docs/12 §6.2).
+   * שלד קבוע עם גמישות מבוקרת: מה שנשמר כאן הוא נוסח הפתיחה, שעות
+   * הפעילות, שאלות האפיון ומשך ההשתקה — כלומר ה**טעם**. מה שאינו
+   * ניתן לעריכה ואינו יושב כאן: הצגה עצמית כבוט, טיפול ב„הסר”,
+   * אסקלציה לאדם, ואיסור יזימה. אלה מדיניות של Meta ושל המוצר,
+   * ופרומפט חופשי היה מאפשר לסוכן לכתוב בוט שמתחזה לאדם או מבטיח
+   * מחירים — והנזק נוחת על דירוג האיכות של **המספר שלו**.
+   * ‏null = ברירות המחדל, שהן גם ההתנהגות ה„קבועה לכולם”.
+   */
+  botSettings          Json?     @map("bot_settings")
+  /// pending_history | connected | payment_required | disconnected | error
+  status               String    @default("pending_history") @db.VarChar(20)
+  /// האם המתווך אישר שיתוף היסטוריה, והיכן הסנכרון עומד
+  historyShared        Boolean   @default(false) @map("history_shared")
+  historySyncedThrough DateTime? @map("history_synced_through")
+  /// בריאות הקו כפי ש-Meta מדווחת ב-account_update
+  qualityRating        String?   @map("quality_rating") @db.VarChar(10)
+  messagingTier        String?   @map("messaging_tier") @db.VarChar(20)
+  connectedAt          DateTime  @default(now()) @map("connected_at")
+  disconnectedAt       DateTime? @map("disconnected_at")
+  disconnectReason     String?   @map("disconnect_reason") @db.VarChar(40)
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+
+  tenant        Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user          User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  conversations WhatsAppConversation[]
+
+  @@index([tenantId])
+  @@index([userId])
+  @@index([displayPhone])
+  /// הסורק שואל „מה פג בקרוב” — בלי אינדקס זו סריקת טבלה כל שש שעות
+  @@index([accessTokenExpiresAt])
+  @@map("whatsapp_business_connections")
+}
+
+/// מצב שיחת לקוח על קו של משרד (docs/12 §6): חלון 24 השעות של Meta,
+/// והאם המתווך ענה ידנית מהטלפון — ואז הבוט שותק.
+///
+/// תחת RLS מלא, בניגוד לחיבור עצמו: כאן הדייר כבר ידוע, ויש נתוני
+/// לקוחות קצה.
+model WhatsAppConversation {
+  id             String    @id @db.Char(26)
+  tenantId       String    @map("tenant_id") @db.Char(26)
+  connectionId   String    @map("connection_id") @db.Char(26)
+  contactId      String    @map("contact_id") @db.Char(26)
+  /// פתיחת חלון 24 השעות — ההודעה הנכנסת האחרונה מהלקוח
+  lastInboundAt  DateTime? @map("last_inbound_at")
+  /// המתווך ענה ידנית מהאפליקציה (echo) ⇒ הבוט שותק עד כאן
+  botPausedUntil DateTime? @map("bot_paused_until")
+  /// שלב תסריט הבוט ומה שנאסף עד כה
+  botState       Json      @default("{}") @map("bot_state")
+  /// הלקוח ביקש הסרה — אין פנייה יזומה אליו לעולם
+  optedOutAt     DateTime? @map("opted_out_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  connection WhatsAppBusinessConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  @@unique([connectionId, contactId])
+  @@index([tenantId, contactId])
+  @@map("whatsapp_conversations")
+}
+
 /// מספר שכתב לסוכן ואינו מזוהה כמשתמש — מתעניין, לא לקוח.
 ///
 /// **אינו נתון דייר ולכן אין כאן tenant_id**: מי שכותב עדיין אינו
@@ -2072,42 +2715,42 @@ model Coupon {
 }
 
 model Plan {
-  code               String    @id @db.VarChar(20)
-  name               String    @db.VarChar(60)
-  description        String    @default("") @db.VarChar(500)
-  monthlyPriceAgorot Int       @default(0) @map("monthly_price_agorot")
+  code                      String    @id @db.VarChar(20)
+  name                      String    @db.VarChar(60)
+  description               String    @default("") @db.VarChar(500)
+  monthlyPriceAgorot        Int       @default(0) @map("monthly_price_agorot")
   /// null = נמכר חודשי בלבד
-  yearlyPriceAgorot  Int?      @map("yearly_price_agorot")
+  yearlyPriceAgorot         Int?      @map("yearly_price_agorot")
   /// null = ללא הגבלה — ערך תקין ומכוון, לא "לא הוגדר"
-  maxUsers           Int?      @map("max_users")
-  maxProperties      Int?      @map("max_properties")
+  maxUsers                  Int?      @map("max_users")
+  maxProperties             Int?      @map("max_properties")
   /// מכסות פרסום ברשת השיתופים — נפרדות ממכסת השמירה במאגר.
   /// null = ללא הגבלה, וזה מה שכל המסלולים בתשלום מקבלים; המסלול
   /// החינמי מוגבל כאן ולא ב-`maxProperties`.
   /// מכסת האוטומציות — כללים שנבנו + משימות קבועות. null = ללא הגבלה.
-  maxAutomations     Int?      @map("max_automations")
+  maxAutomations            Int?      @map("max_automations")
   /// מחיר חודשי לכל סוכן וואטסאפ נוסף, באגורות. null = לא נמכר
   /// במסלול הזה, והמסך אומר „פנו אלינו” במקום להציג כפתור קנייה.
-  whatsappSeatMonthlyAgorot Int? @map("whatsapp_seat_monthly_agorot")
-  maxNetworkListings Int?      @map("max_network_listings")
-  maxNetworkDemands  Int?      @map("max_network_demands")
-  features           String[]  @default([])
-  trialDays          Int       @default(14) @map("trial_days")
+  whatsappSeatMonthlyAgorot Int?      @map("whatsapp_seat_monthly_agorot")
+  maxNetworkListings        Int?      @map("max_network_listings")
+  maxNetworkDemands         Int?      @map("max_network_demands")
+  features                  String[]  @default([])
+  trialDays                 Int       @default(14) @map("trial_days")
   /// המחיר נסגר בשיחה ואינו מוצג כמספר.
   ///
   /// זה מה שמבדיל בין "חינם" ל"בהתאמה" — שני המצבים נראים זהה
   /// ב-`monthly_price_agorot = 0`, ובלי הדגל מסלול חינמי הוצג
   /// כ"בהתאמה", כלומר הבטיח ללקוח את ההפך ממה שהוא.
-  priceOnRequest     Boolean   @default(false) @map("price_on_request")
-  isPublic           Boolean   @default(true) @map("is_public")
-  sortOrder          Int       @default(0) @map("sort_order")
+  priceOnRequest            Boolean   @default(false) @map("price_on_request")
+  isPublic                  Boolean   @default(true) @map("is_public")
+  sortOrder                 Int       @default(0) @map("sort_order")
   /// מסלול שנמחק. **דגל ולא מחיקת שורה**: קטלוג המסלולים ממזג
   /// ברירות מחדל מובנות עם השורות שנשמרו, ולכן מחיקת שורה של מסלול
   /// מובנה הייתה מחזירה אותו לחיים בהגדרות המקוריות שלו. שורה
   /// פרושה מוסתרת מהקטלוג; יצירה מחדש של אותו קוד מחזירה אותה.
-  retiredAt          DateTime? @map("retired_at")
-  updatedAt          DateTime  @default(now()) @updatedAt @map("updated_at")
-  updatedBy          String?   @map("updated_by") @db.Char(26)
+  retiredAt                 DateTime? @map("retired_at")
+  updatedAt                 DateTime  @default(now()) @updatedAt @map("updated_at")
+  updatedBy                 String?   @map("updated_by") @db.Char(26)
 
   @@index([sortOrder])
   @@map("plans")
@@ -2249,6 +2892,13 @@ model WhatsappSeat {
   monthlyAgorot    Int       @map("monthly_agorot")
   /// pending | active | past_due | cancelled | released
   status           String    @default("pending") @db.VarChar(20)
+  /// ‎`purchased` = המשרד קנה ומחויב מדי חודש. `granted` = בעל
+  /// הפלטפורמה העניק — **לא מחויב לעולם**, גם כשיש לו תאריך סיום.
+  ///
+  /// ההבחנה נדרשת דווקא בגלל התאריך: מקום ניסיון חייב `currentPeriodEnd`
+  /// כדי שמשהו יסגור אותו, וסורק החידושים אוסף כל שורה שהתאריך שלה
+  /// עבר. בלי השדה הזה הוא היה מנסה לחייב כרטיס על מקום שניתן בחינם.
+  origin           String    @default("purchased") @db.VarChar(10)
   /// יום החיוב בחודש — אותו עוגן ומאותה סיבה כמו במנוי: בלעדיו
   /// מקום שנרכש ב-31 בחודש היה מתקצר לצמיתות אחרי פברואר.
   billingAnchorDay Int?      @map("billing_anchor_day") @db.SmallInt
@@ -2265,6 +2915,9 @@ model WhatsappSeat {
   @@index([tenantId, status])
   /// סורק החידושים והשחרורים עובר על הצירוף הזה
   @@index([status, currentPeriodEnd])
+  /// והשחרור של מה שהוענק עובר על זה — מקומות שהוענקו הם מיעוט,
+  /// וסריקה לפי תאריך בלבד הייתה קוראת גם את כל מה שנקנה
+  @@index([origin, currentPeriodEnd])
   @@map("whatsapp_seats")
 }
 
@@ -2282,6 +2935,11 @@ model RentedNumber {
   monthlyAgorot       Int       @map("monthly_agorot")
   /// pending | active | past_due | cancelled | released
   status              String    @default("pending") @db.VarChar(20)
+  /// ‎`purchased` = נשכר מהמלאי של 015 דרך דף תשלום. `platform` = חיוב
+  /// שמנהל הפלטפורמה פתח על מספר שכבר בידי המשרד (למשל ממרכזייה
+  /// משלו): מחויב מדי חודש כמו השכרה, אבל אין תפיסה ואין שחרור
+  /// אצל 015, ושחרור השורה מפסיק חיוב בלבד — הניתוב נשאר.
+  origin              String    @default("purchased") @db.VarChar(10)
   /// יום החיוב בחודש — אותו עוגן ומאותה סיבה כמו במנוי: בלעדיו
   /// השכרה מ-31 בחודש הייתה מתקצרת לצמיתות אחרי פברואר.
   billingAnchorDay    Int?      @map("billing_anchor_day") @db.SmallInt
@@ -2378,9 +3036,19 @@ model LeadSourcePrice {
 /// **בלי `tenantId` ובלי RLS במכוון.** פנייה שנדחתה היא בדיוק זו
 /// שלא הצלחנו לשייך למשרד, וטבלה תחת RLS הייתה מסתירה בדיוק את
 /// השורות שבגללן היא נבנתה. הצפייה שמורה לבעל הפלטפורמה.
-model TelephonyWebhookHit {
+model WebhookHit {
   id         String   @id @db.Char(26)
   receivedAt DateTime @default(now()) @map("received_at")
+  /// ‏מאיזה נתיב הגיעה הפנייה — `telephony` | `lead`.
+  ///
+  /// ‏היומן נבנה למרכזייה, אבל השאלה שהוא עונה עליה — „הגיעה
+  /// ‏פנייה ונדחתה, או שלא הגיעה כלל?” — זהה בדיוק בוובהוק
+  /// ‏הלידים, ושם היא הייתה בלי תשובה: מפתח לא מוכר החזיר 404
+  /// ‏ולא הותיר עקבה.
+  ///
+  /// ‏מקור שני עם טבלה, מסך, סינון וריקון משלו היה מכפיל את הכול
+  /// ‏כדי לענות על אותה שאלה. עמודה אחת, ומסנן.
+  source     String   @default("telephony") @db.VarChar(12)
   /// accepted | unparsed | unknown_key | disabled | no_feature
   ///
   /// `accepted` = הפנייה הגיעה **והפכה לאירוע שיחה**.
@@ -2412,9 +3080,48 @@ model TelephonyWebhookHit {
   /// איפה יושב מידע שאנחנו מפספסים — והמסך מדגיש אותה. מיזוגה
   /// לרשימה הכללית היה מטשטש בדיוק את מה שצריך לקפוץ לעין.
   unmapped   String?  @map("unmapped_fields") @db.VarChar(500)
+  /// ‏מזהה השיחה אצל הספק — מה שמחבר שורת יומן לשיחה שהיא יצרה.
+  ///
+  /// ‏בלעדיו „נקלטה” אמר שהאירוע הפך לשיחה ולא **לאיזו**, ואי אפשר
+  /// ‏היה ללכת משורה לשיחה ולא מהשיחה חזרה לאירוע שהוליד אותה.
+  /// ‏זהו גם מה שמאחד את שלושת האירועים של אותה שיחה (Calling ⟵
+  /// ‏Answer ⟵ Hangup) לסיפור אחד. `null` כשהאירוע לא נותח.
+  callId     String?  @map("call_id") @db.VarChar(120)
+  /// ‏סוג האירוע שהגיע — `ringing | answered | hangup`.
+  ///
+  /// ‏ההערה על `outcome` מתארת תקלה אמיתית: „מרכזייה ששולחת
+  /// ‏Calling ומאבדת את ה-Hangup”. בלי העמודה הזו דווקא את
+  /// ‏האבחנה הזו אי אפשר היה לעשות מהיומן.
+  action     String?  @db.VarChar(20)
+  /// ‏כיוון השיחה — `inbound | outbound`. `null` כשהאירוע לא נותח.
+  direction  String?  @db.VarChar(10)
+  /// ‏חתימת מספר המתקשר — **חתימה, לא מספר**.
+  ///
+  /// ‏„לקוח התקשר ואין רישום” היא השאלה שבשבילה היומן קיים, והנתון
+  /// ‏היחיד שיש למי ששואל אותה הוא מספר הטלפון. שמירת המספר עצמה
+  /// ‏הייתה הופכת יומן פלטפורמה שנקרא בעיניים למאגר מספרים של כל
+  /// ‏המשרדים בטקסט גלוי — בדיוק מה שההצפנה בכל שאר המערכת מונעת.
+  ///
+  /// ‏אותה חתימת HMAC של `contacts.phone_hash`, ולכן חיפוש מדויק
+  /// ‏עובד בלי שהמספר יישמר. `null` כשהאירוע לא נותח.
+  peerHash   String?  @map("peer_hash") @db.Char(64)
+  /// ‏ארבע הספרות האחרונות של המתקשר — לקריאה בעיניים בלבד.
+  ///
+  /// ‏חתימה לבדה עונה רק למי שכבר יודע איזה מספר הוא מחפש. הסיומת
+  /// ‏היא מה שמאפשר לראות ברשימה לא מסוננת ששתי שורות הן אותו
+  /// ‏מתקשר, בלי לשמור את המספר.
+  peerSuffix String?  @map("peer_suffix") @db.VarChar(4)
 
   @@index([receivedAt])
-  @@map("telephony_webhook_hits")
+  /// ‏„הוובהוקים של המשרד הזה” — השאלה הראשונה שנשאלת
+  @@index([tenantId, receivedAt(sort: Desc)])
+  /// ‏„כל האירועים של השיחה הזו” — שלוש שורות, סיפור אחד
+  @@index([callId])
+  /// ‏„מה קרה כשהמספר הזה התקשר” — החיפוש שאין לו תחליף
+  @@index([peerHash])
+  /// ‏„הפניות של המרכזייה” ו„של הלידים” הן שתי שאלות נפרדות
+  @@index([source, receivedAt(sort: Desc)])
+  @@map("webhook_hits")
 }
 
 model PlatformSetting {
@@ -2703,11 +3410,23 @@ model Call {
    * pending | running | done | failed | unavailable
    */
   transcriptionStatus        String?   @map("transcription_status") @db.VarChar(20)
+  /// ‏הסוכן שהשיחה **הגיעה אליו** — צילום ברגע השיחה, לא הפניה חיה.
+  ///
+  /// ‏נקבע בסדר הזה: השלוחה שענתה בפועל (מותאמת ל-`sip_username`)
+  /// ‏קודמת לניתוב שנצפה כשהשיחה הגיעה — שיחה שנותבה לאחד וענה
+  /// ‏עליה אחר **הגיעה** לשני.
+  ///
+  /// ‏NULL = לא ידוע. שורות שנכתבו לפני העמודה נשארות כך בכוונה.
+  agentUserId                String?   @map("agent_user_id") @db.Char(26)
+  /// ‏השלוחה שהמרכזייה דיווחה עליה — נשמרת גם בלי סוכן מוכר,
+  /// ‏כי „שלוחה 203” היא תשובה שימושית בהרבה מכלום.
+  agentExtension             String?   @map("agent_extension") @db.VarChar(20)
   createdBy                  String?   @map("created_by") @db.Char(26)
   createdAt                  DateTime  @default(now()) @map("created_at")
   updatedAt                  DateTime  @updatedAt @map("updated_at")
 
   @@index([tenantId, occurredAt(sort: Desc)])
+  @@index([tenantId, agentUserId, occurredAt(sort: Desc)], map: "calls_agent_idx")
   @@index([tenantId, propertyId, occurredAt(sort: Desc)])
   @@index([tenantId, contactId])
   @@index([tenantId, leadId])
@@ -2839,7 +3558,6 @@ model SupportTicket {
   userEmail     String    @map("user_email") @db.VarChar(254)
   /**
    * הטלפון של מי שפנה — נלקח מהפרופיל ברגע הפתיחה.
-   *
    * תקלה חוסמת נסגרת בשיחה, לא בשרשור מיילים. בלי המספר על הפנייה
    * התמיכה נאלצה לחפש את המשתמש בנפרד, וזה בדיוק החיכוך שגורם
    * להסתפק במייל. ריק = לא היה טלפון בפרופיל.
@@ -2878,39 +3596,39 @@ model SupportTicket {
 
 /**
  * הודעה בתוך פנייה מהכפתור — **השיחה, ולא „התשובה האחרונה”.**
- *
  * ‎`SupportTicket.reply` הוא עמודה בודדת: תשובה שנייה דרסה את
  * הראשונה. הוא נשאר לתאימות ומוזן מההודעה האחרונה, אבל מה שמוצג
  * ומה שנשלח נגזר מכאן.
- *
  * ‎`sendState` הוא מה שהיה חסר בכלל: בלי שורה שאפשר לסמן עליה
  * ‏„נשלח” או „נכשל”, שליחה שנדחתה נעטפה ב-catch ונרשמה כאזהרה —
  * והמסך הציג „נענה” על מייל שלא יצא.
  */
 model SupportTicketMessage {
-  id        String   @id @db.Char(26)
-  ticketId  String   @map("ticket_id") @db.Char(26)
+  id                String   @id @db.Char(26)
+  ticketId          String   @map("ticket_id") @db.Char(26)
   /// נשמר על ההודעה ולא נגזר מהפנייה: פוליסת RLS אינה יכולה להצטרף לטבלה אחרת.
-  tenantId  String   @map("tenant_id") @db.Char(26)
+  tenantId          String   @map("tenant_id") @db.Char(26)
   /// in = מה שהמשרד כתב, out = מה שהתמיכה השיבה
-  direction String   @db.VarChar(3)
-  body      String   @db.VarChar(20000)
+  direction         String   @db.VarChar(3)
+  body              String   @db.VarChar(20000)
   /// pending | sent | failed | unknown. null = הודעה נכנסת, אין מה לשלוח.
-  sendState String?  @map("send_state") @db.VarChar(10)
+  sendState         String?  @map("send_state") @db.VarChar(10)
   /// דה-דופליקציה מול Webhook שנשלח פעמיים — כמו ב-`SupportMessage`.
   /// בלעדיה מסירה חוזרת של תשובת לקוח כפלה את ההודעה על הפנייה.
-  providerMessageId String? @unique @map("provider_message_id") @db.VarChar(200)
-  createdBy String?  @map("created_by") @db.Char(26)
-  createdAt DateTime @default(now()) @map("created_at")
+  providerMessageId String?  @unique @map("provider_message_id") @db.VarChar(200)
+  createdBy         String?  @map("created_by") @db.Char(26)
+  createdAt         DateTime @default(now()) @map("created_at")
 
-  ticket      SupportTicket              @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  ticket      SupportTicket             @relation(fields: [ticketId], references: [id], onDelete: Cascade)
   attachments SupportTicketAttachment[]
 
   @@index([ticketId, createdAt])
   @@map("support_ticket_messages")
 }
 
-/** צירוף על תשובת התמיכה — אותה מכניקה של `SupportAttachment`. */
+/**
+ * צירוף על תשובת התמיכה — אותה מכניקה של `SupportAttachment`.
+ */
 model SupportTicketAttachment {
   id          String    @id @db.Char(26)
   messageId   String    @map("message_id") @db.Char(26)
@@ -2979,8 +3697,7 @@ model AutomationRun {
   @@map("automation_runs")
 }
 
-/// ============================================================
-/// הפורום המקצועי (docs/14) — **מחוץ ל-RLS ובלי `tenantId` בכוונה.**
+/// הפורום המקצועי (docs/16) — **מחוץ ל-RLS ובלי `tenantId` בכוונה.**
 ///
 /// קהילה בין משרדים: אין כאן נתון של דייר. שרשור אנונימי אינו נושא
 /// מזהה מחבר כלל — רק `authorKey` (HMAC). ההנמקה המלאה בכותרת
@@ -3152,4 +3869,181 @@ model ForumMailState {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("forum_mail_state")
+}
+
+/// **הגדרות השלבים — טבלה של הפלטפורמה, לא של דייר.**
+///
+/// זו הדרישה שמכתיבה את הארכיטקטורה: השלבים והנוסחים נערכים במסך
+/// ולא קבועים בקוד. אילו היו בקוד, "תעשה את זה ניתן לעריכה" אחר כך
+/// היה כתיבה מחדש — ולכן זה נכנס בשלב הראשון ולא אחריו.
+///
+/// אין `tenantId` ולכן אין RLS, בדיוק כמו `PlatformSetting`.
+model FunnelStage {
+  id String @id @db.Char(26)
+
+  /// conversion | dunning — ראו `FUNNEL_TRACKS` ב-shared
+  track String @db.VarChar(20)
+
+  /// **מזהה יציב, ולא כותרת.**
+  ///
+  /// הוא מה שנרשם ב-`FunnelMessage.stageKey`, ולכן שינוי שלו מוחק
+  /// את הזיכרון של "מה כבר נשלח" והשלב יוצא שוב לכל מי שכבר קיבל.
+  /// הכותרת היא `title`, והיא זו שניתנת לעריכה חופשית.
+  key   String @db.VarChar(60)
+  title String @db.VarChar(120)
+
+  /// funnel | trial | payment. **התכונה שמונעת הודעות שקריות** —
+  /// ראו התיעוד ב-`logic/funnel.ts`.
+  clock String @db.VarChar(20)
+
+  /// שלילי = לפני העוגן.
+  offsetDays Int @map("offset_days")
+
+  /// כל התנאים חייבים להתקיים; ריק = כולם.
+  audience String[] @default([])
+  channels String[] @default([])
+
+  /// נזרע כבוי. נדלק אחרי שהנוסח אושר.
+  enabled Boolean @default(false)
+
+  emailSubject     String? @map("email_subject") @db.VarChar(200)
+  emailHeading     String? @map("email_heading") @db.VarChar(200)
+  /// פסקאות מופרדות בשורה ריקה — אותו מבנה של `EmailContent`.
+  emailBody        String? @map("email_body")
+  /// שם התבנית ב-WhatsApp Manager. null = טרם אושרה אצל Meta.
+  whatsappTemplate String? @map("whatsapp_template") @db.VarChar(120)
+  whatsappLanguage String  @default("he") @map("whatsapp_language") @db.VarChar(10)
+  /// ‏מה כתוב על הכפתור, ולאן הוא מוביל — נערכים בנפרד, כי תיקון
+  /// ‏נוסח אינו אמור לגעת בנתיב.
+  ///
+  /// ‏הנתיב **יחסי**: המקור נקבע מ-`WEB_ORIGIN`, וכתובת מלאה שנשמרת
+  /// ‏בשורה הייתה נשברת בכל העברה בין סביבות.
+  ctaLabel         String?  @map("cta_label") @db.VarChar(60)
+  ctaPath          String?  @map("cta_path") @db.VarChar(200)
+
+  sortOrder Int      @default(0) @map("sort_order")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([track, key])
+  @@index([track, sortOrder])
+  @@map("funnel_stages")
+}
+
+/// **מי במסלול — ומאיזה יום 0.**
+///
+/// `startedAt` הוא השדה שמממש את ההחלטה "כל משרד לאט לאט מהיום
+/// שהתחיל המשפך": הוא של המשרד, לא של המערכת, ולא נגזר מתאריך
+/// ההרשמה שלו.
+model FunnelEnrollment {
+  id       String @id @db.Char(26)
+  tenantId String @map("tenant_id") @db.Char(26)
+  track    String @db.VarChar(20)
+
+  startedAt   DateTime  @map("started_at")
+  endedAt     DateTime? @map("ended_at")
+  /// paid | completed | opted_out | resolved — ראו `FUNNEL_EXIT_REASONS`
+  endedReason String?   @map("ended_reason") @db.VarChar(20)
+
+  /// אכיפת המרווח המזערי בין הודעות, בלי לסרוק את היומן בכל סבב.
+  lastSentAt DateTime? @map("last_sent_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  messages FunnelMessage[]
+  /// היחס קיים כדי שאפשר יהיה לשאול "משרד בלי רישום" **בשאילתה**
+  /// ולא בסינון אחרי שליפה — ראו `FunnelEnrollmentService.enrollDue`.
+  tenant   Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  /// **רישום חי אחד לכל מסלול — ולא אחד לתמיד.**
+  ///
+  /// גבייה שנכשלת יכולה לקרות שוב בעוד חצי שנה, ואז זה מסלול חדש
+  /// עם יום 0 חדש. האינדקס החלקי (`WHERE ended_at IS NULL`) יושב
+  /// במיגרציה; Prisma אינו יודע לבטא אותו.
+  @@index([tenantId, track])
+  @@index([track, startedAt])
+  /// **המשרד של הרישום, כמפתח שאפשר להצביע עליו.**
+  ///
+  /// `id` ייחודי ממילא, ולכן זה אינו מגביל דבר. תפקידו היחיד הוא
+  /// לאפשר ל-`FunnelMessage` להצביע על **הצמד** — ראו שם.
+  @@unique([id, tenantId])
+  @@map("funnel_enrollments")
+}
+
+/// **מה נשלח — שורה לכל נמען ולכל ערוץ.**
+///
+/// לא שורה לכל הודעה: למשרד יש שני בעלים, אחד פתח והשני לא, ושורה
+/// אחת לשניהם הייתה מוחקת בדיוק את מה שהמסך אמור להראות.
+model FunnelMessage {
+  id           String @id @db.Char(26)
+  tenantId     String @map("tenant_id") @db.Char(26)
+  enrollmentId String @map("enrollment_id") @db.Char(26)
+  track        String @db.VarChar(20)
+  stageKey     String @map("stage_key") @db.VarChar(60)
+
+  /// **בלי מפתח זר אל `User`, בכוונה** — אותו נימוק של
+  /// `SupportTicket.userId`: מי שהוסר מהמשרד עדיין קיבל את ההודעה,
+  /// והיומן צריך להמשיך לומר את זה.
+  userId String @map("user_id") @db.Char(26)
+
+  /// הכתובת או המספר כפי שהיו ברגע השליחה. משתמש שהחליף מייל אינו
+  /// משנה למפרע לאן ההודעה ההיא הלכה.
+  destination String @db.VarChar(254)
+
+  /// email | whatsapp
+  channel String @db.VarChar(20)
+  /// queued | sent | failed
+  status  String @default("queued") @db.VarChar(20)
+
+  /// **אקראי ולא נגזר מהמזהים.** כתובת מעקב שאפשר לנחש היא כתובת
+  /// שאפשר לזייף בה "נפתח", ואז המדידה מודדת את מי שניחש.
+  token String @db.VarChar(64)
+
+  providerMessageId String? @map("provider_message_id") @db.VarChar(200)
+
+  sentAt      DateTime? @map("sent_at")
+  /// אמיתי בוואטסאפ בלבד; במייל נשאר ריק.
+  deliveredAt DateTime? @map("delivered_at")
+  readAt      DateTime? @map("read_at")
+  /// **הערכה בלבד** — פיקסל שנטען. Apple ו-Gmail טוענים אותו גם
+  /// כשאיש לא פתח, ולכן המסך מסמן אותו ככזה.
+  openedAt    DateTime? @map("opened_at")
+  /// המדד האמיתי.
+  clickedAt   DateTime? @map("clicked_at")
+
+  error String? @db.VarChar(300)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  /// **הקשר הוא לצמד `(enrollmentId, tenantId)`, ולא ל-`id` לבדו.**
+  ///
+  /// שני מפתחות זרים נפרדים מקבלים כל צירוף ביניהם: הודעה עם הרישום
+  /// של משרד א׳ ועם `tenantId` של משרד ב׳ עוברת את שניהם. פוליסת
+  /// ה-RLS מסננת לפי `tenantId` בלבד, ולכן משרד ב׳ היה קורא נמען,
+  /// יעד ונתוני מסירה של משרד א׳ (ביקורת Codex, P1). האכיפה במסד
+  /// ולא בקוד, כי „הקוד תמיד כותב את שניהם נכון” הוא ההנחה שנשברת
+  /// בכתיבה השנייה.
+  enrollment FunnelEnrollment @relation(fields: [enrollmentId, tenantId], references: [id, tenantId], onDelete: Cascade, map: "funnel_messages_enrollment_id_fkey")
+
+  /// **גם המפתח הישיר אל המשרד — מוצהר, ולא רק במיגרציה.**
+  ///
+  /// המיגרציה יוצרת `funnel_messages_tenant_id_fkey`, והמודל הכיר רק
+  /// בקשר המורכב. `prisma migrate diff` היה רואה מפתח שאין לו מקור
+  /// בסכימה, ומיגרציה עתידית שנוצרת אוטומטית הייתה **מוחקת** אותו
+  /// (ביקורת Codex). שקט כזה מסוכן במיוחד כאן: מחיקת משרד נשענת עליו,
+  /// ושער כיסוי המחיקה גוזר מהמיגרציות מי נופל ב-CASCADE.
+  ///
+  /// עודף מבחינת מחיקה בלבד — הרישום ממילא מפיל את ההודעות — ולכן
+  /// ההכרעה היא להצהיר ולא להסיר: `cascadingFromTenants` קורא את
+  /// המפתח הזה, והסרתו הייתה דורשת `deleteMany` שאינו עושה דבר.
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  /// "פעם אחת" נאכף כאן ולא בקוד — הלקח של ההמרה בנכסים לגיוס.
+  @@unique([enrollmentId, stageKey, userId, channel])
+  @@unique([token])
+  @@index([tenantId, createdAt(sort: Desc)])
+  @@index([track, createdAt(sort: Desc)])
+  @@map("funnel_messages")
 }

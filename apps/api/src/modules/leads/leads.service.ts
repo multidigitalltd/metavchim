@@ -1,8 +1,30 @@
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from "@nestjs/common";
 import { ulid } from "ulid";
-import { OPEN_LEAD_STATUSES, leadDeletionRejectionReason, type Page } from "@metavchim/shared";
+import {
+  OPEN_LEAD_STATUSES,
+  leadDeletionRejectionReason,
+  leadSourceText,
+  type Page,
+} from "@metavchim/shared";
 import { lockContact, lockLead } from "../../common/locks";
-import { assertLeadAccess, ownershipFilter } from "../../common/ownership";
+import {
+  assertLeadAccess,
+  leadIsVisible,
+  leadOwnershipFilter,
+  type PhoneTypedBy,
+} from "../../common/ownership";
+import {
+  agentHandover,
+  agentNameOf,
+  agentNames,
+  assertAgentInOffice,
+  assertCanHandOverLead,
+} from "../../common/agent-names";
 import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
 import { OutboxService } from "../../core/outbox.service";
@@ -17,13 +39,32 @@ export interface LeadDto {
    * השולח, וזו הדרך הטבעית להשיב לו. ליד משיחה נכנסת לא תמיד יודע
    * אותה, ולכן השדה אינו חובה.
    */
-  contact: { id: string; name: string; phone: string; email?: string };
+  contact: {
+    id: string;
+    name: string;
+    phone: string;
+    email?: string;
+    /** ‏רישום בטאבו משותף (מושאע) — עובדה משפטית, לא העדפה. */
+    sharedTabu: boolean;
+  };
   source: string;
+  /** ‏הטקסט שנכתב תחת „אחר”. חסר בכל מקור אחר. */
+  sourceNote?: string;
   intent: string;
   status: string;
   requiresHuman: boolean;
   requiresHumanReason?: string;
   summary?: string;
+  /**
+   * ‎**הסוכן המטפל — היה במסד מהיום הראשון ולא הוצג בשום מסך.**
+   *
+   * ‎`assignedToUserId` קיים ומסנן ראייה כבר עכשיו; מה שחסר היה
+   * התשובה לשאלה שמנהל שואל ראשונה על ליד — „של מי זה?”. חסר =
+   * הליד בערימה המשותפת ואינו של אף אחד, וזה מצב אמיתי שהמסך אומר
+   * במפורש ולא מסתיר מאחורי שם מנוחש.
+   */
+  assignedToUserId?: string;
+  agentName?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -64,10 +105,22 @@ export class LeadsService {
     /** נשמר על כרטיס איש הקשר — פנייה מיובאת מביאה איתה את הכתובת */
     contactEmail?: string;
     source: string;
+    /** הטקסט של „אחר” — ראו `sourceNote` ב-`LeadDto` */
+    sourceNote?: string;
     intent: string;
     summary?: string;
     requiresHuman?: boolean;
     requiresHumanReason?: string;
+    /**
+     * ‎**מי הקליד את המספר** (ביקורת Codex, P1).
+     *
+     * ‏קליטת ליד מצרפת כרטיס לקוח לליד שהסוכן מקבל עליו בעלות,
+     * ‏והצירוף עצמו הוא שפותח את `canSeeContact` — כלומר מספר של
+     * ‏בעל נכס מוסתר, שהוקלד במסך, החזיר את פרטיו מפוענחים.
+     * ‏הטופס הציבורי והמסלולים המערכתיים מקבלים את המספר מבעליו
+     * ‏ולכן מצהירים `office`; כל מסך של סוכן מצהיר `agent`.
+     */
+    typedBy: PhoneTypedBy;
   }): Promise<{ id: string; merged: boolean; visible: boolean }> {
     const ctx = TenantContext.current();
     const id = ulid();
@@ -78,10 +131,11 @@ export class LeadsService {
     let mergedVisible = true;
 
     await this.prisma.withTenant(async (tx) => {
-      const contact = await this.contacts.findOrCreateByPhone(tx, {
-        name: input.contactName,
-        phone: input.contactPhone,
-      });
+      const contact = await this.contacts.findOrCreateByPhoneTyped(
+        tx,
+        { name: input.contactName, phone: input.contactPhone },
+        { typedBy: input.typedBy, subject: "קליטת ליד" },
+      );
       /*
        * השלמה, לא דריסה: כתובת שכבר על הכרטיס הוקלדה או נקלטה
        * ממקור חי, וקובץ ישן שמיובא אחריה לא אמור למחוק אותה.
@@ -101,7 +155,13 @@ export class LeadsService {
       });
       if (open) {
         mergedInto = open.id;
-        mergedVisible = ctx.capabilities.has("leads.view_all") || open.assignedToUserId === ctx.userId;
+        /*
+         * ‎`leadIsVisible` ולא חישוב מקומי: זה היה העתק ידני של הכלל,
+         * והוא לא ידע על הערימה המשותפת. ליד לא-משויך שהמערכת דווקא
+         * פתחה לסוכן היה מסומן „של מישהו אחר”, והמסך היה מסרב לנווט
+         * אליו — כלומר ליד נגיש שאי אפשר להגיע אליו (ביקורת Codex).
+         */
+        mergedVisible = leadIsVisible(open.assignedToUserId);
         await tx.interaction.create({
           data: {
             id: ulid(),
@@ -153,6 +213,8 @@ export class LeadsService {
           tenantId: ctx.tenantId,
           contactId: contact.id,
           source: input.source,
+          /* ההערה שייכת ל„אחר” בלבד — ראו `updateSource` */
+          sourceNote: input.source === "other" ? (input.sourceNote?.trim() ?? null) || null : null,
           intent: input.intent,
           status: "new",
           assignedToUserId: ctx.userId,
@@ -207,6 +269,87 @@ export class LeadsService {
     });
 
     return { id: mergedInto ?? id, merged: mergedInto !== null, visible: mergedVisible };
+  }
+
+  /**
+   * ‎**מסירת ליד לסוכן אחר במשרד.**
+   *
+   * ## ‏למה זו אינה `assertCanAssignAgents`
+   *
+   * ‏העברת כרטיס בין סוכנים היא פעולת מנהל בכל המערכת — משימה,
+   * ‏קונה, נכס. **ליד הוא היוצא מן הכלל** (הכרעת בעלת המוצר: „בין
+   * ‏סוכנים ניתן להעביר לידים בלבד”), ומה שמחזיק את הגבול הוא
+   * ‎`assertCanHandOverLead`: בלי הרשאת מנהל אפשר למסור **רק ליד
+   * ‏שכבר משויך אליך**. לוותר על מה שבידיך — כן; למשוך אליך את
+   * ‏הליד של עמית — לא.
+   *
+   * ## ‏שלוש בדיקות, ולא אחת
+   *
+   * 1. ‎`assertLeadAccess` — הליד בכלל נראה לי. בלעדיה „אפשר למסור
+   *    ‏רק ליד שלך” היה **מגלה** למי משויך ליד שאיני רואה.
+   * 2. ‎`assertCanHandOverLead` — מותר לי למסור אותו.
+   * 3. ‎`assertAgentInOffice` **בתוך הטרנזקציה הכותבת** — היעד הוא
+   *    ‏סוכן פעיל של אותו משרד. בדיקה מוקדמת בלבד היא חלון שבו
+   *    ‏הסוכן הוסר בין הבדיקה לכתיבה, וכתיבה של מזהה זר בתוך
+   *    ‏הדייר שלנו היא בדיוק מה שהבידוד קיים כדי למנוע.
+   *
+   * ‎`agentHandover` הוא אותו רישום של כל העברה אחרת — „כבר אצלו”
+   * ‏אינו שינוי, ואינו נרשם כאחד.
+   */
+  async handOver(
+    id: string,
+    agentUserId: string,
+  ): Promise<{ moved: boolean; agentName: string }> {
+    const ctx = TenantContext.current();
+    return this.prisma.withTenant(async (tx) => {
+      await assertLeadAccess(tx, ctx.tenantId, id);
+      const lead = await tx.lead.findFirst({
+        where: { id, tenantId: ctx.tenantId, ...leadOwnershipFilter() },
+        select: { assignedToUserId: true },
+      });
+      if (!lead) throw new NotFoundException("ליד לא נמצא");
+      assertCanHandOverLead(lead.assignedToUserId);
+      /* ‏השם מגיע מאותה שליפה שמאמתת — ולא משאילתה שנייה לאותו אדם */
+      const agentName = await assertAgentInOffice(tx, ctx.tenantId, agentUserId);
+
+      const handover = agentHandover(lead.assignedToUserId, agentUserId);
+      if (handover === null) return { moved: false, agentName };
+
+      /*
+       * ‎**הכתיבה מותנית בבעלים שעליו ניתנה הרשות** (ביקורת Codex).
+       *
+       * ‏כאן, בשונה מכל העברה אחרת במערכת, **ההרשאה עצמה נגזרת
+       * ‏מהבעלים**: „מותר לי למסור כי הליד שלי”. כלומר קריאה ישנה
+       * ‏אינה רק מירוץ על ערך — היא הרשאה שניתנה על מצב שכבר אינו
+       * ‏קיים. סוכן קרא „הליד שלי”, מנהל העביר אותו בינתיים, וכתיבה
+       * ‏בלתי מותנית הייתה דורסת את הבעלים החדש בסמכות שפקעה.
+       *
+       * ‎**השוואה-והחלפה ולא נעילה.** נעילה מייעצת מגנה רק מפני מי
+       * ‏שלוקח אותה, ו-`CallsService.moveLead` אינו לוקח; תנאי על
+       * ‏העמודה נאכף במסד מול **כל** כותב, מי שלקח ומי שלא.
+       *
+       * ‏וזה גם מה ששומר על יומן הביקורת: `metadata.from` נכתב רק
+       * ‏אם הערך הזה עדיין היה שם ברגע הכתיבה.
+       */
+      const updated = await tx.lead.updateMany({
+        where: { id, tenantId: ctx.tenantId, assignedToUserId: lead.assignedToUserId },
+        data: { assignedToUserId: agentUserId },
+      });
+      /*
+       * ‏„הליד זז בינתיים” אינו כישלון שקט ואינו הצלחה: המוסר צריך
+       * ‏לדעת שהמסירה שלו **לא** קרתה, ולמה.
+       */
+      if (updated.count === 0) {
+        throw new ConflictException("הליד שויך לסוכן אחר בינתיים — רעננו ונסו שוב");
+      }
+      await this.audit.record(tx, {
+        action: "lead.agent_changed",
+        entityType: "lead",
+        entityId: id,
+        metadata: handover,
+      });
+      return { moved: true, agentName };
+    });
   }
 
   async updateStatus(id: string, status: string): Promise<void> {
@@ -270,7 +413,7 @@ export class LeadsService {
    *
    * שינוי לאותו ערך אינו אירוע ואינו נרשם.
    */
-  async updateSource(id: string, source: string): Promise<void> {
+  async updateSource(id: string, source: string, sourceNote?: string): Promise<void> {
     const ctx = TenantContext.current();
     await this.prisma.withTenant(async (tx) => {
       // הרשאה לפני הכתיבה — כמו בשינוי סטטוס
@@ -287,20 +430,40 @@ export class LeadsService {
       await lockLead(tx, ctx.tenantId, id);
       const lead = await tx.lead.findFirst({
         where: { id, tenantId: ctx.tenantId },
-        select: { source: true },
+        select: { source: true, sourceNote: true },
       });
       if (!lead) throw new NotFoundException("ליד לא נמצא");
       const next = source.trim();
-      if (lead.source === next) return;
+      /*
+       * ‎**ההערה שייכת ל„אחר” בלבד.** ‏מי שמחליף „אחר — דוכן ביריד”
+       * ל„עיתון” מתקן את המקור, וההערה הישנה שנשארת מאחור הופכת
+       * לשקר שקט בשורה. לכן מעבר לכל מקור אחר **מנקה** אותה.
+       */
+      const nextNote = next === "other" ? (sourceNote?.trim() ?? null) || null : null;
+      if (lead.source === next && (lead.sourceNote ?? null) === nextNote) return;
 
-      await tx.lead.update({ where: { id }, data: { source: next } });
+      await tx.lead.update({ where: { id }, data: { source: next, sourceNote: nextNote } });
+      /*
+       * ‎**ההיסטוריה שומרת את הטקסט המוצג, ולא את מפתח המקור**
+       * (ביקורת Codex, P2).
+       *
+       * ‏ליד „אחר” שהפירוט שלו תוקן מ„דוכן ביריד” ל„שלט על הרכב”
+       * הוא **שינוי אמיתי** — התנאי מעליו כבר מכיר בו — אבל שורת
+       * ציר-הזמן נכתבה כ„other” ורשומת הביקורת כ„other ⇒ other”.
+       * כלומר בדיוק התיקונים שהשדה החדש בא לאפשר היו נעלמים
+       * מההיסטוריה, ואי אפשר היה להבחין ביניהם.
+       *
+       * ‎`leadSourceText` היא אותה פונקציה שמציגה את המקור בכל
+       * מסך, ולכן השורה נקראת אותו דבר בציר הזמן ובכרטיס. שורות
+       * ישנות נושאות את המפתח („other”), והיא מתרגמת גם אותן.
+       */
       await tx.interaction.create({
         data: {
           id: ulid(),
           tenantId: ctx.tenantId,
           leadId: id,
           kind: "source_change",
-          content: next,
+          content: leadSourceText(next, nextNote),
           createdBy: ctx.userId,
         },
       });
@@ -308,7 +471,13 @@ export class LeadsService {
         action: "lead.source",
         entityType: "lead",
         entityId: id,
-        metadata: { from: lead.source, to: next },
+        metadata: {
+          from: lead.source,
+          to: next,
+          /* ‏ההערה בנפרד מהמקור: ביקורת מחפשת „מה היה” ולא טקסט מורכב */
+          fromNote: lead.sourceNote,
+          toNote: nextNote,
+        },
       });
     });
   }
@@ -513,7 +682,7 @@ export class LeadsService {
     return this.prisma.withTenant(async (tx) => {
       const tenantId = TenantContext.current().tenantId;
       const row = await tx.lead.findFirst({
-        where: { id, tenantId, ...ownershipFilter("leads.view_all", "assignedToUserId") },
+        where: { id, tenantId, ...leadOwnershipFilter() },
       });
       if (!row) throw new NotFoundException("ליד לא נמצא");
       const contact = await this.contacts.getById(tx, row.contactId);
@@ -523,8 +692,9 @@ export class LeadsService {
         orderBy: { createdAt: "desc" },
         take: 100,
       });
+      const agents = await agentNames(tx, tenantId, [row.assignedToUserId]);
       return {
-        lead: toLeadDto(row, contact),
+        lead: toLeadDto(row, contact, agents),
         ...(await this.dialedNumberFor(tx, tenantId, id)),
         timeline: interactions.map((i) => ({
           id: i.id,
@@ -585,7 +755,7 @@ export class LeadsService {
     const tenantId = TenantContext.current().tenantId;
     const where = {
       tenantId,
-      ...ownershipFilter("leads.view_all", "assignedToUserId"),
+      ...leadOwnershipFilter(),
     };
     const rows = await this.prisma.withTenant((tx) =>
       tx.lead.groupBy({ by: ["status"], where, _count: { _all: true } }),
@@ -602,9 +772,16 @@ export class LeadsService {
   async list(query: {
     status?: string;
     /**
-     * רק לידים „חיים” — במסד, לא אחרי העימוד. סינון על העמוד שחזר
-     * היה מחסיר בשקט בדיוק כמו שמתואר ב-`openAwaitingResponse`.
-     * נדחה מפני `status` מפורש.
+     * ‎`true` = רק לידים „חיים”; `false` = רק מה שנסגר או הומר.
+     * חסר = בלי צמצום.
+     *
+     * ‎**במסד, לא אחרי העימוד.** סינון על העמוד שחזר היה מחסיר בשקט
+     * בדיוק כמו שמתואר ב-`openAwaitingResponse`. נדחה מפני `status`
+     * מפורש.
+     *
+     * ‎`false` נוסף בגלל לשוניות מסך הלידים (ביקורת Codex): „טופל”
+     * חייב לשלול את אותה רשימה שממנה „לטיפול” נבנה, אחרת שתי
+     * הלשוניות מסתמכות על שתי הגדרות שיכולות להיפרד.
      */
     open?: boolean;
     requiresHuman?: boolean;
@@ -616,12 +793,14 @@ export class LeadsService {
       const rows = await tx.lead.findMany({
         where: {
           tenantId,
-          ...ownershipFilter("leads.view_all", "assignedToUserId"),
+          ...leadOwnershipFilter(),
           ...(query.status
             ? { status: query.status }
             : query.open === true
               ? { status: { in: [...OPEN_LEAD_STATUSES] } }
-              : {}),
+              : query.open === false
+                ? { status: { notIn: [...OPEN_LEAD_STATUSES] } }
+                : {}),
           ...(query.requiresHuman !== undefined ? { requiresHuman: query.requiresHuman } : {}),
           ...(query.cursor ? { id: { lt: query.cursor } } : {}),
         },
@@ -635,10 +814,16 @@ export class LeadsService {
         tx,
         page.map((row) => row.contactId),
       );
+      /* שם הסוכן — שאילתה אחת לכל העמוד, כמו אנשי הקשר שלצידה */
+      const agents = await agentNames(
+        tx,
+        TenantContext.current().tenantId,
+        page.map((row) => row.assignedToUserId),
+      );
       const items: LeadDto[] = [];
       for (const row of page) {
         const contact = contactsById.get(row.contactId);
-        if (contact) items.push(toLeadDto(row, contact));
+        if (contact) items.push(toLeadDto(row, contact, agents));
       }
       return { items, nextCursor: hasMore ? (page.at(-1)?.id ?? null) : null };
     });
@@ -668,7 +853,7 @@ export class LeadsService {
       const rows = await tx.lead.findMany({
         where: {
           tenantId,
-          ...ownershipFilter("leads.view_all", "assignedToUserId"),
+          ...leadOwnershipFilter(),
           status: { in: ["new", "in_progress"] },
         },
         orderBy: { createdAt: "asc" },
@@ -678,10 +863,15 @@ export class LeadsService {
         tx,
         rows.map((row) => row.contactId),
       );
+      const agents = await agentNames(
+        tx,
+        TenantContext.current().tenantId,
+        rows.map((row) => row.assignedToUserId),
+      );
       const items: LeadDto[] = [];
       for (const row of rows) {
         const contact = contactsById.get(row.contactId);
-        if (contact) items.push(toLeadDto(row, contact));
+        if (contact) items.push(toLeadDto(row, contact, agents));
       }
       return items;
     });
@@ -713,7 +903,7 @@ export class LeadsService {
       const rows = await tx.lead.findMany({
         where: {
           tenantId,
-          ...ownershipFilter("leads.view_all", "assignedToUserId"),
+          ...leadOwnershipFilter(),
           id: { in: [...new Set(ids)] },
           status: { in: [...OPEN_LEAD_STATUSES] },
         },
@@ -722,10 +912,15 @@ export class LeadsService {
         tx,
         rows.map((row) => row.contactId),
       );
+      const agents = await agentNames(
+        tx,
+        TenantContext.current().tenantId,
+        rows.map((row) => row.assignedToUserId),
+      );
       const items: LeadDto[] = [];
       for (const row of rows) {
         const contact = contactsById.get(row.contactId);
-        if (contact) items.push(toLeadDto(row, contact));
+        if (contact) items.push(toLeadDto(row, contact, agents));
       }
       return items;
     });
@@ -741,20 +936,27 @@ function toLeadDto(
     requiresHuman: boolean;
     requiresHumanReason: string | null;
     summary: string | null;
+    assignedToUserId: string | null;
     createdAt: Date;
     updatedAt: Date;
+    sourceNote?: string | null;
   },
-  contact: { id: string; name: string; phone: string; email?: string },
+  contact: { id: string; name: string; phone: string; email?: string; sharedTabu: boolean },
+  agents?: Map<string, string>,
 ): LeadDto {
+  const agentName = agentNameOf(agents ?? new Map(), row.assignedToUserId);
   return {
     id: row.id,
     contact,
     source: row.source,
+    ...(row.sourceNote === null || row.sourceNote === undefined ? {} : { sourceNote: row.sourceNote }),
     intent: row.intent,
     status: row.status,
     requiresHuman: row.requiresHuman,
     requiresHumanReason: row.requiresHumanReason ?? undefined,
     summary: row.summary ?? undefined,
+    ...(row.assignedToUserId === null ? {} : { assignedToUserId: row.assignedToUserId }),
+    ...(agentName === undefined ? {} : { agentName }),
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };

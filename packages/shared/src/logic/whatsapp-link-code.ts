@@ -1,4 +1,5 @@
 import { stripPastedNoise } from "./pasted-code.js";
+import { normalizePhoneForWhatsapp, whatsappLink } from "./whatsapp-link.js";
 
 /**
  * קוד הקישור בין מספר וואטסאפ לחשבון — **הזהות המפורשת.**
@@ -118,4 +119,65 @@ export function looksLikeWhatsappLinkCode(text: string): boolean {
 export function linkNeedsReverification(verifiedAt: Date, now: Date): boolean {
   const days = (now.getTime() - verifiedAt.getTime()) / 86_400_000;
   return days >= WHATSAPP_LINK_MAX_AGE_DAYS;
+}
+
+/**
+ * ‎**הקישור שפותח וואטסאפ עם הקוד כבר בפנים.**
+ *
+ * ## מה זה מחליף
+ *
+ * עד כה המסך הציג „MV-4F7K2Q” והנחה לשלוח אותו בוואטסאפ אל המספר
+ * העסקי. מי שיושב מול מחשב צריך לזכור שש אותיות, לפתוח את הטלפון,
+ * למצוא את המספר, ולהקליד. כל שלב שם הוא מקום להיעצר בו, ואות
+ * שגויה אחת שורפת ניסיון מתוך חמישה.
+ *
+ * ‎`wa.me` עם `?text=` פותח את השיחה כשההודעה כבר מוקלדת — נשאר
+ * ללחוץ „שלח”. אותו קישור מקודד גם כברקוד, ואז מי שמול המחשב סורק
+ * אותו בטלפון ומקבל את אותה שיחה מוכנה.
+ *
+ * ## והטקסט הוא הקוד ותו לא
+ *
+ * ‎`looksLikeWhatsappLinkCode` תופס הודעה שאורכה עד `ATTEMPT_MAX_LENGTH`
+ * ‎(12) ומתחילה ב-„MV”. משפט מלווה ידידותי — „שלום, הקוד שלי הוא…” —
+ * היה מוציא את ההודעה מהחלון הזה, והשרת היה מפרש אותה כשאלה לסוכן
+ * במקום כקוד. הנימוס כאן עולה בכך שהקישור לא יעבוד.
+ *
+ * ‎`null` = אין מספר עסקי (הצד היוצא לא הוגדר, או ש-Meta לא ענתה).
+ * הקוד עצמו עדיין מוצג — הקיצור נעלם, לא היכולת.
+ */
+/**
+ * ‎**המספר עצמו, לקריאה בעין.**
+ *
+ * הקישור והברקוד מסתירים אותו בתוכם, וזה בסדר כל עוד הם עובדים.
+ * הם לא תמיד עובדים: מחשב בלי וואטסאפ מותקן, טלפון שהקישור נפתח בו
+ * בדפדפן, או מספר עסקי שלא נשלף. במצבים האלה המסך אמר „שלחו את הקוד
+ * ידנית” בלי לומר **למי** — כלומר הוראה שאי אפשר לבצע.
+ *
+ * ‎`972…` מוצג בפורמט המקומי (`055-314-2235`) כי זה מה שמקלידים
+ * בישראל; כל השאר בפורמט בינלאומי, כי שם ההקשר הוא המספר המלא.
+ *
+ * ## הנרמול כאן, ולא רק אצל הקורא
+ *
+ * מנהל שמקליד `0553142235` — הצורה שהתיעוד עצמו מציג — מסר מספר
+ * מקומי. בלי הנרמול הוא נפל אל הענף הבינלאומי ויצא `+0553142235`:
+ * מספר שאינו קיים, וגם `tel:` שבור. הקישור ל-`wa.me` דווקא עבד, כי
+ * הוא מנרמל בעצמו — וזה מה שהסתיר את התקלה בשני המסלולים האחרים
+ * (ביקורת Codex).
+ */
+export function displayWhatsappNumber(digits: string): string {
+  const clean = normalizePhoneForWhatsapp(digits);
+  if (clean === "") return "";
+  if (clean.startsWith("972") && clean.length === 12) {
+    const local = `0${clean.slice(3)}`;
+    return `${local.slice(0, 3)}-${local.slice(3, 6)}-${local.slice(6)}`;
+  }
+  return `+${clean}`;
+}
+
+export function whatsappPairingLink(
+  businessNumber: string | null,
+  formattedCode: string,
+): string | null {
+  if (businessNumber === null || businessNumber.trim() === "") return null;
+  return whatsappLink(businessNumber, formattedCode);
 }

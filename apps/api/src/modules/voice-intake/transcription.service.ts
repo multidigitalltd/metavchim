@@ -1,5 +1,9 @@
 import { HttpException, Injectable, Logger, ServiceUnavailableException } from "@nestjs/common";
-import { SEGMENT_DEFAULT_SECONDS, recommendSegmentSeconds } from "@metavchim/shared";
+import {
+  SEGMENT_DEFAULT_SECONDS,
+  STT_DICTATION_HINT,
+  recommendSegmentSeconds,
+} from "@metavchim/shared";
 import { loadEnv } from "../../config/env";
 
 /**
@@ -13,24 +17,6 @@ import { loadEnv } from "../../config/env";
 /** מטמון קצר לבדיקת המוכנות — כל טעינת מסך קול שואלת. */
 const READINESS_CACHE_MS = 15_000;
 const HEALTH_TIMEOUT_MS = 3_000;
-
-/**
- * רמז אוצר המילים למודל התמלול.
- *
- * המונחים שמתווך אומר בכל משפט שני — „ממ״ד”, „בלעדיות”, „טאבו”,
- * „מ״ר” — הם מילים נדירות בעברית הכללית שהמודל אומן עליה, ולכן הוא
- * מחליף אותן במילה שכיחה שנשמעת דומה („ממד”, „בלעדיות” ⇐ „בעלות”).
- * הרמז אינו מאלץ דבר: הוא רק מטה את ההסתברות לטובת הניסוח שנכון
- * לתחום הזה, וזה הכלי שהמודל עצמו מציע לכך (initial_prompt).
- *
- * ניסוח כטקסט זורם ולא כרשימה — כך זה עובד: המודל מתייחס אליו
- * כאל ההקשר שקדם להקלטה, לא כאל הוראה.
- */
-const DOMAIN_HINT =
-  'שיחה של מתווך נדל"ן בישראל על נכסים ולקוחות: דירה, דירת גן, פנטהאוז, דופלקס, ' +
-  'מגרש, חנות, משרד, חדרים, מ"ר, קומה, מרפסת, ממ"ד, מעלית, חניה, מחסן, ריהוט, ' +
-  'משופצת, כניסה מיידית, בלעדיות, טאבו, ארנונה, ועד בית, משכנתא, שכירות, מכירה, ' +
-  'קונה, מוכר, ליד, סיור, פגישה, הצעה, עמלה, שיתוף פעולה, מיליון, אלף שקל.';
 
 export interface TranscriptionStatus {
   available: boolean;
@@ -97,7 +83,7 @@ export class TranscriptionService {
 
     const form = new FormData();
     form.append("file", new Blob([new Uint8Array(audio)]), filename);
-    form.append("prompt", DOMAIN_HINT);
+    form.append("prompt", STT_DICTATION_HINT);
 
     let res: Response;
     try {
