@@ -11,7 +11,7 @@ import {
   floorPreferenceText,
 } from "./floor-preference.js";
 import { bestLocationMatch } from "./location-text.js";
-import { matchedNeighborhood } from "./neighborhood.js";
+import { hasNeighborhoodName, matchedNeighborhood } from "./neighborhood.js";
 import { bestAreaMatch, describeDistance } from "./proximity.js";
 import { CUSTOM_FEATURE_PREFIX, customFeatureMap, isCustomFeature } from "./custom-features.js";
 import { buyerSharedTabuStance, isSharedTabuProperty, sharedTabuFit } from "./shared-tabu.js";
@@ -311,7 +311,7 @@ function locationNote(
   if (!cityHit) return "מחוץ לאזורים המבוקשים";
   if (buyer.neighborhoods.length === 0) return `באזור המבוקש (${property.city ?? ""})`;
   if (hit !== null) return `בשכונה המבוקשת (${hit})`;
-  if (property.neighborhood === undefined) {
+  if (!hasNeighborhoodName(property.neighborhood)) {
     return `ב${property.city ?? "עיר המבוקשת"}, אך השכונה לא מולאה בנכס`;
   }
   return `מחוץ לשכונות המבוקשות (${property.neighborhood})`;
@@ -438,10 +438,14 @@ export function scoreMatch(
      * ‏הייתה מעלימה בשקט כל נכס שהשדה בו לא מולא — כלומר מענישה את
      * ‏המתווך על שדה חסר ולא על אי-התאמה. הוא נגרע, ובבירור.
      */
-    const neighborhoodMiss =
-      buyer.neighborhoods.length > 0 && hit === null && property.neighborhood !== undefined;
-    const neighborhoodUnknown =
-      buyer.neighborhoods.length > 0 && hit === null && property.neighborhood === undefined;
+    /*
+     * ‎„יש בנכס שם שכונה” נענה ב-`hasNeighborhoodName` ולא בבדיקת
+     * ‏`undefined`: מחרוזת ריקה, רווחים וסימני פיסוק הם „לא מולא”
+     * ‏בדיוק כמו שדה חסר, והסכמה מקבלת את כולם.
+     */
+    const named = hasNeighborhoodName(property.neighborhood);
+    const neighborhoodMiss = buyer.neighborhoods.length > 0 && hit === null && named;
+    const neighborhoodUnknown = buyer.neighborhoods.length > 0 && hit === null && !named;
     const neighborhoodFit = neighborhoodUnknown ? NEIGHBORHOOD_UNKNOWN_FIT : 1;
     const score = city.score === 0 || neighborhoodMiss ? 0 : city.score * neighborhoodFit;
     parts.push({

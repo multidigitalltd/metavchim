@@ -235,6 +235,24 @@ export function buyerNeighborhoodKeys(requirements: {
  * ‏ברשימה, וה"א הידיעה. „רמת אהרון” ו„רמת אהרן” נשארות שונות —
  * ‏קיפול-יתר מאחד שכונות אמיתיות, וזה נזק גרוע מכפילות.
  */
+/**
+ * ‎**האם יש כאן בכלל שם שכונה.**
+ *
+ * ‏`neighborhood` בסכמה הוא `z.string().max(80).optional()` — בלי
+ * ‏`.min(1)` — ולכן „ריק” מגיע בארבע צורות: השדה חסר, מחרוזת ריקה,
+ * ‏רווחים, וסימני פיסוק בלבד. שדה טקסט שלא נגעו בו שולח `""`, כך
+ * ‏שזה המסלול הרגיל ולא שארית היסטורית.
+ *
+ * ‎**והשאלה נענית באותו קיפול שמשווה שכונות**, ולא בבדיקת
+ * ‏`undefined` נפרדת: בדיקה שנייה הייתה מחלקת את אותם נתונים לשתי
+ * ‏תשובות — „לא ידוע” על שדה חסר ו„שכונה אחרת” על מחרוזת ריקה —
+ * ‏ובקריטריון פוסל ההבדל הזה הוא נכס שנעלם (ביקורת Codex).
+ */
+export function hasNeighborhoodName(value: string | undefined): boolean {
+  if (value === undefined) return false;
+  return neighborhoodKey(normalizeLocationName(value)) !== "";
+}
+
 export function neighborhoodSame(a: string, b: string): boolean {
   const left = neighborhoodKey(normalizeLocationName(a));
   /* ריק אינו „כל שכונה”: שם שאין בו אות אינו מתאים לשום דבר. */

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buyerNeighborhoodKeys,
+  hasNeighborhoodName,
   matchedNeighborhood,
   mergeNeighborhoodUses,
   neighborhoodKey,
@@ -289,6 +290,20 @@ describe("neighborhoodSame — „אותה שכונה” לצורך התאמות
   it("תחילית אינה התאמה — זה ההבדל מכלל ההשלמה", () => {
     expect(neighborhoodMatches("רמת אהרון", "רמת")).toBe(true);
     expect(neighborhoodSame("רמת אהרון", "רמת")).toBe(false);
+  });
+
+  it("hasNeighborhoodName — מה נחשב „יש כאן שם”", () => {
+    expect(hasNeighborhoodName(undefined)).toBe(false);
+    expect(hasNeighborhoodName("")).toBe(false);
+    expect(hasNeighborhoodName("   ")).toBe(false);
+    expect(hasNeighborhoodName("-")).toBe(false);
+    expect(hasNeighborhoodName("'")).toBe(false);
+    /*
+     * ‏„שכונת” לבדה **כן** נחשבת שם: הקידומת נגזרת רק כשיש אחריה
+     * ‏מילה, וקיפול של מילה בודדת לכלום היה מוחק קלט אמיתי.
+     */
+    expect(hasNeighborhoodName("שכונת")).toBe(true);
+    expect(hasNeighborhoodName("פרדס כץ")).toBe(true);
   });
 
   it("שם ריק אינו מתאים לשום דבר", () => {

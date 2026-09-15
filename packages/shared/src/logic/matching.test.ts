@@ -286,6 +286,24 @@ describe("scoreMatch — מיקום", () => {
     expect(location.note).toContain("פרדס כץ");
   });
 
+  /*
+   * ‎**„ריק” מגיע בארבע צורות, וכולן אותו דבר** (ביקורת Codex).
+   *
+   * ‏הסכמה היא `z.string().max(80).optional()` בלי `.min(1)`, ולכן
+   * ‏שדה טקסט שלא נגעו בו שולח `""` — המסלול הרגיל, לא שארית
+   * ‏היסטורית. בדיקת `undefined` לבדה חילקה את אותם נתונים לשתי
+   * ‏תשובות, ובקריטריון פוסל ההבדל הזה הוא נכס שנעלם.
+   */
+  it("מחרוזת ריקה, רווחים וסימני פיסוק הם „לא מולא” כמו שדה חסר", () => {
+    const wanted = { ...baseBuyer, neighborhoods: ["פרדס כץ"] };
+    const missing = scoreMatch({ ...baseProperty, neighborhood: undefined }, wanted);
+    for (const blank of ["", "   ", "-", "'"]) {
+      const result = scoreMatch({ ...baseProperty, neighborhood: blank }, wanted);
+      expect(result.excluded).toBe(false);
+      expect(result.score).toBe(missing.score);
+    }
+  });
+
   it("נכס בלי שכונה אינו נפסל — „לא ידוע” אינו „מחוץ לשכונה”", () => {
     const unknown = { ...baseProperty, neighborhood: undefined };
     const result = scoreMatch(unknown, { ...baseBuyer, neighborhoods: ["פרדס כץ"] });
