@@ -199,7 +199,7 @@ export function ConvertToCustomer({
   return (
     <div className="mt-5">
       <p className="m-0 mb-2" style={{ color: "var(--color-text-muted)" }}>
-        מה הצד השני בשיחה הזו?
+        סמן את סוג הלקוח
       </p>
       <div className="flex flex-wrap gap-2">
         {choices.map((t) => (

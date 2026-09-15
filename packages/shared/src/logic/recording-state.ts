@@ -109,6 +109,19 @@ export const RECORDING_YOUNG_CALL_MS = 60 * 60 * 1000;
 export const RECORDING_EARLY_RETRY_MS = 5 * 60 * 1000;
 
 /**
+ * ‎**כמה זמן המסך מבטיח שההקלטה תגיע — ונגזר, ולא נכתב.**
+ *
+ * ‏זמן החסד לפני הניסיון הראשון ועוד טיק אחד של הסבב: זה בדיוק
+ * ‏המרווח בין סוף השיחה לבין הרגע שבו המשיכה הראשונה יוצאת. קודם
+ * ‏ישב במשפט „נמשכת תוך דקות” — ניסוח מעורפל שלא נגזר מדבר, ולכן
+ * ‏גם לא היה יכול להפסיק להיות נכון כשהמספרים זזו.
+ *
+ * ‎**אותו לקח של `recordingQueueFloor`:** מספר שאפשר לאמת עדיף על
+ * ‏הבטחה שאי אפשר.
+ */
+export const RECORDING_PROMISE_MS = RECORDING_FIRST_ATTEMPT_GRACE_MS + RECORDING_SWEEP_TICK_MS;
+
+/**
  * הסיבה היחידה שאינה „ננסה שוב” אלא „אי אפשר לנסות”.
  *
  * ‎**המקור, ולא עותק.** `RECORDING_ERRORS.integration` בשרת מיובא
@@ -139,6 +152,7 @@ export const RECORDING_STATES = [
   "none",
   "skipped",
   "pending",
+  "stalled",
   "retrying",
   "blocked",
   "failed",
@@ -216,6 +230,34 @@ export function recordingStateOf(row: RecordingFields, now: number = Date.now())
    */
   if (reason === RECORDING_BLOCKED_REASON) return { state: "blocked", reason };
   if (reason !== undefined) return { state: "retrying", reason };
+
+  /*
+   * ‎**„בדרך” היא הבטחה, ולכן יש לה תפוגה.**
+   *
+   * ‏עד כאן אין סיבת כישלון רשומה, ושני מצבים שונים לגמרי מגיעים
+   * ‏לכאן. שיחה שחותמת הניסיון שלה **ריקה** ממתינה בראש התור
+   * ‏(`pendingFor` ממיינת `nulls: "first"`) ותיבחר בסבב הקרוב —
+   * ‏גם אם היא בת שבוע, וגם מיד אחרי „נסו למשוך שוב”. שם „בדרך”
+   * ‏נכון, ואין דבר לומר במקומו.
+   *
+   * ‎**אבל שיחה שכן נוסתה ולא הותירה לא הקלטה ולא סיבה — נעלמה.**
+   * ‏הניסיון החוזר הארוך ביותר הוא חצי שעה, ולכן אחרי שעה שלמה
+   * ‏אין הסבר תמים: או שהסבב אינו חוזר אליה, או שהניסיון נפל בלי
+   * ‏להספיק לרשום. זה בדיוק מה שנראה בשטח — „ההקלטה בדרך
+   * ‏מהמרכזייה” שעה אחר שעה, על משיכה שכבר קרתה ונכשלה בשקט.
+   *
+   * ‎**הגבול הוא `RECORDING_YOUNG_CALL_MS`** ולא מספר חדש: זו
+   * ‏הנקודה שהמנוע כבר מכיר כגבול בין „כנראה רק טרם הוכן” לבין
+   * ‏תקלה של ממש. מספר שני היה מסכים עם הראשון ביום שנכתב בלבד.
+   *
+   * ‎`stalled` ולא `failed`: לא ויתרנו, והמשיכה עדיין עשויה לקרות
+   * ‏— ולכן גם הכפתור נשאר. מה שהשתנה הוא שהמסך מפסיק לנקוב בזמן
+   * ‏שאין לו כיסוי.
+   */
+  const attemptAt = row.providerRecordingAttemptAt ?? null;
+  if (attemptAt !== null && now - attemptAt.getTime() > RECORDING_YOUNG_CALL_MS) {
+    return { state: "stalled" };
+  }
   return { state: "pending" };
 }
 
@@ -230,7 +272,11 @@ export function recordingStateLabel(status: RecordingStatus): string {
       // בלי „ננסה שוב”: אין מה לשמוע, וזו החלטה ולא תקלה
       return "השיחה לא נענתה — אין הקלטה לתמלל";
     case "pending":
-      return "ההקלטה בדרך מהמרכזייה — נמשכת תוך דקות";
+      // המספר נגזר מ-`RECORDING_PROMISE_MS`, ולכן אינו יכול להתיישן
+      return `ההקלטה בדרך מהמרכזייה — נמשכת תוך ${RECORDING_PROMISE_MS / 60_000} דקות`;
+    case "stalled":
+      // בלי נקיבה בזמן: כמה זמן זה ייקח הוא בדיוק מה שאיננו יודעים
+      return "ניסינו למשוך את ההקלטה ולא קיבלנו תשובה — אפשר לנסות שוב, ואם זה חוזר יש לבדוק את חיבור המרכזייה בהגדרות";
     case "retrying":
       return `המשיכה מהמרכזייה נכשלה, ננסה שוב — ${recordingReasonLabel(status.reason)}`;
     case "blocked":
@@ -289,6 +335,16 @@ export function recordingReasonLabel(reason: string | undefined): string {
       return "ההקלטה גדולה מהמותר";
     case "network_error":
       return "לא הצלחנו להגיע למרכזייה";
+    /*
+     * ‎**שגיאה שנפלה מחוץ לכל מסלול מוכר.**
+     *
+     * ‏בלי הקוד הזה חריגה בלתי צפויה בתוך המשיכה הותירה את השורה
+     * ‏בלי סיבה כלל — כלומר „בדרך מהמרכזייה” עד הניסיון הבא, ושוב,
+     * ‏ושוב. „הסיבה אינה ידועה” נכון כאן, אבל הוא גם מה שנאמר על
+     * ‏היעדר סיבה; הניסוח הזה אומר במפורש ש**כן** ניסינו ונפלנו.
+     */
+    case "unexpected_error":
+      return "המשיכה נעצרה בשגיאה לא צפויה";
     default:
       return "הסיבה אינה ידועה";
   }

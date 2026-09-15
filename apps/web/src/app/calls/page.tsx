@@ -650,7 +650,16 @@ export default function CallsPage() {
               className="mv-btn-plain"
               style={{ color: "var(--color-danger)" }}
             >
-              סימון לא רלוונטי
+              {/*
+                ‎**„מחיקה” ולא „סימון”** (בקשת המשתמש).
+
+                ‏הפעולה היא `delete`, והמחיקה **קשה** — לא ארכיון כמו
+                ‏בנכסים. „סימון” נשמע הפיך, והכיתוב הקודם השאיר את
+                ‏כל משקל האזהרה על חלון האישור בלבד; ההערה שב-
+                ‎`callBulkConfirm` אמרה את זה במפורש. עכשיו הכפתור
+                ‏עצמו אומר מה יקרה, והאישור מוסיף את „לצמיתות”.
+              */}
+              מחיקת שיחה לא רלוונטית
             </button>
           ) : null}
         </div>
@@ -1188,6 +1197,7 @@ function CallRecording({
         לתקן הגדרה, או לפנות לספק.
       */}
       {recording.state === "pending" ||
+      recording.state === "stalled" ||
       recording.state === "retrying" ||
       recording.state === "blocked" ||
       recording.state === "failed" ||
@@ -1225,7 +1235,16 @@ function CallRecording({
             בוחר שיחה, ולכן כפתור שם היה מחזיר „בתור” ולא עושה דבר —
             והניסוח השלילי היה מכניס אותו פנימה בשקט (ביקורת Codex).
           */}
-          {(recording.state === "retrying" || recording.state === "failed") &&
+          {/*
+            ‎`stalled` מקבל את הכפתור, ו-`pending` לא.
+            ‏„ממתינה זמן חריג” פירושו שהתור כבר לא מסביר את ההמתנה,
+            ‏והלחיצה מאפסת את חותמת הניסיון ומחזירה את השיחה לראש
+            ‏התור — כלומר יש מה לנסות. על שיחה שממתינה כרגיל הכפתור
+            ‏היה רק דוחף אותה לפני אחרות בלי סיבה.
+          */}
+          {(recording.state === "retrying" ||
+            recording.state === "stalled" ||
+            recording.state === "failed") &&
           mayRetryRecording ? (
             <button
               type="button"
