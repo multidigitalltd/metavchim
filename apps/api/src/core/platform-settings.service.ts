@@ -183,6 +183,15 @@ export type PlatformSettingKey =
    */
   | "whatsappEmailReplyTemplate"
   | "whatsappEmailReplyTemplateLang"
+  /**
+   * ‏הסיכום החודשי לסוכן, מחוץ לחלון 24 השעות.
+   *
+   * ‏פנייה יזומה מובהקת: הסבב רץ בתחילת החודש, ורוב
+   * ‏הסוכנים לא כתבו לבוט ב-24 השעות שלפניו. ריק = הסיכום
+   * ‏בהתראות בלבד למי שמחוץ לחלון — התנהגות תקינה, לא תקלה.
+   */
+  | "whatsappOfficeDigestTemplate"
+  | "whatsappOfficeDigestTemplateLang"
   | "loginOtpEnabled"
   | "googleClientId"
   | "googleClientSecret"

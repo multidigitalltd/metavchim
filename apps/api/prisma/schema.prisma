@@ -143,6 +143,12 @@ model User {
   /// להעביר את המקום לסוכן אחר: הדגל שלו לא נשמר בשום מקום. כאן הוא
   /// נשמר לכולם, כולל לבעל המשרד, וההקצאה היא החלטה מפורשת שרואים.
   whatsappAccess       Boolean   @default(false) @map("whatsapp_access")
+  /// ‏ביקש לא לקבל את הסיכום החודשי בוואטסאפ. `NULL` = מקבל.
+  ///
+  /// ‎**חותמת ולא בוליאני**, כמו כל ביטול הצטרפות אחר במערכת: „מתי
+  /// ‏ביקש” היא שאלה שנשאלת כשמישהו טוען שלא ביקש. הוא **אינו**
+  /// ‏משתיק את ההתראה בפעמון — רק את ההודעה שמגיעה לטלפון.
+  officeDigestOptedOutAt DateTime? @map("office_digest_opted_out_at")
   totpSecret           String?   @map("totp_secret") @db.VarChar(255)
   // סיסמה זמנית שחובה להחליף בכניסה ראשונה (ביקורת Codex, PR #5)
   mustChangePassword   Boolean   @default(false) @map("must_change_password")
