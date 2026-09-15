@@ -909,14 +909,27 @@ export function AppShell({ children }: { children: ReactNode }) {
             ‏בעצמו אם הצוות רואה אותו, והתנאי המלא יושב ב-
             ‎`canSeeOfficeBoard` — אותה פונקציה שהשרת אוכף בה.
 
+            ‎**וגם למי שמגדיר את המשרד, גם כשהמסך סגור בפניו.**
+            ‏זה הקישור **היחיד** ל-`/office` בכל המערכת, ותיבת הסימון
+            ‏שפותחת אותו יושבת שם. משתמש שנשללה לו `users.manage` בחריג
+            ‏אישי (#80) ושמר על `settings.manage` היה צריך לנחש כתובת
+            ‏כדי להגיע אל הפקד שהשרת מאשר לו להפעיל (ביקורת Codex).
+
+            ‏התנאי השני נשאר מחוץ ל-`canSeeOfficeBoard` ובכוונה: הפונקציה
+            ‏עונה על „מי רשאי לראות את הנתונים”, והשרת אוכף בה. „מי
+            ‏רשאי לקבוע את המדיניות” היא שאלה אחרת, וערבוב של השתיים
+            ‏היה מרחיב את הכלל שהשרת נשען עליו.
+
             ‏וגם בפיצ'ר `analytics`, מאותו נימוק של הסוכן הקולי
-            ‏שמתחת: קישור ל-403 גרוע מקישור שלא קיים.
+            ‏שמתחת: קישור ל-403 גרוע מקישור שלא קיים — וכאן אין 403:
+            ‏העמוד נפתח ונושא את הפקד שלו.
           */}
           {hasFeature("analytics") &&
-          canSeeOfficeBoard({
+          (canSeeOfficeBoard({
             managesTeam: can(me, "users.manage"),
             openToAgents: me?.officeBoardOpen === true,
-          }) ? (
+          }) ||
+            can(me, "settings.manage")) ? (
             <Link href="/office" className="mv-board-link" title="המשרד שלנו">
               <IconUsers s={16} />
               <span className="mv-topbar-label">המשרד שלנו</span>

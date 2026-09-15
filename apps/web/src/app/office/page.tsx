@@ -121,8 +121,16 @@ export default function OfficeBoardPage() {
   const [failed, setFailed] = useState(false);
   const [denied, setDenied] = useState(false);
   /*
-   * ‎**מה שנקבע במסך הזה עכשיו** — גובר על שני המקורות
-   * ‏האחרים. `null` = המשתמש לא נגע בתיבה בביקור הזה.
+   * ‎**גשר עד שהשרת יענה, ולא מקור קבוע.**
+   *
+   * ‏הסימון נשמר לפני שהטבלה נטענת מחדש — ובכרטיס החסימה
+   * ‏אין טבלה בכלל — ולכן צריך מי שיחזיק את הערך בינתיים.
+   *
+   * ‎**אבל הוא מתאפס בכל טעינה שמצליחה.** ערך מקומי שגובר
+   * ‏לנצח היה מציג את ההחלטה שלי גם אחרי שמנהל אחר או
+   * ‏לשונית אחרת שינו את המדיניות והטבלה נטענה מחדש (החלפת
+   * ‏תקופה) — כלומר תיבה שמשקרת על מה שפתוח בפועל, וזה
+   * ‏בדיוק מה שהפקד הזה נועד למנוע (ביקורת Codex).
    */
   const [openedHere, setOpenedHere] = useState<boolean | null>(null);
 
@@ -144,6 +152,8 @@ export default function OfficeBoardPage() {
         if (mine !== request.current) return;
         setBoard(data);
         setDenied(false);
+        /* ‏תשובת השרת היא האמת — הגשר המקומי סיים את תפקידו */
+        setOpenedHere(null);
       })
       .catch((err: unknown) => {
         if (mine !== request.current) return;
