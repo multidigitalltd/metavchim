@@ -84,6 +84,7 @@ const GROUPS: { label: string; ids: readonly string[] }[] = [
       "update_task",
       "create_recurring_task",
       "assign_task",
+      "transfer_lead",
       "add_note",
       "dismiss_match",
     ],

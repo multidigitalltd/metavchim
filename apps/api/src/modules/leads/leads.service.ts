@@ -13,7 +13,13 @@ import {
   leadOwnershipFilter,
   type PhoneTypedBy,
 } from "../../common/ownership";
-import { agentNameOf, agentNames } from "../../common/agent-names";
+import {
+  agentHandover,
+  agentNameOf,
+  agentNames,
+  assertAgentInOffice,
+  assertCanHandOverLead,
+} from "../../common/agent-names";
 import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
 import { OutboxService } from "../../core/outbox.service";
@@ -258,6 +264,64 @@ export class LeadsService {
     });
 
     return { id: mergedInto ?? id, merged: mergedInto !== null, visible: mergedVisible };
+  }
+
+  /**
+   * ‎**מסירת ליד לסוכן אחר במשרד.**
+   *
+   * ## ‏למה זו אינה `assertCanAssignAgents`
+   *
+   * ‏העברת כרטיס בין סוכנים היא פעולת מנהל בכל המערכת — משימה,
+   * ‏קונה, נכס. **ליד הוא היוצא מן הכלל** (הכרעת בעלת המוצר: „בין
+   * ‏סוכנים ניתן להעביר לידים בלבד”), ומה שמחזיק את הגבול הוא
+   * ‎`assertCanHandOverLead`: בלי הרשאת מנהל אפשר למסור **רק ליד
+   * ‏שכבר משויך אליך**. לוותר על מה שבידיך — כן; למשוך אליך את
+   * ‏הליד של עמית — לא.
+   *
+   * ## ‏שלוש בדיקות, ולא אחת
+   *
+   * 1. ‎`assertLeadAccess` — הליד בכלל נראה לי. בלעדיה „אפשר למסור
+   *    ‏רק ליד שלך” היה **מגלה** למי משויך ליד שאיני רואה.
+   * 2. ‎`assertCanHandOverLead` — מותר לי למסור אותו.
+   * 3. ‎`assertAgentInOffice` **בתוך הטרנזקציה הכותבת** — היעד הוא
+   *    ‏סוכן פעיל של אותו משרד. בדיקה מוקדמת בלבד היא חלון שבו
+   *    ‏הסוכן הוסר בין הבדיקה לכתיבה, וכתיבה של מזהה זר בתוך
+   *    ‏הדייר שלנו היא בדיוק מה שהבידוד קיים כדי למנוע.
+   *
+   * ‎`agentHandover` הוא אותו רישום של כל העברה אחרת — „כבר אצלו”
+   * ‏אינו שינוי, ואינו נרשם כאחד.
+   */
+  async handOver(
+    id: string,
+    agentUserId: string,
+  ): Promise<{ moved: boolean; agentName: string }> {
+    const ctx = TenantContext.current();
+    return this.prisma.withTenant(async (tx) => {
+      await assertLeadAccess(tx, ctx.tenantId, id);
+      const lead = await tx.lead.findFirst({
+        where: { id, tenantId: ctx.tenantId, ...leadOwnershipFilter() },
+        select: { assignedToUserId: true },
+      });
+      if (!lead) throw new NotFoundException("ליד לא נמצא");
+      assertCanHandOverLead(lead.assignedToUserId);
+      /* ‏השם מגיע מאותה שליפה שמאמתת — ולא משאילתה שנייה לאותו אדם */
+      const agentName = await assertAgentInOffice(tx, ctx.tenantId, agentUserId);
+
+      const handover = agentHandover(lead.assignedToUserId, agentUserId);
+      if (handover === null) return { moved: false, agentName };
+
+      await tx.lead.updateMany({
+        where: { id, tenantId: ctx.tenantId },
+        data: { assignedToUserId: agentUserId },
+      });
+      await this.audit.record(tx, {
+        action: "lead.agent_changed",
+        entityType: "lead",
+        entityId: id,
+        metadata: handover,
+      });
+      return { moved: true, agentName };
+    });
   }
 
   async updateStatus(id: string, status: string): Promise<void> {

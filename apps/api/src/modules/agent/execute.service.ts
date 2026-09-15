@@ -762,6 +762,8 @@ export class AgentExecuteService {
         return this.mentorPractice(params);
       case "assign_task":
         return this.assignTask(params);
+      case "transfer_lead":
+        return this.transferLead(params);
       default:
         throw new BadRequestException("פעולה לא מוכרת");
     }
@@ -1398,6 +1400,31 @@ export class AgentExecuteService {
    * משתמש פעיל של אותו משרד; זה השער, ולא הבדיקה כאן. מה שכאן הוא
    * זיהוי בלבד.
    */
+  /**
+   * ‎**מסירת ליד לעמית — הפעולה היחידה שאינה דורשת הרשאת מנהל.**
+   *
+   * ‎`LeadsService.handOver` אוכפת שלוש שאלות נפרדות: הליד נראה לי,
+   * ‏מותר לי למסור אותו (בלי `tasks.assign` — רק ליד שמשויך אליי),
+   * ‏והיעד הוא סוכן פעיל של אותו משרד. זה השער, ולא בדיקה כאן.
+   *
+   * ‎**„כבר אצלו” אינו כישלון ואינו שינוי** — והמשפט אומר זאת,
+   * ‏אחרת מי ששאל פעמיים חושב שהמסירה לא תפסה.
+   */
+  private async transferLead(params: Record<string, unknown>): Promise<ExecuteResult> {
+    const leadId = str(params["leadId"]);
+    const assigneeId = str(params["assigneeId"]);
+    if (leadId === undefined) throw new BadRequestException("לא נבחר ליד למסירה");
+    if (assigneeId === undefined) throw new BadRequestException("לא נבחר סוכן למסור לו");
+    const result = await this.leads.handOver(leadId, assigneeId);
+    return {
+      href: `/leads/${leadId}`,
+      message: result.moved
+        ? `הליד נמסר ל${result.agentName}`
+        : `הליד כבר משויך ל${result.agentName}`,
+      data: { id: leadId },
+    };
+  }
+
   private async assignTask(params: Record<string, unknown>): Promise<ExecuteResult> {
     const taskId = str(params["taskId"]);
     const assigneeId = str(params["assigneeId"]);
@@ -2072,14 +2099,38 @@ export class AgentExecuteService {
      * למי.
      */
     const related = await this.optionalCardTarget(params["relatedId"]);
+    /*
+     * ‎**„על מי” — רשות, והשער אינו כאן.**
+     *
+     * ‎`TasksService.create` אוכפת `tasks.assign` ליעד שאינו
+     * ‏המשתמש עצמו, **וגם** שהיעד הוא משתמש פעיל של אותו משרד.
+     * ‏בדיקה שנייה כאן הייתה כלל שני לאותה שאלה, ושניים כאלה
+     * ‏מסכימים ביום שנכתבו בלבד. מה שכאן הוא זיהוי בלבד.
+     */
+    const assigneeId = str(params["assigneeId"]);
     const task = await this.tasks.create({
       title,
       ...(dueAt ? { dueAt } : {}),
       ...(related ? { entityType: related.kind, entityId: related.id } : {}),
+      ...(assigneeId === undefined ? {} : { assignedToUserId: assigneeId }),
     });
+    /*
+     * ‎**מי קיבל את המשימה נאמר, ולא נרמז.** „המשימה נוצרה” על
+     * ‏משימה שהוטלה על סוכן אחר משאיר את המנהל בלי לדעת אם השיוך
+     * ‏תפס — וזו כל הבקשה.
+     */
+    const who =
+      assigneeId === undefined || task.assignedToUserId === TenantContext.current().userId
+        ? undefined
+        : task.assigneeName;
     return {
       href: related ? `/${related.kind}s/${related.id}` : "/tasks",
-      message: dueAt ? "התזכורת נוצרה — תישלח התראה במועד" : "המשימה נוצרה",
+      message:
+        who !== undefined
+          ? `המשימה נוצרה והוטלה על ${who}`
+          : dueAt
+            ? "התזכורת נוצרה — תישלח התראה במועד"
+            : "המשימה נוצרה",
       data: { id: task.id },
       // „תסגור אותה” על המשימה שהרגע נוצרה — הכותרת היא מה שנאמר
       ...refOf(title, "task", task.id),

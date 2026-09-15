@@ -63,19 +63,25 @@ export function agentNameOf(
  *
  * ‎`isActive` **אינו** נבדק: שיוך למי שהושבת זה עתה הוא מצב לגיטימי
  * שהמנהל מסדר אחר כך, ולא קלט שגוי.
+ *
+ * ‎**מחזירה את השם**, כי היא כבר שולפת את השורה. קורא שרוצה לומר
+ * ‏„נמסר לדנה” היה צריך שאילתה שנייה לאותו משתמש בדיוק — כלומר
+ * ‏שתי שאלות זהות למסד, ושתי הזדמנויות שהתשובות ייפרדו. מי שאינו
+ * ‏צריך את השם פשוט אינו קורא את הערך המוחזר.
  */
 export async function assertAgentInOffice(
   tx: TenantTx,
   tenantId: string,
   agentUserId: string,
-): Promise<void> {
+): Promise<string> {
   const found = await tx.user.findFirst({
     where: { tenantId, id: agentUserId },
-    select: { id: true },
+    select: { id: true, name: true },
   });
   if (found === null) {
     throw new BadRequestException("הסוכן שנבחר אינו במשרד הזה");
   }
+  return found.name;
 }
 
 /**
@@ -115,4 +121,28 @@ export function assertCanAssignAgents(): void {
   if (!TenantContext.current().capabilities.has("tasks.assign")) {
     throw new ForbiddenException("העברת כרטיס בין סוכנים היא פעולת מנהל");
   }
+}
+
+/**
+ * ‎**מסירת ליד — היוצא מן הכלל היחיד מ„העברה היא פעולת מנהל”.**
+ *
+ * ‏הכרעת בעלת המוצר: „בין סוכנים ניתן להעביר לידים בלבד”. משימה,
+ * ‏קונה ונכס נשארים מאחורי `assertCanAssignAgents`; ליד אפשר למסור
+ * ‏גם בלי הרשאת מנהל — **אבל רק ליד שכבר משויך אליך**.
+ *
+ * ‎**זה ההבדל בין „למסור” ל„לקחת”**, וזו כל ההגנה כאן: סוכן יכול
+ * ‏לוותר על מה שבידיו, ואינו יכול למשוך אליו את הליד של עמית.
+ * ‏מסירה מלקוח ששייך לאיש אחר — או ליד ללא שיוך, שאינו „שלי” —
+ * ‏נשארת פעולת מנהל.
+ *
+ * ‎**והיא אינה הבדיקה היחידה.** הקורא חייב לוודא לפניה שהליד בכלל
+ * ‏נראה לו (`assertLeadAccess` / מסנן הבעלות). שאלת „מותר לי לגעת
+ * ‏בשורה הזו” ושאלת „מותר לי למסור אותה” הן שתיים, ואיחודן היה
+ * ‏נותן לסוכן לגלות שיוך של לידים שאינו רואה.
+ */
+export function assertCanHandOverLead(currentOwnerUserId: string | null): void {
+  const ctx = TenantContext.current();
+  if (ctx.capabilities.has("tasks.assign")) return;
+  if (currentOwnerUserId !== null && currentOwnerUserId === ctx.userId) return;
+  throw new ForbiddenException("אפשר למסור רק ליד שמשויך אליך");
 }
