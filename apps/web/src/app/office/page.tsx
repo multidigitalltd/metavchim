@@ -120,6 +120,11 @@ export default function OfficeBoardPage() {
   const [board, setBoard] = useState<Board | null>(null);
   const [failed, setFailed] = useState(false);
   const [denied, setDenied] = useState(false);
+  /*
+   * ‎**מה שנקבע במסך הזה עכשיו** — גובר על שני המקורות
+   * ‏האחרים. `null` = המשתמש לא נגע בתיבה בביקור הזה.
+   */
+  const [openedHere, setOpenedHere] = useState<boolean | null>(null);
 
   /*
    * ‎**מונה בקשות — תשובה של לשונית שכבר עזבו נזרקת.**
@@ -167,20 +172,58 @@ export default function OfficeBoardPage() {
    * ‏אותה שאלה נשאלת בשלושה מקומות — השרת, הכפתור בראש
    * ‏המסך וכאן — ושלושה תנאים שנכתבו בנפרד הם שלושה
    * ‏מקומות שבהם אפשר לשכוח את הדגל.
+   *
+   * ‏סדר המקורות הוא סדר הטריות: מה שנקבע כאן עכשיו, אחריו
+   * ‏מה שהטבלה החזירה, ולבסוף העותק שנוסע עם ה-Session.
    */
+  const boardOpen =
+    openedHere ?? board?.visibleToAgents ?? user?.officeBoardOpen === true;
+
   const mayView = canSeeOfficeBoard({
     managesTeam: can(user, "users.manage"),
-    openToAgents: user?.officeBoardOpen === true,
+    openToAgents: boardOpen,
   });
+
+  /*
+   * ‎**התיבה שייכת ל-`settings.manage`, ולכן היא מוצגת גם
+   * ‏למי שאינו רשאי לראות את הטבלה עצמה.**
+   *
+   * ‏שתי היכולות ניתנות בנפרד (חריג אישי, ‎#80), ומשתמש שאיבד
+   * ‎`users.manage` ושמר על `settings.manage` נחת על כרטיס החסימה —
+   * ‏כלומר השרת מאשר לו לשנות את ההגדרה, והפקד היחיד שמשנה
+   * ‏אותה בלתי נגיש (ביקורת Codex). החסימה אינה אומרת „אסור לך
+   * ‏לקבוע מדיניות” אלא „אינך רואה את הנתונים”, ואלה שתי שאלות.
+   *
+   * ‏בלי הפיצ'ר `analytics` התיבה אינה מוצגת בכלל: פתיחה של
+   * ‏מסך שאינו במסלול אינה פותחת לאיש דבר.
+   */
+  const toggle =
+    hasAnalytics && can(user, "settings.manage") ? (
+      <VisibilityToggle
+        open={boardOpen}
+        onSaved={(next) => {
+          setOpenedHere(next);
+          setBoard((prev) =>
+            prev === null ? prev : { ...prev, visibleToAgents: next },
+          );
+          /*
+           * ‏מי שפתח מתוך כרטיס החסימה רשאי עכשיו לראות —
+           * ‏וה-403 שנרשם קודם הוא תשובה שכבר אינה נכונה.
+           */
+          if (next && denied) load();
+        }}
+      />
+    ) : null;
 
   if (denied || !mayView) {
     return (
       <section className="mv-card mv-card--pad">
         <h1 className="mb-2 text-2xl font-bold">המשרד שלנו</h1>
-        <p className="m-0" style={{ color: "var(--color-text-muted)" }}>
+        <p className="m-0 mb-3" style={{ color: "var(--color-text-muted)" }}>
           המסך מציג את הביצועים של כל הסוכנים בשמם, ולכן הוא פתוח למי שמנהל את
           הצוות. מנהל המשרד יכול לפתוח אותו לכל הצוות בסימון שבראש המסך.
         </p>
+        {toggle}
       </section>
     );
   }
@@ -237,14 +280,7 @@ export default function OfficeBoardPage() {
         מציגה תיבה שתחזיר 403 למי שנשללה לו ההגדרה בחריג
         אישי (#80), והסוכנים עצמם אינם רואים אותה כלל.
       */}
-      {board !== null && can(user, "settings.manage") ? (
-        <VisibilityToggle
-          open={board.visibleToAgents}
-          onSaved={(next) =>
-            setBoard((prev) => (prev === null ? prev : { ...prev, visibleToAgents: next }))
-          }
-        />
-      ) : null}
+      {toggle}
 
       {failed ? <LoadError message="לא הצלחנו לטעון את הטבלה" onRetry={load} /> : null}
 
