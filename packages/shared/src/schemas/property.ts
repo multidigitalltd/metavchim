@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { normalizeHouseNumber } from "../logic/property-address.js";
 import { IdSchema, MoneyAgorotSchema } from "./common.js";
 
 export const PropertyTypeSchema = z.enum([
@@ -194,7 +195,8 @@ export const PropertyFieldsSchema = z.object({
   city: z.string().min(1).max(80).optional(),
   neighborhood: z.string().max(80).optional(),
   street: z.string().max(120).optional(),
-  houseNumber: z.string().max(10).optional(),
+  /* ‏שלם בלי שארית אפס — הכלל אחד, וכל מסלול כתיבה עובר בו. */
+  houseNumber: z.string().max(10).transform(normalizeHouseNumber).optional(),
   propertyType: PropertyTypeSchema.optional(),
   dealType: DealTypeSchema.optional(),
   rooms: z.number().multipleOf(0.5).min(1).max(20).optional(),
