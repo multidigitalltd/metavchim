@@ -224,12 +224,16 @@ export function LocationPicker({
     const map = mapRef.current;
     if (map === null) return;
     const features: RadiusFeature[] = [];
-    const push = (lat: number, lon: number, km: number, active: boolean): void => {
+    /* ‏הטבעת שמסמנים עכשיו — היא שקובעת לאן המפה מסתכלת */
+    let active: [number, number][] | null = null;
+    const push = (lat: number, lon: number, km: number, isActive: boolean): void => {
       if (!Number.isFinite(km) || km <= 0) return;
+      const ring = searchAreaRing(lat, lon, km);
+      if (isActive) active = ring;
       features.push({
         type: "Feature",
-        properties: { active },
-        geometry: { type: "Polygon", coordinates: [searchAreaRing(lat, lon, km)] },
+        properties: { active: isActive },
+        geometry: { type: "Polygon", coordinates: [ring] },
       });
     };
     for (const area of otherAreas ?? []) push(area.lat, area.lon, area.radiusKm, false);
@@ -271,8 +275,47 @@ export function LocationPicker({
      * ‏הרכבת הרכיב, ו-`load` את הפעם הראשונה — בלי שניהם העיגול
      * ‏לא היה מופיע עד השינוי הבא.
      */
-    if (map.isStyleLoaded()) draw();
-    else map.once("load", draw);
+    /*
+     * ‎**והמפה מתאימה את עצמה לטבעת, אחרת העיגול אינו נראה.**
+     *
+     * ‎`placeMarker` קובע זום 16, ובקו הרוחב של ישראל זה כ-2
+     * ‏מטר לפיקסל — כלומר חלון בן 300 פיקסל מראה כ-600 מטר.
+     * ‏רדיוס של 900 מטר הוא קוטר של 1,800 — הגבול כולו מחוץ
+     * ‏למסך, ומה שנראה הוא גוון אחיד על כל המפה. כלומר
+     * ‏הפיצ'ר כולו — „להבין אילו רחובות נכנסים” — לא עבד
+     * ‏במסלול הנפוץ ביותר (ביקורת Codex).
+     *
+     * ‎`maxZoom: 16` שומר על ההתנהגות הקודמת לרדיוס זעיר:
+     * ‏טבעת של 200 מטר אינה גוררת התקרבות שמאבדת הקשר.
+     */
+    const fit = (): void => {
+      if (active === null) return;
+      let minLon = 180;
+      let minLat = 90;
+      let maxLon = -180;
+      let maxLat = -90;
+      for (const [lon, lat] of active) {
+        minLon = Math.min(minLon, lon);
+        maxLon = Math.max(maxLon, lon);
+        minLat = Math.min(minLat, lat);
+        maxLat = Math.max(maxLat, lat);
+      }
+      map.fitBounds(
+        [
+          [minLon, minLat],
+          [maxLon, maxLat],
+        ],
+        { padding: 28, maxZoom: 16, duration: 400 },
+      );
+    };
+
+    const render = (): void => {
+      draw();
+      fit();
+    };
+
+    if (map.isStyleLoaded()) render();
+    else map.once("load", render);
   }, [mapReady, hasPoint, radiusKm, otherAreas, value.latitude, value.longitude]);
 
   return (

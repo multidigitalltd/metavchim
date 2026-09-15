@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { PropertiesController, UpdatePropertySchema } from "./properties.controller";
+import { fieldsToColumns } from "./property.mapper";
 
 /**
  * ‎**מספר בית שנמחק במסך — נמחק גם במסד.**
@@ -128,5 +129,40 @@ describe("הבקר מתרגם null לריקון", () => {
     await controllerFor(seen).update("01PROP", { city: "רעננה" });
     expect(seen[0]).not.toHaveProperty("houseNumber");
     expect(seen[0]).not.toHaveProperty("clearFields");
+  });
+});
+
+
+/**
+ * ‎**הנירמול יושב בגבול הכתיבה, ולא רק בסכימה.**
+ *
+ * ‏הסכימה מכסה את מי שעובר בה: הטופס, הייבוא, טופס
+ * ‏המוכר וטופס הגיוס. אבל שני קוראים פונים לשירות
+ * ‏ישירות ומדלגים עליה לגמרי — הסוכן בוואטסאפ
+ * ‎(`propertyFields()` עושה `as PropertyFields`) והמרת שורת גיוס
+ * ‎(`fieldsOf(...)`). כלומר „5.0” היה חוזר מיד אחרי המיגרציה,
+ * ‏דרך מסלול נתמך (ביקורת Codex).
+ *
+ * ‎`fieldsToColumns` הוא המקום היחיד שכל כתיבה לעמודה עוברת
+ * ‏בו — יצירה ועדכון גם יחד.
+ */
+describe("גבול הכתיבה — מספר בית שלם בלי תלות בקורא", () => {
+  it("שארית אפס יורדת גם כשהערך לא עבר בסכימה", () => {
+    expect(fieldsToColumns({ houseNumber: "5.0" }).houseNumber).toBe("5");
+    expect(fieldsToColumns({ houseNumber: "12.00" }).houseNumber).toBe("12");
+    expect(fieldsToColumns({ houseNumber: " 7.0 " }).houseNumber).toBe("7");
+  });
+
+  /* ‏מספרי בית בישראל אינם מספרים — וזה מה שנרמול גס הורס */
+  it("וכל השאר עובר כמות שהוא", () => {
+    expect(fieldsToColumns({ houseNumber: "5.5" }).houseNumber).toBe("5.5");
+    expect(fieldsToColumns({ houseNumber: "5א" }).houseNumber).toBe("5א");
+    expect(fieldsToColumns({ houseNumber: "12/2" }).houseNumber).toBe("12/2");
+  });
+
+  /* ‏והריקון נשאר ריקון, ולא מחרוזת שנורמלה */
+  it("חסר אינו נוגע, וריק נשאר null", () => {
+    expect(fieldsToColumns({ city: "רעננה" })).not.toHaveProperty("houseNumber");
+    expect(fieldsToColumns({ houseNumber: undefined }).houseNumber).toBeNull();
   });
 });

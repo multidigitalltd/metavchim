@@ -25,3 +25,17 @@
 UPDATE properties
    SET house_number = regexp_replace(house_number, '^\s*(\d+)\.0+\s*$', '\1')
  WHERE house_number ~ '^\s*\d+\.0+\s*$';
+
+-- ‎**ואותה עמודה יושבת גם על שורת הגיוס.**
+--
+-- ‏`recruitment_targets.house_number` הוא שדה נפרד עם אותו מקור —
+-- ‏ייבוא אקסל וצילום מודעה — ולכן אותן שורות פגומות. הוא מוצג
+-- ‏בכל מסכי הגיוס דרך `recruitmentAddress()`, ו**מועתק לנכס חדש**
+-- ‏בהמרת גיוס. לתקן טבלה אחת פירושו שהערך חוזר דרך ההמרה
+-- ‏(ביקורת Codex).
+--
+-- ‏אותו ביטוי בדיוק — אותו כלל, ולא ניסוח שני שיסטה ביום שמישהו
+-- ‏יגע באחד מהם.
+UPDATE recruitment_targets
+   SET house_number = regexp_replace(house_number, '^\s*(\d+)\.0+\s*$', '\1')
+ WHERE house_number ~ '^\s*\d+\.0+\s*$';
