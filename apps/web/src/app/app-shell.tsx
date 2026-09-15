@@ -17,7 +17,7 @@ import { TrialBanner } from "./trial-banner";
 import { SoftphoneProvider } from "./softphone-bar";
 import { SupportButton } from "./support-button";
 import { SingleSessionGuard } from "./single-session-guard";
-import { roleLabel } from "@metavchim/shared";
+import { canSeeOfficeBoard, roleLabel } from "@metavchim/shared";
 import { IconMenu, LogoMark } from "./icons";
 import { OfficeLogoMark } from "./office-logo-mark";
 
@@ -884,17 +884,21 @@ export function AppShell({ children }: { children: ReactNode }) {
             <NotificationsBell user={me} />
 
           {/*
-            ‎**„המשרד שלנו” — לבעל סוכנות.**
+            ‎**„המשרד שלנו” — להנהלה, ולצוות אם המשרד פתח.**
 
             ‏המסך מציג את הביצועים של **כל הסוכנים בשמם**, ולכן הוא
-            ‏מותנה ב-`users.manage` — ההרשאה שמגדירה מי אחראי על
-            ‏הצוות. מתווך יחיד אינו רואה את הכפתור, ובצדק: טבלת
-            ‏תחרות עם שורה אחת אינה תחרות.
+            ‏היה פתוח ל-`users.manage` בלבד. עכשיו בעל הסוכנות מסמן
+            ‏בעצמו אם הצוות רואה אותו, והתנאי המלא יושב ב-
+            ‎`canSeeOfficeBoard` — אותה פונקציה שהשרת אוכף בה.
 
             ‏וגם בפיצ'ר `analytics`, מאותו נימוק של הסוכן הקולי
             ‏שמתחת: קישור ל-403 גרוע מקישור שלא קיים.
           */}
-          {hasFeature("analytics") && can(me, "users.manage") ? (
+          {hasFeature("analytics") &&
+          canSeeOfficeBoard({
+            managesTeam: can(me, "users.manage"),
+            openToAgents: me?.officeBoardOpen === true,
+          }) ? (
             <Link href="/office" className="mv-board-link" title="המשרד שלנו">
               <IconUsers s={16} />
               <span className="mv-topbar-label">המשרד שלנו</span>

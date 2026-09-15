@@ -4,6 +4,8 @@ import {
   BOARD_WEIGHTS,
   boardFormulaText,
   boardGoal,
+  boardOpenToAgents,
+  canSeeOfficeBoard,
   boardMovement,
   boardScore,
   delta,
@@ -282,5 +284,46 @@ describe("המגמה", () => {
   /* ‏חלוקה באפס אינה „אינסוף אחוז” — היא „אין ממה להשוות” */
   it("בלי בסיס אין אחוז", () => {
     expect(delta(5, 0)).toEqual({ diff: 5, percent: null });
+  });
+});
+
+
+describe("מי רואה את הטבלה", () => {
+  /*
+   * ‎**מנהל רואה בלאו הכי.** התיבה פותחת את המסך לצוות,
+   * ‏ואינה מעבירה אותו אליו — ביטול הסימון אינו אמור לנעול
+   * ‏את בעל הסוכנות מחוץ למסך שלו.
+   */
+  it("מנהל צוות רואה גם כשהמשרד סגור", () => {
+    expect(canSeeOfficeBoard({ managesTeam: true, openToAgents: false })).toBe(true);
+    expect(canSeeOfficeBoard({ managesTeam: true, openToAgents: true })).toBe(true);
+  });
+
+  it("סוכן רואה רק כשהמשרד פתח", () => {
+    expect(canSeeOfficeBoard({ managesTeam: false, openToAgents: false })).toBe(false);
+    expect(canSeeOfficeBoard({ managesTeam: false, openToAgents: true })).toBe(true);
+  });
+
+  /*
+   * ‎**חסר = סגור.** זו ההתנהגות שהייתה עד היום, ולכן אף
+   * ‏משרד קיים אינו מגלה בוקר אחד שהדירוג נפתח לכולם.
+   */
+  it("הדגל החסר נקרא כסגור", () => {
+    expect(boardOpenToAgents(undefined)).toBe(false);
+    expect(boardOpenToAgents(null)).toBe(false);
+    expect(boardOpenToAgents({})).toBe(false);
+    expect(boardOpenToAgents({ logoKey: "x" })).toBe(false);
+  });
+
+  /*
+   * ‏השוואה קפדנית ל-`true` ולא בדיקת אמת: מסמך ההגדרות
+   * ‏הוא JSON חופשי, ו-`"false"` או `1` שהגיעו משם בטעות אינם
+   * ‏החלטה שמישהו קיבל — והצד הבטוח של הטעות הוא „סגור”.
+   */
+  it("רק `true` פותח", () => {
+    expect(boardOpenToAgents({ boardVisibleToAgents: true })).toBe(true);
+    expect(boardOpenToAgents({ boardVisibleToAgents: "true" })).toBe(false);
+    expect(boardOpenToAgents({ boardVisibleToAgents: 1 })).toBe(false);
+    expect(boardOpenToAgents({ boardVisibleToAgents: false })).toBe(false);
   });
 });

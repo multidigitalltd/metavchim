@@ -1,7 +1,9 @@
-import { Injectable } from "@nestjs/common";
+import { ForbiddenException, Injectable } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import {
   boardMovement,
+  boardOpenToAgents,
+  canSeeOfficeBoard,
   boardScore,
   delta,
   boardGoal,
@@ -99,6 +101,18 @@ export interface OfficeBoard {
   rows: BoardRow[];
   superlatives: Superlative[];
   summary: { key: BoardMetric | "calls"; value: number; diff: number; percent: number | null }[];
+  /**
+   * ‏האם המשרד פתח את הטבלה לסוכנים — מצב תיבת הסימון.
+   *
+   * ‎**מווסף בנתיב מתוך השער עצמו**, ולכן `board()` אינו מחזיר
+   * ‏אותו: השער קורא את הדגל בלאו הכי, וקריאה שנייה של אותה
+   * ‏שורה באותה בקשה היא מקום שני שיכול להשתנות.
+   *
+   * ‏המסך קורא אותו מכאן ולא מה-Session הממוטמן: התיבה היא
+   * ‏הפקד שמשנה את הדגל, ופקד שמציג ערך ממוטמן יכול להראות
+   * ‏מסומן אחרי שכבו. שני העותקים עוברים ב-`boardOpenToAgents`.
+   */
+  visibleToAgents: boolean;
 }
 
 export interface AgentPerformance {
@@ -324,6 +338,49 @@ export class AnalyticsService {
   }
 
   /**
+   * ‎**השער של „המשרד שלנו” — יכולת או החלטת המשרד.**
+   *
+   * ‏הבדיקה יושבת כאן ולא ב-`@RequireCapability` מפני שהתנאי אינו
+   * ‏יכולת אלא **הגדרה של משרד**: בעל הסוכנות מסמן אם הצוות
+   * ‏רואה את הטבלה, ורשימת יכולות סטטית אינה יכולה לבטא דגל
+   * ‏שמור בשורת המשרד.
+   *
+   * ‎**והדגל נקרא בכל בקשה מחדש**, ולא מה-Session: מנהל שמוריד
+   * ‏את הסימון מצפה שהעמוד ייסגר מיד, ו-Session שנוצר לפני כן
+   * ‏היה ממשיך לפתוח אותו עד ההתחברות הבאה.
+   *
+   * ‎**מחזירה את הדגל שקראה**, ולכן הוא נקרא פעם אחת בבקשה.
+   * ‏המסך צריך אותו גם כמצב תיבת הסימון, וקריאה שנייה של
+   * ‏אותה שורה באותה בקשה היא גם מיותרת וגם מקום שני שיכול
+   * ‏להשתנות.
+   */
+  async assertBoardVisible(): Promise<boolean> {
+    const { tenantId, capabilities } = TenantContext.current();
+    const openToAgents = await this.readBoardOpen(tenantId);
+    const allowed = canSeeOfficeBoard({
+      managesTeam: capabilities.has("users.manage"),
+      openToAgents,
+    });
+    if (!allowed) {
+      throw new ForbiddenException(
+        "המסך סגור — מנהל המשרד יכול לפתוח אותו לסוכנים",
+      );
+    }
+    return openToAgents;
+  }
+
+  /** ‏הדגל משורת המשרד — מחוץ ל-RLS, כמו שאר קוראי `tenant`. */
+  private async readBoardOpen(tenantId: string): Promise<boolean> {
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { settings: true },
+    });
+    return boardOpenToAgents(
+      (tenant?.settings ?? {}) as Record<string, unknown>,
+    );
+  }
+
+  /**
    * ‎**„המשרד שלנו” — טבלת התחרות של סוכנות.**
    *
    * ## ‏למה זו מתודה נפרדת מ-`agentPerformance`
@@ -354,7 +411,10 @@ export class AnalyticsService {
    * ‏בטבלה: מיקום שמור מתיישן ברגע שסוכן מצטרף או עוזב, והתנועה
    * ‏שהמסך מציג הייתה מודדת מול צילום שגוי.
    */
-  async board(period: BoardPeriod = "month", now = new Date()): Promise<OfficeBoard> {
+  async board(
+    period: BoardPeriod = "month",
+    now = new Date(),
+  ): Promise<Omit<OfficeBoard, "visibleToAgents">> {
     const tenantId = TenantContext.current().tenantId;
     const start = periodStart(period, now);
     const prevStart = periodStart(period, new Date(start.getTime() - 1));

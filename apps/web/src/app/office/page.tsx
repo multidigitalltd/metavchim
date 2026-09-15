@@ -7,6 +7,7 @@ import {
   BOARD_PERIODS,
   BOARD_METRIC_LABELS,
   boardFormulaText,
+  canSeeOfficeBoard,
   formatIsraeliNumber,
   initials,
   movementLabel,
@@ -20,7 +21,7 @@ import {
   type BoardPeriod,
   type Superlative,
 } from "@metavchim/shared";
-import { ApiError, apiGet } from "@/lib/api";
+import { ApiError, apiGet, apiPatch } from "@/lib/api";
 import { can, useRequireAuth } from "@/lib/use-auth";
 import { useFeature, useFeaturesReady } from "@/lib/use-features";
 import { LoadError } from "../load-error";
@@ -67,6 +68,14 @@ interface Board {
   rows: BoardRow[];
   superlatives: Superlative[];
   summary: { key: BoardMetric | "calls"; value: number; diff: number; percent: number | null }[];
+  /**
+   * ‏האם המשרד פתח את המסך לסוכנים — מצב תיבת הסימון.
+   *
+   * ‏מגיע עם הטבלה ולא מה-Session הממוטמן: התיבה היא הפקד
+   * ‏שמשנה את הדגל, ופקד שקורא ערך ממוטמן יכול להראות
+   * ‏מסומן אחרי שכבו אותו בלשונית אחרת.
+   */
+  visibleToAgents: boolean;
   /**
    * ‎**שת״פים בתוך המשרד — עסקאות שנסגרו בשניים.**
    *
@@ -152,13 +161,25 @@ export default function OfficeBoardPage() {
 
   if (loading) return null;
 
-  if (denied || !can(user, "users.manage")) {
+  /*
+   * ‎**התנאי הוא הפונקציה המשותפת, ולא עותק שלישי שלו.**
+   *
+   * ‏אותה שאלה נשאלת בשלושה מקומות — השרת, הכפתור בראש
+   * ‏המסך וכאן — ושלושה תנאים שנכתבו בנפרד הם שלושה
+   * ‏מקומות שבהם אפשר לשכוח את הדגל.
+   */
+  const mayView = canSeeOfficeBoard({
+    managesTeam: can(user, "users.manage"),
+    openToAgents: user?.officeBoardOpen === true,
+  });
+
+  if (denied || !mayView) {
     return (
       <section className="mv-card mv-card--pad">
         <h1 className="mb-2 text-2xl font-bold">המשרד שלנו</h1>
         <p className="m-0" style={{ color: "var(--color-text-muted)" }}>
           המסך מציג את הביצועים של כל הסוכנים בשמם, ולכן הוא פתוח למי שמנהל את
-          הצוות. מנהל המשרד יכול לפתוח אותו בהגדרות הצוות.
+          הצוות. מנהל המשרד יכול לפתוח אותו לכל הצוות בסימון שבראש המסך.
         </p>
       </section>
     );
@@ -202,6 +223,28 @@ export default function OfficeBoardPage() {
           ))}
         </div>
       </header>
+
+      {/*
+        ‎**הסימון בראש המסך, ולא בהגדרות.**
+
+        ‏זו החלטה על **המסך הזה**, ומי ששואל „מי רואה את
+        זה?” שואל את זה כשהוא עומד מול הטבלה — לא בלשונית
+        הגדרות שלושה מסכים משם. מתג שצריך לחפש אותו הוא
+        מתג שלא נוגעים בו.
+
+        ‎**ורק למי שמחזיק `settings.manage`** — היכולת שהשרת
+        אוכף על השמירה עצמה. הצגה לפי `users.manage` הייתה
+        מציגה תיבה שתחזיר 403 למי שנשללה לו ההגדרה בחריג
+        אישי (#80), והסוכנים עצמם אינם רואים אותה כלל.
+      */}
+      {board !== null && can(user, "settings.manage") ? (
+        <VisibilityToggle
+          open={board.visibleToAgents}
+          onSaved={(next) =>
+            setBoard((prev) => (prev === null ? prev : { ...prev, visibleToAgents: next }))
+          }
+        />
+      ) : null}
 
       {failed ? <LoadError message="לא הצלחנו לטעון את הטבלה" onRetry={load} /> : null}
 
@@ -390,6 +433,83 @@ export default function OfficeBoardPage() {
         </>
       )}
     </div>
+  );
+}
+
+/**
+ * ‎**„להציג את המסך גם לסוכנים” — ההכרעה של בעל הסוכנות.**
+ *
+ * ## ‏למה הכיתוב מפורט כל כך
+ *
+ * ‏סימון של התיבה חושף לכל סוכן את הדירוג והניקוד של
+ * ‏**כל שאר הסוכנים בשמם**, כולל היעד החודשי של כל אחד.
+ * ‏זו החלטה לגיטימית והיא כל תכלית המסך — אבל היא חייבת
+ * ‏להילקח בידיעה מלאה. „להציג לסוכנים” לבדו אינו אומר מה
+ * ‏בדיוק נחשף.
+ *
+ * ## ‏ולמה שמירה מיידית ולא כפתור
+ *
+ * ‏אותו נימוק של שאר המתגים במערכת: תיבה שדורשת שמירה
+ * ‏נפרדת היא תיבה שמזיזים ועוזבים — וכאן זה אומר לחשוב
+ * ‏שסגרת את המסך בזמן שהוא פתוח. וכשהשמירה נכשלת הסימון
+ * ‏**אינו זז** — הערך מגיע מהשרת ומתעדכן רק אחרי תשובה
+ * ‏חיובית, כדי שהמסך לא יראה מצב שאינו קיים.
+ */
+function VisibilityToggle({
+  open,
+  onSaved,
+}: {
+  open: boolean;
+  onSaved: (next: boolean) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function toggle(next: boolean): Promise<void> {
+    setBusy(true);
+    setError(null);
+    setSaved(false);
+    try {
+      await apiPatch("/settings/tenant", { boardVisibleToAgents: next });
+      onSaved(next);
+      setSaved(true);
+    } catch (err: unknown) {
+      setError(err instanceof ApiError ? err.message : "השמירה נכשלה");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="mv-card mv-card--pad mb-4" aria-labelledby="board-visibility-heading">
+      <h2 id="board-visibility-heading" className="sr-only">
+        מי רואה את המסך
+      </h2>
+      <label className="flex items-start gap-2 text-sm" htmlFor="board-visible-to-agents">
+        <input
+          type="checkbox"
+          id="board-visible-to-agents"
+          name="boardVisibleToAgents"
+          checked={open}
+          disabled={busy}
+          onChange={(e) => void toggle(e.target.checked)}
+          className="mt-0.5"
+        />
+        <span>
+          <b className="block">
+            להציג את המסך הזה גם לסוכנים
+            {busy ? " · שומר…" : saved ? " · ✓ נשמר" : ""}
+          </b>
+          <span style={{ color: "var(--color-text-muted)" }}>
+            {open
+              ? "כל סוכן במשרד רואה עכשיו את הטבלה המלאה: השמות, הניקוד, הדירוג והיעד החודשי של כל אחד. ביטול הסימון מסתיר מהם את המסך ואת הכפתור שלו."
+              : "כרגע המסך פתוח להנהלת המשרד בלבד, והכפתור אינו מופיע לסוכנים. סימון יחשוף לכל סוכן את הטבלה המלאה: השמות, הניקוד, הדירוג והיעד החודשי של כל אחד."}
+          </span>
+        </span>
+      </label>
+      {error !== null ? <Notice tone="danger">{error}</Notice> : null}
+    </section>
   );
 }
 

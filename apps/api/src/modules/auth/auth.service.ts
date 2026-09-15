@@ -3,6 +3,7 @@ import * as argon2 from "argon2";
 import { createHash, randomBytes } from "node:crypto";
 import { ulid } from "ulid";
 import {
+  boardOpenToAgents,
   effectiveCapabilities,
   isTrialExpired,
   normalizePhone,
@@ -46,6 +47,13 @@ export interface AuthenticatedUser {
    * בלי זה כל מסך ביקש `logo/raw` וקיבל 404 למשרד שלא העלה.
    */
   tenantHasLogo?: boolean;
+  /**
+   * ‏האם „המשרד שלנו” פתוח לסוכנים ולא להנהלה בלבד.
+   *
+   * ‏נדרש כדי שהכפתור בראש המסך לא יוביל ל-403, ולא ייעלם
+   * ‏ויופיע בכל טעינה — הזהות יושבת במטמון המקומי.
+   */
+  officeBoardOpen?: boolean;
 }
 
 /**
@@ -669,6 +677,20 @@ export class AuthService {
     const tenantSettings = (tenantRow?.settings ?? {}) as Record<string, unknown>;
     const tenantHasLogo = typeof tenantSettings["logoKey"] === "string";
     /*
+     * ‎**האם „המשרד שלנו” פתוח לסוכנים — מאותה שורה.**
+     *
+     * ‏זו תכונה של המשרד ולא של המשתמש, ולכן היא נוסעת עם
+     * ‏ה-Session בדיוק כמו `tenantName` ו-`tenantHasLogo`: הכפתור בראש
+     * ‏המסך נגזר ממנה בכל רינדור, ושאילתה נפרדת לשם כך הייתה
+     * ‏מבהבה אותו בכל מעבר בין מסכים. השורה נקראת כאן ממילא
+     * ‏בשביל הלוגו.
+     *
+     * ‎**וזו תצוגה בלבד.** האכיפה היא בשער של הנתיב עצמו,
+     * ‏שקורא את הדגל מחדש בכל בקשה — כדי ש-Session ממוטמן מלפני
+     * ‏הכיבוי לא ימשיך לפתוח את הטבלה.
+     */
+    const officeBoardOpen = boardOpenToAgents(tenantSettings);
+    /*
      * ‏שלוש השכבות — תפקיד, חריגים, חסימות — יושבות ב-shared בפונקציה
      * ‏אחת, ובכוונה: הצירוף הזה נדרש גם לעוזר שבוואטסאפ, גם לשער
      * ‏ההתראות, גם לסבב של העובד וגם למסך ההרשאות, ועותק שנפרד
@@ -708,6 +730,7 @@ export class AuthService {
         mustChangePassword: session.user.mustChangePassword,
         tenantName: session.user.tenant.name,
         tenantHasLogo,
+        officeBoardOpen,
         /*
          * במסלול חינמי אין ספירה לאחור. הבאנר במסכים נגזר מהשדה
          * הזה, ולכן משרד חינמי עם תאריך ישן על השורה היה רואה
