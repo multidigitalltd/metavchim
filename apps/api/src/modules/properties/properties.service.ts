@@ -134,9 +134,14 @@ export function sharedTabuWhere(value: boolean | undefined): Prisma.PropertyWher
  * ‎**תקרת השליפה לאמת המידה של המחיר למ״ר.**
  *
  * ‏השאלה „כמה עולה מ״ר בשכונה” נשאלת על מסך אחד, ואינה מצדיקה
- * ‏שליפה של כל מלאי המשרד. אלפיים שורות של ארבע עמודות הן גם
+ * ‏שליפה של כל מלאי המשרד. אלפיים שורות של שלוש עמודות הן גם
  * ‏מדגם גדול בהרבה ממה שממוצע צריך, וגם תקרה שמשרד רגיל לעולם
  * ‏אינו מגיע אליה.
+ *
+ * ‎**והיא חלה בתוך העיר, לא על המשרד כולו.** תקרה משרדית שסוננה
+ * ‏לעיר אחריה הייתה נותנת לנכסים בערים אחרות לדחוק החוצה את בני
+ * ‏ההשוואה של העיר הנדונה — כלומר אמת מידה שנעלמת אף שיש מדגם,
+ * ‏או ממוצע שמשתנה כשמוסיפים מלאי שאינו קשור (ביקורת Codex).
  */
 const BENCHMARK_SCAN_LIMIT = 2000;
 
@@ -1659,28 +1664,55 @@ export class PropertiesService {
        * ‏אמור לשלוף את כולם לשאלה שעל המסך. המיון מהחדש לישן, כי אם
        * ‏בכל זאת נחתך — מה שנשאר הוא גם מה שרלוונטי יותר לשוק היום.
        */
+      const comparable = {
+        tenantId,
+        deletedAt: null,
+        id: { not: subject.id },
+        dealType: subject.dealType,
+        status: { in: [...PRICE_BENCHMARK_STATUSES] },
+        priceAgorot: { gt: 0 },
+        areaSqm: { gt: 0 },
+      };
+
+      /*
+       * ‎**קודם אילו ערים, ורק אז אילו נכסים.**
+       *
+       * ‏הגרסה הראשונה שלפה את כל הנכסים ההשוואתיים של המשרד עם
+       * ‏תקרה, וסיננה לעיר ב-JS אחר כך — כלומר במשרד עם יותר
+       * ‏מ-`BENCHMARK_SCAN_LIMIT` נכסים, נכסים **בערים אחרות** דחקו
+       * ‏החוצה את בני ההשוואה של העיר הנדונה. התוצאה: אמת מידה
+       * ‏שנעלמת אף שיש מדגם, או ממוצע מוטה שמשתנה כשמוסיפים מלאי
+       * ‏שאינו קשור (ביקורת Codex).
+       *
+       * ‏רשימת הערים היא קבוצה קטנה — עשרות ערכים למשרד — ולכן
+       * ‏קיפולה ב-JS אינו עולה דבר, והתקרה חלה עכשיו **בתוך העיר**.
+       * ‏זו אותה צורה בדיוק של השלמת העיר מהשכונה: לקבץ במסד, לקפל
+       * ‏ב-JS, ולא לכתוב כלל שני ב-SQL.
+       */
+      const cities = await tx.property.groupBy({ by: ["city"], where: comparable });
+      const sameCity = cities
+        .map((row) => row.city)
+        .filter((city): city is string => city !== null)
+        .filter((city) => normalizeLocationName(city) === cityKey);
+      if (sameCity.length === 0) return { perSqmAgorot, neighborhood: null, city: null };
+
+      /*
+       * ‎`take` הוא תקרה ולא מדיניות: עיר אחת במשרד אחד אינה אמורה
+       * ‏להגיע לאלפיים נכסים השוואתיים, ואם בכל זאת — המיון מהחדש
+       * ‏לישן משאיר את מה שרלוונטי יותר לשוק היום.
+       */
       const rows = await tx.property.findMany({
-        where: {
-          tenantId,
-          deletedAt: null,
-          id: { not: subject.id },
-          dealType: subject.dealType,
-          status: { in: [...PRICE_BENCHMARK_STATUSES] },
-          priceAgorot: { gt: 0 },
-          areaSqm: { gt: 0 },
-        },
-        select: { city: true, neighborhood: true, priceAgorot: true, areaSqm: true },
+        where: { ...comparable, city: { in: sameCity } },
+        select: { neighborhood: true, priceAgorot: true, areaSqm: true },
         orderBy: { createdAt: "desc" },
         take: BENCHMARK_SCAN_LIMIT,
       });
 
-      const priced = rows.map((row) => ({
-        city: row.city,
+      const inCity = rows.map((row) => ({
         neighborhood: row.neighborhood,
         priceAgorot: row.priceAgorot === null ? null : Number(row.priceAgorot),
         areaSqm: row.areaSqm,
       }));
-      const inCity = priced.filter((row) => normalizeLocationName(row.city ?? "") === cityKey);
       const wanted = subject.neighborhood ?? "";
       const inNeighborhood =
         wanted === ""
