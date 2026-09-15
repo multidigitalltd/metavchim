@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Button } from "@metavchim/ui";
+import { agreementRequiresProperty } from "@metavchim/shared";
 import { apiGet, apiPost, ApiError, apiList } from "@/lib/api";
 import { ConfirmDialog } from "./confirm-dialog";
 import { IconDoc, IconEdit, IconWarning } from "./icons";
@@ -28,6 +29,8 @@ interface AgreementRow {
   url: string;
   createdAt: string;
   canEmail: boolean;
+  /* ‏חסר = ההסכם אינו נוקב בנכס. ראו `AgreementNoPropertyNote`. */
+  propertyId?: string;
 }
 
 const STATUS_LABELS: Record<string, string> = {
@@ -97,6 +100,16 @@ export function AgreementsPanel({
   const [period, setPeriod] = useState("");
   /** הנכס שההסכם חל עליו — נבחר כאן כשהמסך לא מספק אותו */
   const [chosenProperty, setChosenProperty] = useState("");
+  /*
+   * ‎**שלושת הפרטים שמתארים את הנכס, כשאין נכס לקרוא מהם.**
+   *
+   * ‏הם פרטי חובה בתקנות (`REQUIRED_PLACEHOLDERS.brokerage`), ולכן
+   * ‏הזמנה בכתב בלי נכס אינה יכולה פשוט להשאיר אותם ריקים — השרת
+   * ‏דוחה מסמך לא שלם, ובצדק. עם נכס הם נגזרים ממנו ואינם נשלחים.
+   */
+  const [dealText, setDealText] = useState("");
+  const [propertyText, setPropertyText] = useState("");
+  const [priceText, setPriceText] = useState("");
   const [properties, setProperties] = useState<PropertyOption[] | null>(null);
 
   /*
@@ -116,24 +129,34 @@ export function AgreementsPanel({
   useEffect(load, [contactId, kind]);
 
   /*
-   * ההזמנה בכתב נוקבת בנכס מסוים — היא מתארת אותו, ושער ההצעות
-   * מחפש חתימה על אותו נכס בדיוק. מכרטיס הקונה אין נכס בהקשר, ולכן
-   * הוא נבחר כאן; בלי הבחירה המסמך היה נוצר בלי תיאור, מחיר וסוג
-   * עסקה — ולא היה פותח שום הצעה (ביקורת Codex).
+   * ‎**שתי שאלות שונות, ועד כה הן היו אחת.**
+   *
+   * ‏`showPicker` — „האם צריך להציג בורר נכס”. מכרטיס הנכס יש נכס
+   * ‏בהקשר ואין מה לבחור; מכרטיס הקונה אין, ולכן הבורר מוצג.
+   *
+   * ‎`requiresProperty` — „האם הסוג הזה **חייב** נכס”. זו שאלה של
+   * ‏הסכם ולא של מסך, והתשובה עליה יושבת ב-`agreementRequiresProperty`
+   * ‏שבחבילה המשותפת — אותה פונקציה בדיוק שהשרת אוכף בה.
+   *
+   * ‏עד כה המסך דרש נכס בשני הסוגים, בעוד שהשרת דורש אותו בבלעדיות
+   * ‏בלבד: הזמנה בכתב היא התקשרות עם **אדם**, ואפשר לחתום עליה לפני
+   * ‏שיודעים על איזה נכס מדובר. כלומר המסך חסם מסלול שהשרת מתיר,
+   * ‏וזה בדיוק סוג הכפילות שכלל משותף מונע.
    */
-  const needsProperty = propertyId === undefined;
+  const showPicker = propertyId === undefined;
+  const requiresProperty = agreementRequiresProperty(kind);
 
   useEffect(() => {
-    if (!open || !needsProperty || properties !== null) return;
+    if (!open || !showPicker || properties !== null) return;
     apiGet<{ items: PropertyOption[] }>("/properties?limit=100")
       .then((res) => setProperties(apiList(res.items, "items")))
       .catch(() => setProperties([]));
-  }, [open, needsProperty, properties]);
+  }, [open, showPicker, properties]);
 
   const effectiveProperty = propertyId ?? chosenProperty;
 
   async function send(): Promise<void> {
-    if (needsProperty && chosenProperty === "") {
+    if (requiresProperty && effectiveProperty === "") {
       setError("בחרו את הנכס שההסכם חל עליו");
       return;
     }
@@ -152,6 +175,17 @@ export function AgreementsPanel({
           values: {
             ...(fee.trim() !== "" ? { דמי_תיווך: fee.trim() } : {}),
             ...(payment.trim() !== "" ? { מועד_תשלום: payment.trim() } : {}),
+            /*
+             * ‏רק כשאין נכס. עם נכס השרת גוזר אותם מהשורה וגובר על
+             * ‏מה שנשלח — שליחה כאן הייתה רעש, לא מקור שני.
+             */
+            ...(effectiveProperty === ""
+              ? {
+                  ...(dealText.trim() !== "" ? { סוג_העסקה: dealText.trim() } : {}),
+                  ...(propertyText.trim() !== "" ? { תיאור_הנכס: propertyText.trim() } : {}),
+                  ...(priceText.trim() !== "" ? { מחיר_משוער: priceText.trim() } : {}),
+                }
+              : {}),
             ...(kind === "exclusivity" && period.trim() !== ""
               ? { תקופת_בלעדיות: period.trim() }
               : {}),
@@ -326,6 +360,17 @@ export function AgreementsPanel({
                 </div>
               ) : null}
 
+              {/*
+                ‎**וגם אחרי השליחה.** רשימת ההסכמים היא מה שהמתווך
+                ‏חוזר אליו כדי לבדוק „על מה הוא החתים”, והיא הציגה
+                ‏הסכם בלי נכס בדיוק כמו הסכם עם נכס.
+              */}
+              {row.propertyId === undefined ? (
+                <p className="m-0 text-sm" style={{ color: "var(--color-text-muted)" }}>
+                  <IconWarning s={15} /> בלי נכס מסוים — התחייבות כללית, אינה פותחת הצעות על נכס
+                </p>
+              ) : null}
+
               {row.status === "signed" ? (
                 /* המסמך החתום עצמו — עד כה החתימה נשמרה ולא היה מה להראות */
                 <a href={`/agreements/${row.id}/document`} className="text-[length:var(--type-caption-lg)] underline">
@@ -378,13 +423,15 @@ export function AgreementsPanel({
 
       {open ? (
         <div className="flex flex-col gap-3">
-          {needsProperty ? (
+          {showPicker ? (
             <div>
               <label htmlFor={`prop-${kind}`} className="mb-1 block font-medium">
-                הנכס שההסכם חל עליו
+                {requiresProperty ? "הנכס שההסכם חל עליו" : "הנכס שההסכם חל עליו (לא חובה)"}
               </label>
               <p className="m-0 mb-1 text-sm" style={{ color: "var(--color-text-muted)" }}>
-                ההזמנה בכתב מתארת נכס מסוים, וחתימה עליה פותחת הצעות על אותו נכס.
+                {requiresProperty
+                  ? "הסכם בלעדיות נִתן על נכס מסוים, ולכן חובה לבחור אותו."
+                  : "הזמנה בכתב היא התקשרות עם הלקוח. אפשר לחתום עליה גם לפני שידוע על איזה נכס מדובר."}
               </p>
               <select
                 id={`prop-${kind}`}
@@ -393,13 +440,84 @@ export function AgreementsPanel({
                 className="w-full rounded-lg border px-3 py-2.5"
                 style={inputStyle}
               >
-                <option value="">בחרו נכס…</option>
+                {/*
+                  ‎**„בלי נכס מסוים” ולא „בחרו נכס…” כשזה מותר.**
+                  ‏ניסוח שמזמין לבחור מציג בחירה חוקית כשדה שלא מולא,
+                  ‏והמתווך אינו יכול לדעת מהמסך שמותר להשאיר אותו ריק.
+                */}
+                <option value="">{requiresProperty ? "בחרו נכס…" : "בלי נכס מסוים"}</option>
                 {(properties ?? []).map((option) => (
                   <option key={option.id} value={option.id}>
                     {propertyLabel(option)}
                   </option>
                 ))}
               </select>
+              {/*
+                ‎**החיווי שהמתווך ביקש** — ולפני השליחה, לא אחריה.
+                ‏שתי התוצאות כאן אומתו מול הקוד ואינן ניסוח שיווקי:
+                ‏המסמך נוצר בלי תיאור הנכס, המחיר וסוג העסקה (הם
+                ‏נפרסים מהנכס), ו-`signedPairs` מחפש צמד
+                ‏`לקוח:נכס` ומסנן `propertyId` ריק — ולכן חתימה כזו
+                ‏אינה פותחת הצעות על שום נכס.
+              */}
+              {!requiresProperty && effectiveProperty === "" ? (
+                <>
+                  <Notice tone="warning">
+                    <strong>ההסכם ייחתם בלי נכס מהמערכת.</strong> הוא לא יהיה משויך לשום
+                    כרטיס נכס, והחתימה לא תפתח הצעות על נכס מסוים — היא התחייבות כללית של
+                    הלקוח מולכם. כדי שהחתימה תפתח הצעות, בחרו את הנכס.
+                  </Notice>
+                  {/*
+                    ‎**ובכל זאת שלושה שדות, ולא מסמך עם חורים.**
+                    ‏סוג העסקה, תיאור הנכס והמחיר המשוער הם פרטי חובה
+                    ‏בתקנות המתווכים, והנוסח נוקב בהם. בלי נכס לקרוא
+                    ‏מהם — המתווך כותב אותם, ולו במילה כללית („דירה
+                    ‏באזור המרכז”). השרת דוחה מסמך חסר, ולכן שדה ריק
+                    ‏כאן הוא שגיאה מפורשת ולא מסמך שנשלח פגום.
+                  */}
+                  <div className="flex flex-col gap-3">
+                    <div>
+                      <label htmlFor={`deal-${kind}`} className="mb-1 block font-medium">
+                        סוג העסקה *
+                      </label>
+                      <input
+                        id={`deal-${kind}`}
+                        value={dealText}
+                        onChange={(event) => setDealText(event.target.value)}
+                        placeholder="מכר / שכירות"
+                        className="w-full rounded-lg border px-3 py-2.5"
+                        style={inputStyle}
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor={`desc-${kind}`} className="mb-1 block font-medium">
+                        תיאור הנכס *
+                      </label>
+                      <input
+                        id={`desc-${kind}`}
+                        value={propertyText}
+                        onChange={(event) => setPropertyText(event.target.value)}
+                        placeholder="דירת 4 חדרים באזור המרכז"
+                        className="w-full rounded-lg border px-3 py-2.5"
+                        style={inputStyle}
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor={`price-${kind}`} className="mb-1 block font-medium">
+                        מחיר משוער *
+                      </label>
+                      <input
+                        id={`price-${kind}`}
+                        value={priceText}
+                        onChange={(event) => setPriceText(event.target.value)}
+                        placeholder="עד 2,500,000 ₪"
+                        className="w-full rounded-lg border px-3 py-2.5"
+                        style={inputStyle}
+                      />
+                    </div>
+                  </div>
+                </>
+              ) : null}
             </div>
           ) : null}
           <div>
