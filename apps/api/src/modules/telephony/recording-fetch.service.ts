@@ -33,6 +33,7 @@ import {
   RECORDING_PROVIDER_REFUSAL,
   RECORDING_REFUSALS_BEFORE_PAUSE,
   RECORDING_SWEEP_MAX,
+  RECORDING_SWEEP_FAIR_SHARE,
   RECORDING_SWEEP_TICK_MS,
   RECORDING_IMPORT_QUEUE_LIMIT,
   recordingPullResultOf,
@@ -87,6 +88,12 @@ import { TranscriptionService } from "../voice-intake/transcription.service";
  */
 const TICK_MS = RECORDING_SWEEP_TICK_MS;
 const MAX_PER_SWEEP = RECORDING_SWEEP_MAX;
+
+/**
+ * ‏המנה של משרד אחד בסבב אחד — **מיובאת ולא נכתבת**, מאותו נימוק
+ * ‏כמו התקציב עצמו. ההסבר המלא יושב לצד ההגדרה.
+ */
+const FAIR_SHARE_PER_SWEEP = RECORDING_SWEEP_FAIR_SHARE;
 
 /** דקה אחרי העלייה, כדי לא להתחרות על החיבורים בזמן המיגרציות. */
 const FIRST_TICK_DELAY_MS = 60 * 1000;
@@ -288,6 +295,18 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
   private first: NodeJS.Timeout | null = null;
   /** סבב אחד בכל רגע — שניים היו מושכים את אותן שורות פעמיים. */
   private running = false;
+  /**
+   * ‎**מי פותח את הסבב הבא.**
+   *
+   * ‏רשימת המשרדים יציבה (`orderBy: id`), ולכן בלי הסמן הזה אותו
+   * ‏משרד היה ראשון **תמיד** — ואחרי שכל אחד קיבל את מנתו, גם
+   * ‏חלוקת היתרה הייתה מתחילה ממנו בכל פעם. הסמן מזיז את ההתחלה
+   * ‏בכל סבב, כך שהבכורה עוברת.
+   *
+   * ‏בזיכרון בלבד: אחרי הפעלה מחדש הוא מתאפס לאפס, וזה בסדר גמור
+   * ‏— ההגינות נשענת על **המנה**, והסיבוב רק מחלק את היתרה.
+   */
+  private sweepCursor = 0;
   /**
    * מתי יצאה הבקשה האחרונה ל-015 — **לכל הבקשות, לא לכל שיחה.**
    *
@@ -762,13 +781,62 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
     const tenants = await this.prisma.tenant.findMany({
       where: { status: { in: ["active", "trial"] } },
       select: { id: true },
+      /*
+       * ‎**סדר יציב, כדי שהסיבוב יהיה סיבוב.** בלי `orderBy` הסדר
+       * ‏הוא מה שהמסד מחזיר, והוא יכול להשתנות בין ריצות — ואז
+       * ‏„הבא בתור” אינו הבא בתור אלא הגרלה.
+       */
+      orderBy: { id: "asc" },
     });
+    if (tenants.length === 0) return [];
+
+    /*
+     * ‎**מי פותח מתחלף בכל סבב.** ראו `sweepCursor`.
+     */
+    const start = this.sweepCursor % tenants.length;
+    this.sweepCursor = (start + 1) % tenants.length;
+    const order = [...tenants.slice(start), ...tenants.slice(0, start)];
 
     const jobs: RecordingJob[] = [];
-    for (const tenant of tenants) {
+
+    /*
+     * ‎**מעבר ראשון — מנה שווה, ולא „מי שהגיע ראשון”.**
+     *
+     * ‏זה התיקון עצמו: קודם הלולאה נתנה למשרד הראשון את **כל**
+     * ‏התקציב הפנוי, ומשרד עם מאה הקלטות ממתינות הרעיב את כל
+     * ‏השאר — סבב אחר סבב, עד שסיים. עכשיו אף אחד אינו יכול לקחת
+     * ‏יותר מ-`FAIR_SHARE_PER_SWEEP` לפני שכולם קיבלו.
+     */
+    for (const tenant of order) {
       // התקציב גלובלי, ולכן נבדק לפני כל משרד ולא רק בסופו
       if (jobs.length >= MAX_PER_SWEEP) break;
-      jobs.push(...(await this.pendingFor(tenant.id, now, MAX_PER_SWEEP - jobs.length)));
+      const room = Math.min(FAIR_SHARE_PER_SWEEP, MAX_PER_SWEEP - jobs.length);
+      jobs.push(...(await this.pendingFor(tenant.id, now, room)));
+    }
+
+    /*
+     * ‎**מעבר שני — היתרה, למי שמנתו לא הספיקה לו.**
+     *
+     * ‏בלי זה מנה שווה הייתה הופכת לבזבוז: משרד יחיד שעובד לבדו
+     * ‏היה מושך חמש הקלטות בסבב במקום עשרים, וההגינות הייתה עולה
+     * ‏למי שאין לו מתחרים כלל.
+     *
+     * ‎`mine.length < FAIR_SHARE_PER_SWEEP` הוא הסימן ש**נגמרו לו**:
+     * ‏מי שלא מילא את מנתו אין לו עוד מה למשוך, ושאילתה נוספת עליו
+     * ‏תחזור ריקה. מי שמילא אותה — נשאל שוב, בלי מה שכבר נבחר.
+     */
+    for (const tenant of order) {
+      if (jobs.length >= MAX_PER_SWEEP) break;
+      const mine = jobs.filter((job) => job.tenantId === tenant.id);
+      if (mine.length < FAIR_SHARE_PER_SWEEP) continue;
+      jobs.push(
+        ...(await this.pendingFor(
+          tenant.id,
+          now,
+          MAX_PER_SWEEP - jobs.length,
+          mine.map((job) => job.callId),
+        )),
+      );
     }
     return jobs;
   }
@@ -790,7 +858,18 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
    * מתעדכנת גם אם התהליך נופל באמצע הסבב. הכתיבה היחידה הזו היא גם
    * מה שמונע משתי הרצות במקביל לבחור את אותן שורות.
    */
-  private async pendingFor(tenantId: string, now: number, take: number): Promise<RecordingJob[]> {
+  private async pendingFor(
+    tenantId: string,
+    now: number,
+    take: number,
+    /**
+     * ‏שיחות שכבר נבחרו לסבב הזה — למעבר היתרה.
+     *
+     * ‏בלעדיו המעבר השני היה מחזיר בדיוק את אותן שורות: החותמת
+     * ‏נכתבת רק כשמתחילים למשוך (`claim`), ולא בבחירה.
+     */
+    exclude: readonly string[] = [],
+  ): Promise<RecordingJob[]> {
     return this.prisma.withExplicitTenant(tenantId, async (tx) => {
       const integration = await tx.integration.findFirst({
         where: { tenantId, ...PULLING_CONNECTION },
@@ -851,6 +930,8 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
           providerRecordingPath: { not: null },
           recordingKey: null,
           providerCallId: { not: null },
+          /* ‏מה שכבר נבחר בסבב הזה — ראו `exclude` */
+          ...(exclude.length > 0 ? { id: { notIn: [...exclude] } } : {}),
           /*
            * שיחה שלא נענתה אינה נמשכת — ראו `recordingWorthPulling`.
            * מה שיש בקובץ שלה הוא הודעת הפתיחה של המשרד ואולי צפצוף
