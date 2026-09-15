@@ -11,6 +11,7 @@ import {
   importSentences,
   recordingQueueFloor,
   RECORDING_SWEEP_MAX,
+  RECORDING_PROMISE_MS,
 } from "./recording-state";
 import { UNANSWERED_OUTCOMES } from "./telephony";
 
@@ -141,6 +142,81 @@ describe("recordingStateOf", () => {
         now,
       ),
     ).toEqual({ state: "pending" });
+  });
+
+  /*
+   * ‎**ההמתנה הארוכה — התקלה שהגיעה מהשטח בניסוח הזה בדיוק:**
+   * ‏„הכיתוב ההקלטה בדרך מהמרכזייה מופיע כבר הרבה שעות וזה לא מגיע
+   * ‏בפועל”. שני מצבים שנראו זהים — אחד באמת בדרך, אחד שאיש אינו
+   * ‏מגיע אליו — ושניהם הבטיחו זמן.
+   */
+  it("נוסתה ולא הותירה לא הקלטה ולא סיבה — „לא קיבלנו תשובה”, ולא „בדרך”", () => {
+    expect(
+      recordingStateOf(
+        {
+          providerRecordingPath: "54936/12048/record_1_2",
+          providerRecordingAttemptAt: new Date(now - 9 * hour),
+          occurredAt: new Date(now - 9 * hour),
+        },
+        now,
+      ),
+    ).toEqual({ state: "stalled" });
+  });
+
+  /*
+   * ‎**חותמת ניסיון ריקה נשארת „בדרך” — ויהא גיל השיחה אשר יהא.**
+   *
+   * ‏זה הצד השני של אותה הכרעה, והוא מה שמגן על „נסו למשוך שוב”:
+   * ‏הלחיצה מאפסת את החותמת ומחזירה את השיחה לראש התור, ואם הגיל
+   * ‏היה הקובע — היא הייתה נשארת „לא קיבלנו תשובה” מיד אחרי
+   * ‏הלחיצה, כלומר כפתור שנראה כאילו אינו עושה דבר.
+   */
+  it("חותמת ניסיון ריקה על שיחה ישנה — עדיין בדרך, כי היא בראש התור", () => {
+    expect(
+      recordingStateOf(
+        {
+          providerRecordingPath: "54936/12048/record_1_2",
+          providerRecordingAttemptAt: null,
+          occurredAt: new Date(now - 9 * hour),
+        },
+        now,
+      ),
+    ).toEqual({ state: "pending" });
+  });
+
+  /*
+   * ‏בתוך חלון הניסיון החוזר אין עדיין מה לומר: הסבב חוזר לשיחה
+   * ‏צעירה כל חמש דקות, ולשאר כל חצי שעה.
+   */
+  it("נוסתה לפני 40 דקות — עדיין בדרך, הניסיון החוזר טרם אזל", () => {
+    expect(
+      recordingStateOf(
+        {
+          providerRecordingPath: "54936/12048/record_1_2",
+          providerRecordingAttemptAt: minutesAgo(40),
+          occurredAt: minutesAgo(50),
+        },
+        now,
+      ),
+    ).toEqual({ state: "pending" });
+  });
+
+  /*
+   * ‏סיבה רשומה גוברת: היא אומרת **מה** קרה, ו„ממתינה זמן חריג”
+   * ‏אומר רק שלא קרה כלום. שיחה שנוסתה ונכשלה אינה תקועה בתור.
+   */
+  it("סיבה רשומה גוברת על ההמתנה הארוכה", () => {
+    expect(
+      recordingStateOf(
+        {
+          providerRecordingPath: "54936/12048/record_1_2",
+          providerRecordingError: "network_error",
+          providerRecordingAttemptAt: minutesAgo(40),
+          occurredAt: new Date(now - 9 * hour),
+        },
+        now,
+      ),
+    ).toEqual({ state: "retrying", reason: "network_error" });
   });
 
   it("אין חיבור פעיל — חסומה, ולא „ננסה שוב”", () => {
@@ -517,5 +593,39 @@ describe("recordingPullHealth — מצב משיכת ההקלטות של משרד
     });
     expect(health.level).toBe("unknown");
     expect(health.sentence).toContain("אינו פעיל");
+  });
+});
+
+/*
+ * ‎**ההבטחה שעל המסך נגזרת מהמספרים שמאחוריה.**
+ *
+ * ‏„נמשכת תוך דקות” היה ניסוח שלא נגזר מדבר: הוא נכתב פעם אחת,
+ * ‏ולא היה יכול להפסיק להיות נכון כשקצב הסבב או זמן החסד זזו.
+ * ‏הבדיקה כאן היא על הקשר עצמו, ולא על המחרוזת.
+ */
+describe("ההבטחה על המסך", () => {
+  it("„בדרך” נוקבת בזמן, והזמן הוא בדיוק RECORDING_PROMISE_MS", () => {
+    const label = recordingStateLabel({ state: "pending" });
+    expect(label).toContain(`${RECORDING_PROMISE_MS / 60_000} דקות`);
+    // ‏עשר דקות: חמש לזמן החסד ועוד טיק אחד של הסבב
+    expect(RECORDING_PROMISE_MS).toBe(10 * 60 * 1000);
+  });
+
+  /*
+   * ‎**ומצב ההמתנה החריגה אינו נוקב בזמן — כי אין לו.** זו כל
+   * ‏הנקודה: המסך הפסיק להבטיח מה שאינו יודע.
+   */
+  it("„לא קיבלנו תשובה” אינה מבטיחה דקות", () => {
+    expect(recordingStateLabel({ state: "stalled" })).not.toContain("דקות");
+  });
+
+  /*
+   * ‏חריגה בלתי צפויה נרשמת כסיבה, ולכן היא חייבת ניסוח משלה —
+   * ‏„הסיבה אינה ידועה” נאמר על **היעדר** סיבה, וזה ההפך.
+   */
+  it("שגיאה לא צפויה אומרת שניסינו ונפלנו", () => {
+    const label = recordingReasonLabel("unexpected_error");
+    expect(label).not.toBe(recordingReasonLabel(undefined));
+    expect(label).toContain("לא צפויה");
   });
 });
