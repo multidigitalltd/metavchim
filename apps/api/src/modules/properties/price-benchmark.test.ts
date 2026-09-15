@@ -45,7 +45,7 @@ describe("אמת המידה של המחיר למ״ר", () => {
   });
 
   it("ו„אותה עיר” באותו נרמול של שמות מקום", () => {
-    expect(benchmark).toContain("normalizeLocationName(row.city ?? \"\") === cityKey");
+    expect(benchmark).toContain("normalizeLocationName(city) === cityKey");
   });
 
   /*
@@ -56,8 +56,28 @@ describe("אמת המידה של המחיר למ״ר", () => {
     expect(benchmark).toContain('wanted === ""');
   });
 
-  /* ‏השאלה נשאלת על מסך אחד ואינה מצדיקה שליפה של כל המלאי */
-  it("ויש תקרה לשליפה", () => {
+  /*
+   * ‎**התקרה חלה בתוך העיר, ולא על המשרד כולו.**
+   *
+   * ‏תקרה משרדית שסוננה לעיר אחריה נותנת לנכסים בערים אחרות לדחוק
+   * ‏החוצה את בני ההשוואה של העיר הנדונה: אמת המידה נעלמת אף שיש
+   * ‏מדגם, או משתנה כשמוסיפים מלאי שאינו קשור (ביקורת Codex).
+   *
+   * ‏הסדר הוא מה שנבדק: קיבוץ הערים **לפני** שליפת הנכסים, והתקרה
+   * ‏על השנייה.
+   */
+  it("ויש תקרה לשליפה — בתוך העיר, ולא לפני הסינון אליה", () => {
+    expect(benchmark).toContain('tx.property.groupBy({ by: ["city"], where: comparable })');
+    expect(benchmark).toContain("where: { ...comparable, city: { in: sameCity } }");
     expect(benchmark).toContain("take: BENCHMARK_SCAN_LIMIT");
+    expect(benchmark.indexOf("groupBy")).toBeLessThan(benchmark.indexOf("take: BENCHMARK_SCAN_LIMIT"));
+  });
+
+  /*
+   * ‏עיר שאין בה ולו נכס השוואתי אחד חוסכת את השליפה השנייה —
+   * ‏ו„אין מה להשוות” הוא `null`, לא ממוצע על רשימה ריקה.
+   */
+  it("ועיר בלי בני השוואה חוזרת מיד", () => {
+    expect(benchmark).toContain("if (sameCity.length === 0) return");
   });
 });
