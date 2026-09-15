@@ -114,6 +114,16 @@ export function LocationPicker({
   const [note, setNote] = useState<string | null>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
   const markerRef = useRef<Marker | null>(null);
+  /*
+   * ‎**המפה מוכנה — במצב ולא רק ב-`ref`.**
+   *
+   * ‏המפה נוצרת אחרי ש-`/maps/config` חוזר, כלומר הרבה אחרי
+   * ‏הרינדור הראשון. השמה ל-`ref` אינה מרנדרת, ולכן אפקט
+   * ‏שיצא מוקדם על `mapRef.current === null` לא היה רץ שוב לעולם —
+   * ‏ובעריכת קונה עם אזורים שמורים, שבה אף תלות אחרת אינה
+   * ‏משתנה, העיגולים פשוט לא הופיעו (ביקורת Codex).
+   */
+  const [mapReady, setMapReady] = useState(false);
 
   useEffect(() => {
     apiGet<{ forward: boolean; reverse: boolean }>("/maps/capabilities")
@@ -263,7 +273,7 @@ export function LocationPicker({
      */
     if (map.isStyleLoaded()) draw();
     else map.once("load", draw);
-  }, [hasPoint, radiusKm, otherAreas, value.latitude, value.longitude]);
+  }, [mapReady, hasPoint, radiusKm, otherAreas, value.latitude, value.longitude]);
 
   return (
     <div>
@@ -327,6 +337,8 @@ export function LocationPicker({
         zoom={hasPoint ? 16 : 12}
         onReady={(map) => {
           mapRef.current = map;
+          /* ‏מרנדר מחדש, ולכן אפקט העיגולים רץ עכשיו שהמפה קיימת */
+          setMapReady(true);
           if (hasPoint) placeMarker(value.latitude!, value.longitude!, value.locationSource ?? "pin");
           if (disabled) return;
           // לחיצה על המפה מציבה סיכה — הדרך המהירה כשאין כתובת מדויקת
