@@ -207,7 +207,7 @@ describe("30 הימים הראשונים — בבוקר ובשיחה", () => {
       firstName: "דנה",
       onboarding: { morningLine: null, stepBody: day1.step.body },
     });
-    expect(plan?.body).toContain("3 הצעות השבוע.");
+    expect(plan?.body).toContain("🌱 3 הצעות השבוע.");
     // בתחילת שבוע — המיקוד ראשון, לפני הכול
     const sunday = new Date("2026-09-06T06:00:00.000Z");
     const first = mentorDailyPlan({
@@ -218,7 +218,8 @@ describe("30 הימים הראשונים — בבוקר ובשיחה", () => {
         stepBody: day8.step.body,
       },
     });
-    expect(first?.body).toMatch(/^בוקר טוב\. יום 8 מתוך 30 — להוסיף: /u);
+    /* הברכה בשורה משלה, והמיקוד הוא השורה הראשונה שאחריה */
+    expect(first?.body).toMatch(/^בוקר טוב\.\n\n🌱 יום 8 מתוך 30 — להוסיף: /u);
     // ההזמנה הרגילה של יום ראשון אינה נאמרת פעמיים
     expect(first?.body).not.toContain("השבוע עוד בלי יעד");
   });

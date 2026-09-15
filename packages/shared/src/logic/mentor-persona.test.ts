@@ -141,14 +141,14 @@ describe("הסגנון משנה איך אומרים — לא מה", () => {
       firstName: "דנה",
       persona: { name: "נועה", style: "direct" },
     });
-    expect(direct?.body).toMatch(/^בוקר טוב דנה, כאן נועה\. /u);
+    expect(direct?.body).toMatch(/^בוקר טוב דנה, כאן נועה\.\n\n/u);
     expect(direct?.body).toMatch(/זה בהישג יד\. לעבודה\.$/u);
     const warm = mentorDailyPlan({
       goals: [behindGoal],
       now: monday,
       firstName: "דנה",
     });
-    expect(warm?.body).toMatch(/^בוקר טוב דנה\. /u);
+    expect(warm?.body).toMatch(/^בוקר טוב דנה\.\n\n/u);
     expect(warm?.body).toMatch(/ואני איתך\.$/u);
     expect(mentorCadence("calm").morning).toBe(false);
     expect(mentorCadence("warm").morning).toBe(true);

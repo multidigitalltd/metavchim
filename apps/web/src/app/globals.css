@@ -8831,6 +8831,8 @@ a.mv-bar-row:focus-visible {
   color: var(--color-text-muted);
   margin: 7px 0 0;
   line-height: 1.45;
+  /* ‏גוף המנטור נכתב שורה לכל פריט — בלי זה הדפדפן מאחד אותן לפסקה. */
+  white-space: pre-line;
 }
 .mv-actioncard__cta {
   font-size: var(--type-body-sm);

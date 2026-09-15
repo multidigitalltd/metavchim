@@ -840,9 +840,18 @@ export function templateParams(items: readonly NotifyItem[]): [string, string] {
   return [flatten(headline, 120), flatten(detail, 300)];
 }
 
-/** תבנית של Meta דוחה שורות חדשות, טאבים ורצף רווחים כפולים. */
+/**
+ * תבנית של Meta דוחה שורות חדשות, טאבים ורצף רווחים כפולים.
+ *
+ * ‏השורה הופכת ל-`·` ולא לרווח: גוף ההתראה בנוי שורה לכל פריט
+ * ‏(ראו `mentorMessageBody`), והדבקה ברווח החזירה בדיוק את גוש
+ * ‏הטקסט שהשורות באו למנוע.
+ */
 function flatten(text: string, max: number): string {
-  const cleaned = text.replace(/\s+/gu, " ").trim();
+  const cleaned = text
+    .replace(/[^\S\n]*\n[\s]*/gu, " · ")
+    .replace(/\s+/gu, " ")
+    .trim();
   return cleaned.length > max
     ? `${cleaned.slice(0, max - 1)}…`
     : cleaned || "עדכון";

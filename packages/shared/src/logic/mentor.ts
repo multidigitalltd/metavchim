@@ -1204,21 +1204,22 @@ export function mentorMidweekNudge(
   )[0]!;
   const label = mentorGoalLabel(focus.metric, focus.target, focus.period);
   const left = workdaysLeftLabel(now);
-  const parts = [
+  const lines = [
     focus.actual === 0
-      ? `${mentorGreeting(firstName)}${label}: עדיין לא התחיל, ${left}.`
-      : `${mentorGreeting(firstName)}${label}: ${mentorQuantity(focus.metric, focus.actual)} עד עכשיו, עוד ${mentorQuantity(focus.metric, focus.remaining)} ליעד — ${left}.`,
+      ? `🎯 ${mentorGreeting(firstName)}${label}: עדיין לא התחיל, ${left}.`
+      : `🎯 ${mentorGreeting(firstName)}${label}: ${mentorQuantity(focus.metric, focus.actual)} עד עכשיו, עוד ${mentorQuantity(focus.metric, focus.remaining)} ליעד — ${left}.`,
   ];
   if (focus.intention !== undefined && focus.intention.trim() !== "") {
-    parts.push(`התוכנית שכתבת: „${focus.intention.trim()}”.`);
+    lines.push(`📝 התוכנית שכתבת: „${focus.intention.trim()}”.`);
   }
   if (focus.why !== undefined && focus.why.trim() !== "") {
-    parts.push(`זה בשביל: ${focus.why.trim()}.`);
+    lines.push(`❤️ זה בשביל: ${focus.why.trim()}.`);
   }
-  parts.push(mentorCloser(persona.style, true));
   return {
     title: `🧭 אמצע השבוע — ${label}`,
-    body: parts.join(" "),
+    /* ‏הפנייה בשם נשארת דבוקה לשורה הראשונה — „דנה,” לבדה על שורה
+     * ‏אינה ברכה אלא כותרת, והפסיק שאחריה מסגיר משפט שנקטע. */
+    body: mentorMessageBody("", lines, mentorCloser(persona.style, true)),
     metric: focus.metric,
   };
 }
@@ -1281,6 +1282,41 @@ function workdaysLeftIncludingToday(weekday: number): number {
   return Math.max(0, 4 - weekday) + 1 + 0.5;
 }
 
+/**
+ * ‎**גוף הודעת מנטור — שורה לכל דבר, ולא פסקה אחת.**
+ *
+ * ## הבעיה
+ *
+ * ‏הגוף חובר ברווח: `[greeting, ...lines, closer].join(" ")`. התוצאה
+ * ‏היא גוש טקסט של חמש-שש שורות שנשפכות זו לתוך זו — בפעמון, בכרטיס
+ * ‏המנטור ובוואטסאפ כאחד. מתווך שפותח את הטלפון בבוקר צריך לסרוק את
+ * ‏זה בשלוש שניות, ופסקה רצופה היא בדיוק מה שגורם לו **לא לקרוא**.
+ *
+ * ## מה נקבע כאן
+ *
+ * ‏ברכה, שורה ריקה, שורה לכל פריט, שורה ריקה, סיום. שורה ריקה ולא
+ * ‏רגילה: וואטסאפ מציג ירידת שורה בודדת צפוף מדי מכדי שהעין תתפוס
+ * ‏שמדובר בפריטים נפרדים.
+ *
+ * ‏כל פריט נושא סמל משלו — 🎯 ליעד, 📞 לשיחה שמחכה, 💡 לרעיון. הסמל
+ * ‏אינו קישוט: הוא מה שמאפשר לזהות את סוג השורה בלי לקרוא אותה,
+ * ‏וזה ההבדל בין הודעה שנסרקת להודעה שנדחית.
+ *
+ * ‏מחוץ לחלון 24 השעות ההודעה יוצאת כתבנית מאושרת, ו-Meta אינה
+ * ‏מתירה ירידות שורה בערך של תבנית. שם הקיפול הופך כל שורה למפרידה
+ * ‏‎`·` (ראו `flatten`) — צר יותר, אבל עדיין פריטים ולא גוש.
+ */
+export function mentorMessageBody(
+  greeting: string,
+  lines: readonly string[],
+  closer: string,
+): string {
+  return [greeting, "", ...lines, "", closer]
+    .filter((part, index, all) => part !== "" || (all[index - 1] ?? "") !== "")
+    .join("\n")
+    .trim();
+}
+
 export function mentorDailyPlan(
   input: MentorDailyInput,
 ): { title: string; body: string } | null {
@@ -1299,7 +1335,7 @@ export function mentorDailyPlan(
       .map((m) => mentorQuantity(m.code, yesterday[m.code]));
     if (effort.length > 0) {
       lines.push(
-        `אתמול: ${andJoin(effort)}. ${effort.length > 1 ? "יום מלא." : "יפה."}`,
+        `✅ אתמול: ${andJoin(effort)}. ${effort.length > 1 ? "יום מלא." : "יפה."}`,
       );
     }
   }
@@ -1313,7 +1349,7 @@ export function mentorDailyPlan(
   for (const goal of weekly) {
     const label = mentorGoalLabel(goal.metric, goal.target, goal.period);
     if (goal.pace === "done") {
-      lines.push(`${label} — כבר הושג. 🎯`);
+      lines.push(`🎯 ${label} — כבר הושג.`);
       continue;
     }
     if (goal.pace === "behind") anyBehind = true;
@@ -1323,24 +1359,24 @@ export function mentorDailyPlan(
     );
     lines.push(
       goal.actual === 0
-        ? `${label}: עוד לא התחיל. ${today} היום — התחלה טובה.`
-        : `${label}: ${mentorQuantity(goal.metric, goal.actual)} עד עכשיו. ${today} היום ${goal.pace === "behind" ? "כדי לחזור לקצב" : "כדי להישאר בקצב"}.`,
+        ? `🎯 ${label}: עוד לא התחיל. ${today} היום — התחלה טובה.`
+        : `🎯 ${label}: ${mentorQuantity(goal.metric, goal.actual)} עד עכשיו. ${today} היום ${goal.pace === "behind" ? "כדי לחזור לקצב" : "כדי להישאר בקצב"}.`,
     );
   }
 
   // פעם בשבוע, ביום שני: קונה אחד ומכשול אחד (§7.6) — שיפוט, לא תזכורת
-  if (weekday === 1 && input.closestDeal) lines.push(input.closestDeal);
+  if (weekday === 1 && input.closestDeal) lines.push(`🤝 ${input.closestDeal}`);
 
   const missed = input.insights?.missedUnreturned ?? 0;
   if (missed === 1) {
-    lines.push("שיחה נכנסת אחת מחכה לטלפון חוזר — שווה להתחיל ממנה.");
+    lines.push("📞 שיחה נכנסת אחת מחכה לטלפון חוזר — שווה להתחיל ממנה.");
   } else if (missed > 1) {
-    lines.push(`${missed} שיחות נכנסות מחכות לטלפון חוזר — שווה להתחיל מהן.`);
+    lines.push(`📞 ${missed} שיחות נכנסות מחכות לטלפון חוזר — שווה להתחיל מהן.`);
   }
 
   if (input.goals.length === 0 && weekday === 0 && !input.onboarding) {
     lines.push(
-      "השבוע עוד בלי יעד. יעד אחד קטן — למשל 5 הצעות — נותן לשבוע כיוון. אפשר לכתוב לי „תקבע לי יעד של 5 הצעות בשבוע”.",
+      "🧭 השבוע עוד בלי יעד. יעד אחד קטן — למשל 5 הצעות — נותן לשבוע כיוון. אפשר לכתוב לי „תקבע לי יעד של 5 הצעות בשבוע”.",
     );
   }
 
@@ -1351,8 +1387,8 @@ export function mentorDailyPlan(
    */
   if (input.onboarding) {
     if (input.onboarding.morningLine !== null)
-      lines.unshift(input.onboarding.morningLine);
-    if (lines.length === 0) lines.push(input.onboarding.stepBody);
+      lines.unshift(`🌱 ${input.onboarding.morningLine}`);
+    if (lines.length === 0) lines.push(`🌱 ${input.onboarding.stepBody}`);
   }
 
   if (lines.length === 0) return null;
@@ -1361,15 +1397,15 @@ export function mentorDailyPlan(
   if (idea !== "")
     lines.push(
       input.ideaProven === true
-        ? `רעיון להיום — עבד אצל אחרים במשרד: ${idea}`
-        : `רעיון להיום: ${idea}`,
+        ? `💡 רעיון להיום — עבד אצל אחרים במשרד: ${idea}`
+        : `💡 רעיון להיום: ${idea}`,
     );
   const persona = input.persona ?? DEFAULT_MENTOR_PERSONA;
   const greeting = mentorSalutation("בוקר טוב", name, persona);
   const closer = mentorCloser(persona.style, anyBehind);
   return {
     title: "🌅 היום שלך",
-    body: [greeting, ...lines, closer].join(" "),
+    body: mentorMessageBody(greeting, lines, closer),
   };
 }
 
