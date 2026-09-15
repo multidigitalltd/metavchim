@@ -100,6 +100,16 @@ export function AgreementsPanel({
   const [period, setPeriod] = useState("");
   /** הנכס שההסכם חל עליו — נבחר כאן כשהמסך לא מספק אותו */
   const [chosenProperty, setChosenProperty] = useState("");
+  /*
+   * ‎**שלושת הפרטים שמתארים את הנכס, כשאין נכס לקרוא מהם.**
+   *
+   * ‏הם פרטי חובה בתקנות (`REQUIRED_PLACEHOLDERS.brokerage`), ולכן
+   * ‏הזמנה בכתב בלי נכס אינה יכולה פשוט להשאיר אותם ריקים — השרת
+   * ‏דוחה מסמך לא שלם, ובצדק. עם נכס הם נגזרים ממנו ואינם נשלחים.
+   */
+  const [dealText, setDealText] = useState("");
+  const [propertyText, setPropertyText] = useState("");
+  const [priceText, setPriceText] = useState("");
   const [properties, setProperties] = useState<PropertyOption[] | null>(null);
 
   /*
@@ -165,6 +175,17 @@ export function AgreementsPanel({
           values: {
             ...(fee.trim() !== "" ? { דמי_תיווך: fee.trim() } : {}),
             ...(payment.trim() !== "" ? { מועד_תשלום: payment.trim() } : {}),
+            /*
+             * ‏רק כשאין נכס. עם נכס השרת גוזר אותם מהשורה וגובר על
+             * ‏מה שנשלח — שליחה כאן הייתה רעש, לא מקור שני.
+             */
+            ...(effectiveProperty === ""
+              ? {
+                  ...(dealText.trim() !== "" ? { סוג_העסקה: dealText.trim() } : {}),
+                  ...(propertyText.trim() !== "" ? { תיאור_הנכס: propertyText.trim() } : {}),
+                  ...(priceText.trim() !== "" ? { מחיר_משוער: priceText.trim() } : {}),
+                }
+              : {}),
             ...(kind === "exclusivity" && period.trim() !== ""
               ? { תקופת_בלעדיות: period.trim() }
               : {}),
@@ -440,11 +461,62 @@ export function AgreementsPanel({
                 ‏אינה פותחת הצעות על שום נכס.
               */}
               {!requiresProperty && effectiveProperty === "" ? (
-                <Notice tone="warning">
-                  <strong>ההסכם ייחתם בלי נכס בתוכו.</strong> המסמך לא ינקוב בכתובת, במחיר
-                  ובסוג העסקה, והחתימה לא תפתח הצעות על נכס מסוים — היא התחייבות כללית של
-                  הלקוח מולכם. כדי שהחתימה תפתח הצעות, בחרו את הנכס.
-                </Notice>
+                <>
+                  <Notice tone="warning">
+                    <strong>ההסכם ייחתם בלי נכס מהמערכת.</strong> הוא לא יהיה משויך לשום
+                    כרטיס נכס, והחתימה לא תפתח הצעות על נכס מסוים — היא התחייבות כללית של
+                    הלקוח מולכם. כדי שהחתימה תפתח הצעות, בחרו את הנכס.
+                  </Notice>
+                  {/*
+                    ‎**ובכל זאת שלושה שדות, ולא מסמך עם חורים.**
+                    ‏סוג העסקה, תיאור הנכס והמחיר המשוער הם פרטי חובה
+                    ‏בתקנות המתווכים, והנוסח נוקב בהם. בלי נכס לקרוא
+                    ‏מהם — המתווך כותב אותם, ולו במילה כללית („דירה
+                    ‏באזור המרכז”). השרת דוחה מסמך חסר, ולכן שדה ריק
+                    ‏כאן הוא שגיאה מפורשת ולא מסמך שנשלח פגום.
+                  */}
+                  <div className="flex flex-col gap-3">
+                    <div>
+                      <label htmlFor={`deal-${kind}`} className="mb-1 block font-medium">
+                        סוג העסקה *
+                      </label>
+                      <input
+                        id={`deal-${kind}`}
+                        value={dealText}
+                        onChange={(event) => setDealText(event.target.value)}
+                        placeholder="מכר / שכירות"
+                        className="w-full rounded-lg border px-3 py-2.5"
+                        style={inputStyle}
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor={`desc-${kind}`} className="mb-1 block font-medium">
+                        תיאור הנכס *
+                      </label>
+                      <input
+                        id={`desc-${kind}`}
+                        value={propertyText}
+                        onChange={(event) => setPropertyText(event.target.value)}
+                        placeholder="דירת 4 חדרים באזור המרכז"
+                        className="w-full rounded-lg border px-3 py-2.5"
+                        style={inputStyle}
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor={`price-${kind}`} className="mb-1 block font-medium">
+                        מחיר משוער *
+                      </label>
+                      <input
+                        id={`price-${kind}`}
+                        value={priceText}
+                        onChange={(event) => setPriceText(event.target.value)}
+                        placeholder="עד 2,500,000 ₪"
+                        className="w-full rounded-lg border px-3 py-2.5"
+                        style={inputStyle}
+                      />
+                    </div>
+                  </div>
+                </>
               ) : null}
             </div>
           ) : null}
