@@ -141,6 +141,10 @@ const GROUPS: { label: string; ids: readonly string[] }[] = [
     ],
   },
   {
+    label: "הפורום המקצועי",
+    ids: ["forum_latest", "forum_search", "forum_ask", "forum_reply", "forum_follow"],
+  },
+  {
     label: "עזרה",
     ids: ["open_support_ticket", "show_support_tickets", "set_preference"],
   },

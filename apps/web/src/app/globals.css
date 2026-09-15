@@ -6575,3 +6575,164 @@ a.mv-bar-row:focus-visible {
   font-size: calc(14 / 16 * 1rem);
   color: var(--color-text-muted);
 }
+
+/* ======================================================================
+   הפורום המקצועי (docs/14)
+   ----------------------------------------------------------------------
+   מעט מחלקות משלו: שורת שרשור, תגובה, גוף טקסט של משתמש, תיבת
+   „בעילום שם”, כוכבים ותוצאת מחשבון. כל השאר — כרטיסים, גלולות,
+   כפתורים, שדות — הן המחלקות הקיימות של המערכת. צבעים בטוקנים בלבד:
+   שני המצבים נגזרים מהם.
+   ====================================================================== */
+
+/* שורת שרשור — כרטיס לחיץ, הכותרת היא הקישור כולו */
+.mv-forum-thread {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 16px 18px;
+  border: 1px solid var(--color-border);
+  border-radius: 16px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.mv-forum-thread:hover {
+  border-color: var(--color-primary-accent);
+  box-shadow: var(--shadow-card);
+  text-decoration: none;
+}
+.mv-forum-thread:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+.mv-forum-thread__title {
+  font-size: var(--type-row-title);
+  font-weight: 800;
+  letter-spacing: var(--type-row-title-track);
+  line-height: 1.4;
+  color: var(--color-text);
+}
+.mv-forum-thread__stats {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  font-size: var(--type-caption-lg);
+  font-weight: 800;
+  color: var(--color-text-muted);
+}
+
+/* תגובה — כרטיס שקט; התשובה המקובלת מסומנת במסגרת ירוקה */
+.mv-forum-post {
+  padding: 16px 18px;
+  border: 1px solid var(--color-border);
+  border-radius: 16px;
+  background: var(--color-surface);
+}
+.mv-forum-post--accepted {
+  border-color: var(--color-success);
+  background: var(--color-success-soft);
+}
+.mv-forum-post--hidden {
+  opacity: 0.6;
+  border-style: dashed;
+}
+
+/*
+ * טקסט של משתמש — כפי שנכתב. `pre-wrap` שומר שורות ריקות בין
+ * פסקאות, ו-`anywhere` מונע מקישור ארוך לפרוץ את הכרטיס. אין כאן
+ * HTML: React בורח מהכול, וזו כל ההגנה שצריך.
+ */
+.mv-forum-body {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.65;
+  font-size: var(--type-body);
+}
+
+/* תיבת „בעילום שם” — הבחירה הזו מקבלת מסגרת משלה, כי היא ההבטחה */
+.mv-forum-anon {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  /* גבול פקד ולא מסגרת דקורטיבית: זו תיבת סימון, והיא נמדדת כפקד */
+  border: 1px solid var(--color-input-border);
+  border-radius: 12px;
+  background: var(--color-surface-sunken);
+  font-size: var(--type-body-sm);
+  cursor: pointer;
+}
+.mv-forum-anon > input {
+  margin-top: 4px;
+}
+.mv-forum-anon__hint {
+  display: block;
+  margin-top: 2px;
+  font-size: var(--type-caption);
+  font-weight: 500;
+  color: var(--color-text-muted);
+  line-height: 1.5;
+}
+
+/* כוכבים — ענבר לדירוג, אפור-נתונים לריק (עומד בניגודיות של טקסט, כי הכפתור נמדד כטקסט) */
+.mv-stars {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  color: var(--color-data-muted);
+}
+.mv-stars > [data-on] {
+  color: var(--domain-amber-fg);
+}
+.mv-stars__text {
+  margin-inline-start: 6px;
+  font-size: var(--type-caption);
+  font-weight: 800;
+  color: var(--color-text-muted);
+}
+.mv-stars--input {
+  gap: 4px;
+}
+.mv-stars--input > button {
+  border: none;
+  background: transparent;
+  padding: 4px;
+  cursor: pointer;
+  color: var(--color-data-muted);
+  border-radius: 8px;
+}
+.mv-stars--input > button[data-on] {
+  color: var(--domain-amber-fg);
+}
+.mv-stars--input > button:hover {
+  color: var(--domain-amber-fg);
+}
+.mv-stars--input > button:focus-visible {
+  outline: 2px solid var(--color-focus);
+}
+
+/* תוצאת מחשבון — תווית קטנה, מספר גדול, כמו שורת מדד */
+.mv-forum-result {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: var(--color-surface-sunken);
+  border: 1px solid var(--color-row-border);
+}
+.mv-forum-result__label {
+  font-size: var(--type-caption);
+  font-weight: 700;
+  color: var(--color-text-muted);
+}
+.mv-forum-result__value {
+  font-size: var(--type-metric);
+  font-weight: 900;
+  letter-spacing: var(--type-metric-track);
+  color: var(--color-text);
+}

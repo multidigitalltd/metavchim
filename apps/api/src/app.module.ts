@@ -24,6 +24,7 @@ import { MapsModule } from "./modules/maps/maps.module";
 import { ContactsModule } from "./modules/contacts/contacts.module";
 import { ExportModule } from "./modules/export/export.module";
 import { FeatureSignupsModule } from "./modules/feature-signups/feature-signups.module";
+import { ForumModule } from "./modules/forum/forum.module";
 import { MentorModule } from "./modules/mentor/mentor.module";
 import { HealthModule } from "./modules/health/health.module";
 import { IntakeModule } from "./modules/intake/intake.module";
@@ -101,6 +102,7 @@ import { AgentModule } from "./modules/agent/agent.module";
     FeatureSignupsModule,
     MentorModule,
     IntakeModule,
+    ForumModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },

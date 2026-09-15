@@ -12,6 +12,7 @@
 
 import {
   buttonTitle,
+  FORUM_QUICK_COMMANDS,
   MENTOR_QUICK_COMMANDS,
   WA_MAX_REPLY_BUTTONS,
   type WhatsAppButton,
@@ -80,6 +81,8 @@ const BUTTON_COMMANDS: Record<string, string> = {
   today: "מה יש לי היום?",
   // כפתורי המנטור על ההתראות — אותו מקור כמו הוורקר שמצמיד אותם
   ...MENTOR_QUICK_COMMANDS,
+  // כפתורי הפורום — „להשיב בפורום”, „להפסיק לעקוב”
+  ...FORUM_QUICK_COMMANDS,
 };
 
 /**

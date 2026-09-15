@@ -12,6 +12,7 @@ import { ContactsModule } from "../contacts/contacts.module";
 import { IntakeModule } from "../intake/intake.module";
 import { LeadsModule } from "../leads/leads.module";
 import { MatchingModule } from "../matching/matching.module";
+import { ForumModule } from "../forum/forum.module";
 import { MentorModule } from "../mentor/mentor.module";
 import { MessagingModule } from "../messaging/messaging.module";
 import { SupportModule } from "../support/support.module";
@@ -81,6 +82,8 @@ import { AgentResolveService } from "./resolve.service";
     SupportModule,
     // „מה המצב ביעדים שלי” — אותו מנטור של המסך, מתוך השיחה
     MentorModule,
+    // „מה חדש בפורום”, „תשאל בפורום” — אותו פורום של המסך (docs/14)
+    ForumModule,
   ],
   controllers: [AgentController],
   providers: [

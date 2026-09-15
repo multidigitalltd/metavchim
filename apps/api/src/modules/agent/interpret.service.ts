@@ -445,6 +445,10 @@ export class AgentInterpretService {
     if (actionId === "mentor_ask") {
       return { question: mentorQuestionFromTranscript(transcript) };
     }
+    // חיפוש בפורום — מה שאחרי „תחפש בפורום על” הוא מילות החיפוש
+    if (actionId === "forum_search") {
+      return { forumQuery: query?.trim() || stripCommandPrefix(transcript) };
+    }
     if (actionId === "create_property") {
       const { fields, marketingDescription } = extractPropertyFromTranscript(transcript);
       return {

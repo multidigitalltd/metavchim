@@ -12,6 +12,10 @@ import {
   PROPERTY_ORDER_LABELS,
   PROPERTY_ORDER_VALUES,
   type PropertyOrder,
+  FORUM_TOPICS,
+  ForumThreadInputSchema,
+  forumSnippet,
+  forumThreadPath,
   formatJerusalemDate,
   formatJerusalemTime,
   TASK_PRIORITIES,
@@ -85,6 +89,8 @@ import { TelephonyService } from "../telephony/telephony.service";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { DealRoomService } from "../collaboration/deal-room.service";
 import { LeadsService } from "../leads/leads.service";
+import { loadEnv } from "../../config/env";
+import { ForumService } from "../forum/forum.service";
 import { MentorService } from "../mentor/mentor.service";
 import { MATCH_LIST_LIMIT, MatchingService } from "../matching/matching.service";
 import { NotificationsService } from "../notifications/notifications.service";
@@ -306,6 +312,7 @@ export class AgentExecuteService {
     private readonly landing: LandingService,
     private readonly payouts: PayoutsService,
     private readonly mentor: MentorService,
+    private readonly forum: ForumService,
   ) {}
 
   async execute(
@@ -564,6 +571,16 @@ export class AgentExecuteService {
         return this.mentorCommit(params);
       case "mentor_reflect":
         return this.mentorReflect(params);
+      case "forum_latest":
+        return this.forumLatest();
+      case "forum_search":
+        return this.forumSearch(params);
+      case "forum_ask":
+        return this.forumAsk(params);
+      case "forum_reply":
+        return this.forumReply(params);
+      case "forum_follow":
+        return this.forumFollow(params);
       case "assign_task":
         return this.assignTask(params);
       default:
@@ -3280,6 +3297,101 @@ export class AgentExecuteService {
       message: "תודה, התשובה נשמרה. ואם זה יקרה שוב — מה התוכנית שלך?",
       ...(plans.length === 0 ? {} : { data: plans.map((plan) => `• ${plan}`) }),
       ...(first === undefined ? {} : { suggestion: `התוכנית שלי: ${first}` }),
+    };
+  }
+
+  /* ==================== הפורום המקצועי (docs/14) ==================== */
+
+  private forumLink(threadId: string): string {
+    return `${loadEnv().WEB_ORIGIN.replace(/\/+$/u, "")}${forumThreadPath(threadId)}`;
+  }
+
+  private forumLines(items: readonly { id: string; title: string; replyCount: number; author: { label: string } }[]): string[] {
+    return items.map(
+      (thread) =>
+        `• ${thread.title} — ${thread.author.label}, ${thread.replyCount === 0 ? "עדיין בלי תגובות" : `${thread.replyCount} תגובות`}\n  ${this.forumLink(thread.id)}`,
+    );
+  }
+
+  private async forumLatest(): Promise<ExecuteResult> {
+    const { items } = await this.forum.listThreads({ sort: "active" });
+    const top = items.slice(0, 5);
+    if (top.length === 0) {
+      return { href: "/forum", message: "הפורום עדיין שקט — אפשר להיות הראשונים לשאול." };
+    }
+    return {
+      href: "/forum",
+      message: `${top.length} השרשורים הפעילים בפורום:`,
+      data: this.forumLines(top),
+      suggestion: "תשאל בפורום: ",
+    };
+  }
+
+  private async forumSearch(params: Record<string, unknown>): Promise<ExecuteResult> {
+    const query = str(params["forumQuery"]);
+    if (query === undefined) throw new BadRequestException("מה לחפש בפורום?");
+    const { items } = await this.forum.listThreads({ q: query, sort: "active" });
+    const top = items.slice(0, 5);
+    if (top.length === 0) {
+      return {
+        href: "/forum",
+        message: `לא מצאתי בפורום שרשור על „${query}”. אפשר לשאול — „תשאל בפורום: …”.`,
+      };
+    }
+    return { href: "/forum", message: `מה שמצאתי בפורום על „${query}”:`, data: this.forumLines(top) };
+  }
+
+  private async forumAsk(params: Record<string, unknown>): Promise<ExecuteResult> {
+    const body = str(params["forumBody"]);
+    if (body === undefined) throw new BadRequestException("מה לשאול בפורום?");
+    const title = str(params["forumTitle"]) ?? forumSnippet(body, 100).replace(/…$/u, "");
+    const topic = str(params["forumTopic"]);
+    const parsed = ForumThreadInputSchema.safeParse({
+      kind: "question",
+      topic: topic !== undefined && (FORUM_TOPICS as readonly string[]).includes(topic) ? topic : "general",
+      title,
+      body,
+      anonymous: params["forumAnonymous"] === true,
+    });
+    if (!parsed.success) {
+      throw new BadRequestException("השאלה קצרה מדי לפורום — כתבו לפחות משפט שלם");
+    }
+    const thread = await this.forum.createThread(parsed.data);
+    return {
+      href: forumThreadPath(thread.id),
+      message: `השאלה פורסמה בפורום${parsed.data.anonymous ? " בעילום שם" : ""}: „${thread.title}”. תשובות יגיעו אליך כאן ובפעמון. ${this.forumLink(thread.id)}`,
+    };
+  }
+
+  private async forumThreadFor(params: Record<string, unknown>): Promise<{ id: string; title: string }> {
+    const phrase = str(params["forumThreadQuery"]);
+    if (phrase === undefined) throw new BadRequestException("על איזה שרשור? אמרו מילים מהכותרת");
+    const thread = await this.forum.findByPhrase(phrase);
+    if (thread === null) throw new BadRequestException(`לא מצאתי בפורום שרשור על „${phrase}”`);
+    return thread;
+  }
+
+  private async forumReply(params: Record<string, unknown>): Promise<ExecuteResult> {
+    const body = str(params["forumReply"]);
+    if (body === undefined) throw new BadRequestException("מה לענות?");
+    const thread = await this.forumThreadFor(params);
+    const anonymous = params["forumAnonymous"] === true;
+    await this.forum.reply(thread.id, { body, anonymous });
+    return {
+      href: forumThreadPath(thread.id),
+      message: `התגובה פורסמה${anonymous ? " בעילום שם" : ""} בשרשור „${thread.title}”. ${this.forumLink(thread.id)}`,
+    };
+  }
+
+  private async forumFollow(params: Record<string, unknown>): Promise<ExecuteResult> {
+    const thread = await this.forumThreadFor(params);
+    const following = params["forumFollow"] !== false;
+    await this.forum.follow(thread.id, following);
+    return {
+      href: forumThreadPath(thread.id),
+      message: following
+        ? `נרשמת למעקב אחרי „${thread.title}” — תגובות חדשות יגיעו אליך.`
+        : `הפסקת לעקוב אחרי „${thread.title}”.`,
     };
   }
 }

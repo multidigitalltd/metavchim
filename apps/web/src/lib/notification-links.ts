@@ -56,6 +56,9 @@ function targetFor(entityType: string, entityId: string): Target | null {
     // המנטור — סיכום, דחיפה או חגיגה: המסך שלו, בלי מזהה ובלי יכולת
     case "mentor":
       return { href: "/mentor" };
+    // הפורום — השרשור עצמו; פתוח לכל מי שמחובר, בלי יכולת
+    case "forum_thread":
+      return { href: `/forum/t/${entityId}` };
     /*
      * שיחה נבחרת בתוך הרשימה ואין לה נתיב משלה, ולכן פרמטר ולא
      * קטע נתיב. בלי זה ההתראה על סיום תמלול הייתה נוחתת על רשימת

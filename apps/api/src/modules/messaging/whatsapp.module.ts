@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common";
 import { AgentModule } from "../agent/agent.module";
 import { ContactsModule } from "../contacts/contacts.module";
+import { ForumModule } from "../forum/forum.module";
 import { MentorModule } from "../mentor/mentor.module";
 import { ViewingReplyService } from "../calendar/viewing-reply.service";
 import { VoiceIntakeModule } from "../voice-intake/voice-intake.module";
@@ -34,6 +35,8 @@ import { WhatsAppWebhookController } from "./whatsapp-webhook.controller";
     MessagingModule,
     ContactsModule,
     MentorModule,
+    // „להשיב בפורום” — ההודעה הבאה היא התגובה (docs/14). מודול עלה.
+    ForumModule,
   ],
   controllers: [WhatsAppWebhookController],
   /*

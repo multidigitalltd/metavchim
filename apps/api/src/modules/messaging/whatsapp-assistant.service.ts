@@ -25,6 +25,9 @@ import {
   type Capability,
   MENTOR_INTENTION_MAX,
   MENTOR_QUICK_COMMANDS,
+  FORUM_QUICK_COMMANDS,
+  ForumReplyInputSchema,
+  parseAnonymousPrefix,
 } from "@metavchim/shared";
 import { TenantContext, type RequestContext } from "../../common/tenant-context";
 import { loadEnv } from "../../config/env";
@@ -84,6 +87,15 @@ import {
   mentorPlanSkipped,
   mentorReflectionPrompt,
 } from "./assistant-mentor";
+import {
+  forumNoThreadReply,
+  forumReplyPosted,
+  forumReplyPrompt,
+  forumUnfollowed,
+  isForumReplyRequest,
+  isForumUnfollowRequest,
+} from "./assistant-forum";
+import { ForumService } from "../forum/forum.service";
 import { MentorService } from "../mentor/mentor.service";
 import { prospectReplyText } from "./prospect-reply";
 import { WhatsAppSendService } from "./whatsapp-send.service";
@@ -186,7 +198,7 @@ interface PendingState {
    * זו הבחירה היחידה כאן שאינה על **רשומה** אלא על **כוונה**, ולכן
    * היא אינה נצרכת אטומית: לחיצה חוזרת רק מפרשת מחדש, לא מבצעת.
    */
-  awaiting: "confirm" | "choice" | "suggest" | "mentor_reflection" | "mentor_plan";
+  awaiting: "confirm" | "choice" | "suggest" | "mentor_reflection" | "mentor_plan" | "forum_reply";
   /**
    * חותם ההצעה — נכנס למזהי הכפתורים שלה.
    *
@@ -212,6 +224,8 @@ interface PendingState {
    * ‎`proposal` כאן הוא תווית בלבד: אין מה לבצע דרך המנוע.
    */
   mentor?: { reviewId: string; plans?: string[] };
+  /** „להשיב בפורום” — השרשור שההודעה הבאה עונה עליו (docs/14). */
+  forum?: { threadId: string; title: string };
 }
 
 interface ChatState {
@@ -279,6 +293,7 @@ export class WhatsAppAssistantService {
     private readonly gemini: GeminiService,
     private readonly agentPrefs: AgentPrefsService,
     private readonly mentor: MentorService,
+    private readonly forum: ForumService,
   ) {}
 
   /**
@@ -715,6 +730,85 @@ export class WhatsAppAssistantService {
     return mentorPlanSaved(plan);
   }
 
+
+  /* ==================== הפורום בשיחה (docs/14) ==================== */
+
+  /** תווית להצעה הממתינה — אין כאן פעולה למנוע, רק מצב שיחה. */
+  private static forumPlaceholder(title: string): AgentProposal {
+    return {
+      actionId: "forum_reply",
+      title,
+      risk: "create",
+      summary: title,
+      fields: [],
+      missing: [],
+      warnings: [],
+      degraded: [],
+      fallback: false,
+    };
+  }
+
+  /**
+   * „להשיב בפורום” — על השרשור של ההתראה האחרונה שהגיעה מהפורום.
+   * ההודעה הבאה היא התגובה; „אנונימי:” בתחילתה — בעילום שם.
+   */
+  private async forumReplyStart(user: IdentifiedUser, chat: ChatState): Promise<AgentReply> {
+    const thread = await this.forum.lastNotifiedThread();
+    if (thread === null) return forumNoThreadReply();
+    if (chat.pending !== null) {
+      const took = await this.takePending(user.tenantId, user.id, chat.pending.token);
+      this.consumed(chat, took);
+    }
+    chat.pending = {
+      transcript: FORUM_QUICK_COMMANDS.forum_reply,
+      proposal: WhatsAppAssistantService.forumPlaceholder("תגובה בפורום"),
+      awaiting: "forum_reply",
+      extraParams: {},
+      token: ulid(),
+      forum: { threadId: thread.id, title: thread.title },
+    };
+    chat.keepStoredPending = false;
+    return forumReplyPrompt(thread.title);
+  }
+
+  /** „להפסיק לעקוב” — מהשרשור של ההתראה האחרונה. */
+  private async forumUnfollow(): Promise<AgentReply> {
+    const thread = await this.forum.lastNotifiedThread();
+    if (thread === null) return forumNoThreadReply();
+    await this.forum.follow(thread.id, false);
+    return forumUnfollowed(thread.title);
+  }
+
+  /** ההודעה שאחרי „להשיב בפורום” היא התגובה — נצרכת אטומית עם החותם. */
+  private async forumFollowUp(
+    user: IdentifiedUser,
+    chat: ChatState,
+    pending: PendingState,
+    text: string,
+  ): Promise<AgentReply> {
+    const target = pending.forum;
+    const took = await this.takePending(user.tenantId, user.id, pending.token);
+    this.consumed(chat, took);
+    if (!took || target === undefined) return { text: STALE_PROPOSAL_TEXT, speak: STALE_PROPOSAL_TEXT };
+    const { anonymous, text: body } = parseAnonymousPrefix(text);
+    const parsed = ForumReplyInputSchema.safeParse({ body, anonymous });
+    if (!parsed.success) {
+      const retry = "לא קלטתי תגובה — כתבו אותה שוב, או „בטל”.";
+      chat.pending = { ...pending, token: ulid() };
+      chat.keepStoredPending = false;
+      return { text: retry, speak: retry };
+    }
+    try {
+      await this.forum.reply(target.threadId, parsed.data);
+    } catch (error) {
+      chat.pending = { ...pending, token: ulid() };
+      chat.keepStoredPending = false;
+      const failure = `התגובה לא פורסמה: ${errorMessage(error)}. אפשר לשלוח אותה שוב, או „בטל”.`;
+      return { text: `⚠️ ${failure}`, speak: failure };
+    }
+    return forumReplyPosted(target.threadId, anonymous, loadEnv().WEB_ORIGIN);
+  }
+
   private consumed(chat: ChatState, took: PendingState | null): void {
     chat.pending = null;
     if (took === null) chat.keepStoredPending = true;
@@ -1035,6 +1129,13 @@ export class WhatsAppAssistantService {
     if (isMentorReflectRequest(text)) {
       return withHeard(await this.mentorReflectStart(user, chat), heard);
     }
+    // „להשיב בפורום” / „להפסיק לעקוב” — כלשונם, מכפתורי ההתראה (docs/14)
+    if (isForumReplyRequest(text)) {
+      return withHeard(await this.forumReplyStart(user, chat), heard);
+    }
+    if (isForumUnfollowRequest(text)) {
+      return withHeard(await this.forumUnfollow(), heard);
+    }
 
     const pending = chat.pending;
     if (pending) {
@@ -1046,6 +1147,9 @@ export class WhatsAppAssistantService {
       }
       if (pending.awaiting === "mentor_reflection" || pending.awaiting === "mentor_plan") {
         return withHeard(await this.mentorFollowUp(user, chat, pending, text), heard);
+      }
+      if (pending.awaiting === "forum_reply") {
+        return withHeard(await this.forumFollowUp(user, chat, pending, text), heard);
       }
       /*
        * ‎**„אולי התכוונת” — בחירת כוונה, לא בחירת רשומה.**

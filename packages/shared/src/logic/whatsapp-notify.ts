@@ -17,6 +17,7 @@
 
 import { notificationUrl, type PushableNotification } from "./web-push.js";
 import type { WhatsAppButton } from "./whatsapp-buttons.js";
+import { FORUM_QUICK_COMMANDS } from "./forum.js";
 
 /* ==================== קטגוריות ==================== */
 
@@ -27,7 +28,14 @@ import type { WhatsAppButton } from "./whatsapp-buttons.js";
  * חושב במונחים של „שיחות” ו„לידים”, וזו גם היחידה שבה הוא מכבה.
  */
 export type WhatsAppNotifyCategory =
-  "calls" | "leads" | "tasks" | "matches" | "network" | "digests" | "system";
+  | "calls"
+  | "leads"
+  | "tasks"
+  | "matches"
+  | "network"
+  | "forum"
+  | "digests"
+  | "system";
 
 export const NOTIFY_CATEGORY_LABELS: Record<WhatsAppNotifyCategory, string> = {
   calls: "שיחות ותמלולים",
@@ -35,6 +43,7 @@ export const NOTIFY_CATEGORY_LABELS: Record<WhatsAppNotifyCategory, string> = {
   tasks: "משימות, פגישות ותזכורות",
   matches: "התאמות, קונים ונכסים",
   network: "רשת השיתופים והתשלומים",
+  forum: "הפורום המקצועי",
   digests: "סיכומים יומיים ושבועיים",
   system: "הודעות מערכת",
 };
@@ -79,6 +88,13 @@ const TYPE_CATEGORY: Record<string, WhatsAppNotifyCategory> = {
 
   daily_brief: "digests",
   weekly_summary: "digests",
+
+  // הפורום המקצועי — תגובה בשרשור שעוקבים אחריו, שרשור חדש למי
+  // שעוקב אחרי הכול, ותגובה שסומנה כתשובה. קטגוריה משלו, כי זה
+  // הרעש היחיד כאן שאינו על העבודה של המתווך אלא על הקהילה.
+  forum_reply: "forum",
+  forum_thread: "forum",
+  forum_accepted: "forum",
 };
 
 export function notifyCategory(type: string): WhatsAppNotifyCategory {
@@ -234,6 +250,7 @@ const CATEGORY_ICON: Record<WhatsAppNotifyCategory, string> = {
   tasks: "⏰",
   matches: "🎯",
   network: "🤝",
+  forum: "💬",
   digests: "📊",
   system: "ℹ️",
 };
@@ -266,6 +283,9 @@ const TYPE_ICON: Record<string, string> = {
   mentor_weekly: "🧭",
   mentor_win: "🎉",
   mentor_nudge: "🎯",
+  forum_reply: "💬",
+  forum_thread: "📝",
+  forum_accepted: "🏅",
 };
 
 /**
@@ -281,6 +301,7 @@ const CATEGORY_CALL_TO_ACTION: Record<WhatsAppNotifyCategory, string> = {
   tasks: "✅ לסגור את זה עכשיו? כתבו לי „בוצע” ואעדכן.",
   matches: "🎯 יש התאמה — כתבו לי „תשלח הצעה” ואכין אותה.",
   network: '🤝 שת"פ שמחכה לתשובה — כתבו לי מה להשיב.',
+  forum: "💬 אפשר להשיב מכאן: לחצו „להשיב בפורום” וכתבו את התגובה בהודעה הבאה (או „אנונימי:” בתחילתה — בעילום שם).",
   digests: "🚀 שאלו אותי „מה הכי דחוף היום?” ואתן לכם את הסדר.",
   system: "💬 אפשר לענות לי כאן ואטפל בזה.",
 };
@@ -326,10 +347,24 @@ const MENTOR_STATUS_BUTTON: WhatsAppButton = {
  * רק כשההודעה **כולה** של המנטור: אגד שמערבב ליד חם עם סיכום שבועי
  * מקבל את כפתורי ברירת המחדל — „מתחייב” מתחת לליד היה מבלבל.
  */
+/**
+ * כפתורי הפורום — כשההודעה כולה מהפורום. „להשיב” פותח מצב שבו
+ * ההודעה הבאה היא התגובה (כמו „לענות למנטור”), ו„להפסיק לעקוב”
+ * מסיר את המעקב מהשרשור שההתראה האחרונה דיברה עליו.
+ */
+const FORUM_BUTTONS: readonly WhatsAppButton[] = [
+  { action: "cmd", arg: "forum_reply" satisfies keyof typeof FORUM_QUICK_COMMANDS, title: "💬 להשיב בפורום" },
+  { action: "cmd", arg: "forum_unfollow" satisfies keyof typeof FORUM_QUICK_COMMANDS, title: "🔕 להפסיק לעקוב" },
+  { action: "cmd", arg: "urgent", title: "📋 מה דחוף היום?" },
+];
+
 export function notifyQuickReplies(
   items: readonly NotifyItem[],
 ): WhatsAppButton[] {
   const types = new Set(items.map((item) => item.type));
+  if (items.length > 0 && [...types].every((type) => type.startsWith("forum_"))) {
+    return [...FORUM_BUTTONS];
+  }
   const mentorOnly =
     items.length > 0 && [...types].every((type) => type.startsWith("mentor_"));
   if (!mentorOnly) return [...NOTIFY_DEFAULT_BUTTONS];

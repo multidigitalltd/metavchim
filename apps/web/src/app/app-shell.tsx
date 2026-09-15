@@ -65,7 +65,7 @@ const SCREEN_TITLES: [prefix: string, title: string][] = [
   ["/tasks", "משימות"],
   ["/guides", "הדרכות"],
   ["/mentor", "המנטור האישי"],
-  ["/forum", "פורום"],
+  ["/forum", "הפורום המקצועי"],
 ];
 
 function screenTitle(pathname: string): string {
@@ -121,6 +121,12 @@ const ICONS = {
     <Icon>
       <polyline points="3 11 12 4 21 11" />
       <rect x="6" y="11" width="12" height="9" />
+    </Icon>
+  ),
+  forum: (
+    <Icon>
+      <path d="M4 5h11a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H9l-4 3v-3H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z" />
+      <path d="M19 9h1a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-1v3l-3-3h-4" />
     </Icon>
   ),
   buyers: (
@@ -622,13 +628,8 @@ export function AppShell({ children }: { children: ReactNode }) {
           ? navLink("/reports", "דוחות", ICONS.reports)
           : null}
         {navLink("/guides", "הדרכות", ICONS.guides)}
-        {/* פורום מקצועי — עמוד "בקרוב" עד ההשקה (בקשת המשתמש) */}
-        {navLink(
-          "/forum",
-          "פורום",
-          ICONS.buyers,
-          <span className="mv-nav-soon">בקרוב</span>,
-        )}
+        {/* הפורום המקצועי — קהילה בין משרדים, בשם או בעילום שם (docs/14) */}
+        {navLink("/forum", "פורום", ICONS.forum)}
         {/*
           המנטור האישי — יעדים, סיכום שבועי ושיחה (docs/13).
           התג AI מסמן שזה פיצ'ר של בינה מלאכותית ולא עוד מסך נתונים.
