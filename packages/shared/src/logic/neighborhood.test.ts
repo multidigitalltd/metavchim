@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
   buyerNeighborhoodKeys,
+  hasNeighborhoodName,
+  matchedNeighborhood,
   mergeNeighborhoodUses,
   neighborhoodKey,
   neighborhoodKeyMatches,
   neighborhoodMatches,
+  neighborhoodSame,
   normalizeNeighborhood,
   suggestNeighborhoods,
 } from "./neighborhood.js";
@@ -259,5 +262,58 @@ describe("buyerNeighborhoodKeys", () => {
 
   it("דרישות בלי אף אחד מהשדות אינן נופלות", () => {
     expect(buyerNeighborhoodKeys({})).toEqual([]);
+  });
+});
+
+describe("neighborhoodSame — „אותה שכונה” לצורך התאמות", () => {
+  /*
+   * ‎**למה כלל שלישי ולא אחד מהשניים שכבר כאן.**
+   *
+   * ‏`neighborhoodMatches` הוא כלל השלמה, ולכן רחב בכוונה: „רמת”
+   * ‏מתאים ל„רמת אהרון” וגם ל„רמת גן”. בהתאמות זו תשובה שגויה.
+   * ‏`neighborhoodKey` לבדו אינו מכיר כתיב מלא מול חסר.
+   */
+  it("אותה שכונה בכתיבים שונים", () => {
+    expect(neighborhoodSame("פרדס כץ", "פרדס-כץ")).toBe(true);
+    expect(neighborhoodSame("שיכון ג'", "שיכון ג")).toBe(true);
+    expect(neighborhoodSame("שכונת רמת אהרון", "רמת אהרון")).toBe(true);
+    expect(neighborhoodSame("קריית הרצוג", "קרית הרצוג")).toBe(true);
+    expect(neighborhoodSame("רמת  אהרון ", " רמת אהרון")).toBe(true);
+  });
+
+  it("שכונות שונות נשארות שונות — קיפול-יתר גרוע מכפילות", () => {
+    expect(neighborhoodSame("רמת גן", "רמות גן")).toBe(false);
+    expect(neighborhoodSame("רמת אהרון", "רמת אהרן")).toBe(false);
+    expect(neighborhoodSame("פרדס כץ", "קרית הרצוג")).toBe(false);
+  });
+
+  it("תחילית אינה התאמה — זה ההבדל מכלל ההשלמה", () => {
+    expect(neighborhoodMatches("רמת אהרון", "רמת")).toBe(true);
+    expect(neighborhoodSame("רמת אהרון", "רמת")).toBe(false);
+  });
+
+  it("hasNeighborhoodName — מה נחשב „יש כאן שם”", () => {
+    expect(hasNeighborhoodName(undefined)).toBe(false);
+    expect(hasNeighborhoodName("")).toBe(false);
+    expect(hasNeighborhoodName("   ")).toBe(false);
+    expect(hasNeighborhoodName("-")).toBe(false);
+    expect(hasNeighborhoodName("'")).toBe(false);
+    /*
+     * ‏„שכונת” לבדה **כן** נחשבת שם: הקידומת נגזרת רק כשיש אחריה
+     * ‏מילה, וקיפול של מילה בודדת לכלום היה מוחק קלט אמיתי.
+     */
+    expect(hasNeighborhoodName("שכונת")).toBe(true);
+    expect(hasNeighborhoodName("פרדס כץ")).toBe(true);
+  });
+
+  it("שם ריק אינו מתאים לשום דבר", () => {
+    expect(neighborhoodSame("", "פרדס כץ")).toBe(false);
+    expect(neighborhoodSame("'-", "פרדס כץ")).toBe(false);
+  });
+
+  it("matchedNeighborhood מחזיר את השם כפי שהקונה כתב אותו", () => {
+    expect(matchedNeighborhood("שכונת פרדס-כץ", ["קרית הרצוג", "פרדס כץ"])).toBe("פרדס כץ");
+    expect(matchedNeighborhood("רמת אהרון", ["פרדס כץ"])).toBe(null);
+    expect(matchedNeighborhood(undefined, ["פרדס כץ"])).toBe(null);
   });
 });

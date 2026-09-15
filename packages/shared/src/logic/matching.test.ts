@@ -230,6 +230,89 @@ describe("scoreMatch — מיקום", () => {
     expect(loose.score).toBe(strict.score);
   });
 
+  /*
+   * ‎**השכונה היא דרישה, לא העדפה** (בקשת המשתמש, דיווח מהשטח).
+   *
+   * ‏הדיווח: „מתווך העלה קונה וציין שכונה, העלה נכס באותה שכונה,
+   * ‏ושאר הנתונים מתאימים — וההתאמה לא נוצרה”. הבדיקות כאן מכסות
+   * ‏את שני הכיוונים של הכלל, כי רק שניהם יחד הם „התייחסות לשכונה”:
+   * ‏מי שביקש שכונה מקבל אותה, ומי שביקש שכונה **אינו** מקבל את
+   * ‏שאר העיר.
+   */
+  it("שכונה שהקונה נקב בה — נכס בשכונה אחרת באותה עיר אינו מוצג", () => {
+    const result = scoreMatch(
+      { ...baseProperty, neighborhood: "קרית הרצוג" },
+      { ...baseBuyer, neighborhoods: ["פרדס כץ"] },
+    );
+    expect(result.excluded).toBe(true);
+  });
+
+  it("קונה בלי שכונה — כל העיר מתאימה", () => {
+    const result = scoreMatch(
+      { ...baseProperty, neighborhood: "קרית הרצוג" },
+      { ...baseBuyer, neighborhoods: [] },
+    );
+    expect(result.excluded).toBe(false);
+    const location = result.breakdown.find((p) => p.criterion === "location")!;
+    expect(location.score).toBe(1);
+  });
+
+  it("השכונה נבדקת בקיפול של שכונות — „שכונת פרדס כץ” היא „פרדס כץ”", () => {
+    /*
+     * ‏זה הכלל שנשבר: ההשוואה רצה ב-`bestLocationMatch`, כלל
+     * ‏**הערים**, שאינו מכיר את הקידומת „שכונת ”. הסינון בעמוד
+     * ‏הקונים כן הכיר אותה — שתי תשובות לאותה שאלה.
+     */
+    const result = scoreMatch(
+      { ...baseProperty, neighborhood: "שכונת פרדס כץ" },
+      { ...baseBuyer, neighborhoods: ["פרדס כץ"] },
+    );
+    expect(result.excluded).toBe(false);
+    const location = result.breakdown.find((p) => p.criterion === "location")!;
+    expect(location.score).toBe(1);
+  });
+
+  it("כתיב מלא מול חסר בשכונה — „קריית הרצוג” היא „קרית הרצוג”", () => {
+    const result = scoreMatch(
+      { ...baseProperty, neighborhood: "קריית הרצוג" },
+      { ...baseBuyer, neighborhoods: ["קרית הרצוג"] },
+    );
+    expect(result.excluded).toBe(false);
+  });
+
+  it("ההערה נוקבת בשכונה, ולא רק בעיר", () => {
+    const result = scoreMatch(baseProperty, { ...baseBuyer, neighborhoods: ["פרדס כץ"] });
+    const location = result.breakdown.find((p) => p.criterion === "location")!;
+    expect(location.note).toContain("פרדס כץ");
+  });
+
+  /*
+   * ‎**„ריק” מגיע בארבע צורות, וכולן אותו דבר** (ביקורת Codex).
+   *
+   * ‏הסכמה היא `z.string().max(80).optional()` בלי `.min(1)`, ולכן
+   * ‏שדה טקסט שלא נגעו בו שולח `""` — המסלול הרגיל, לא שארית
+   * ‏היסטורית. בדיקת `undefined` לבדה חילקה את אותם נתונים לשתי
+   * ‏תשובות, ובקריטריון פוסל ההבדל הזה הוא נכס שנעלם.
+   */
+  it("מחרוזת ריקה, רווחים וסימני פיסוק הם „לא מולא” כמו שדה חסר", () => {
+    const wanted = { ...baseBuyer, neighborhoods: ["פרדס כץ"] };
+    const missing = scoreMatch({ ...baseProperty, neighborhood: undefined }, wanted);
+    for (const blank of ["", "   ", "-", "'"]) {
+      const result = scoreMatch({ ...baseProperty, neighborhood: blank }, wanted);
+      expect(result.excluded).toBe(false);
+      expect(result.score).toBe(missing.score);
+    }
+  });
+
+  it("נכס בלי שכונה אינו נפסל — „לא ידוע” אינו „מחוץ לשכונה”", () => {
+    const unknown = { ...baseProperty, neighborhood: undefined };
+    const result = scoreMatch(unknown, { ...baseBuyer, neighborhoods: ["פרדס כץ"] });
+    expect(result.excluded).toBe(false);
+    /* ‏אבל הוא נגרע: נכס מאומת מדורג מעליו. */
+    const exact = scoreMatch(baseProperty, { ...baseBuyer, neighborhoods: ["פרדס כץ"] });
+    expect(result.score).toBeLessThan(exact.score);
+  });
+
   it("אזור על המפה: נכס במרכז מקבל ניקוד מלא על המיקום", () => {
     const result = scoreMatch(located(32.0853, 34.7818), areaBuyer);
     const location = result.breakdown.find((p) => p.criterion === "location")!;
@@ -237,9 +320,23 @@ describe("scoreMatch — מיקום", () => {
     expect(location.note).toContain("ליד העבודה");
   });
 
-  it("נכס מעט מחוץ לרדיוס עדיין מוצג — זה ההבדל מכל שער קשיח", () => {
-    // ~2.3 ק״מ מהמרכז, ברדיוס של 2
+  /*
+   * ‎**הבדיקה הזו הפוכה ממה שהייתה, וזו בקשת המשתמש.**
+   *
+   * ‏קודם היא קיבעה רצועת חסד עד פי שניים מהרדיוס: נכס ב-2.3 ק״מ
+   * ‏מאזור שסומן לשני קילומטרים הוצג כהתאמה. הרצועה אינה נראית
+   * ‏בשום מקום — המפה מציירת את העיגול שהקונה סימן, ורק אותו —
+   * ‏ולכן היא הבטיחה גבול אחד והתאימה לפי אחר.
+   */
+  it("נכס מחוץ לרדיוס שסומן אינו מוצג — העיגול על המפה הוא הגבול", () => {
+    // ~2.4 ק״מ מהמרכז, ברדיוס של 2
     const result = scoreMatch(located(32.1053, 34.7918), areaBuyer);
+    expect(result.excluded).toBe(true);
+  });
+
+  it("נכס בתוך הרדיוס מוצג, גם קרוב לשפה", () => {
+    // ~1.5 ק״מ מהמרכז, ברדיוס של 2
+    const result = scoreMatch(located(32.0983, 34.7858), areaBuyer);
     expect(result.excluded).toBe(false);
     const location = result.breakdown.find((p) => p.criterion === "location")!;
     expect(location.score).toBeGreaterThan(0.5);

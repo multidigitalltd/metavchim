@@ -11,6 +11,7 @@ import {
   floorPreferenceText,
 } from "./floor-preference.js";
 import { bestLocationMatch } from "./location-text.js";
+import { hasNeighborhoodName, matchedNeighborhood } from "./neighborhood.js";
 import { bestAreaMatch, describeDistance } from "./proximity.js";
 import { CUSTOM_FEATURE_PREFIX, customFeatureMap, isCustomFeature } from "./custom-features.js";
 import { buyerSharedTabuStance, isSharedTabuProperty, sharedTabuFit } from "./shared-tabu.js";
@@ -285,6 +286,38 @@ export const MATCH_CRITERION_LABELS: Record<MatchCriterion, string> = {
 };
 
 /**
+ * ‎**נכס שהשכונה בו לא מולאה, כשהקונה כן נקב בשכונות.**
+ *
+ * ‏אינו נפסל — „לא ידוע” אינו „מחוץ לשכונה” — אבל גם אינו שווה
+ * ‏לנכס שהוכח שהוא בשכונה המבוקשת. הגריעה גדולה מספיק כדי שנכס
+ * ‏מאומת ידורג מעליו, וקטנה מספיק כדי שלא תיראה כפסילה.
+ */
+export const NEIGHBORHOOD_UNKNOWN_FIT = 0.7;
+
+/**
+ * ‎**ההערה על המיקום — נוקבת בשכונה כשהיא נבדקה.**
+ *
+ * ‏הניסוח הקודם אמר „באזור המבוקש (בני ברק)” בכל מקרה, ולכן מתווך
+ * ‏שביקש שכונה מסוימת וקיבל אותה בדיוק לא ראה שום סימן לכך
+ * ‏שהשכונה נבדקה. ההערה היא מה שהמסך מציג, ולכן קריטריון שאינו
+ * ‏מופיע בה הוא קריטריון שמבחינת המשתמש אינו קיים.
+ */
+function locationNote(
+  cityHit: boolean,
+  property: PropertyFields,
+  buyer: BuyerRequirements,
+  hit: string | null,
+): string {
+  if (!cityHit) return "מחוץ לאזורים המבוקשים";
+  if (buyer.neighborhoods.length === 0) return `באזור המבוקש (${property.city ?? ""})`;
+  if (hit !== null) return `בשכונה המבוקשת (${hit})`;
+  if (!hasNeighborhoodName(property.neighborhood)) {
+    return `ב${property.city ?? "עיר המבוקשת"}, אך השכונה לא מולאה בנכס`;
+  }
+  return `מחוץ לשכונות המבוקשות (${property.neighborhood})`;
+}
+
+/**
  * ניקוד התאמה בין נכס לקונה.
  *
  * `weights` אופציונלי בכוונה: **התאמות בשוק השת"פ חייבות לרוץ
@@ -364,36 +397,71 @@ export function scoreMatch(
           ? `${describeDistance(hit.distanceKm)} מ${where}`
           : `רחוק מכל אזורי החיפוש (${describeDistance(hit.distanceKm)})`,
     });
-    // מעבר לפי שניים מהרדיוס — מחוץ לכל סבירות, כמו עיר שאינה ברשימה
-    if (hit.score === 0) excluded = true;
+    /*
+     * ‎**מחוץ לרדיוס שסומן — לא מוצג** (בקשת המשתמש).
+     *
+     * ‏עד כה הפסילה הייתה על `score === 0`, כלומר רק מעבר ל**פי
+     * ‏שניים** מהרדיוס: נכס במרחק 1.7 ק״מ מאזור שסומן לקילומטר
+     * ‏הוצג כהתאמה. רצועת החסד הזו אינה נראית בשום מקום — המפה
+     * ‏מציירת את העיגול שהקונה סימן, ורק אותו — ולכן היא הבטיחה
+     * ‏גבול אחד והתאימה לפיאחר.
+     *
+     * ‏הקונה שסימן רדיוס אמר בדיוק כמה הוא מוכן להתפשר, וזו אינה
+     * ‏הערכה שהמערכת אמורה להרחיב בשבילו.
+     */
+    if (hit.distanceKm > hit.area.radiusKm) excluded = true;
   } else if (property.city !== undefined && buyer.cities.length > 0) {
     const city = bestLocationMatch(property.city, buyer.cities);
     /*
-     * השכונה נבדקת באותה סלחנות כמו העיר. שכונה שנכתבה אחרת אינה
-     * "שכונה אחרת", והבונוס נועד לתגמל דיוק ולא לתגמל כתיב.
+     * ‎**השכונה נבדקת ב-`neighborhoodSame` ולא ב-`bestLocationMatch`.**
+     *
+     * ‏עד כה היא נבדקה בכלל של **הערים**, וזה כלל אחר: הוא מכיר
+     * ‏כתיב מלא/חסר ושמות חלופיים, ואינו מכיר גרשיים, מקפים
+     * ‏והקידומת „שכונת ”. „שכונת רמת אהרון” מול „רמת אהרון” נחשבו
+     * ‏שתי שכונות שונות, בעוד שהסינון בעמוד הקונים — שנכתב מאוחר
+     * ‏יותר, עם קיפול משלו — ראה בהן אותה שכונה. שני כללים על אותה
+     * ‏שאלה, ומתווך שראה את השכונה ברשימה לא ראה אותה בהתאמות.
      */
-    const neighborhood =
-      city.score > 0 && buyer.neighborhoods.length > 0 && property.neighborhood !== undefined
-        ? bestLocationMatch(property.neighborhood, buyer.neighborhoods).score
-        : 0;
-    const score =
-      city.score === 0
-        ? 0
-        : buyer.neighborhoods.length === 0
-          ? city.score
-          : /*
-             * שכונה תואמת מחזירה את מלוא ניקוד העיר; שכונה שאינה
-             * ברשימה גורעת רבע. הקונה ביקש שכונות מסוימות, אבל הוא
-             * ביקש גם את העיר — ולכן זו גריעה ולא פסילה.
-             */
-            city.score * (neighborhood > 0 ? 1 : 0.75);
+    const hit = matchedNeighborhood(property.neighborhood, buyer.neighborhoods);
+    /*
+     * ‎**שכונה שהקונה נקב בה היא דרישה, לא העדפה** (בקשת המשתמש).
+     *
+     * ‏עד כה שכונה שאינה ברשימה גרעה רבע מניקוד המיקום — כלומר
+     * ‏6.25 נקודות מתוך מאה, שאינן מזיזות דבר. מתווך שכתב „פרדס
+     * ‏כץ” קיבל את כל בני ברק, וזה בדיוק הדיווח מהשטח.
+     *
+     * ‎**קונה שלא נקב בשכונה מקבל את כל העיר** — ‎`neighborhoods`
+     * ‏ריק אינו „שום שכונה” אלא „לא הגבלתי”, וזה הענף הראשון כאן.
+     *
+     * ‎**ונכס בלי שכונה אינו נפסל.** „לא ידוע” אינו „מחוץ לשכונה”,
+     * ‏וזה הכלל שכל שאר הקריטריונים בקובץ הזה מקיימים. פסילה עליו
+     * ‏הייתה מעלימה בשקט כל נכס שהשדה בו לא מולא — כלומר מענישה את
+     * ‏המתווך על שדה חסר ולא על אי-התאמה. הוא נגרע, ובבירור.
+     */
+    /*
+     * ‎„יש בנכס שם שכונה” נענה ב-`hasNeighborhoodName` ולא בבדיקת
+     * ‏`undefined`: מחרוזת ריקה, רווחים וסימני פיסוק הם „לא מולא”
+     * ‏בדיוק כמו שדה חסר, והסכמה מקבלת את כולם.
+     */
+    const named = hasNeighborhoodName(property.neighborhood);
+    const neighborhoodMiss = buyer.neighborhoods.length > 0 && hit === null && named;
+    const neighborhoodUnknown = buyer.neighborhoods.length > 0 && hit === null && !named;
+    const neighborhoodFit = neighborhoodUnknown ? NEIGHBORHOOD_UNKNOWN_FIT : 1;
+    const score = city.score === 0 || neighborhoodMiss ? 0 : city.score * neighborhoodFit;
     parts.push({
       criterion: "location",
       weight: weights.location,
       score,
-      note: city.score > 0 ? `באזור המבוקש (${property.city})` : `מחוץ לאזורים המבוקשים`,
+      /*
+       * ‎**ההערה נוקבת בשכונה, ולא רק בעיר.** קודם היא אמרה „באזור
+       * ‏המבוקש (בני ברק)” גם כשהמתווך ביקש שכונה מסוימת וקיבל
+       * ‏אותה בדיוק — כלומר המסך לא אמר לו שהשכונה נבדקה בכלל, וזה
+       * ‏מה שנקרא „ההתאמות לא מתייחסות לשכונה”.
+       */
+      note: locationNote(city.score > 0, property, buyer, hit),
     });
-    if (city.score === 0) excluded = true; // עיר לא מבוקשת — לא רלוונטי להציע
+    // עיר שאינה ברשימה, או שכונה שאינה ברשימה — לא רלוונטי להציע
+    if (city.score === 0 || neighborhoodMiss) excluded = true;
   }
 
   /*
