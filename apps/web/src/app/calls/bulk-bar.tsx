@@ -167,7 +167,7 @@ export function CallsBulkBar({
         disabled={busy !== null}
         onClick={() => void run("delete")}
       >
-        {busy === "delete" ? "מוחק…" : "סימון לא רלוונטי"}
+        {busy === "delete" ? "מוחק…" : "מחיקת שיחות לא רלוונטיות"}
       </button>
 
       {error !== null ? (
