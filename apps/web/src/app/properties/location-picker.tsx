@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import type * as maplibregl from "maplibre-gl";
 import { Marker, type Map as MapLibreMap } from "maplibre-gl";
+import { searchAreaRing } from "@metavchim/shared";
 import { apiGet } from "@/lib/api";
 import { MapCanvas } from "../map-canvas";
 
@@ -21,6 +23,24 @@ import { MapCanvas } from "../map-canvas";
  * מכפתור שאינו קיים.
  */
 
+/*
+ * ‏צורת ה-GeoJSON מוגדרת כאן ולא מיובאת: `@types/geojson` הוא
+ * ‏תלות עקיפה של maplibre ואינו מוצהר ב-`apps/web`. שתי צורות
+ * ‏קטנות טובות מתלות שלישית על שתי שדות.
+ */
+interface RadiusFeature {
+  type: "Feature";
+  properties: { active: boolean };
+  geometry: { type: "Polygon"; coordinates: [number, number][][] };
+}
+interface RadiusData {
+  type: "FeatureCollection";
+  features: RadiusFeature[];
+}
+
+/** מקור אחד לכל עיגולי הרדיוס — שתי השכבות נשענות עליו. */
+const RADIUS_SOURCE = "mv-search-radius";
+
 interface GeocodeResult {
   lat: number;
   lon: number;
@@ -38,6 +58,8 @@ export function LocationPicker({
   addressText,
   onChange,
   onAddressSuggested,
+  radiusKm,
+  otherAreas,
   disabled = false,
   mapHeight = "300px",
 }: {
@@ -47,6 +69,16 @@ export function LocationPicker({
   onChange: (next: LocationValue) => void;
   /** הכתובת שהתקבלה מהמפה — הטופס מחליט מה לעשות איתה. */
   onAddressSuggested?: (label: string) => void;
+  /**
+   * ‎**הרדיוס שמצויר סביב הסיכה — „אילו רחובות זה בעצם”.**
+   *
+   * ‏השדה אמר „רדיוס (ק״מ)” ותו לא, ומתווך אינו יודע לתרגם 1.5 ק״מ
+   * ‏לרחובות (דיווח מהשטח). ‎`undefined` = אין רדיוס למסך הזה —
+   * ‏מיקום נכס הוא נקודה, לא אזור, והוא אינו מצייר דבר.
+   */
+  radiusKm?: number;
+  /** אזורים שכבר נשמרו — מצוירים חיוורים, כדי שהתמונה תהיה מלאה. */
+  otherAreas?: readonly { lat: number; lon: number; radiusKm: number }[];
   disabled?: boolean;
   /**
    * גובה המפה עצמה.
@@ -166,6 +198,72 @@ export function LocationPicker({
   }
 
   const hasPoint = value.latitude !== undefined && value.longitude !== undefined;
+
+  /*
+   * ‎**העיגולים נמשכים מחדש בכל שינוי של הנקודה או הרדיוס.**
+   *
+   * ‏מקור אחד (`RADIUS_SOURCE`) ושתי שכבות מעליו — מילוי וקו — כי
+   * ‏זו הדרך של MapLibre לצבוע שטח ולסמן את גבולו. המקור נוצר פעם
+   * ‏אחת ואחר כך רק מקבל נתונים חדשים: יצירה חוזרת בכל הקלדה בשדה
+   * ‏הרדיוס הייתה מהבהבת את השכבה בכל תו.
+   *
+   * ‏הצבע ישיר ולא טוקן, מאותו נימוק של הסיכה למעלה (#266): אריחי
+   * ‏המפה בהירים תמיד, גם כשהמערכת כהה.
+   */
+  useEffect(() => {
+    const map = mapRef.current;
+    if (map === null) return;
+    const features: RadiusFeature[] = [];
+    const push = (lat: number, lon: number, km: number, active: boolean): void => {
+      if (!Number.isFinite(km) || km <= 0) return;
+      features.push({
+        type: "Feature",
+        properties: { active },
+        geometry: { type: "Polygon", coordinates: [searchAreaRing(lat, lon, km)] },
+      });
+    };
+    for (const area of otherAreas ?? []) push(area.lat, area.lon, area.radiusKm, false);
+    if (hasPoint && radiusKm !== undefined) {
+      push(value.latitude!, value.longitude!, radiusKm, true);
+    }
+    const data: RadiusData = { type: "FeatureCollection", features };
+
+    const draw = (): void => {
+      const existing = map.getSource(RADIUS_SOURCE);
+      if (existing !== undefined) {
+        (existing as maplibregl.GeoJSONSource).setData(data);
+        return;
+      }
+      map.addSource(RADIUS_SOURCE, { type: "geojson", data });
+      map.addLayer({
+        id: `${RADIUS_SOURCE}-fill`,
+        type: "fill",
+        source: RADIUS_SOURCE,
+        paint: {
+          "fill-color": "#c0392b",
+          "fill-opacity": ["case", ["get", "active"], 0.14, 0.07],
+        },
+      });
+      map.addLayer({
+        id: `${RADIUS_SOURCE}-line`,
+        type: "line",
+        source: RADIUS_SOURCE,
+        paint: {
+          "line-color": "#c0392b",
+          "line-width": ["case", ["get", "active"], 2, 1],
+          "line-opacity": ["case", ["get", "active"], 0.9, 0.5],
+        },
+      });
+    };
+
+    /*
+     * ‏`addSource` לפני שהסגנון נטען זורק. `isStyleLoaded` מכסה את
+     * ‏הרכבת הרכיב, ו-`load` את הפעם הראשונה — בלי שניהם העיגול
+     * ‏לא היה מופיע עד השינוי הבא.
+     */
+    if (map.isStyleLoaded()) draw();
+    else map.once("load", draw);
+  }, [hasPoint, radiusKm, otherAreas, value.latitude, value.longitude]);
 
   return (
     <div>

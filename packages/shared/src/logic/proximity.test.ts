@@ -7,6 +7,10 @@ import {
   proximityScore,
   searchAreaRejectionReason,
   type SearchArea,
+  searchAreaRing,
+  DEFAULT_SEARCH_RADIUS_KM,
+  MIN_SEARCH_RADIUS_KM,
+  MAX_SEARCH_RADIUS_KM,
 } from "./proximity.js";
 
 /* נקודות אמיתיות, כדי שהמרחקים יהיו ניתנים לבדיקה מול המציאות. */
@@ -163,5 +167,60 @@ describe("boundingBox", () => {
 
   it("רשימה ריקה — null", () => {
     expect(boundingBox([])).toBeNull();
+  });
+});
+
+describe("searchAreaRing — הרדיוס כצורה, לא כמספר", () => {
+  const LAT = 32.0853;
+  const LON = 34.7818;
+
+  /*
+   * ‏זו כל הנקודה: העיגול חייב לייצג את **אותו** מרחק שההתאמה
+   * ‏נמדדת בו. טבעת שמצוירת ב-1.2 ק״מ ליד שדה שאומר 1 היא שקר
+   * ‏ויזואלי, וגרועה מלא לצייר כלום.
+   */
+  it("כל נקודה על הטבעת נמצאת בדיוק ברדיוס שהתבקש", () => {
+    for (const km of [0.2, 0.9, 5, 50]) {
+      for (const [lon, lat] of searchAreaRing(LAT, LON, km)) {
+        expect(haversineKm({ lat: LAT, lon: LON }, { lat, lon })).toBeCloseTo(km, 2);
+      }
+    }
+  });
+
+  /* GeoJSON דורש טבעת סגורה — הנקודה האחרונה היא הראשונה. */
+  it("הטבעת סגורה, ואורכה הוא הצעדים ועוד אחד", () => {
+    const ring = searchAreaRing(LAT, LON, 1, 8);
+    expect(ring).toHaveLength(9);
+    expect(ring[8]).toEqual(ring[0]);
+  });
+
+  /*
+   * ‎**מעלת אורך קצרה ממעלת רוחב בקו הרוחב של ישראל.** הזזה
+   * ‏ליניארית הייתה מציירת אליפסה מתוחה מזרח-מערב; הפרש המעלות
+   * ‏כאן הוא מה שמוכיח שהחישוב כדורי.
+   */
+  it("הצורה כדורית — פריסת האורך רחבה מפריסת הרוחב", () => {
+    const ring = searchAreaRing(LAT, LON, 10, 4);
+    const lonSpan = Math.abs(ring[1]![0] - ring[3]![0]);
+    const latSpan = Math.abs(ring[0]![1] - ring[2]![1]);
+    expect(lonSpan).toBeGreaterThan(latSpan * 1.1);
+  });
+
+  /* רדיוס אפס או שלילי אינו מפיל — הוא פשוט נקודה */
+  it("רדיוס לא חוקי מצטמצם לנקודה ואינו זורק", () => {
+    for (const [lon, lat] of searchAreaRing(LAT, LON, -3, 8)) {
+      expect(lat).toBeCloseTo(LAT, 6);
+      expect(lon).toBeCloseTo(LON, 6);
+    }
+  });
+});
+
+describe("ברירת המחדל של הרדיוס", () => {
+  /* הכרעת בעל המוצר: 900 מטר, לא קילומטר עגול */
+  it("900 מטר, ובתוך הטווח המותר", () => {
+    expect(DEFAULT_SEARCH_RADIUS_KM).toBe(0.9);
+    expect(DEFAULT_SEARCH_RADIUS_KM).toBeGreaterThanOrEqual(MIN_SEARCH_RADIUS_KM);
+    expect(DEFAULT_SEARCH_RADIUS_KM).toBeLessThanOrEqual(MAX_SEARCH_RADIUS_KM);
+    expect(describeDistance(DEFAULT_SEARCH_RADIUS_KM)).toBe("900 מ׳");
   });
 });
