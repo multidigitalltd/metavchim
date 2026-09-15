@@ -16,6 +16,7 @@ import {
   propertyConditionLabel,
   DEAL_STATUSES,
   partnershipApplies,
+  pricePerSqmAgorot,
   propertyEvaluableCriteria,
   PROPERTY_FACING_LABELS,
   PropertyStatusSchema,
@@ -60,6 +61,7 @@ import { EntityTasks, type TaskListResponse } from "../../entity-tasks";
 import { PropertyOwner, type OwnerContact } from "../property-owner";
 import { OwnerActivity } from "./owner-activity";
 import { PartnerSuggestions } from "./partner-suggestions";
+import { PriceBenchmark } from "./price-benchmark";
 import { PropertyOccupant, type OccupantContact } from "../property-occupant";
 import { LocationPicker } from "../location-picker-lazy";
 import { ExclusivityPanel } from "../exclusivity-panel";
@@ -816,6 +818,15 @@ export default function PropertyDetailPage({
   if (!property) return <p aria-live="polite">טוען…</p>;
 
   const address = formatPropertyAddress(property);
+  /*
+   * ‎**המחיר למ״ר — נגזר בקריאה, ולא שדה שממלאים.**
+   *
+   * ‏שני השדות כבר על הכרטיס, והחלוקה ביניהם היא השאלה הראשונה
+   * ‏שמתווך שואל על נכס. הכלל עצמו משותף (`pricePerSqmAgorot`), כי
+   * ‏„מתי אין מה להציג” — בלי שטח, בלי מחיר, שטח 0 — הוא החלק
+   * ‏שנשבר כשכל מסך מחשב לעצמו.
+   */
+  const perSqmAgorot = pricePerSqmAgorot(property.priceAgorot, property.areaSqm);
   /* ‏אותו גשר של כל טבלת תוויות: ערך ריק אינו מפתח, וערך חוזר כמותו */
   const facingLabel = labelOf(PROPERTY_FACING_LABELS, property.facing);
   /*
@@ -1140,7 +1151,19 @@ export default function PropertyDetailPage({
                 באוג׳ 2026” שבמסמך. הנקודה מופיעה רק כשיש לה שני צדדים —
                 כתובת ריקה הייתה משאירה „· נקלט:” פותח בנקודה.
               */}
-              {[address, `נקלט: ${formatDate(property.createdAt)}`]
+              {[
+                address,
+                /*
+                  ‎**„₪ למ״ר” נכנס לשורת המשנה ולא לצד המחיר הגדול.**
+
+                  ‏הוא נגזר מהמחיר, ולא מתחרה בו: שני מספרים גדולים
+                  ‏זה לצד זה מחייבים לקרוא איזה מהם הוא המחיר. כאן
+                  ‏הוא יושב עם שאר העובדות על הנכס, ומופיע רק כשיש
+                  ‏גם מחיר וגם שטח.
+                */
+                perSqmAgorot === null ? "" : `${formatPrice(perSqmAgorot)} למ״ר`,
+                `נקלט: ${formatDate(property.createdAt)}`,
+              ]
                 .filter(Boolean)
                 .join(" · ")}
             </p>
@@ -1524,6 +1547,17 @@ export default function PropertyDetailPage({
               ‏אחד מהם נכון. `partnershipApplies` הוא אותה פונקציה
               ‏שהשירות והמנוע קוראים.
             */}
+            {/*
+              ‎**ההשוואה למ״ר יושבת לפני ההתאמות, ובכוונה.**
+
+              ‏„זה יקר או זול כאן” היא השאלה שמקדימה את „למי זה
+              ‏מתאים”: מתווך שמסתכל על מחיר הנכס שואל אותה קודם,
+              ‏ומי שראה רשימת קונים כבר עבר הלאה.
+
+              ‏הרכיב עצמו מחזיר `null` כשאין מספיק נכסים להשוואה,
+              ‏ולכן אין כאן תנאי שני שיוכל לסתור אותו.
+            */}
+            <PriceBenchmark propertyId={property.id} />
             {partnershipApplies(property) &&
             can(user, "matches.view") &&
             (can(user, "buyers.view_own") || can(user, "buyers.view_all")) ? (

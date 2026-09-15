@@ -16,6 +16,7 @@ export * from "./logic/quick-due.js";
 export * from "./logic/task-suggestions.js";
 export * from "./logic/commercial-types.js";
 export * from "./logic/property-address.js";
+export * from "./logic/price-per-sqm.js";
 export * from "./logic/entry-timing.js";
 export * from "./logic/emoji-message.js";
 export * from "./logic/floor-preference.js";
