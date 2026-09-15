@@ -691,6 +691,7 @@ export class WhatsAppAssistantService {
       await this.saveChat(user.tenantId, user.id, chat);
       await this.deliver(msg, {
         text: spoken.reply,
+        ...(spoken.buttonBody === undefined ? {} : { buttonBody: spoken.buttonBody }),
         ...(spoken.buttons && spoken.buttons.length > 0 ? { buttons: spoken.buttons } : {}),
       });
       return;
@@ -1750,13 +1751,23 @@ export class WhatsAppAssistantService {
    * ‏שנכשל. מזהה שפג — Meta מוחקת מדיה אחרי כמה ימים — מקבל
    * ‏„לא הצלחתי להוריד את ההקלטה”, שזו התשובה הנכונה אז.
    *
-   * ‏והטקסט נשאר עומד בפני עצמו: הודעה אינטראקטיבית שנדחית נשלחת
-   * ‏כטקסט (`deliver`), ואז „לחצו על הכפתור” היה הוראה לכפתור
-   * ‏שאינו שם.
+   * ‎**ושני נוסחים, לא אחד** (ביקורת Codex). ‏`deliver` שולח את
+   * ‏`text` כשההודעה האינטראקטיבית נדחית — וכשאין כפתור, אין שום
+   * ‏דרך לבקש תמלול חוזר. נוסח אחד שאומר „אפשר לנסות שוב” היה
+   * ‏מבטיח בדיוק את מה שאינו שם, כלומר מחזיר את המבוי הסתום
+   * ‏שהשינוי בא להסיר — רק בניסוח נעים יותר.
+   *
+   * ‏לכן `text` מציע את מה שתמיד אפשר (לשלוח שוב, או לכתוב),
+   * ‏ו-`buttonBody` מדבר על הכפתור רק כשהוא באמת נשלח.
    */
-  private transcribeFailed(mediaId: string): { reply: string; buttons: WhatsAppButton[] } {
+  private transcribeFailed(mediaId: string): {
+    reply: string;
+    buttonBody: string;
+    buttons: WhatsAppButton[];
+  } {
     return {
-      reply:
+      reply: "התמלול נכשל — שלחו לי את ההקלטה שוב, או כתבו לי את הבקשה ואטפל בה.",
+      buttonBody:
         "התמלול נכשל, וההקלטה שלך שמורה אצלי — אפשר לנסות לתמלל אותה שוב, או לכתוב לי את הבקשה.",
       buttons: [{ action: "retry", arg: mediaId, title: "🔁 לתמלל שוב" }],
     };
@@ -1778,6 +1789,8 @@ export class WhatsAppAssistantService {
     text?: string;
     transcribed?: boolean;
     reply?: string;
+    /** גוף לגרסת הכפתורים — ראו `transcribeFailed` */
+    buttonBody?: string;
     buttons?: WhatsAppButton[];
   }> {
     if (msg.type === "text") {

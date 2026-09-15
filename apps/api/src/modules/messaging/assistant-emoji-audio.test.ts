@@ -91,21 +91,42 @@ describe("תמלול שנכשל — ניסיון חוזר, לא מבוי סתו�
    * ‏כבר אמר. ההקלטה עדיין שמורה אצל Meta, ולכן הכפתור נושא את
    * ‏מזהה המדיה ומריץ בדיוק את המסלול שנכשל.
    */
-  it("הכפתור נושא את מזהה המדיה, והטקסט עומד בפני עצמו", () => {
-    const failed = (
+  const failed = (): {
+    reply: string;
+    buttonBody: string;
+    buttons: { action: string; arg?: string; title: string }[];
+  } =>
+    (
       WhatsAppAssistantService.prototype as unknown as {
         transcribeFailed: (id: string) => {
           reply: string;
+          buttonBody: string;
           buttons: { action: string; arg?: string; title: string }[];
         };
       }
     ).transcribeFailed("MEDIA-123");
-    expect(failed.buttons).toHaveLength(1);
-    expect(failed.buttons[0]?.action).toBe("retry");
-    expect(failed.buttons[0]?.arg).toBe("MEDIA-123");
-    /* הודעה אינטראקטיבית שנדחית נשלחת כטקסט — ואז „לחצו” הוא שקר */
-    expect(failed.reply).not.toContain("לחצו");
-    expect(failed.reply).toContain("שמורה");
+
+  it("הכפתור נושא את מזהה המדיה", () => {
+    expect(failed().buttons).toHaveLength(1);
+    expect(failed().buttons[0]?.action).toBe("retry");
+    expect(failed().buttons[0]?.arg).toBe("MEDIA-123");
+  });
+
+  /*
+   * ‎**שני נוסחים, לא אחד** (ביקורת Codex). ‏`deliver` שולח את `text`
+   * ‏כשההודעה האינטראקטיבית נדחית — ואז אין כפתור, ואין שום דרך
+   * ‏לבקש תמלול חוזר. נוסח שמבטיח „אפשר לנסות שוב” בלי הכפתור
+   * ‏שמממש אותו הוא בדיוק המבוי הסתום שהשינוי בא להסיר, רק בניסוח
+   * ‏נעים יותר.
+   */
+  it("הנוסח בלי כפתורים מציע רק מה שתמיד אפשר", () => {
+    const { reply, buttonBody } = failed();
+    expect(reply).not.toContain("לתמלל אותה שוב");
+    expect(reply).not.toContain("לחצו");
+    expect(reply).toContain("שלחו לי את ההקלטה שוב");
+    /* ‏הנוסח שליד הכפתור — שם ההבטחה מכוסה */
+    expect(buttonBody).toContain("שמורה");
+    expect(buttonBody).not.toBe(reply);
   });
 
   it("‏„retry” עובר הלוך-חזור במזהה הכפתור ואינו משפט למנוע", () => {
