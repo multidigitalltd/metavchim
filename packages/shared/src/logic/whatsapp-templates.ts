@@ -138,9 +138,17 @@ const MAX_PARAM = 900;
 /**
  * ‏ניקוי שערך יחיד חייב לעבור: שורה אחת, בלי רצף רווחים, ובאורך
  * שאינו פוסל את ההודעה. ריק הופך לרווח יחיד — Meta דוחה ערך ריק.
+ *
+ * ‎**ירידת שורה הופכת למפריד ולא נעלמת.** ‏Meta אינה מתירה ירידות
+ * ‏שורה בערך של תבנית, ולכן אין ברירה אלא לשטח. אבל שטוח ברווח
+ * ‏מדביק שורות שהן פריטים נפרדים — סיכום המנטור הגיע כגוש טקסט
+ * ‏אחד שאי אפשר לסרוק (דיווח מהשטח). ‎`·` שומר את הגבול שהיה שם.
  */
 function flatten(text: string): string {
-  const cleaned = text.replace(/\s+/gu, " ").trim();
+  const cleaned = text
+    .replace(/[^\S\n]*\n[\s]*/gu, " · ")
+    .replace(/\s+/gu, " ")
+    .trim();
   if (cleaned === "") return " ";
   return cleaned.length > MAX_PARAM ? `${cleaned.slice(0, MAX_PARAM - 1)}…` : cleaned;
 }

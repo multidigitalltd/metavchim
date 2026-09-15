@@ -52,7 +52,16 @@ export type WhatsAppButtonAction =
    * ‏כל תשלום ממתין של המשרד, ולכן היא חייבת להיות **בקשה
    * ‏מפורשת אחת** ולא נגזרת של פענוח טקסט.
    */
-  | "renew";
+  | "renew"
+  /**
+   * ‎**תמלול חוזר של אותה הקלטה** — הארגומנט הוא מזהה המדיה.
+   *
+   * ‏פעולה משלה ולא `cmd`: `cmd` נשלח למנוע ההבנה כאילו הוקלד, ואין
+   * ‏משפט בעברית שאומר „קח את מזהה המדיה 123 ותמלל אותו שוב”. מה
+   * ‏שנדרש הוא להריץ מחדש בדיוק את המסלול שנכשל — על אותה הקלטה,
+   * ‏שעדיין שמורה אצל Meta — ולא לבקש מהמתווך להקליט שוב.
+   */
+  | "retry";
 
 export interface WhatsAppButton {
   action: WhatsAppButtonAction;
@@ -95,7 +104,8 @@ export function decodeButtonId(id: string): DecodedButton | null {
     action !== "pick" &&
     action !== "cmd" &&
     action !== "snooze" &&
-    action !== "renew"
+    action !== "renew" &&
+    action !== "retry"
   ) {
     return null;
   }

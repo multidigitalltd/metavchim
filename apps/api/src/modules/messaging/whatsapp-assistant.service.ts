@@ -21,6 +21,9 @@ import {
   AGENT_HISTORY_KEPT,
   AGENT_ID_KEYS,
   type WhatsAppButton,
+  isEmojiOnlyMessage,
+  emojiSentiment,
+  emojiOnlyReply,
   type WhatsAppListRow,
   type AgentHistoryTurn,
   type AgentProposal,
@@ -221,6 +224,14 @@ export interface AssistantInbound {
   buttonId?: string;
   /** כותרת הכפתור כפי שהמתווך ראה אותה — ליומן ולזיכרון השיחה */
   buttonTitle?: string;
+  /**
+   * האימוג'י של תגובה על הודעה שלנו. מחרוזת ריקה = התגובה הוסרה.
+   *
+   * ‏קיים רק כש-`type === "reaction"`, ובדיוק לשם כך: תגובה אינה
+   * ‏בקשה, ובלי השדה הזה היא נפלה למשפט „אני יודע לטפל כרגע
+   * ‏בטקסט…”.
+   */
+  reactionEmoji?: string;
 }
 
 interface PendingState {
@@ -431,6 +442,22 @@ export class WhatsAppAssistantService {
 
   private async handleInner(msg: AssistantInbound): Promise<void> {
     /*
+     * ‎**תגובת אימוג'י נבלעת — גם לפני הזיהוי.**
+     *
+     * ‏מי שהגיב 👍 על סיכום הבוקר לא ביקש דבר, ולכן אין למה לענות.
+     * ‏מה שקרה בפועל הוא שההודעה נפלה עד סוף `extractText` וקיבלה
+     * ‏„אני יודע לטפל כרגע בטקסט, בהודעות קוליות, בתמונות ובקבצי
+     * ‏אקסל” — הסבר על מגבלות המערכת כתשובה ל„תודה” (דיווח מהשטח).
+     *
+     * ‎**לפני הזיהוי** ולא אחריו: תגובה ממספר שאינו מקושר הייתה
+     * ‏מפעילה את מסלול המתעניין ומחזירה מענה שיווקי על אגודל.
+     * ‏שתיקה נכונה בשני המקרים, ולכן היא אחת.
+     */
+    if (msg.type === "reaction") {
+      void this.sender.markRead(msg.externalId);
+      return;
+    }
+    /*
      * **קוד קישור נבדק לפני הכול — גם לפני הזיהוי.**
      *
      * זו כל הנקודה שלו: הוא מגיע ממספר שהמערכת עדיין אינה מכירה,
@@ -634,11 +661,38 @@ export class WhatsAppAssistantService {
       return;
     }
 
-    const asText = button === null ? null : buttonAsText(button.action, button.arg);
-    const spoken = asText === null ? await this.extractText(msg, context) : { text: asText };
-    if ("reply" in spoken && spoken.reply !== undefined) {
-      await this.sender.sendText(msg.fromWaId, spoken.reply, { replyTo: msg.externalId });
+    /*
+     * ‎**„לתמלל שוב” מריץ מחדש את אותה הקלטה — לא משפט למנוע.**
+     *
+     * ‏הכפתור נושא את מזהה המדיה, וההודעה נכתבת מחדש כהודעה קולית
+     * ‏עם אותו מזהה. כך אין מסלול תמלול שני שצריך לזכור את אותם
+     * ‏כללים (אישור קבלה, הודעת ביניים, ניסיון חוזר): המסלול
+     * ‏היחיד פשוט רץ שוב.
+     */
+    if (button !== null && button.action === "retry" && (button.arg ?? "") === "") {
+      /* כפתור בלי מזהה מדיה אינו יכול לתמלל דבר — וזו אינה תקלה להסתיר. */
       await this.saveChat(user.tenantId, user.id, chat);
+      await this.deliver(msg, {
+        text: "ההקלטה כבר אינה זמינה אצלי — שלחו אותה שוב או כתבו לי את הבקשה.",
+      });
+      return;
+    }
+    const source: AssistantInbound =
+      button !== null && button.action === "retry"
+        ? { ...msg, type: "audio", mediaId: button.arg ?? "", text: undefined }
+        : msg;
+    const asText =
+      button === null || button.action === "retry"
+        ? null
+        : buttonAsText(button.action, button.arg);
+    const spoken =
+      asText === null ? await this.extractText(source, context) : { text: asText };
+    if ("reply" in spoken && spoken.reply !== undefined) {
+      await this.saveChat(user.tenantId, user.id, chat);
+      await this.deliver(msg, {
+        text: spoken.reply,
+        ...(spoken.buttons && spoken.buttons.length > 0 ? { buttons: spoken.buttons } : {}),
+      });
       return;
     }
     const text = spoken.text ?? "";
@@ -1666,6 +1720,48 @@ export class WhatsAppAssistantService {
   }
 
   /** טקסט מוכן לפירוש, או תשובה מוכנה כשאין מה לפרש. */
+  /**
+   * ‏תמלול עם ניסיון שני. ‎`null` = שני הניסיונות נכשלו.
+   *
+   * ‏הבחנה בין `null` ל-`""` היא ההבדל בין „המנוע נפל” לבין
+   * ‏„ההקלטה שקטה”, ושתי התשובות למתווך שונות לגמרי.
+   */
+  private async transcribeWithRetry(buffer: Buffer): Promise<string | null> {
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        const { text } = await this.transcription.transcribe(buffer, "voice-note.ogg");
+        return text.trim();
+      } catch (error) {
+        this.logger.warn(`תמלול הודעה קולית נכשל (ניסיון ${attempt + 1}): ${String(error)}`);
+      }
+    }
+    return null;
+  }
+
+  /**
+   * ‎**מה מקבל מתווך שהתמלול שלו נכשל — ולמה לא „נסו שוב”.**
+   *
+   * ‏„נסו שוב או כתבו את הבקשה” היה מבוי סתום: ההקלטה כבר נשלחה,
+   * ‏והמשפט מבקש מהמתווך להקליט אותה מחדש או לוותר עליה. מה שהוא
+   * ‏באמת צריך הוא **שהמערכת תנסה שוב על אותה הקלטה** — היא עדיין
+   * ‏שמורה אצל Meta, ואין שום סיבה שהוא ידבר פעמיים (דיווח מהשטח).
+   *
+   * ‏הכפתור נושא את מזהה המדיה, ולכן לחיצה מריצה בדיוק את המסלול
+   * ‏שנכשל. מזהה שפג — Meta מוחקת מדיה אחרי כמה ימים — מקבל
+   * ‏„לא הצלחתי להוריד את ההקלטה”, שזו התשובה הנכונה אז.
+   *
+   * ‏והטקסט נשאר עומד בפני עצמו: הודעה אינטראקטיבית שנדחית נשלחת
+   * ‏כטקסט (`deliver`), ואז „לחצו על הכפתור” היה הוראה לכפתור
+   * ‏שאינו שם.
+   */
+  private transcribeFailed(mediaId: string): { reply: string; buttons: WhatsAppButton[] } {
+    return {
+      reply:
+        "התמלול נכשל, וההקלטה שלך שמורה אצלי — אפשר לנסות לתמלל אותה שוב, או לכתוב לי את הבקשה.",
+      buttons: [{ action: "retry", arg: mediaId, title: "🔁 לתמלל שוב" }],
+    };
+  }
+
   private async extractText(
     msg: AssistantInbound,
     /*
@@ -1678,10 +1774,28 @@ export class WhatsAppAssistantService {
      * ‏והנחה שהיא תעבוד היא בדיוק סוג הבאג שמתגלה רק בשטח.
      */
     context: RequestContext,
-  ): Promise<{ text?: string; transcribed?: boolean; reply?: string }> {
+  ): Promise<{
+    text?: string;
+    transcribed?: boolean;
+    reply?: string;
+    buttons?: WhatsAppButton[];
+  }> {
     if (msg.type === "text") {
       const text = (msg.text ?? "").trim();
       if (text === "") return { reply: "קיבלתי הודעה ריקה — כתבו לי מה לעשות." };
+      /*
+       * ‎**אימוג'י שהוקלד נענה כאן, ולא במנוע ההבנה.**
+       *
+       * ‏אין פעולה בקטלוג שמתאימה ל-👍, ולכן המנוע החזיר עליו
+       * ‏„לא הבנתי, אולי התכוונת…” ורשימת הצעות — תשובה ארוכה
+       * ‏ומבלבלת למי שפשוט אישר שקרא. משפט קצר של אדם הוא הנכון.
+       *
+       * ‎**רק כשההודעה כולה אימוג'י.** „👍 תשלח לו את הנכס” הוא
+       * ‏בקשה לכל דבר, והיא ממשיכה למנוע כרגיל.
+       */
+      if (isEmojiOnlyMessage(text)) {
+        return { reply: emojiOnlyReply(emojiSentiment(text)) };
+      }
       return { text };
     }
     if (msg.type === "audio") {
@@ -1714,13 +1828,21 @@ export class WhatsAppAssistantService {
         });
       }, SLOW_TRANSCRIBE_NOTICE_MS);
       try {
-        const { text } = await this.transcription.transcribe(media.buffer, "voice-note.ogg");
-        if (text.trim() === "") {
+        /*
+         * ‎**ניסיון שני לפני שמכריזים על כישלון.**
+         *
+         * ‏רוב הכשלים כאן חולפים — המנוע עמוס, בקשה שנפלה על זמן
+         * ‏קצוב. ניסיון אחד בלבד הפך תקלה של שנייה להודעה „התמלול
+         * ‏נכשל”, כלומר לבקשה מהמתווך להקליט מחדש דבר שהוא כבר
+         * ‏אמר. שניים הם המחיר של המתנה קצרה; שלושה כבר גורמים
+         * ‏ל-Meta לשלוח את ההודעה שוב.
+         */
+        const text = await this.transcribeWithRetry(media.buffer);
+        if (text === null) return this.transcribeFailed(msg.mediaId);
+        if (text === "") {
           return { reply: "לא הצלחתי לשמוע מילים בהקלטה — נסו שוב או כתבו." };
         }
-        return { text: text.trim(), transcribed: true };
-      } catch {
-        return { reply: "התמלול נכשל — נסו שוב או כתבו את הבקשה." };
+        return { text, transcribed: true };
       } finally {
         clearTimeout(notice);
       }

@@ -98,6 +98,21 @@ const WebhookSchema = z.object({
                     })
                     .optional(),
                   /**
+                   * ‎**תגובת אימוג'י על הודעה שלנו.**
+                   *
+                   * ‏השדה לא הוכרז, וזו אותה משפחת תקלות של `image`
+                   * ‏ו-`document` לפניו: `type` הגיע כ-`"reaction"`,
+                   * ‏שאינו טקסט ואינו מדיה, והסוכן נפל למשפט
+                   * ‏„אני יודע לטפל כרגע בטקסט…” — הסבר על מגבלות
+                   * ‏למי שפשוט אמר „תודה” (דיווח מהשטח).
+                   *
+                   * ‎`emoji` ריק = התגובה **הוסרה**. שניהם מטופלים
+                   * ‏אותו דבר (שתיקה), אבל ההבחנה נשמרת כי היא זמינה.
+                   */
+                  reaction: z
+                    .object({ message_id: z.string(), emoji: z.string().optional() })
+                    .optional(),
+                  /**
                    * לחיצה על כפתור או בחירה מרשימה. המזהה הוא מה
                    * ששלחנו בכפתור, ולכן הוא נושא את הפעולה; הכותרת
                    * נשמרת כדי שיהיה מה להציג ביומן השיחה.
@@ -424,6 +439,9 @@ export class WhatsAppInboundService {
                       fileMime: message.document.mime_type ?? "",
                       ...(message.document.caption ? { text: message.document.caption } : {}),
                     }
+                  : {}),
+                ...(message.reaction
+                  ? { reactionEmoji: message.reaction.emoji ?? "" }
                   : {}),
                 ...(() => {
                   const reply =
