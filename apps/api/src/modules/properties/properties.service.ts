@@ -58,6 +58,7 @@ import type { Prisma } from "@prisma/client";
 import { ContactErasureService } from "../contacts/contact-erasure.service";
 import { ContactsService } from "../contacts/contacts.service";
 import { ListingsService } from "../collaboration/listings.service";
+import { cityForNeighborhood } from "../suggest/neighborhood-city";
 import {
   MatchingService,
   type MatchTrigger,
@@ -644,6 +645,33 @@ export class PropertiesService {
    * לא תידרס בידי פענוח אוטומטי, וזו בדיוק ההבחנה שהעמודה
    * `location_source` נועדה לה.
    */
+  /**
+   * ‎**עיר חסרה מושלמת מהשכונה — לפני הגיאוקודינג ולפני הכתיבה.**
+   *
+   * ‏הטפסים דורשים עיר, ולכן מי שמגיע לכאן בלעדיה הגיע מייבוא
+   * ‏אקסל, מהסוכן בוואטסאפ, או מחילוץ מצילום מודעה או מהקלטה.
+   * ‏שם „פרדס כץ” מגיעה בלי „בני ברק”.
+   *
+   * ‎**ובלי עיר הנכס אינו נכנס להתאמות כלל** — לא כשגיאה, אלא
+   * ‏בשקט: הסינון הגס נשען על שם העיר, והמיקום הוא קריטריון חובה
+   * ‏במנוע. השורה נשמרת, נראית תקינה, ואינה מתאימה לאיש.
+   *
+   * ‏לפני הגיאוקודינג בכוונה: הכתובת שנשלחת לספק מקבלת גם את
+   * ‏העיר, ו„פרדס כץ” לבדה מפוענחת גרוע יותר מ„פרדס כץ, בני ברק”.
+   *
+   * ‏קריאה אחת, ורק כשבאמת חסר: מי שיש לו עיר אינו נוגע במסד.
+   */
+  private async withCompletedCity(fields: PropertyFields): Promise<PropertyFields> {
+    if (fields.city !== undefined && fields.city.trim() !== "") return fields;
+    const neighborhood = fields.neighborhood;
+    if (neighborhood === undefined || neighborhood.trim() === "") return fields;
+    const city = await this.prisma.withTenant((tx) =>
+      cityForNeighborhood(tx, neighborhood),
+    );
+    /* ‏אין תשובה ⇒ נשאר ריק. ניחוש גרוע מחוסר — ראו `cityForNeighborhood`. */
+    return city === null ? fields : { ...fields, city };
+  }
+
   private async withGeocodedLocation(
     fields: PropertyFields,
   ): Promise<PropertyFields> {
@@ -719,7 +747,9 @@ export class PropertiesService {
      * לתוך טרנזקציית מסד. וכשל שלה אינו מפיל קליטת נכס — הסוכן
      * יסמן ידנית, בדיוק כמו קודם.
      */
-    const fields = await this.withGeocodedLocation(input.fields);
+    const fields = await this.withGeocodedLocation(
+      await this.withCompletedCity(input.fields),
+    );
     const readiness = computeReadiness(fields, {
       /*
        * נכס חדש אין לו עדיין מדיה — התמונות נטענות אחרי היצירה,
