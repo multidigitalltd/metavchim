@@ -33,6 +33,7 @@ import {
 } from "./call-convert-chat.js";
 import { notificationUrl, type PushableNotification } from "./web-push.js";
 import type { WhatsAppButton } from "./whatsapp-buttons.js";
+import { forumThreadCommand } from "./forum.js";
 
 /* ==================== קטגוריות ==================== */
 
@@ -165,6 +166,12 @@ const TYPE_CATEGORY: Record<string, WhatsAppNotifyCategory> = {
    * הוא סוג שאיש לא החליט עליו.
    */
   whatsapp_token_expired: "system",
+  // הפורום המקצועי — תגובה בשרשור שעוקבים אחריו, שרשור חדש למי
+  // שעוקב אחרי הכול, ותגובה שסומנה כתשובה. קטגוריה משלו, כי זה
+  // הרעש היחיד כאן שאינו על העבודה של המתווך אלא על הקהילה.
+  forum_reply: "forum",
+  forum_thread: "forum",
+  forum_accepted: "forum",
 };
 
 export function notifyCategory(type: string): WhatsAppNotifyCategory {
@@ -322,6 +329,7 @@ const CATEGORY_ICON: Record<WhatsAppNotifyCategory, string> = {
   tasks: "⏰",
   matches: "🎯",
   network: "🤝",
+  forum: "💬",
   digests: "📊",
   system: "ℹ️",
 };
@@ -368,6 +376,9 @@ const TYPE_ICON: Record<string, string> = {
   mentor_nudge: "🎯",
   mentor_daily: "🌅",
   mentor_monthly: "📅",
+  forum_reply: "💬",
+  forum_thread: "📝",
+  forum_accepted: "🏅",
 };
 
 /**
@@ -383,6 +394,7 @@ const CATEGORY_CALL_TO_ACTION: Record<WhatsAppNotifyCategory, string> = {
   tasks: "✅ לסגור את זה עכשיו? כתבו לי „בוצע” ואעדכן.",
   matches: "🎯 יש התאמה — כתבו לי „תשלח הצעה” ואכין אותה.",
   network: '🤝 שת"פ שמחכה לתשובה — כתבו לי מה להשיב.',
+  forum: "💬 אפשר להשיב מכאן: לחצו „להשיב בפורום” וכתבו את התגובה בהודעה הבאה (או „אנונימי:” בתחילתה — בעילום שם).",
   digests: "🚀 שאלו אותי „מה הכי דחוף היום?” ואתן לכם את הסדר.",
   system: "💬 אפשר לענות לי כאן ואטפל בזה.",
 };
@@ -471,11 +483,35 @@ function ideaFeedbackButtons(items: readonly NotifyItem[]): WhatsAppButton[] {
   ];
 }
 
+/**
+ * כפתורי הפורום — כשההודעה כולה מהפורום. „להשיב” פותח מצב שבו
+ * ההודעה הבאה היא התגובה (כמו „לענות למנטור”), ו„להפסיק לעקוב”
+ * מסיר את המעקב מהשרשור שההתראה האחרונה דיברה עליו.
+ */
+function forumButtons(threadId: string): WhatsAppButton[] {
+  return [
+    { action: "cmd", arg: forumThreadCommand("forum_reply", threadId), title: "💬 להשיב בפורום" },
+    { action: "cmd", arg: forumThreadCommand("forum_unfollow", threadId), title: "🔕 להפסיק לעקוב" },
+    { action: "cmd", arg: "urgent", title: "📋 מה דחוף היום?" },
+  ];
+}
+
 export function notifyQuickReplies(
   items: readonly NotifyItem[],
   details?: NotifyDetailsLookup,
 ): WhatsAppButton[] | null {
   const types = new Set(items.map((item) => item.type));
+  if (items.length > 0 && [...types].every((type) => type.startsWith("forum_"))) {
+    /*
+     * הכפתור נושא את השרשור, ולכן רק כשהאגד כולו על שרשור **אחד**.
+     * כמה שרשורים בהודעה אחת — הקישורים בגוף מספיקים, והכפתורים
+     * הכלליים נשארים; „להשיב” על שרשור שלא ברור איזהו גרוע מבלי.
+     */
+    const threads = new Set(items.map((item) => item.entityId ?? ""));
+    const only = [...threads][0];
+    if (threads.size === 1 && only !== undefined && only !== "") return forumButtons(only);
+    return null;
+  }
   const mentorOnly =
     items.length > 0 && [...types].every((type) => type.startsWith("mentor_"));
   /*
@@ -707,6 +743,8 @@ const CATEGORY_ACTION: Record<
    * ‎**המשפט** שנשלח נשאר מהקטלוג, כי אותו המנוע צריך לזהות.
    */
   network: { id: "show_network_inbox", caption: "מה מחכה ברשת" },
+  // הפורום — ההודעה כולה מהפורום מקבלת את הכפתורים שלה (למעלה); באגד מעורב, „מה חדש בפורום”
+  forum: { id: "forum_latest", caption: "מה חדש בפורום" },
   digests: null,
   system: null,
 };

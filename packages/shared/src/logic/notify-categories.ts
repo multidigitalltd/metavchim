@@ -22,6 +22,7 @@ export type WhatsAppNotifyCategory =
   | "tasks"
   | "matches"
   | "network"
+  | "forum"
   | "digests"
   | "system";
 
@@ -31,6 +32,7 @@ export const NOTIFY_CATEGORY_LABELS: Record<WhatsAppNotifyCategory, string> = {
   tasks: "משימות, פגישות ותזכורות",
   matches: "התאמות, קונים ונכסים",
   network: "רשת השיתופים והתשלומים",
+  forum: "הפורום המקצועי",
   digests: "סיכומים יומיים ושבועיים",
   system: "הודעות מערכת",
 };

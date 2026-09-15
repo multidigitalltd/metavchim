@@ -151,6 +151,8 @@ const ENTITY_ROUTES: Record<string, (id?: string) => string> = {
   virtual_number: () => "/settings#virtual-numbers",
   call: (id) => (id ? `/calls?call=${id}` : "/calls"),
   mentor: () => "/mentor",
+  // הפורום — השרשור עצמו; בלי מזהה, רשימת הפורום
+  forum_thread: (id) => (id ? `/forum/t/${id}` : "/forum"),
 };
 
 /**

@@ -40,6 +40,10 @@ import {
   callConvertKindFromText,
   callConvertParams,
   type CallConvertSeed,
+  FORUM_QUICK_COMMANDS,
+  ForumReplyInputSchema,
+  parseAnonymousPrefix,
+  parseForumCommand,
 } from "@metavchim/shared";
 import { TenantContext, type RequestContext } from "../../common/tenant-context";
 import { loadEnv } from "../../config/env";
@@ -116,6 +120,13 @@ import {
   mentorPlanSkipped,
   mentorReflectionPrompt,
 } from "./assistant-mentor";
+import {
+  forumNoThreadReply,
+  forumReplyPosted,
+  forumReplyPrompt,
+  forumUnfollowed,
+} from "./assistant-forum";
+import { ForumService } from "../forum/forum.service";
 import { MentorService } from "../mentor/mentor.service";
 import {
   MentorPracticeService,
@@ -254,7 +265,9 @@ interface PendingState {
     /** ‏קובץ הגיע ולא נאמר מה יש בו — ההודעה הבאה היא הסוג */
     | "import_kind"
     /** ‏הקובץ נקרא והתצוגה המקדימה הוצגה — נשאר „אשר” */
-    | "import_confirm";
+    | "import_confirm"
+    /** ‏„להשיב בפורום” — ההודעה הבאה היא התגובה (docs/16) */
+    | "forum_reply";
   /**
    * חותם ההצעה — נכנס למזהי הכפתורים שלה.
    *
@@ -319,6 +332,8 @@ interface PendingState {
     mediaId: string;
     fileMime: string;
   };
+  /** „להשיב בפורום” — השרשור שההודעה הבאה עונה עליו (docs/16). */
+  forum?: { threadId: string; title: string };
 }
 
 interface ChatState {
@@ -422,6 +437,7 @@ export class WhatsAppAssistantService {
      * ‎`typedBy: "agent"`, ועל הורדת שדה פסול במקום השורה.
      */
     private readonly imports: WhatsappImportService,
+    private readonly forum: ForumService,
   ) {}
 
   /**
@@ -1136,6 +1152,90 @@ export class WhatsAppAssistantService {
       return { text: `⚠️ ${failure}`, speak: failure };
     }
     return mentorPlanSaved(plan);
+  }
+
+
+  /* ==================== הפורום בשיחה (docs/16) ==================== */
+
+  /** תווית להצעה הממתינה — אין כאן פעולה למנוע, רק מצב שיחה. */
+  private static forumPlaceholder(title: string): AgentProposal {
+    return {
+      actionId: "forum_reply",
+      title,
+      risk: "create",
+      summary: title,
+      fields: [],
+      missing: [],
+      warnings: [],
+      degraded: [],
+      fallback: false,
+    };
+  }
+
+  /** השרשור שהכפתור נשא — או, בלי מזהה, זה של ההתראה האחרונה מהפורום. */
+  private async forumTarget(threadId: string | null): Promise<{ id: string; title: string } | null> {
+    return threadId === null ? this.forum.lastNotifiedThread() : this.forum.threadTitle(threadId);
+  }
+
+  /**
+   * „להשיב בפורום” — על השרשור שההודעה דיברה עליו. ההודעה הבאה היא
+   * התגובה; „אנונימי:” בתחילתה — בעילום שם.
+   */
+  private async forumReplyStart(user: IdentifiedUser, chat: ChatState, threadId: string | null): Promise<AgentReply> {
+    const thread = await this.forumTarget(threadId);
+    if (thread === null) return forumNoThreadReply();
+    if (chat.pending !== null) {
+      const took = await this.takePending(user.tenantId, user.id, chat.pending.token);
+      this.consumed(chat, took);
+    }
+    chat.pending = {
+      transcript: FORUM_QUICK_COMMANDS.forum_reply,
+      proposal: WhatsAppAssistantService.forumPlaceholder("תגובה בפורום"),
+      awaiting: "forum_reply",
+      extraParams: {},
+      token: ulid(),
+      forum: { threadId: thread.id, title: thread.title },
+    };
+    chat.keepStoredPending = false;
+    return forumReplyPrompt(thread.title);
+  }
+
+  /** „להפסיק לעקוב” — מהשרשור שההודעה דיברה עליו. */
+  private async forumUnfollow(threadId: string | null): Promise<AgentReply> {
+    const thread = await this.forumTarget(threadId);
+    if (thread === null) return forumNoThreadReply();
+    await this.forum.follow(thread.id, false);
+    return forumUnfollowed(thread.title);
+  }
+
+  /** ההודעה שאחרי „להשיב בפורום” היא התגובה — נצרכת אטומית עם החותם. */
+  private async forumFollowUp(
+    user: IdentifiedUser,
+    chat: ChatState,
+    pending: PendingState,
+    text: string,
+  ): Promise<AgentReply> {
+    const target = pending.forum;
+    const took = await this.takePending(user.tenantId, user.id, pending.token);
+    this.consumed(chat, took);
+    if (!took || target === undefined) return { text: STALE_PROPOSAL_TEXT, speak: STALE_PROPOSAL_TEXT };
+    const { anonymous, text: body } = parseAnonymousPrefix(text);
+    const parsed = ForumReplyInputSchema.safeParse({ body, anonymous });
+    if (!parsed.success) {
+      const retry = "לא קלטתי תגובה — כתבו אותה שוב, או „בטל”.";
+      chat.pending = { ...pending, token: ulid() };
+      chat.keepStoredPending = false;
+      return { text: retry, speak: retry };
+    }
+    try {
+      await this.forum.reply(target.threadId, parsed.data);
+    } catch (error) {
+      chat.pending = { ...pending, token: ulid() };
+      chat.keepStoredPending = false;
+      const failure = `התגובה לא פורסמה: ${errorMessage(error)}. אפשר לשלוח אותה שוב, או „בטל”.`;
+      return { text: `⚠️ ${failure}`, speak: failure };
+    }
+    return forumReplyPosted(target.threadId, anonymous, loadEnv().WEB_ORIGIN);
   }
 
   private consumed(chat: ChatState, took: PendingState | null): void {
@@ -1905,6 +2005,16 @@ export class WhatsAppAssistantService {
       );
       return withHeard({ text: reply, speak: reply }, heard);
     }
+    // „להשיב בפורום [מזהה]” / „להפסיק לעקוב [מזהה]” — מכפתורי ההתראה (docs/16)
+    const forumCommand = parseForumCommand(text);
+    if (forumCommand !== null) {
+      return withHeard(
+        forumCommand.command === "forum_reply"
+          ? await this.forumReplyStart(user, chat, forumCommand.threadId)
+          : await this.forumUnfollow(forumCommand.threadId),
+        heard,
+      );
+    }
 
     const pending = chat.pending;
     if (pending) {
@@ -1928,6 +2038,9 @@ export class WhatsAppAssistantService {
       }
       if (pending.awaiting === "mentor_reflection" || pending.awaiting === "mentor_plan") {
         return withHeard(await this.mentorFollowUp(user, chat, pending, text), heard);
+      }
+      if (pending.awaiting === "forum_reply") {
+        return withHeard(await this.forumFollowUp(user, chat, pending, text), heard);
       }
       /*
        * ‎**„אולי התכוונת” — בחירת כוונה, לא בחירת רשומה.**

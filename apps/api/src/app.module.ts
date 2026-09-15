@@ -27,6 +27,7 @@ import { MapsModule } from "./modules/maps/maps.module";
 import { ContactsModule } from "./modules/contacts/contacts.module";
 import { ExportModule } from "./modules/export/export.module";
 import { FeatureSignupsModule } from "./modules/feature-signups/feature-signups.module";
+import { ForumModule } from "./modules/forum/forum.module";
 import { HealthModule } from "./modules/health/health.module";
 import { IntakeModule } from "./modules/intake/intake.module";
 import { WebhookLogModule } from "./modules/webhook-log/webhook-log.module";
@@ -139,6 +140,7 @@ import { AgentModule } from "./modules/agent/agent.module";
     IntakeModule,
     /* ‏השער רושם ביומן דחייה על תקרה, ולכן הוא צריך את השירות */
     WebhookLogModule,
+    ForumModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: WebhookThrottlerGuard },

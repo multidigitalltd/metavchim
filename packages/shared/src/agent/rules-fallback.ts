@@ -100,6 +100,8 @@ export const RULE_ACTION_MAP: Record<VoiceAction, AgentActionId | null> = {
   mentor_status: "mentor_status",
   mentor_ask: "mentor_ask",
   mentor_practice: "mentor_practice",
+  forum_latest: "forum_latest",
+  forum_search: "forum_search",
   unknown: null,
 };
 

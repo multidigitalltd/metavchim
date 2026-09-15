@@ -6,6 +6,7 @@ import { PropertiesModule } from "../properties/properties.module";
 import { RecruitmentModule } from "../recruitment/recruitment.module";
 import { ContactsModule } from "../contacts/contacts.module";
 import { ImportModule } from "../import/import.module";
+import { ForumModule } from "../forum/forum.module";
 import { MentorModule } from "../mentor/mentor.module";
 import { ViewingReplyService } from "../calendar/viewing-reply.service";
 import { VoiceIntakeModule } from "../voice-intake/voice-intake.module";
@@ -77,6 +78,8 @@ import { WhatsAppWebhookController } from "./whatsapp-webhook.controller";
      * ‏יודע דבר על הוואטסאפ.
      */
     ImportModule,
+    // „להשיב בפורום” — ההודעה הבאה היא התגובה (docs/16). מודול עלה.
+    ForumModule,
   ],
   controllers: [WhatsAppWebhookController, WhatsAppConnectionController],
   /*

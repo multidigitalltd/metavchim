@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { parseForumCommand } from "./forum.js";
 import { MENTOR_PLAYBOOK } from "./mentor-playbook.js";
 import {
   DEFAULT_WHATSAPP_NOTIFY_PREFS,
@@ -827,5 +828,38 @@ describe("formatNotifyMessage — כותרת שכבר פותחת בסמל", () =
       "https://app.example.com",
     );
     expect(plain).toContain("🔥 *ליד חדש*");
+  });
+});
+
+describe("notifyQuickReplies — הפורום: הכפתור קשור לשרשור שההודעה דיברה עליו", () => {
+  const THREAD = "01HZZZZZZZZZZZZZZZZZZZZZZZ";
+  const OTHER = "01HYYYYYYYYYYYYYYYYYYYYYYY";
+
+  it("אגד על שרשור אחד — „להשיב” ו„להפסיק לעקוב” נושאים את המזהה, ואז „מה דחוף היום?”", () => {
+    const buttons = notifyQuickReplies([
+      item({ type: "forum_reply", title: "תגובה", entityType: "forum_thread", entityId: THREAD }),
+      item({ type: "forum_accepted", title: "התקבלה", entityType: "forum_thread", entityId: THREAD }),
+    ]);
+    expect(buttons?.map((b) => b.arg)).toEqual([
+      `להשיב בפורום [${THREAD}]`,
+      `להפסיק לעקוב אחרי השיחה [${THREAD}]`,
+      "urgent",
+    ]);
+    for (const button of buttons ?? []) {
+      expect(button.action).toBe("cmd");
+      expect(button.title.length).toBeLessThanOrEqual(WA_BUTTON_TITLE_MAX);
+    }
+    expect(parseForumCommand(buttons?.[0]?.arg ?? "")).toEqual({ command: "forum_reply", threadId: THREAD });
+    expect(parseForumCommand(buttons?.[1]?.arg ?? "")).toEqual({ command: "forum_unfollow", threadId: THREAD });
+  });
+
+  it("שני שרשורים באגד אחד — בלי כפתורי פורום: „להשיב” על שרשור שלא ברור איזהו גרוע מבלי", () => {
+    const buttons = notifyQuickReplies([
+      item({ type: "forum_reply", entityType: "forum_thread", entityId: THREAD }),
+      item({ type: "forum_thread", entityType: "forum_thread", entityId: OTHER }),
+    ]);
+    expect(buttons).toBeNull();
+    // וגם התראה בלי מזהה שרשור
+    expect(notifyQuickReplies([item({ type: "forum_reply" })])).toBeNull();
   });
 });

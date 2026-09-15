@@ -65,6 +65,14 @@ import {
   MENTOR_METRICS,
 } from "../logic/mentor.js";
 import { PRACTICE_SCENARIO_INFO } from "../logic/mentor-practice.js";
+import {
+  FORUM_BODY_MAX,
+  FORUM_REPLY_MAX,
+  FORUM_SEARCH_MAX,
+  FORUM_TITLE_MAX,
+  FORUM_TOPIC_LABELS,
+  FORUM_TOPICS,
+} from "../logic/forum.js";
 
 export const AGENT_ACTION_IDS = [
   "search",
@@ -159,6 +167,11 @@ export const AGENT_ACTION_IDS = [
   "mentor_commit",
   "mentor_reflect",
   "mentor_practice",
+  "forum_latest",
+  "forum_search",
+  "forum_ask",
+  "forum_reply",
+  "forum_follow",
 ] as const;
 
 export type AgentActionId = (typeof AGENT_ACTION_IDS)[number];
@@ -3012,7 +3025,145 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
       },
     ],
   },
+  /*
+   * ==================== הפורום המקצועי (docs/16) ====================
+   *
+   * הפורום הוא קהילה בין משרדים, ולכן כל הפעולות כאן פתוחות ליכולת
+   * הבסיסית ביותר ובלי פיצ'ר מסלול — כמו המסך עצמו. השדות נושאים
+   * תחילית `forum` כי `title`/`body` כבר תפוסים בקטלוג בהגדרה אחרת
+   * (מפתח מוצהר פעם אחת, ראו למעלה).
+   */
+  {
+    id: "forum_latest",
+    title: "מה חדש בפורום",
+    when: "‎„מה חדש בפורום”, „תראה לי את הפורום”, „שאלות חדשות בפורום” — השרשורים האחרונים בפורום המקצועי, עם קישור לכל אחד.",
+    examples: ["מה חדש בפורום?", "תראה לי את השאלות האחרונות בפורום", "יש משהו חדש בפורום המתווכים?"],
+    capability: "properties.view",
+    risk: "read",
+    fields: [],
+  },
+  {
+    id: "forum_search",
+    title: "חיפוש בפורום",
+    when: "‎חיפוש בפורום לפי נושא — „תחפש בפורום על בלעדיות”, „מה כתבו בפורום על מס שבח”. מילות החיפוש ב-forumQuery.",
+    examples: ["תחפש בפורום על ביטול בלעדיות", "מה כתבו בפורום על מס שבח?", "יש בפורום משהו על הסכם שכירות?"],
+    capability: "properties.view",
+    risk: "read",
+    fields: [
+      {
+        key: "forumQuery",
+        label: "מה לחפש",
+        type: "string",
+        hint: "מילות החיפוש בלבד, בלי „תחפש בפורום”",
+        maxLength: FORUM_SEARCH_MAX,
+      },
+    ],
+  },
+  {
+    id: "forum_ask",
+    title: "שאלה חדשה בפורום",
+    when: "‎פרסום שאלה או דיון בפורום המקצועי — „תשאל בפורום: …”, „תפרסם בפורום”. כותרת קצרה ב-forumTitle, השאלה עצמה ב-forumBody, forumAnonymous=true כשנאמר „בעילום שם” / „אנונימי”.",
+    examples: [
+      "תשאל בפורום: איך מתמודדים עם מוכר שמסרב להוריד מחיר?",
+      "תפרסם בפורום בעילום שם — האם מותר לקחת עמלה משני הצדדים בשכירות?",
+      "תפתח דיון בפורום על ניהול קונים משוטטים",
+    ],
+    capability: "properties.view",
+    risk: "create",
+    fields: [
+      {
+        key: "forumTitle",
+        label: "כותרת",
+        type: "string",
+        hint: "משפט אחד שמסכם את השאלה — נגזר מהשאלה אם לא נאמרה כותרת",
+        maxLength: FORUM_TITLE_MAX,
+      },
+      {
+        key: "forumBody",
+        label: "השאלה",
+        type: "string",
+        hint: "השאלה או הדיון כלשונם, בלי „תשאל בפורום”",
+        maxLength: FORUM_BODY_MAX,
+      },
+      {
+        key: "forumTopic",
+        label: "נושא",
+        type: "enum",
+        hint: "הנושא הקרוב ביותר; „כללי” כשאין",
+        values: FORUM_TOPICS,
+        valueLabels: FORUM_TOPIC_LABELS,
+      },
+      {
+        key: "forumAnonymous",
+        label: "בעילום שם",
+        type: "boolean",
+        hint: "true רק כשנאמר במפורש „בעילום שם”, „אנונימי” או „בלי השם שלי”",
+      },
+    ],
+  },
+  {
+    id: "forum_reply",
+    title: "תגובה בפורום",
+    when: "‎תגובה לשרשור בפורום — „תענה בפורום על השאלה של הבלעדיות: …”. השרשור ב-forumThreadQuery (מילים מהכותרת), התגובה ב-forumReply, forumAnonymous כשנאמר „בעילום שם”.",
+    examples: [
+      "תענה בפורום על השאלה של הבלעדיות: לדעתי כדאי לבדוק את סעיף 9",
+      "תגיב בפורום לשרשור על מס שבח — זה קרה גם לי, פניתי ליועץ",
+      "תענה בעילום שם בפורום על השאלה של העמלה הכפולה: אסור",
+    ],
+    capability: "properties.view",
+    risk: "create",
+    fields: [
+      {
+        key: "forumThreadQuery",
+        label: "איזה שרשור",
+        type: "string",
+        hint: "מילים מכותרת השרשור, כפי שנאמרו",
+        maxLength: FORUM_SEARCH_MAX,
+      },
+      {
+        key: "forumReply",
+        label: "התגובה",
+        type: "string",
+        hint: "התגובה כלשונה, במילים של המתווך",
+        maxLength: FORUM_REPLY_MAX,
+      },
+      {
+        key: "forumAnonymous",
+        label: "בעילום שם",
+        type: "boolean",
+        hint: "true רק כשנאמר במפורש „בעילום שם”, „אנונימי” או „בלי השם שלי”",
+      },
+    ],
+  },
+  {
+    id: "forum_follow",
+    title: "מעקב אחרי שרשור בפורום",
+    when: "‎„תעקוב אחרי השרשור על…” / „תפסיק לעקוב אחרי…” בפורום. השרשור ב-forumThreadQuery; forumFollow=false להפסקת מעקב.",
+    examples: [
+      "תעקוב בפורום אחרי השרשור על הבלעדיות",
+      "תפסיק לעקוב אחרי השיחה על מס שבח בפורום",
+      "תרשום אותי למעקב אחרי השאלה על העמלה בפורום",
+    ],
+    capability: "properties.view",
+    risk: "update",
+    fields: [
+      {
+        key: "forumThreadQuery",
+        label: "איזה שרשור",
+        type: "string",
+        hint: "מילים מכותרת השרשור, כפי שנאמרו",
+        maxLength: FORUM_SEARCH_MAX,
+      },
+      {
+        key: "forumFollow",
+        label: "לעקוב",
+        type: "boolean",
+        hint: "true למעקב, false להפסקת מעקב",
+      },
+    ],
+  },
 ];
+
 
 /**
  * מזהי הרשומות שהקוד פותר — **לא שדות של המודל, ובכל זאת פרמטרים.**

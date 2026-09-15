@@ -78,6 +78,8 @@ export type VoiceAction =
   | "mentor_status"
   | "mentor_ask"
   | "mentor_practice"
+  | "forum_latest"
+  | "forum_search"
   | "unknown";
 
 export interface VoiceCommand {
@@ -365,6 +367,16 @@ const RULES: {
     confidence: "high",
   },
   { action: "mentor_ask", pattern: /ה?מנטור/u, confidence: "high" },
+  /*
+   * הפורום — קריאה בלבד ברצפה: „מה חדש בפורום”. שאלה חדשה או
+   * תגובה דורשות חילוץ טקסט, ונשארות למנוע ההבנה.
+   */
+  {
+    action: "forum_search",
+    pattern: /(?:חפש|תחפש|לחפש|מה\s+כתבו|יש)\s+בפורום\s+(?:על\s+|משהו\s+על\s+)?/u,
+    confidence: "high",
+  },
+  { action: "forum_latest", pattern: /ב?ה?פורום/u, confidence: "high" },
   {
     action: "mentor_status",
     pattern: /ה?יעדים?\s+שלי|ה?מצב\s+ב?ה?יעדים|מול\s+ה?יעד/u,

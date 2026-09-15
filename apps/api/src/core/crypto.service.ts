@@ -72,4 +72,16 @@ export class CryptoService {
       .update(`email:${normalizeEmail(email)}`)
       .digest("hex");
   }
+
+  /**
+   * חתם המחבר בפורום המקצועי (docs/16) — **בעלות בלי זהות.**
+   *
+   * שרשור אנונימי אינו נושא מזהה משתמש; הוא נושא את החתם הזה. הוא
+   * מספיק כדי שהמחבר יערוך את שלו וכדי להגביל קצב, ואינו ניתן להיפוך
+   * ממבט על הטבלה. אותה תחילית-תחום כמו בשם ובאימייל — `forum:` —
+   * כדי שחתם משתמש לעולם לא יתנגש עם חתם טלפון.
+   */
+  forumAuthorKey(userId: string): string {
+    return createHmac("sha256", this.hashKey).update(`forum:${userId}`).digest("hex");
+  }
 }

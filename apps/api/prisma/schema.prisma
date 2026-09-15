@@ -73,6 +73,9 @@ model Tenant {
   /// ולעולם לא מעניקה. מוחלת בפענוח ה-Session **אחרי** חריגי המנהל,
   /// כדי שבעל המשרד לא יוכל להסיר אותה ממסך ההרשאות שלו.
   automationRules            AutomationRule[]
+  forumThreads               ForumThread[]
+  forumPosts                 ForumPost[]
+  forumListings              ForumListing[]
   blockedModules             String[]         @default([]) @map("blocked_modules")
   /// פיצ'רים שהפלטפורמה פתחה למשרד הזה מעבר למסלול שלו.
   ///
@@ -181,6 +184,14 @@ model User {
   mentorPractices      MentorPractice[]
   mentorMessages       MentorMessage[]
   mentorWins           MentorWin[]
+  forumThreads         ForumThread[]
+  forumPosts           ForumPost[]
+  forumVotes           ForumVote[]
+  forumFollows         ForumFollow[]
+  forumListings        ForumListing[]
+  forumRatings         ForumRating[]
+  forumReports         ForumReport[]
+  forumMailState       ForumMailState?
 
   @@index([tenantId, isActive])
   @@map("users")
@@ -3684,6 +3695,186 @@ model AutomationRun {
   @@id([ruleId, eventId])
   @@index([createdAt])
   @@map("automation_runs")
+}
+
+/// הפורום המקצועי (docs/16) — **מחוץ ל-RLS ובלי `tenantId` בכוונה.**
+///
+/// קהילה בין משרדים: אין כאן נתון של דייר. שרשור אנונימי אינו נושא
+/// מזהה מחבר כלל — רק `authorKey` (HMAC). ההנמקה המלאה בכותרת
+/// המיגרציה `20260915090000_forum`.
+/// ============================================================
+model ForumThread {
+  id             String    @id @db.Char(26)
+  /// question | discussion | tip — FORUM_KINDS
+  kind           String    @db.VarChar(20)
+  /// FORUM_TOPICS
+  topic          String    @db.VarChar(30)
+  title          String    @db.VarChar(160)
+  body           String    @db.VarChar(6000)
+  anonymous      Boolean   @default(false)
+  /// חתם HMAC של המחבר — בעלות ומגבלות קצב, בלי זהות
+  authorKey      String    @map("author_key") @db.Char(64)
+  /// מחבר אנונימי: `tenantId:userId` מוצפן במפתח הנתונים — לשליחת תשובות בלבד
+  authorRef      String?   @map("author_ref") @db.VarChar(255)
+  /// האם המחבר האנונימי רוצה לשמוע על תגובות — ה„מעקב” שלו, בלי שורת מעקב
+  authorNotify   Boolean   @default(true) @map("author_notify")
+  /// רק כשהמחבר בחר להזדהות
+  authorUserId   String?   @map("author_user_id") @db.Char(26)
+  authorTenantId String?   @map("author_tenant_id") @db.Char(26)
+  replyCount     Int       @default(0) @map("reply_count")
+  score          Int       @default(0)
+  acceptedPostId String?   @map("accepted_post_id") @db.Char(26)
+  pinned         Boolean   @default(false)
+  locked         Boolean   @default(false)
+  hiddenAt       DateTime? @map("hidden_at")
+  lastActivityAt DateTime  @default(now()) @map("last_activity_at")
+  editedAt       DateTime? @map("edited_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  author       User?         @relation(fields: [authorUserId], references: [id], onDelete: SetNull)
+  authorTenant Tenant?       @relation(fields: [authorTenantId], references: [id], onDelete: SetNull)
+  posts        ForumPost[]
+  follows      ForumFollow[]
+
+  @@index([hiddenAt, pinned, lastActivityAt(sort: Desc)], map: "forum_threads_list_idx")
+  @@index([topic, lastActivityAt(sort: Desc)], map: "forum_threads_topic_idx")
+  @@index([authorKey, createdAt(sort: Desc)], map: "forum_threads_author_key_idx")
+  @@map("forum_threads")
+}
+
+/// תגובה בשרשור — שטוחה; התשובה המקובלת מוצגת ראשונה.
+model ForumPost {
+  id             String    @id @db.Char(26)
+  threadId       String    @map("thread_id") @db.Char(26)
+  body           String    @db.VarChar(6000)
+  anonymous      Boolean   @default(false)
+  authorKey      String    @map("author_key") @db.Char(64)
+  authorRef      String?   @map("author_ref") @db.VarChar(255)
+  authorNotify   Boolean   @default(true) @map("author_notify")
+  authorUserId   String?   @map("author_user_id") @db.Char(26)
+  authorTenantId String?   @map("author_tenant_id") @db.Char(26)
+  score          Int       @default(0)
+  hiddenAt       DateTime? @map("hidden_at")
+  editedAt       DateTime? @map("edited_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  thread       ForumThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  author       User?       @relation(fields: [authorUserId], references: [id], onDelete: SetNull)
+  authorTenant Tenant?     @relation(fields: [authorTenantId], references: [id], onDelete: SetNull)
+
+  @@index([threadId, createdAt])
+  @@index([authorKey, createdAt(sort: Desc)], map: "forum_posts_author_key_idx")
+  @@map("forum_posts")
+}
+
+/// „מועיל” — הצבעה אחת לכל משתמש על כל פריט. אין הצבעה שלילית.
+model ForumVote {
+  id         String   @id @db.Char(26)
+  /// thread | post
+  targetType String   @map("target_type") @db.VarChar(10)
+  targetId   String   @map("target_id") @db.Char(26)
+  userId     String   @map("user_id") @db.Char(26)
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([targetType, targetId, userId], map: "forum_votes_target_user_key")
+  @@index([userId])
+  @@map("forum_votes")
+}
+
+/// מעקב אחרי שרשור — שורה = עוקב. הערוצים ב-`users.preferences.forum`.
+model ForumFollow {
+  id        String   @id @db.Char(26)
+  threadId  String   @map("thread_id") @db.Char(26)
+  userId    String   @map("user_id") @db.Char(26)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  thread ForumThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  user   User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([threadId, userId], map: "forum_follows_thread_user_key")
+  @@index([userId])
+  @@map("forum_follows")
+}
+
+/// המדריך — כלי או בעל מקצוע, עם דירוג מצטבר (sum/count, שני שלמים).
+model ForumListing {
+  id                String    @id @db.Char(26)
+  /// tool | pro
+  kind              String    @db.VarChar(10)
+  category          String    @db.VarChar(30)
+  name              String    @db.VarChar(120)
+  description       String    @db.VarChar(1000)
+  url               String?   @db.VarChar(500)
+  /// פרטי קשר עסקיים — לא של אדם פרטי
+  contact           String?   @db.VarChar(120)
+  area              String?   @db.VarChar(80)
+  createdByUserId   String?   @map("created_by_user_id") @db.Char(26)
+  createdByTenantId String?   @map("created_by_tenant_id") @db.Char(26)
+  ratingSum         Int       @default(0) @map("rating_sum")
+  ratingCount       Int       @default(0) @map("rating_count")
+  hiddenAt          DateTime? @map("hidden_at")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  createdBy       User?         @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
+  createdByTenant Tenant?       @relation(fields: [createdByTenantId], references: [id], onDelete: SetNull)
+  ratings         ForumRating[]
+
+  @@index([kind, hiddenAt, ratingCount(sort: Desc)], map: "forum_listings_kind_idx")
+  @@map("forum_listings")
+}
+
+/// דירוג מניסיון אישי — אחד לכל מדרג (`raterKey`); שם רק בהזדהות.
+model ForumRating {
+  id        String   @id @db.Char(26)
+  listingId String   @map("listing_id") @db.Char(26)
+  raterKey  String   @map("rater_key") @db.Char(64)
+  userId    String?  @map("user_id") @db.Char(26)
+  score     Int      @db.SmallInt
+  comment   String?  @db.VarChar(500)
+  anonymous Boolean  @default(false)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  listing ForumListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  user    User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@unique([listingId, raterKey], map: "forum_ratings_listing_rater_key")
+  @@map("forum_ratings")
+}
+
+/// דיווח על פריט — תור הניהול של הפלטפורמה.
+model ForumReport {
+  id             String    @id @db.Char(26)
+  /// thread | post | listing | rating
+  targetType     String    @map("target_type") @db.VarChar(10)
+  targetId       String    @map("target_id") @db.Char(26)
+  reporterUserId String?   @map("reporter_user_id") @db.Char(26)
+  /// FORUM_REPORT_REASONS
+  reason         String    @db.VarChar(20)
+  note           String?   @db.VarChar(500)
+  createdAt      DateTime  @default(now()) @map("created_at")
+  resolvedAt     DateTime? @map("resolved_at")
+
+  reporter User? @relation(fields: [reporterUserId], references: [id], onDelete: SetNull)
+
+  @@unique([targetType, targetId, reporterUserId], map: "forum_reports_target_reporter_key")
+  @@index([resolvedAt, createdAt(sort: Desc)], map: "forum_reports_open_idx")
+  @@map("forum_reports")
+}
+
+/// עד איזו התראת פורום נשלח מייל למשתמש — הערוץ השלישי של `notifications`.
+model ForumMailState {
+  userId        String    @id @map("user_id") @db.Char(26)
+  mailedThrough DateTime  @default(now()) @map("mailed_through")
+  lastMailedAt  DateTime? @map("last_mailed_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("forum_mail_state")
 }
 
 /// **הגדרות השלבים — טבלה של הפלטפורמה, לא של דייר.**
