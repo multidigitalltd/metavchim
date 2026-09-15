@@ -17,6 +17,11 @@ const SERVICE = readFileSync(
   "utf8",
 );
 
+const CONTROLLER = readFileSync(
+  join(import.meta.dirname, "analytics.controller.ts"),
+  "utf8",
+);
+
 /** ‏גוף `board` בלבד — לשאר הקובץ יש חלונות ושיוכים אחרים. */
 const BOARD = (() => {
   const at = SERVICE.indexOf("async board(");
@@ -158,5 +163,63 @@ describe("היעד והניקוד", () => {
         new RegExp(String.raw`\*\s*${weight}\b`, "u"),
       );
     }
+  });
+});
+
+
+/**
+ * ‎**מי רואה את הטבלה — השער שאינו נראה בדקורטור.**
+ *
+ * ‏הנתיב היה `@RequireCapability("users.manage")`, ואז השער היה
+ * ‏גלוי לעין מעל המתודה. מרגע שהתנאי הוא **הגדרה של
+ * ‏משרד** ולא יכולת של משתמש, הדקורטור אינו יכול לבטא
+ * ‏אותו — והאכיפה ירדה לשורה הראשונה של הנתיב.
+ *
+ * ‎**שורה שניתן למחוק בלי שדבר יישבר.** המחיקה הייתה
+ * ‏משאירה `@AnyAuthenticated` על נתיב שמחזיר את הדירוג של כל
+ * ‏הסוכנים בשמם — כלומר פתוח לכל מי שמחובר למשרד. זה מה
+ * ‏שהשער הזה מונע.
+ */
+describe("השער של „המשרד שלנו”", () => {
+  /** ‏גוף הנתיב בלבד — שאר הבקר נשאר `@RequireCapability`. */
+  const ROUTE = (() => {
+    const at = CONTROLLER.indexOf('@Get("board")');
+    expect(at, "הנתיב board לא נמצא").toBeGreaterThan(-1);
+    return CONTROLLER.slice(at);
+  })();
+
+  it("הנתיב אוכף את השער לפני שהוא מחזיר נתונים", () => {
+    const gate = ROUTE.indexOf("assertBoardVisible()");
+    const data = ROUTE.indexOf("this.analytics.board(");
+    expect(gate, "השער נעלם מהנתיב").toBeGreaterThan(-1);
+    expect(data).toBeGreaterThan(gate);
+  });
+
+  /*
+   * ‎**המנהל רואה תמיד, והסוכן רק כשהמשרד פתח** — והתנאי
+   * ‏הוא הפונקציה המשותפת. תנאי שנכתב כאן ביד היה נפרד מזה
+   * ‏שהמסך מציג — ואז הכפתור מופיע והמסך מחזיר 403.
+   */
+  it("התנאי מגיע מ-canSeeOfficeBoard ולא נכתב כאן", () => {
+    const at = SERVICE.indexOf("async assertBoardVisible(");
+    expect(at, "המתודה assertBoardVisible לא נמצאה").toBeGreaterThan(-1);
+    const gate = SERVICE.slice(at, SERVICE.indexOf("private async readBoardOpen", at));
+    expect(gate).toContain("canSeeOfficeBoard(");
+    expect(gate).toContain('capabilities.has("users.manage")');
+  });
+
+  /*
+   * ‎**הדגל נקרא משורת המשרד בכל בקשה.**
+   *
+   * ‏ה-Session נושא את אותו דגל עבור הכפתור בראש המסך, והוא
+   * ‏ממוטמן. שער שהיה נשען על העותק הזה היה ממשיך לפתוח את
+   * ‏הטבלה אחרי שהמנהל כבה אותה, עד ההתחברות הבאה.
+   */
+  it("הדגל נקרא מהמסד ולא מה-Session", () => {
+    const at = SERVICE.indexOf("private async readBoardOpen");
+    expect(at).toBeGreaterThan(-1);
+    const reader = SERVICE.slice(at, at + 400);
+    expect(reader).toContain("tenant.findUnique");
+    expect(reader).toContain("boardOpenToAgents(");
   });
 });

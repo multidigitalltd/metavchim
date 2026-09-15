@@ -1,6 +1,6 @@
 import { Controller, Get, Query } from "@nestjs/common";
 import { z } from "zod";
-import { RequireCapability } from "../../common/auth.decorators";
+import { AnyAuthenticated, RequireCapability } from "../../common/auth.decorators";
 import { RequireFeature } from "../../common/feature.guard";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { BOARD_PERIODS } from "@metavchim/shared";
@@ -59,16 +59,30 @@ export class AnalyticsController {
   /**
    * ‎**„המשרד שלנו” — טבלת התחרות.**
    *
-   * ‎`users.manage` כמו הדוח: המסך מציג את הביצועים של **כל
-   * ‏הסוכנים בשמם**, וזו בדיוק ההרשאה שמגדירה מי אחראי על הצוות.
-   * ‎`analytics.view` הייתה חלשה מדי — היא מספיקה לראות את המשרד
-   * ‏במצטבר, ולא כל סוכן בנפרד.
+   * ## ‏למה `@AnyAuthenticated` ולא `@RequireCapability`
+   *
+   * ‏הנתיב היה `users.manage`, מפני שהמסך מציג את הביצועים של
+   * ‏**כל הסוכנים בשמם**. מעכשיו בעל הסוכנות יכול לפתוח אותו
+   * ‏לצוות — והתנאי הזה הוא **הגדרה בשורת המשרד**, לא יכולת של
+   * ‏משתמש. רשימת יכולות סטטית אינה יכולה לבטא אותו.
+   *
+   * ‎**ולכן השער הוא השורה הראשונה של הנתיב**, ולא העדר שער:
+   * ‎`@AnyAuthenticated` כאן אינו „פתוח לכל מחובר” אלא „השער אינו
+   * ‏ניתן לביטוי בדקורטור, והוא נאכף מיד אחריו”. שער הבדיקות
+   * ‎(`office-board-scope.test.ts`) אוכף שהשורה הזו קיימת, כדי שלא
+   * ‏תיעלם בעריכה עתידית ותשאיר את הטבלה פתוחה לכולם.
    */
   @Get("board")
-  @RequireCapability("users.manage")
+  @AnyAuthenticated()
   async board(
     @Query(new ZodValidationPipe(BoardQuerySchema)) query: z.infer<typeof BoardQuerySchema>,
   ): Promise<OfficeBoard> {
-    return this.analytics.board(query.period);
+    /*
+     * ‎**השער מחזיר את הדגל שקרא**, והמסך מציג אותו כמצב תיבת
+     * ‏הסימון. קריאה שנייה של אותה שורה בתוך `board()` הייתה שאילתה
+     * ‏מיותרת ומקום שני שיכול להשתנות.
+     */
+    const visibleToAgents = await this.analytics.assertBoardVisible();
+    return { ...(await this.analytics.board(query.period)), visibleToAgents };
   }
 }

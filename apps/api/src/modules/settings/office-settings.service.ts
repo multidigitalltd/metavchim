@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
 import { z } from "zod";
+import { BOARD_VISIBILITY_KEY, boardOpenToAgents } from "@metavchim/shared";
 import { AuditService } from "../../core/audit.service";
 import { lockTenantRow } from "../../common/locks";
 import { TenantContext } from "../../common/tenant-context";
@@ -63,6 +64,14 @@ export class OfficeSettingsService {
       autoShareProperties: settings["autoShareProperties"] === true,
       autoShareBuyers: settings["autoShareBuyers"] === true,
       autoEmailOffers: settings["autoEmailOffers"] === true,
+      /*
+       * ‎**הקריאה עוברת בכלל המשותף ולא בהשוואה מקומית.**
+       *
+       * ‏אותו מפתח נקרא גם ב-`/auth/me` וגם בשער של הטבלה.
+       * ‏שלוש השוואות עצמאיות הן שלושה מקומות שבהם שם המפתח
+       * ‏יכול להשתנות בשתיים בלבד.
+       */
+      boardVisibleToAgents: boardOpenToAgents(settings),
     };
   }
 
@@ -128,6 +137,7 @@ export class OfficeSettingsService {
       "autoShareProperties",
       "autoShareBuyers",
       "autoEmailOffers",
+      BOARD_VISIBILITY_KEY,
     ] as const;
     for (const field of BOOLEAN_FIELDS) {
       const value = body[field];
@@ -195,6 +205,8 @@ export interface OfficeSettings {
   autoShareProperties: boolean;
   autoShareBuyers: boolean;
   autoEmailOffers: boolean;
+  /** ‏האם „המשרד שלנו” פתוח לסוכנים ולא להנהלה בלבד. */
+  boardVisibleToAgents: boolean;
 }
 
 /**
@@ -229,6 +241,15 @@ export const OfficeSettingsSchema = z
      * בלי שסוכן לחץ. אותו היגיון של מדיניות משרד כמו שכניו למעלה.
      */
     autoEmailOffers: z.boolean().optional(),
+    /*
+     * ‎**מי רואה את „המשרד שלנו” — הכרעה של בעל הסוכנות.**
+     *
+     * ‏יושב עם שכניו כאן ולא בנתיב משלו: זו הגדרת משרד כמו כל
+     * ‏אחת מהן, ונתיב שני היה עוקף את הנעילה שמגנה על מסמך
+     * ‏ה-JSON היחיד — כלומר סימון של התיבה היה יכול למחוק שמירה
+     * ‏מקבילה של אחוז העמלה.
+     */
+    boardVisibleToAgents: z.boolean().optional(),
   })
   .strict();
 

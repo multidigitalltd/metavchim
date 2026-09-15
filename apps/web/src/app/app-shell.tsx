@@ -17,7 +17,7 @@ import { TrialBanner } from "./trial-banner";
 import { SoftphoneProvider } from "./softphone-bar";
 import { SupportButton } from "./support-button";
 import { SingleSessionGuard } from "./single-session-guard";
-import { roleLabel } from "@metavchim/shared";
+import { canSeeOfficeBoard, roleLabel } from "@metavchim/shared";
 import { IconMenu, LogoMark } from "./icons";
 import { OfficeLogoMark } from "./office-logo-mark";
 
@@ -350,6 +350,24 @@ export function AppShell({ children }: { children: ReactNode }) {
    * דגל cancelled ב-cleanup ולא AbortController: אותה תוצאה, בלי
    * לשנות את חתימת apiGet לכל הקוראים.
    */
+  /*
+   * ‎**והזהות נשאלת מחדש בכל ניווט, לא פעם אחת לכל הסשן.**
+   *
+   * ‏התלות הייתה `[isPublic]` בלבד. ה-AppShell נשאר טעון לאורך כל
+   * ‏הניווט הפנימי, ולכן `me` נתפס פעם אחת ולא התעדכן לעולם
+   * ‏עד רענון מלא — כלומר **תפוגת הדקה של מטמון ה-Session פשוט
+   * ‏לא הגיעה לכאן** (ביקורת Codex). המטמון נבנה בדיוק כדי
+   * ‏ששינוי שמנהל עושה ייכנס לתוקף תוך דקה (ראו `session-cache`),
+   * ‏והצרכן הבולט ביותר שלו הוא הסרגל הזה.
+   *
+   * ‏זה אינו רק הדגל של „המשרד שלנו”: אותה קפיאה חלה על
+   * ‎`capabilities`, על שם המשרד ועל מצב החיוב — כל מה שהסרגל
+   * ‏מציג על סמך `me`.
+   *
+   * ‏הקריאה אינה בקשת רשת בכל מעבר: `fetchMe` מחזיר את הערך
+   * ‏הממוטמן מיד (ואת **אותו** אובייקט, כך ש-`setMe` אפילו אינו
+   * ‏מרנדר), ויוצא לרשת לכל היותר פעם בדקה.
+   */
   useEffect(() => {
     if (isPublic) return;
     let cancelled = false;
@@ -364,7 +382,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [isPublic]);
+  }, [isPublic, pathname]);
 
   /*
    * לשונית ההקמה נעלמת ברגע שהמשרד סיים.
@@ -884,17 +902,34 @@ export function AppShell({ children }: { children: ReactNode }) {
             <NotificationsBell user={me} />
 
           {/*
-            ‎**„המשרד שלנו” — לבעל סוכנות.**
+            ‎**„המשרד שלנו” — להנהלה, ולצוות אם המשרד פתח.**
 
             ‏המסך מציג את הביצועים של **כל הסוכנים בשמם**, ולכן הוא
-            ‏מותנה ב-`users.manage` — ההרשאה שמגדירה מי אחראי על
-            ‏הצוות. מתווך יחיד אינו רואה את הכפתור, ובצדק: טבלת
-            ‏תחרות עם שורה אחת אינה תחרות.
+            ‏היה פתוח ל-`users.manage` בלבד. עכשיו בעל הסוכנות מסמן
+            ‏בעצמו אם הצוות רואה אותו, והתנאי המלא יושב ב-
+            ‎`canSeeOfficeBoard` — אותה פונקציה שהשרת אוכף בה.
+
+            ‎**וגם למי שמגדיר את המשרד, גם כשהמסך סגור בפניו.**
+            ‏זה הקישור **היחיד** ל-`/office` בכל המערכת, ותיבת הסימון
+            ‏שפותחת אותו יושבת שם. משתמש שנשללה לו `users.manage` בחריג
+            ‏אישי (#80) ושמר על `settings.manage` היה צריך לנחש כתובת
+            ‏כדי להגיע אל הפקד שהשרת מאשר לו להפעיל (ביקורת Codex).
+
+            ‏התנאי השני נשאר מחוץ ל-`canSeeOfficeBoard` ובכוונה: הפונקציה
+            ‏עונה על „מי רשאי לראות את הנתונים”, והשרת אוכף בה. „מי
+            ‏רשאי לקבוע את המדיניות” היא שאלה אחרת, וערבוב של השתיים
+            ‏היה מרחיב את הכלל שהשרת נשען עליו.
 
             ‏וגם בפיצ'ר `analytics`, מאותו נימוק של הסוכן הקולי
-            ‏שמתחת: קישור ל-403 גרוע מקישור שלא קיים.
+            ‏שמתחת: קישור ל-403 גרוע מקישור שלא קיים — וכאן אין 403:
+            ‏העמוד נפתח ונושא את הפקד שלו.
           */}
-          {hasFeature("analytics") && can(me, "users.manage") ? (
+          {hasFeature("analytics") &&
+          (canSeeOfficeBoard({
+            managesTeam: can(me, "users.manage"),
+            openToAgents: me?.officeBoardOpen === true,
+          }) ||
+            can(me, "settings.manage")) ? (
             <Link href="/office" className="mv-board-link" title="המשרד שלנו">
               <IconUsers s={16} />
               <span className="mv-topbar-label">המשרד שלנו</span>
