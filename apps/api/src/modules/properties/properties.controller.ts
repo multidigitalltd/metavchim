@@ -571,6 +571,21 @@ export class PropertiesController {
    * אלא מה שנעשה בנכס אחד, והוא נטול פרטי אדם. מי שרואה את הנכס
    * רואה גם מה נעשה בו.
    */
+  /**
+   * ‎**המחיר למ״ר של הנכס, מול הממוצע בשכונה ובעיר.**
+   *
+   * ‎`properties.view` ולא `properties.edit`: זו קריאה, והנתונים
+   * ‏שממנה נגזר הממוצע גלויים ממילא לכל סוכן במשרד (רשימת הנכסים
+   * ‏משרדית בכוונה).
+   */
+  @Get(":id/price-benchmark")
+  @RequireCapability("properties.view")
+  async priceBenchmark(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+  ): ReturnType<PropertiesService["priceBenchmark"]> {
+    return this.properties.priceBenchmark(id);
+  }
+
   @Get(":id/activity")
   @RequireCapability("properties.view")
   async activity(

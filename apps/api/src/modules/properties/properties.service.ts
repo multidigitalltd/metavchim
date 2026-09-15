@@ -21,6 +21,13 @@ import {
   partnerRejection,
   PARTNER_REJECTION_MESSAGES,
   DEAL_STATUSES,
+  averagePerSqmAgorot,
+  neighborhoodSame,
+  normalizeLocationName,
+  pricePerSqmAgorot,
+  perSqmGapPercent,
+  PRICE_BENCHMARK_STATUSES,
+  type PerSqmBenchmark,
 } from "@metavchim/shared";
 import {
   freeTextTerms,
@@ -121,6 +128,16 @@ export function sharedTabuWhere(value: boolean | undefined): Prisma.PropertyWher
     OR: [{ propertyType: null }, { propertyType: { not: SHARED_TABU_PROPERTY_TYPE } }],
   };
 }
+
+/**
+ * ‎**תקרת השליפה לאמת המידה של המחיר למ״ר.**
+ *
+ * ‏השאלה „כמה עולה מ״ר בשכונה” נשאלת על מסך אחד, ואינה מצדיקה
+ * ‏שליפה של כל מלאי המשרד. אלפיים שורות של ארבע עמודות הן גם
+ * ‏מדגם גדול בהרבה ממה שממוצע צריך, וגם תקרה שמשרד רגיל לעולם
+ * ‏אינו מגיע אליה.
+ */
+const BENCHMARK_SCAN_LIMIT = 2000;
 
 @Injectable()
 export class PropertiesService {
@@ -1493,6 +1510,114 @@ export class PropertiesService {
         archived: row.deletedAt !== null,
         createdAt: row.createdAt,
         updatedAt: row.updatedAt,
+      };
+    });
+  }
+
+  /**
+   * ‎**המחיר למ״ר של הנכס, ולצידו הממוצע בשכונה ובעיר.**
+   *
+   * ## ‏למה השוואה ולא רק מספר
+   *
+   * ‎„26,500 ₪ למ״ר” לבדו אינו אומר דבר: השאלה שמתווך שואל היא
+   * ‏**„זה יקר או זול כאן”**, ובלי אמת מידה הוא עונה עליה מהזיכרון.
+   * ‏המשרד כבר מחזיק את התשובה — בנכסים שלו עצמו.
+   *
+   * ## ‏למה זה אינו חושף דבר
+   *
+   * ‎**רשימת הנכסים משרדית בכוונה** (ראו `getById`): כל סוכן רואה
+   * ‏ממילא כל נכס של המשרד, מחירו ושטחו. `properties.view_all`
+   * ‏מסתיר את **בעל הנכס**, לא את הנכס — ולכן ממוצע על אותם נכסים
+   * ‏אינו מוסיף שום גישה. הוא גם אינו חוצה משרדים: הכול תחת
+   * ‎`withTenant`, כלומר תחת RLS.
+   *
+   * ## ‏למה הקיפול ב-JS ולא ב-SQL
+   *
+   * ‏„אותה שכונה” ו„אותה עיר” כבר מוכרעים במקום אחד
+   * ‏(`neighborhoodSame`, `normalizeLocationName`), וזה הכלל שההתאמות
+   * ‏רצות לפיו. שוויון מחרוזות ב-SQL היה כלל **שני** לאותה שאלה —
+   * ‏„קרית אונו” ו„קריית אונו” היו שתי ערים — וזו בדיוק הצורה
+   * ‏שנפלה כאן כבר ארבע פעמים בסבב הזה.
+   */
+  async priceBenchmark(id: string): Promise<{
+    perSqmAgorot: number | null;
+    neighborhood: (PerSqmBenchmark & { label: string; gapPercent: number | null }) | null;
+    city: (PerSqmBenchmark & { label: string; gapPercent: number | null }) | null;
+  }> {
+    return this.prisma.withTenant(async (tx) => {
+      const tenantId = TenantContext.current().tenantId;
+      const subject = await tx.property.findFirst({
+        where: { id, tenantId, deletedAt: null },
+        select: {
+          id: true,
+          city: true,
+          neighborhood: true,
+          dealType: true,
+          priceAgorot: true,
+          areaSqm: true,
+        },
+      });
+      if (!subject) throw new NotFoundException("נכס לא נמצא");
+
+      /*
+       * ‎`BigInt` → `number`, כמו בכל אתר אחר שקורא מחיר מהסכימה.
+       * ‏מחירי נדל״ן רחוקים מגבול הדיוק של `number`, והכלל המשותף
+       * ‏עובד במספרים כי גם המסך וגם הבוט מקבלים אותם כך.
+       */
+      const subjectPrice = subject.priceAgorot === null ? null : Number(subject.priceAgorot);
+      const perSqmAgorot = pricePerSqmAgorot(subjectPrice, subject.areaSqm);
+      const cityKey = normalizeLocationName(subject.city ?? "");
+      if (cityKey === "") return { perSqmAgorot, neighborhood: null, city: null };
+
+      /*
+       * ‎**אותו סוג עסקה, ותמיד.** מ״ר של שכירות ומ״ר של מכירה הם
+       * ‏שני סדרי גודל שונים, וממוצע שמערבב אותם אינו שגוי במעט —
+       * ‏הוא חסר משמעות.
+       *
+       * ‎`take` הוא תקרה ולא מדיניות: משרד עם עשרות אלפי נכסים אינו
+       * ‏אמור לשלוף את כולם לשאלה שעל המסך. המיון מהחדש לישן, כי אם
+       * ‏בכל זאת נחתך — מה שנשאר הוא גם מה שרלוונטי יותר לשוק היום.
+       */
+      const rows = await tx.property.findMany({
+        where: {
+          tenantId,
+          deletedAt: null,
+          id: { not: subject.id },
+          dealType: subject.dealType,
+          status: { in: [...PRICE_BENCHMARK_STATUSES] },
+          priceAgorot: { gt: 0 },
+          areaSqm: { gt: 0 },
+        },
+        select: { city: true, neighborhood: true, priceAgorot: true, areaSqm: true },
+        orderBy: { createdAt: "desc" },
+        take: BENCHMARK_SCAN_LIMIT,
+      });
+
+      const priced = rows.map((row) => ({
+        city: row.city,
+        neighborhood: row.neighborhood,
+        priceAgorot: row.priceAgorot === null ? null : Number(row.priceAgorot),
+        areaSqm: row.areaSqm,
+      }));
+      const inCity = priced.filter((row) => normalizeLocationName(row.city ?? "") === cityKey);
+      const wanted = subject.neighborhood ?? "";
+      const inNeighborhood =
+        wanted === ""
+          ? []
+          : inCity.filter((row) => neighborhoodSame(row.neighborhood ?? "", wanted));
+
+      const dress = (
+        benchmark: PerSqmBenchmark | null,
+        label: string,
+      ): (PerSqmBenchmark & { label: string; gapPercent: number | null }) | null =>
+        benchmark === null
+          ? null
+          : { ...benchmark, label, gapPercent: perSqmGapPercent(perSqmAgorot, benchmark) };
+
+      return {
+        perSqmAgorot,
+        neighborhood: dress(averagePerSqmAgorot(inNeighborhood), subject.neighborhood ?? ""),
+        city: dress(averagePerSqmAgorot(inCity), subject.city ?? ""),
       };
     });
   }
