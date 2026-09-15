@@ -3714,6 +3714,10 @@ model ForumThread {
   anonymous      Boolean   @default(false)
   /// חתם HMAC של המחבר — בעלות ומגבלות קצב, בלי זהות
   authorKey      String    @map("author_key") @db.Char(64)
+  /// מחבר אנונימי: `tenantId:userId` מוצפן במפתח הנתונים — לשליחת תשובות בלבד
+  authorRef      String?   @map("author_ref") @db.VarChar(255)
+  /// האם המחבר האנונימי רוצה לשמוע על תגובות — ה„מעקב” שלו, בלי שורת מעקב
+  authorNotify   Boolean   @default(true) @map("author_notify")
   /// רק כשהמחבר בחר להזדהות
   authorUserId   String?   @map("author_user_id") @db.Char(26)
   authorTenantId String?   @map("author_tenant_id") @db.Char(26)
@@ -3746,6 +3750,8 @@ model ForumPost {
   body           String    @db.VarChar(6000)
   anonymous      Boolean   @default(false)
   authorKey      String    @map("author_key") @db.Char(64)
+  authorRef      String?   @map("author_ref") @db.VarChar(255)
+  authorNotify   Boolean   @default(true) @map("author_notify")
   authorUserId   String?   @map("author_user_id") @db.Char(26)
   authorTenantId String?   @map("author_tenant_id") @db.Char(26)
   score          Int       @default(0)

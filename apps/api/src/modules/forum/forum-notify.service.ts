@@ -9,6 +9,7 @@ import {
   type ForumNoticeText,
 } from "@metavchim/shared";
 import { notifyOnce } from "../../common/notify-once";
+import { CryptoService } from "../../core/crypto.service";
 import { PrismaService } from "../../core/prisma.service";
 import type { ForumPostDto, ForumThreadDto } from "./forum.service";
 
@@ -28,6 +29,14 @@ import type { ForumPostDto, ForumThreadDto } from "./forum.service";
  * לזמן התגובה של „פרסם”: התגובה כבר נשמרה, והמתווך רואה אותה. הפצה
  * שנכשלה נרשמת ביומן ואינה מפילה את הפרסום — ו-`dedupeKey` מבטיח
  * שסבב חוזר לא ישלח פעמיים.
+ *
+ * ## הנמענים האנונימיים
+ *
+ * מי ששאל או ענה בעילום שם אינו „עוקב” — אין לו שורת מעקב, כי שורה
+ * כזו הייתה מצביעה עליו. הוא נמען דרך `author_ref`: ההפניה המוצפנת
+ * שבשורה שלו, שנפתחת **כאן בלבד**, לרגע אחד, כדי לדעת למי לכתוב את
+ * ההתראה. ההתראה עצמה יושבת ב-`notifications` של המשרד שלו — כמו
+ * כל התראה אחרת שלו — ואינה אומרת דבר על מה שכתב.
  */
 
 /** מקסימום נמענים להפצה אחת — מעבר לזה זו כבר רשימת תפוצה, לא פורום. */
@@ -38,13 +47,26 @@ interface Recipient {
   tenantId: string;
 }
 
+/** מה שהשירות צריך לדעת על מחבר כדי לכתוב לו — מזוהה, או דרך ההפניה. */
+export interface ForumAuthorRef {
+  authorUserId: string | null;
+  authorRef: string | null;
+  authorNotify: boolean;
+}
+
+/** צורת מזהה — שמירה מפני הפניה פגומה, לא אימות ULID מלא (`char(26)` במסד). */
+const ID_SHAPE = /^[0-9A-Z]{26}$/u;
+
 @Injectable()
 export class ForumNotifyService {
   private readonly logger = new Logger(ForumNotifyService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly crypto: CryptoService,
+  ) {}
 
-  /** תגובה חדשה — לעוקבי השרשור, חוץ ממי שכתב אותה. */
+  /** תגובה חדשה — לעוקבי השרשור ולמי שכתב בו בעילום שם, חוץ ממי שכתב אותה. */
   newReply(thread: ForumThreadDto, post: ForumPostDto, authorUserId: string): void {
     const notice = forumReplyNotice({
       threadTitle: thread.title,
@@ -52,13 +74,32 @@ export class ForumNotifyService {
       reply: post.body,
     });
     void this.run(async () => {
-      const followers = await this.prisma.forumFollow.findMany({
-        where: { threadId: thread.id, userId: { not: authorUserId }, user: { isActive: true } },
-        select: { user: { select: { id: true, tenantId: true } } },
-        take: MAX_RECIPIENTS,
-      });
+      const [followers, anonymousThread, anonymousPosts] = await Promise.all([
+        this.prisma.forumFollow.findMany({
+          where: { threadId: thread.id, userId: { not: authorUserId }, user: { isActive: true } },
+          select: { user: { select: { id: true, tenantId: true } } },
+          take: MAX_RECIPIENTS,
+        }),
+        this.prisma.forumThread.findUnique({
+          where: { id: thread.id },
+          select: { anonymous: true, authorRef: true, authorNotify: true },
+        }),
+        this.prisma.forumPost.findMany({
+          where: { threadId: thread.id, anonymous: true, authorNotify: true, authorRef: { not: null }, hiddenAt: null },
+          select: { authorRef: true },
+          take: MAX_RECIPIENTS,
+        }),
+      ]);
+      const refs = [
+        ...(anonymousThread?.anonymous && anonymousThread.authorNotify ? [anonymousThread.authorRef] : []),
+        ...anonymousPosts.map((row) => row.authorRef),
+      ];
+      const anonymous = await this.recipientsOf(refs);
       await this.fanOut(
-        followers.map((row) => ({ userId: row.user.id, tenantId: row.user.tenantId })),
+        [
+          ...followers.map((row) => ({ userId: row.user.id, tenantId: row.user.tenantId })),
+          ...anonymous.filter((recipient) => recipient.userId !== authorUserId),
+        ],
         FORUM_NOTIFICATION_TYPES.reply,
         `forum_reply:${post.id}`,
         notice,
@@ -102,22 +143,52 @@ export class ForumNotifyService {
     });
   }
 
-  /** התגובה שלך התקבלה — למחבר מזוהה בלבד (לאנונימי אין למי לשלוח). */
-  accepted(threadId: string, threadTitle: string, postId: string, authorUserId: string): void {
+  /** התגובה שלך התקבלה — למי שענה, מזוהה או דרך ההפניה המוצפנת. */
+  accepted(threadId: string, threadTitle: string, postId: string, author: ForumAuthorRef): void {
     void this.run(async () => {
-      const user = await this.prisma.user.findFirst({
-        where: { id: authorUserId, isActive: true },
-        select: { id: true, tenantId: true },
-      });
-      if (user === null) return;
+      const recipients =
+        author.authorUserId !== null
+          ? await this.activeUsers([author.authorUserId])
+          : author.authorNotify
+            ? await this.recipientsOf([author.authorRef])
+            : [];
       await this.fanOut(
-        [{ userId: user.id, tenantId: user.tenantId }],
+        recipients,
         FORUM_NOTIFICATION_TYPES.accepted,
         `forum_accepted:${postId}`,
         forumAcceptedNotice(threadTitle),
         threadId,
       );
     });
+  }
+
+  /**
+   * ההפניות המוצפנות ⟵ נמענים. הפענוח קורה כאן ורק כאן; הפניה
+   * שאינה נפתחת (מפתח שהוחלף, שורה פגומה) פשוט אינה נמען — לא שגיאה
+   * שמפילה את ההפצה לכל השאר.
+   */
+  private async recipientsOf(refs: (string | null)[]): Promise<Recipient[]> {
+    const userIds = new Set<string>();
+    for (const ref of refs) {
+      if (ref === null) continue;
+      try {
+        const userId = this.crypto.decrypt(ref).split(":")[1] ?? "";
+        if (ID_SHAPE.test(userId)) userIds.add(userId);
+      } catch {
+        this.logger.warn("הפניית מחבר אנונימי בפורום לא נפתחה — מדלגים");
+      }
+    }
+    return this.activeUsers([...userIds]);
+  }
+
+  /** משתמשים פעילים בלבד — המשרד מהשורה שלהם, לא מההפניה. */
+  private async activeUsers(userIds: string[]): Promise<Recipient[]> {
+    if (userIds.length === 0) return [];
+    const users = await this.prisma.user.findMany({
+      where: { id: { in: userIds }, isActive: true },
+      select: { id: true, tenantId: true },
+    });
+    return users.map((user) => ({ userId: user.id, tenantId: user.tenantId }));
   }
 
   /** קיבוץ לפי משרד — טרנזקציה אחת לכל משרד, לא לכל נמען. */
@@ -128,10 +199,10 @@ export class ForumNotifyService {
     notice: ForumNoticeText,
     threadId: string,
   ): Promise<void> {
-    const byTenant = new Map<string, string[]>();
+    const byTenant = new Map<string, Set<string>>();
     for (const recipient of recipients) {
-      const list = byTenant.get(recipient.tenantId) ?? [];
-      list.push(recipient.userId);
+      const list = byTenant.get(recipient.tenantId) ?? new Set<string>();
+      list.add(recipient.userId);
       byTenant.set(recipient.tenantId, list);
     }
     for (const [tenantId, userIds] of byTenant) {

@@ -281,6 +281,40 @@ export const FORUM_QUICK_COMMANDS = {
 } as const;
 export type ForumQuickCommand = keyof typeof FORUM_QUICK_COMMANDS;
 
+/**
+ * הפקודה **עם השרשור בתוכה** — „להשיב בפורום [01ABC…]”.
+ *
+ * הכפתור קשור לשרשור **שההודעה דיברה עליו**, לא ל„ההתראה האחרונה”:
+ * בין המסירה ללחיצה יכולה להגיע התראה על שרשור אחר, ותגובה שנכתבה
+ * על שאלה אחת הייתה מתפרסמת מתחת לאחרת (ביקורת Codex). אותו דפוס
+ * כמו „הרעיון עזר לי [offers_sent:2]” של המנטור.
+ */
+const THREAD_PAYLOAD = /^(.*?)\s*\[([0-9A-HJKMNP-TV-Z]{26})\]\s*$/u;
+
+export function forumThreadCommand(
+  command: "forum_reply" | "forum_unfollow",
+  threadId: string,
+): string {
+  return `${FORUM_QUICK_COMMANDS[command]} [${threadId}]`;
+}
+
+/** הפקודה והשרשור שבתוכה — או `null` כשההודעה אינה פקודת פורום. */
+export function parseForumCommand(
+  text: string,
+): { command: "forum_reply" | "forum_unfollow"; threadId: string | null } | null {
+  const trimmed = text.trim();
+  const payload = THREAD_PAYLOAD.exec(trimmed);
+  const phrase = (payload === null ? trimmed : payload[1]!).replace(/\s+/gu, " ").trim();
+  const command =
+    phrase === FORUM_QUICK_COMMANDS.forum_reply
+      ? "forum_reply"
+      : phrase === FORUM_QUICK_COMMANDS.forum_unfollow
+        ? "forum_unfollow"
+        : null;
+  if (command === null) return null;
+  return { command, threadId: payload === null ? null : payload[2]! };
+}
+
 /* ==================== העדפות המשתמש ==================== */
 
 /** המפתח שתחתיו ההעדפות יושבות ב-`users.preferences`. */

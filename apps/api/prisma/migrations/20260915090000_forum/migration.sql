@@ -21,6 +21,13 @@
 -- חשיפה של מחבר אנונימי בפנייה משפטית היא פעולה מכוונת (חישוב החתם
 -- למשתמש חשוד ע"י מנהל הפלטפורמה), לא עמודה שקוראים.
 --
+-- ‎**ואיך מגיעה תשובה למי שאין לו שם.** מעקב הוא שורה `(שרשור, משתמש)`,
+-- וסטור כזה על שרשור אנונימי היה מצביע על המחבר בלי לחשב דבר. לכן
+-- מחבר אנונימי אינו „עוקב”: השורה שלו נושאת `author_ref` — מזהי
+-- המשרד והמשתמש **מוצפנים** במפתח הנתונים של השרת (אותה הצפנה של
+-- טלפון ואימייל בכרטיסי הלקוחות), ו-`author_notify` — האם הוא רוצה
+-- לשמוע על תגובות. מה שקורא את הטבלה בלי המפתח רואה טקסט מוצפן.
+--
 -- ‎**מחבר מזוהה** נושא גם `author_user_id` (לשם) ו-`author_tenant_id`
 -- (לתג המשרד), שניהם `ON DELETE SET NULL`: משרד שנמחק לוקח איתו את
 -- המשתמשים, והתוכן נשאר בקהילה כ„משתמש שנמחק” — כמו בכל פורום
@@ -42,6 +49,9 @@ CREATE TABLE "forum_threads" (
   "body"             VARCHAR(6000) NOT NULL,
   "anonymous"        BOOLEAN       NOT NULL DEFAULT false,
   "author_key"       CHAR(64)      NOT NULL,
+  -- מחבר אנונימי: מזהי המשרד והמשתמש מוצפנים (AES-GCM), לשליחת תשובות
+  "author_ref"       VARCHAR(255),
+  "author_notify"    BOOLEAN       NOT NULL DEFAULT true,
   "author_user_id"   CHAR(26),
   "author_tenant_id" CHAR(26),
   -- מונים מוחזקים כאן כדי שרשימה לא תצטרך COUNT לכל שורה
@@ -87,6 +97,8 @@ CREATE TABLE "forum_posts" (
   "body"             VARCHAR(6000) NOT NULL,
   "anonymous"        BOOLEAN       NOT NULL DEFAULT false,
   "author_key"       CHAR(64)      NOT NULL,
+  "author_ref"       VARCHAR(255),
+  "author_notify"    BOOLEAN       NOT NULL DEFAULT true,
   "author_user_id"   CHAR(26),
   "author_tenant_id" CHAR(26),
   "score"            INTEGER       NOT NULL DEFAULT 0,
@@ -105,6 +117,9 @@ CREATE INDEX "forum_posts_thread_id_created_at_idx"
   ON "forum_posts" ("thread_id", "created_at");
 CREATE INDEX "forum_posts_author_key_idx"
   ON "forum_posts" ("author_key", "created_at" DESC);
+-- החיפוש מכסה גם תשובות — „בשאלות ובתשובות”, כמו שהמסך מבטיח
+CREATE INDEX "forum_posts_search_idx"
+  ON "forum_posts" USING GIN (to_tsvector('simple', "body"));
 
 -- ============================================================
 -- „מועיל” — הצבעה אחת לכל משתמש על כל פריט. אין הצבעה שלילית:

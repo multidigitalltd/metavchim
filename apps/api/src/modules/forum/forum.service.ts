@@ -47,6 +47,16 @@ import { ForumNotifyService } from "./forum-notify.service";
  * מזוהה נושאת שם ומשרד, וזה מה שהפונקציה הזו מחליטה להציג. פיזור
  * ההחלטה הזו על פני עשר שאילתות הוא בדיוק איך תגובה אנונימית
  * הייתה יום אחד מקבלת שם.
+ *
+ * ## ומה כן נשמר על מחבר אנונימי
+ *
+ * ‎`author_ref` — `tenantId:userId` מוצפן במפתח הנתונים (AES-GCM, כמו
+ * טלפון בכרטיס לקוח). הוא נקרא במקום **אחד** — `ForumNotifyService`,
+ * כדי לשלוח לשואל את התשובות — ולעולם לא נכנס ל-DTO. הוא מחליף
+ * את שורת המעקב: שורת `forum_follows` שנוצרת באותה שנייה עם שרשור
+ * אנונימי הייתה מצביעה על המחבר לכל מי שרואה את הטבלה (ביקורת
+ * Codex). מאותה סיבה יומן הביקורת של פעולה אנונימית אינו נושא את
+ * מזהה השרשור: „המשתמש הזה פעל בפורום” — כן; „על השרשור הזה” — לא.
  */
 
 const DELETED_USER = "משתמש שנמחק";
@@ -227,13 +237,13 @@ export class ForumService {
   /* ==================== שרשורים ==================== */
 
   async summary(): Promise<ForumSummaryDto> {
-    const { userId } = this.me();
+    const { userId, key } = this.me();
     const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
     const [threads, answered, repliesThisWeek, following, user] = await Promise.all([
       this.prisma.forumThread.count({ where: { hiddenAt: null } }),
       this.prisma.forumThread.count({ where: { hiddenAt: null, acceptedPostId: { not: null } } }),
       this.prisma.forumPost.count({ where: { hiddenAt: null, createdAt: { gte: weekAgo } } }),
-      this.prisma.forumFollow.count({ where: { userId } }),
+      this.prisma.forumThread.count({ where: { hiddenAt: null, ...ForumService.followingWhere(userId, key) } }),
       this.prisma.user.findUnique({ where: { id: userId }, select: { preferences: true } }),
     ]);
     return { threads, answered, repliesThisWeek, following, prefs: parseForumPrefs(user?.preferences) };
@@ -242,10 +252,15 @@ export class ForumService {
   /**
    * רשימת השרשורים — עמוד אחד, עם סמן להמשך.
    *
-   * חיפוש טקסט עובר דרך אינדקס ה-GIN (אותו ביטוי בדיוק כמו במיגרציה)
-   * עם דירוג לפי `ts_rank`, ובנוסף התאמה חופשית בכותרת — עברית אינה
-   * נגזרת, ו„בלעדיות” לא תמצא „הבלעדיות” בלי זה. עם חיפוש אין סמן:
-   * תוצאות מדורגות אינן רצף שאפשר להמשיך ממנו.
+   * חיפוש טקסט עובר דרך אינדקסי ה-GIN (אותם ביטויים בדיוק כמו
+   * במיגרציה) — בכותרת ובגוף השרשור **ובתגובות**, כי התשובה לשאלה
+   * יושבת בתגובה — עם דירוג לפי `ts_rank`, ובנוסף התאמה חופשית
+   * בכותרת: עברית אינה נגזרת, ו„בלעדיות” לא תמצא „הבלעדיות” בלי זה.
+   * הסינונים (נושא, סוג, שלי, במעקב…) נכנסים **לתוך** השאילתה, לפני
+   * ה-LIMIT: אחרת שישים התוצאות הראשונות היו נחתכות לפני הסינון,
+   * וחיפוש „בלעדיות” בנושא צר היה מחזיר ריק כשיש תוצאות (ביקורת
+   * Codex). עם חיפוש אין סמן: תוצאות מדורגות אינן רצף שאפשר להמשיך
+   * ממנו.
    */
   async listThreads(
     query: ForumThreadList,
@@ -260,7 +275,7 @@ export class ForumService {
       where.kind = "question";
       where.acceptedPostId = null;
     }
-    if (query.following !== undefined) where.follows = { some: { userId } };
+    if (query.following !== undefined) Object.assign(where, ForumService.followingWhere(userId, key));
 
     const q = query.q?.trim() ?? "";
     let rankedIds: string[] | null = null;
@@ -269,18 +284,25 @@ export class ForumService {
        * ‎`forumSearchTsquery` מפרק את הקלט לאותיות וספרות בלבד ובונה
        * ממנו ביטוי עם תחיליות עבריות והתאמת תחילית — ולכן
        * ‎`to_tsquery` ולא `websearch_to_tsquery`, שאינה תומכת ב-`:*`.
-       * הטקסט הגולמי נשאר רק ב-ILIKE, כפרמטר.
+       * הטקסט הגולמי נשאר רק ב-ILIKE, כפרמטר. כל התנאים פרמטרים —
+       * ‎`Prisma.sql` מרכיב, המסד מקבל placeholders.
        */
       const tsquery = forumSearchTsquery(q) ?? "";
       const rows = await this.prisma.$queryRaw<{ id: string }[]>`
-        SELECT id FROM forum_threads
-         WHERE hidden_at IS NULL
-           AND ((${tsquery} <> '' AND to_tsvector('simple', title || ' ' || body) @@ to_tsquery('simple', ${tsquery}))
-                OR title ILIKE ${`%${q}%`})
+        SELECT t.id FROM forum_threads t
+         WHERE ${ForumService.searchFilters(query, userId, key)}
+           AND ((${tsquery} <> ''
+                 AND (to_tsvector('simple', t.title || ' ' || t.body) @@ to_tsquery('simple', ${tsquery})
+                      OR EXISTS (SELECT 1 FROM forum_posts p
+                                  WHERE p.thread_id = t.id AND p.hidden_at IS NULL
+                                    AND to_tsvector('simple', p.body) @@ to_tsquery('simple', ${tsquery}))))
+                OR t.title ILIKE ${`%${q}%`})
          ORDER BY CASE WHEN ${tsquery} <> ''
-                       THEN ts_rank(to_tsvector('simple', title || ' ' || body), to_tsquery('simple', ${tsquery}))
+                       THEN ts_rank(to_tsvector('simple', t.title || ' ' || t.body), to_tsquery('simple', ${tsquery}))
+                          + COALESCE((SELECT MAX(ts_rank(to_tsvector('simple', p.body), to_tsquery('simple', ${tsquery})))
+                                        FROM forum_posts p WHERE p.thread_id = t.id AND p.hidden_at IS NULL), 0)
                        ELSE 0 END DESC,
-                  last_activity_at DESC
+                  t.last_activity_at DESC
          LIMIT 60`;
       rankedIds = rows.map((row) => row.id);
       if (rankedIds.length === 0) return { items: [], nextCursor: null };
@@ -308,16 +330,9 @@ export class ForumService {
       const rank = new Map(rankedIds.map((id, i) => [id, i]));
       page.sort((a, b) => (rank.get(a.id) ?? 0) - (rank.get(b.id) ?? 0));
     }
-    const followed = new Set(
-      (
-        await this.prisma.forumFollow.findMany({
-          where: { userId, threadId: { in: page.map((row) => row.id) } },
-          select: { threadId: true },
-        })
-      ).map((row) => row.threadId),
-    );
+    const followed = await this.followedAmong(page.map((row) => row.id), userId, key);
     return {
-      items: page.map((row) => ForumService.summary(row, key, followed.has(row.id))),
+      items: page.map((row) => ForumService.summary(row, key, followed.has(row.id) || ForumService.ownAnonymousNotify(row, key))),
       nextCursor:
         rows.length > FORUM_PAGE_SIZE && rankedIds === null ? page[page.length - 1]!.id : null,
     };
@@ -337,7 +352,7 @@ export class ForumService {
         include: threadInclude,
       }),
       this.prisma.forumVote.findMany({ where: { userId }, select: { targetType: true, targetId: true } }),
-      this.prisma.forumFollow.findUnique({ where: { threadId_userId: { threadId: id, userId } } }),
+      this.followedAmong([id], userId, key),
     ]);
     const voted = new Set(votes.map((vote) => `${vote.targetType}:${vote.targetId}`));
     const pseudonyms = forumPseudonyms(row.authorKey, row.anonymous, posts);
@@ -359,7 +374,7 @@ export class ForumService {
       ...posts.filter((post) => post.id !== row.acceptedPostId),
     ];
     return {
-      ...ForumService.summary(row, key, follow !== null),
+      ...ForumService.summary(row, key, follow.has(id) || ForumService.ownAnonymousNotify(row, key)),
       body: row.body,
       voted: voted.has(`thread:${id}`),
       hidden: row.hiddenAt !== null,
@@ -385,12 +400,14 @@ export class ForumService {
           // אנונימי = בלי זהות בשורה, נקודה. לא „מוסתר במסך”.
           authorUserId: input.anonymous ? null : userId,
           authorTenantId: input.anonymous ? null : tenantId,
+          // הדרך היחידה חזרה לשואל אנונימי — מוצפנת, ורק להתראות
+          authorRef: input.anonymous ? this.authorRef(tenantId, userId) : null,
         },
       });
-      // מי ששאל עוקב אחרי התשובות — אחרת אין טעם לשאול
-      await tx.forumFollow.create({ data: { id: ulid(), threadId: id, userId } });
+      // מי ששאל בשמו עוקב אחרי התשובות; לאנונימי `author_notify` הוא המעקב
+      if (!input.anonymous) await tx.forumFollow.create({ data: { id: ulid(), threadId: id, userId } });
     });
-    await this.recordAudit("forum.thread_create", "forum_thread", id, { anonymous: input.anonymous });
+    await this.recordAudit("forum.thread_create", "forum_thread", input.anonymous ? null : id, { anonymous: input.anonymous });
     const thread = await this.getThread(id);
     this.notify.newThread(thread, userId);
     return thread;
@@ -419,13 +436,16 @@ export class ForumService {
    */
   async deleteThread(id: string): Promise<void> {
     const { key } = this.me();
-    const row = await this.prisma.forumThread.findUnique({ where: { id }, select: { authorKey: true, replyCount: true, hiddenAt: true } });
+    const row = await this.prisma.forumThread.findUnique({
+      where: { id },
+      select: { authorKey: true, anonymous: true, replyCount: true, hiddenAt: true },
+    });
     ForumService.assertOwner(row, key);
     if (row.replyCount > 0) {
       throw new ConflictException("כבר יש תגובות — אפשר לבקש הסרה דרך „דיווח”");
     }
     await this.prisma.forumThread.delete({ where: { id } });
-    await this.recordAudit("forum.thread_delete", "forum_thread", id);
+    await this.recordAudit("forum.thread_delete", "forum_thread", row.anonymous ? null : id, { anonymous: row.anonymous });
   }
 
   /* ==================== תגובות ==================== */
@@ -451,20 +471,29 @@ export class ForumService {
           authorKey: key,
           authorUserId: input.anonymous ? null : userId,
           authorTenantId: input.anonymous ? null : tenantId,
+          authorRef: input.anonymous ? this.authorRef(tenantId, userId) : null,
         },
       });
       await tx.forumThread.update({
         where: { id: threadId },
         data: { replyCount: { increment: 1 }, lastActivityAt: now },
       });
-      // מי שענה רוצה לדעת מה ענו לו — מעקב אוטומטי, שאפשר להסיר
-      await tx.forumFollow.upsert({
-        where: { threadId_userId: { threadId, userId } },
-        create: { id: ulid(), threadId, userId },
-        update: {},
-      });
+      // מי שענה בשמו רוצה לדעת מה ענו לו — מעקב אוטומטי, שאפשר להסיר;
+      // מי שענה בעילום שם נשמע דרך `author_notify`, בלי שורה שמצביעה עליו
+      if (!input.anonymous) {
+        await tx.forumFollow.upsert({
+          where: { threadId_userId: { threadId, userId } },
+          create: { id: ulid(), threadId, userId },
+          update: {},
+        });
+      }
     });
-    await this.recordAudit("forum.reply", "forum_post", id, { threadId, anonymous: input.anonymous });
+    await this.recordAudit(
+      "forum.reply",
+      "forum_post",
+      input.anonymous ? null : id,
+      input.anonymous ? { anonymous: true } : { threadId, anonymous: false },
+    );
 
     const full = await this.getThread(threadId);
     const post = full.posts.find((candidate) => candidate.id === id);
@@ -484,7 +513,10 @@ export class ForumService {
 
   async deletePost(id: string): Promise<void> {
     const { key } = this.me();
-    const row = await this.prisma.forumPost.findUnique({ where: { id }, select: { authorKey: true, threadId: true, hiddenAt: true } });
+    const row = await this.prisma.forumPost.findUnique({
+      where: { id },
+      select: { authorKey: true, anonymous: true, threadId: true, hiddenAt: true },
+    });
     ForumService.assertOwner(row, key);
     await this.prisma.$transaction(async (tx) => {
       await tx.forumPost.delete({ where: { id } });
@@ -494,7 +526,12 @@ export class ForumService {
       });
       await tx.forumThread.update({ where: { id: row.threadId }, data: { replyCount: { decrement: 1 } } });
     });
-    await this.recordAudit("forum.reply_delete", "forum_post", id, { threadId: row.threadId });
+    await this.recordAudit(
+      "forum.reply_delete",
+      "forum_post",
+      row.anonymous ? null : id,
+      row.anonymous ? { anonymous: true } : { threadId: row.threadId, anonymous: false },
+    );
   }
 
   /** „זו התשובה” — רק השואל/ת. פעם שנייה על אותה תגובה = ביטול הסימון. */
@@ -507,7 +544,7 @@ export class ForumService {
     ForumService.assertOwner(thread, key);
     const post = await this.prisma.forumPost.findFirst({
       where: { id: postId, threadId, hiddenAt: null },
-      select: { id: true, authorUserId: true, authorKey: true },
+      select: { id: true, authorUserId: true, authorRef: true, authorNotify: true, authorKey: true },
     });
     if (post === null) throw new NotFoundException("התגובה לא נמצאה");
     const clearing = thread.acceptedPostId === postId;
@@ -515,9 +552,9 @@ export class ForumService {
       where: { id: threadId },
       data: { acceptedPostId: clearing ? null : postId },
     });
-    // מי שענה מזוהה מקבל את הרגע הקטן הזה; לאנונימי אין למי לשלוח
-    if (!clearing && post.authorUserId !== null && post.authorKey !== key) {
-      this.notify.accepted(threadId, thread.title, postId, post.authorUserId);
+    // מי שענה מקבל את הרגע הקטן הזה — גם בעילום שם, דרך ההפניה המוצפנת
+    if (!clearing && post.authorKey !== key) {
+      this.notify.accepted(threadId, thread.title, postId, post);
     }
     return this.getThread(threadId);
   }
@@ -553,20 +590,43 @@ export class ForumService {
 
   /* ==================== מעקב ==================== */
 
+  /**
+   * מעקב — שורת מעקב למי שנוכח בשרשור בשמו; למי שכתב בו בעילום שם
+   * זה `author_notify` על השורות שלו, ולא שורה שמצביעה עליו. „לא
+   * לעקוב” מכבה את שניהם, כדי שהתשובה תהיה אחת: לא יגיע עוד דבר.
+   */
   async follow(threadId: string, following: boolean): Promise<{ following: boolean }> {
-    const { userId } = this.me();
-    const exists = await this.prisma.forumThread.count({ where: { id: threadId, hiddenAt: null } });
-    if (exists === 0) throw new NotFoundException("השרשור לא נמצא");
-    if (following) {
-      await this.prisma.forumFollow.upsert({
-        where: { threadId_userId: { threadId, userId } },
-        create: { id: ulid(), threadId, userId },
-        update: {},
+    const { userId, key } = this.me();
+    const thread = await this.prisma.forumThread.findFirst({
+      where: { id: threadId, hiddenAt: null },
+      select: { anonymous: true, authorKey: true },
+    });
+    if (thread === null) throw new NotFoundException("השרשור לא נמצא");
+    const ownAnonymousThread = thread.anonymous && thread.authorKey === key;
+    await this.prisma.$transaction(async (tx) => {
+      if (ownAnonymousThread) {
+        await tx.forumThread.update({ where: { id: threadId }, data: { authorNotify: following } });
+      }
+      const anonymousPosts = await tx.forumPost.updateMany({
+        where: { threadId, anonymous: true, authorKey: key },
+        data: { authorNotify: following },
       });
-    } else {
-      await this.prisma.forumFollow.deleteMany({ where: { threadId, userId } });
-    }
+      if (!following) {
+        await tx.forumFollow.deleteMany({ where: { threadId, userId } });
+      } else if (!ownAnonymousThread && anonymousPosts.count === 0) {
+        await tx.forumFollow.upsert({
+          where: { threadId_userId: { threadId, userId } },
+          create: { id: ulid(), threadId, userId },
+          update: {},
+        });
+      }
+    });
     return { following };
+  }
+
+  /** השרשור לפי מזהה — לוואטסאפ, שהכפתור שלו נושא את המזהה. `null` = אין. */
+  async threadTitle(id: string): Promise<{ id: string; title: string } | null> {
+    return this.prisma.forumThread.findFirst({ where: { id, hiddenAt: null }, select: { id: true, title: true } });
   }
 
   /**
@@ -786,7 +846,15 @@ export class ForumService {
         },
       });
     } else if (targetType === "post") {
-      if (hiddenAt !== undefined) await this.prisma.forumPost.update({ where: { id: targetId }, data: { hiddenAt } });
+      if (hiddenAt !== undefined) {
+        // תגובה מוסתרת אינה „התשובה” — השרשור חוזר להיות פתוח באותה טרנזקציה
+        await this.prisma.$transaction(async (tx) => {
+          const post = await tx.forumPost.update({ where: { id: targetId }, data: { hiddenAt }, select: { threadId: true } });
+          if (hiddenAt !== null) {
+            await tx.forumThread.updateMany({ where: { id: post.threadId, acceptedPostId: targetId }, data: { acceptedPostId: null } });
+          }
+        });
+      }
     } else if (targetType === "listing") {
       if (hiddenAt !== undefined) await this.prisma.forumListing.update({ where: { id: targetId }, data: { hiddenAt } });
     } else if (input.hidden === true) {
@@ -822,15 +890,77 @@ export class ForumService {
     }
   }
 
+  /** „במעקב” — שורת מעקב, או תוכן אנונימי שלי בשרשור עם `author_notify`. */
+  private static followingWhere(userId: string, key: string): Prisma.ForumThreadWhereInput {
+    return {
+      OR: [
+        { follows: { some: { userId } } },
+        { anonymous: true, authorKey: key, authorNotify: true },
+        { posts: { some: { anonymous: true, authorKey: key, authorNotify: true } } },
+      ],
+    };
+  }
+
+  /** אותו „במעקב” כ-SQL — לשאילתת החיפוש, יחד עם שאר הסינונים. */
+  private static searchFilters(query: ForumThreadList, userId: string, key: string): Prisma.Sql {
+    const conditions: Prisma.Sql[] = [Prisma.sql`t.hidden_at IS NULL`];
+    if (query.topic !== undefined) conditions.push(Prisma.sql`t.topic = ${query.topic}`);
+    if (query.kind !== undefined) conditions.push(Prisma.sql`t.kind = ${query.kind}`);
+    if (query.anonymous !== undefined) conditions.push(Prisma.sql`t.anonymous = true`);
+    if (query.mine !== undefined) conditions.push(Prisma.sql`t.author_key = ${key}`);
+    if (query.unanswered !== undefined) conditions.push(Prisma.sql`t.kind = 'question' AND t.accepted_post_id IS NULL`);
+    if (query.following !== undefined) {
+      conditions.push(Prisma.sql`(EXISTS (SELECT 1 FROM forum_follows f WHERE f.thread_id = t.id AND f.user_id = ${userId})
+        OR (t.anonymous AND t.author_key = ${key} AND t.author_notify)
+        OR EXISTS (SELECT 1 FROM forum_posts p WHERE p.thread_id = t.id AND p.anonymous AND p.author_key = ${key} AND p.author_notify))`);
+    }
+    return Prisma.join(conditions, " AND ");
+  }
+
+  /** אילו מהשרשורים במעקב — שורת מעקב או תגובה אנונימית שלי שמאזינה. */
+  private async followedAmong(threadIds: string[], userId: string, key: string): Promise<Set<string>> {
+    if (threadIds.length === 0) return new Set();
+    const [follows, anonymousPosts] = await Promise.all([
+      this.prisma.forumFollow.findMany({ where: { userId, threadId: { in: threadIds } }, select: { threadId: true } }),
+      this.prisma.forumPost.findMany({
+        where: { threadId: { in: threadIds }, anonymous: true, authorKey: key, authorNotify: true },
+        select: { threadId: true },
+        distinct: ["threadId"],
+      }),
+    ]);
+    return new Set([...follows, ...anonymousPosts].map((row) => row.threadId));
+  }
+
+  private static ownAnonymousNotify(row: { anonymous: boolean; authorKey: string; authorNotify: boolean }, key: string): boolean {
+    return row.anonymous && row.authorKey === key && row.authorNotify;
+  }
+
+  /** ההפניה המוצפנת למחבר אנונימי — נפתחת רק ב-`ForumNotifyService`. */
+  private authorRef(tenantId: string, userId: string): string {
+    return this.crypto.encrypt(`${tenantId}:${userId}`);
+  }
+
   /**
    * יומן הביקורת נכתב **תחת המשרד של הפועל**: הפעולה היא שלו, גם
-   * כשהתוכן הוא של הקהילה. שרשור אנונימי נרשם עם `anonymous: true`
-   * ומזהה השרשור — בלי תוכן — כדי שהיומן של המשרד לא יהפוך לעותק
-   * מזוהה של מה שנכתב בעילום שם.
+   * כשהתוכן הוא של הקהילה. פעולה אנונימית נרשמת **בלי מזהה** — לא
+   * השרשור, לא התגובה, לא בשדה ולא במטא-נתונים: היומן של המשרד
+   * נושא את שם המשתמש, ומזהה לצדו היה הופך אותו לרשימה מזוהה של מה
+   * שנכתב בעילום שם (ביקורת Codex). „פעל בפורום בעילום שם” הוא כל מה
+   * שהמשרד יודע.
    */
-  private async recordAudit(action: string, entityType: string, entityId: string, metadata?: Record<string, unknown>): Promise<void> {
+  private async recordAudit(
+    action: string,
+    entityType: string,
+    entityId: string | null,
+    metadata?: Record<string, unknown>,
+  ): Promise<void> {
     await this.prisma.withTenant((tx) =>
-      this.audit.record(tx, { action, entityType, entityId, ...(metadata === undefined ? {} : { metadata }) }),
+      this.audit.record(tx, {
+        action,
+        entityType,
+        ...(entityId === null ? {} : { entityId }),
+        ...(metadata === undefined ? {} : { metadata }),
+      }),
     );
   }
 }

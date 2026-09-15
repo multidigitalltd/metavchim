@@ -43,6 +43,7 @@ import {
   FORUM_QUICK_COMMANDS,
   ForumReplyInputSchema,
   parseAnonymousPrefix,
+  parseForumCommand,
 } from "@metavchim/shared";
 import { TenantContext, type RequestContext } from "../../common/tenant-context";
 import { loadEnv } from "../../config/env";
@@ -124,8 +125,6 @@ import {
   forumReplyPosted,
   forumReplyPrompt,
   forumUnfollowed,
-  isForumReplyRequest,
-  isForumUnfollowRequest,
 } from "./assistant-forum";
 import { ForumService } from "../forum/forum.service";
 import { MentorService } from "../mentor/mentor.service";
@@ -1173,12 +1172,17 @@ export class WhatsAppAssistantService {
     };
   }
 
+  /** השרשור שהכפתור נשא — או, בלי מזהה, זה של ההתראה האחרונה מהפורום. */
+  private async forumTarget(threadId: string | null): Promise<{ id: string; title: string } | null> {
+    return threadId === null ? this.forum.lastNotifiedThread() : this.forum.threadTitle(threadId);
+  }
+
   /**
-   * „להשיב בפורום” — על השרשור של ההתראה האחרונה שהגיעה מהפורום.
-   * ההודעה הבאה היא התגובה; „אנונימי:” בתחילתה — בעילום שם.
+   * „להשיב בפורום” — על השרשור שההודעה דיברה עליו. ההודעה הבאה היא
+   * התגובה; „אנונימי:” בתחילתה — בעילום שם.
    */
-  private async forumReplyStart(user: IdentifiedUser, chat: ChatState): Promise<AgentReply> {
-    const thread = await this.forum.lastNotifiedThread();
+  private async forumReplyStart(user: IdentifiedUser, chat: ChatState, threadId: string | null): Promise<AgentReply> {
+    const thread = await this.forumTarget(threadId);
     if (thread === null) return forumNoThreadReply();
     if (chat.pending !== null) {
       const took = await this.takePending(user.tenantId, user.id, chat.pending.token);
@@ -1196,9 +1200,9 @@ export class WhatsAppAssistantService {
     return forumReplyPrompt(thread.title);
   }
 
-  /** „להפסיק לעקוב” — מהשרשור של ההתראה האחרונה. */
-  private async forumUnfollow(): Promise<AgentReply> {
-    const thread = await this.forum.lastNotifiedThread();
+  /** „להפסיק לעקוב” — מהשרשור שההודעה דיברה עליו. */
+  private async forumUnfollow(threadId: string | null): Promise<AgentReply> {
+    const thread = await this.forumTarget(threadId);
     if (thread === null) return forumNoThreadReply();
     await this.forum.follow(thread.id, false);
     return forumUnfollowed(thread.title);
@@ -2001,12 +2005,15 @@ export class WhatsAppAssistantService {
       );
       return withHeard({ text: reply, speak: reply }, heard);
     }
-    // „להשיב בפורום” / „להפסיק לעקוב” — כלשונם, מכפתורי ההתראה (docs/16)
-    if (isForumReplyRequest(text)) {
-      return withHeard(await this.forumReplyStart(user, chat), heard);
-    }
-    if (isForumUnfollowRequest(text)) {
-      return withHeard(await this.forumUnfollow(), heard);
+    // „להשיב בפורום [מזהה]” / „להפסיק לעקוב [מזהה]” — מכפתורי ההתראה (docs/16)
+    const forumCommand = parseForumCommand(text);
+    if (forumCommand !== null) {
+      return withHeard(
+        forumCommand.command === "forum_reply"
+          ? await this.forumReplyStart(user, chat, forumCommand.threadId)
+          : await this.forumUnfollow(forumCommand.threadId),
+        heard,
+      );
     }
 
     const pending = chat.pending;

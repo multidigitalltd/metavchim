@@ -36,6 +36,8 @@ function harness() {
     body: "גוף השאלה שנכתב בעילום שם",
     anonymous: true,
     authorKey: key(OTHER),
+    authorRef: "enc:REF-OF-OTHER",
+    authorNotify: true,
     authorUserId: null,
     authorTenantId: null,
     replyCount: 2,
@@ -91,7 +93,7 @@ function harness() {
     },
     forumPost: { findMany: async () => posts },
     forumVote: { findMany: async () => [{ targetType: "post", targetId: posts[0]!.id }] },
-    forumFollow: { findUnique: async () => null },
+    forumFollow: { findMany: async () => [] },
   } as unknown as PrismaService;
   const crypto = { forumAuthorKey: key } as unknown as CryptoService;
   const audit = { record: async () => undefined } as unknown as AuditService;
@@ -124,6 +126,8 @@ describe("הפורום — מה נחשף על מחבר", () => {
     // אף שדה ב-DTO אינו נושא מזהה משתמש או חתם
     expect(JSON.stringify(dto)).not.toContain(OTHER);
     expect(JSON.stringify(dto)).not.toContain(key(OTHER));
+    // וגם לא ההפניה המוצפנת — היא של ההתראות, לא של המסך
+    expect(JSON.stringify(dto)).not.toContain("REF-OF-OTHER");
   });
 
   it("עריכה או מחיקה של מה שאינו שלי — 404, לא 403: קיום השורה אינו מידע", async () => {

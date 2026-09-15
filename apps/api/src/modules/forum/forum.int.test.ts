@@ -33,6 +33,7 @@ function requiredEnv(name: string): string {
 let app: PrismaClient;
 let owner: PrismaClient;
 let svc: ForumService;
+let auditLog: { entityId?: string; metadata?: Record<string, unknown> }[] = [];
 
 const key = (userId: string) => `k${userId}`.padEnd(64, "0");
 
@@ -74,9 +75,20 @@ beforeAll(async () => {
     withTenant: <T>(fn: (tx: unknown) => Promise<T>) => withExplicitTenant(TenantContext.current().tenantId, fn),
     withExplicitTenant,
   }) as unknown as PrismaService;
-  const crypto = { forumAuthorKey: key } as unknown as CryptoService;
-  const audit = { record: async () => undefined } as unknown as AuditService;
-  svc = new ForumService(prisma, crypto, audit, new ForumNotifyService(prisma));
+  // הצפנה הפיכה מדומה — הבדיקה בודקת את המסלול, לא את AES
+  const crypto = {
+    forumAuthorKey: key,
+    encrypt: (plain: string) => `enc:${Buffer.from(plain, "utf8").toString("base64")}`,
+    decrypt: (stored: string) => Buffer.from(stored.replace(/^enc:/u, ""), "base64").toString("utf8"),
+  } as unknown as CryptoService;
+  const audited: { entityId?: string; metadata?: Record<string, unknown> }[] = [];
+  const audit = {
+    record: async (_tx: unknown, entry: { entityId?: string; metadata?: Record<string, unknown> }) => {
+      audited.push(entry);
+    },
+  } as unknown as AuditService;
+  auditLog = audited;
+  svc = new ForumService(prisma, crypto, audit, new ForumNotifyService(prisma, crypto));
 });
 
 afterAll(async () => {
@@ -113,10 +125,13 @@ describe("הפורום מול Postgres — שני משרדים, שאלה אנו�
     expect(thread.mine).toBe(true);
     expect(thread.following).toBe(true);
 
-    // שורת המסד עצמה — בלי מזהה מחבר
+    // שורת המסד עצמה — בלי מזהה מחבר, בלי שורת מעקב שמצביעה עליו, ובלי מזהה ביומן
     const row = await app.forumThread.findUniqueOrThrow({ where: { id: thread.id } });
     expect(row.authorUserId).toBeNull();
     expect(row.authorTenantId).toBeNull();
+    expect(row.authorRef).not.toBeNull();
+    expect(await app.forumFollow.count({ where: { threadId: thread.id } })).toBe(0);
+    expect(JSON.stringify(auditLog)).not.toContain(thread.id);
 
     // ב' עוקב אחרי כל הפורום — קיבל התראה על השרשור החדש, במשרד שלו
     await eventually(async () =>
@@ -128,7 +143,7 @@ describe("הפורום מול Postgres — שני משרדים, שאלה אנו�
     );
     expect(reply.author).toEqual({ label: "יוסי כהן", office: "משרד יוסי כהן", anonymous: false });
 
-    // א' רואה את התגובה, ומקבל התראה במשרד שלו (הוא עוקב אחרי השאלה שלו)
+    // א' רואה את התגובה, ומקבל התראה במשרד שלו — דרך ההפניה המוצפנת, בלי שורת מעקב
     await eventually(async () =>
       (await owner.notification.count({ where: { tenantId: TENANT_A, userId: USER_A, type: "forum_reply", entityId: thread.id } })) === 1,
     );
@@ -162,6 +177,19 @@ describe("הפורום מול Postgres — שני משרדים, שאלה אנו�
     expect(found.items.map((t) => t.id)).toContain(thread.id);
     const anonymousOnly = await as(TENANT_B, USER_B, () => svc.listThreads({ anonymous: "1", sort: "active" }));
     expect(anonymousOnly.items.map((t) => t.id)).toContain(thread.id);
+
+    // חיפוש שמוצא רק בתגובה, ועם סינון שנכנס לשאילתה עצמה
+    const inReply = await as(TENANT_A, USER_A, () => svc.listThreads({ q: "הנוסח המקובל", topic: "exclusivity", sort: "active" }));
+    expect(inReply.items.map((t) => t.id)).toContain(thread.id);
+    const wrongTopic = await as(TENANT_A, USER_A, () => svc.listThreads({ q: "הנוסח המקובל", topic: "marketing", sort: "active" }));
+    expect(wrongTopic.items.map((t) => t.id)).not.toContain(thread.id);
+
+    // א' מפסיק לעקוב — „במעקב” כבה בלי ששורת מעקב נוצרה או נמחקה
+    expect(await as(TENANT_A, USER_A, () => svc.follow(thread.id, false))).toEqual({ following: false });
+    expect((await as(TENANT_A, USER_A, () => svc.getThread(thread.id))).following).toBe(false);
+    expect(await app.forumFollow.count({ where: { threadId: thread.id } })).toBe(1); // רק של ב'
+    const notFollowing = await as(TENANT_A, USER_A, () => svc.listThreads({ following: "1", sort: "active" }));
+    expect(notFollowing.items.map((t) => t.id)).not.toContain(thread.id);
 
     // ב' אינו יכול לערוך את השרשור של א' — 404
     await expect(as(TENANT_B, USER_B, () => svc.editThread(thread.id, { title: "כותרת אחרת ארוכה מספיק" }))).rejects.toThrow();

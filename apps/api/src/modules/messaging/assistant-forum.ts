@@ -7,24 +7,19 @@
  * ההודעה הבאה היא **התגובה עצמה** — טקסט חופשי שמנוע ההבנה היה
  * מחפש בו פעולה ולא מוצא. לכן זה מצב ממתין כמו „אשר”, עם חותם
  * וצריכה אטומית, ולא פירוש. „אנונימי:” בתחילת ההודעה = בעילום שם.
+ *
+ * הכפתור נושא את מזהה השרשור („להשיב בפורום [01ABC…]”, ראו
+ * ‎`parseForumCommand`), ולכן התגובה מתפרסמת מתחת לשאלה שההודעה
+ * הציגה — גם אם בינתיים הגיעה התראה על שרשור אחר.
  */
 
-import { FORUM_QUICK_COMMANDS, forumThreadPath } from "@metavchim/shared";
+import { forumThreadPath } from "@metavchim/shared";
 import type { AgentReply } from "./assistant-buttons";
-import { normalizeShort } from "./assistant-lang";
-
-export function isForumReplyRequest(text: string): boolean {
-  return normalizeShort(text) === normalizeShort(FORUM_QUICK_COMMANDS.forum_reply);
-}
-
-export function isForumUnfollowRequest(text: string): boolean {
-  return normalizeShort(text) === normalizeShort(FORUM_QUICK_COMMANDS.forum_unfollow);
-}
 
 /** אין שרשור להתייחס אליו — לא הגיעה עדיין שום התראה מהפורום. */
 export function forumNoThreadReply(): AgentReply {
   const text =
-    "עוד לא הגיעה אליך התראה מהפורום, ולכן אין שרשור להשיב עליו מכאן. אפשר לכתוב לי „תענה בפורום על השאלה של …: …”, או לפתוח את הפורום במערכת.";
+    "לא מצאתי את השרשור — ייתכן שהוסר, או שעוד לא הגיעה אליך התראה מהפורום. אפשר לכתוב לי „תענה בפורום על השאלה של …: …”, או לפתוח את הפורום במערכת.";
   return { text, speak: text };
 }
 

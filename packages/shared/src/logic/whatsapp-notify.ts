@@ -33,7 +33,7 @@ import {
 } from "./call-convert-chat.js";
 import { notificationUrl, type PushableNotification } from "./web-push.js";
 import type { WhatsAppButton } from "./whatsapp-buttons.js";
-import { FORUM_QUICK_COMMANDS } from "./forum.js";
+import { forumThreadCommand } from "./forum.js";
 
 /* ==================== קטגוריות ==================== */
 
@@ -488,11 +488,13 @@ function ideaFeedbackButtons(items: readonly NotifyItem[]): WhatsAppButton[] {
  * ההודעה הבאה היא התגובה (כמו „לענות למנטור”), ו„להפסיק לעקוב”
  * מסיר את המעקב מהשרשור שההתראה האחרונה דיברה עליו.
  */
-const FORUM_BUTTONS: readonly WhatsAppButton[] = [
-  { action: "cmd", arg: "forum_reply" satisfies keyof typeof FORUM_QUICK_COMMANDS, title: "💬 להשיב בפורום" },
-  { action: "cmd", arg: "forum_unfollow" satisfies keyof typeof FORUM_QUICK_COMMANDS, title: "🔕 להפסיק לעקוב" },
-  { action: "cmd", arg: "urgent", title: "📋 מה דחוף היום?" },
-];
+function forumButtons(threadId: string): WhatsAppButton[] {
+  return [
+    { action: "cmd", arg: forumThreadCommand("forum_reply", threadId), title: "💬 להשיב בפורום" },
+    { action: "cmd", arg: forumThreadCommand("forum_unfollow", threadId), title: "🔕 להפסיק לעקוב" },
+    { action: "cmd", arg: "urgent", title: "📋 מה דחוף היום?" },
+  ];
+}
 
 export function notifyQuickReplies(
   items: readonly NotifyItem[],
@@ -500,7 +502,15 @@ export function notifyQuickReplies(
 ): WhatsAppButton[] | null {
   const types = new Set(items.map((item) => item.type));
   if (items.length > 0 && [...types].every((type) => type.startsWith("forum_"))) {
-    return [...FORUM_BUTTONS];
+    /*
+     * הכפתור נושא את השרשור, ולכן רק כשהאגד כולו על שרשור **אחד**.
+     * כמה שרשורים בהודעה אחת — הקישורים בגוף מספיקים, והכפתורים
+     * הכלליים נשארים; „להשיב” על שרשור שלא ברור איזהו גרוע מבלי.
+     */
+    const threads = new Set(items.map((item) => item.entityId ?? ""));
+    const only = [...threads][0];
+    if (threads.size === 1 && only !== undefined && only !== "") return forumButtons(only);
+    return null;
   }
   const mentorOnly =
     items.length > 0 && [...types].every((type) => type.startsWith("mentor_"));

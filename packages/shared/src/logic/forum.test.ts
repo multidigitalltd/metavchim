@@ -6,8 +6,10 @@ import {
   forumReplyNotice,
   forumSearchTsquery,
   forumSnippet,
+  forumThreadCommand,
   monthlyPayment,
   parseAnonymousPrefix,
+  parseForumCommand,
   parseForumPrefs,
   purchaseTax,
   PURCHASE_TAX_ADDITIONAL_HOME,
@@ -51,6 +53,23 @@ describe("תחילית „אנונימי:” בוואטסאפ", () => {
   });
   it("בלי תחילית — טקסט כפי שהוא, מזוהה", () => {
     expect(parseAnonymousPrefix("  זה קרה גם לי ")).toEqual({ anonymous: false, text: "זה קרה גם לי" });
+  });
+});
+
+describe("פקודות הפורום מכפתורי ההתראה — עם השרשור בתוכן", () => {
+  const THREAD = "01HZZZZZZZZZZZZZZZZZZZZZZZ";
+  it("הלוך ושוב — הפקודה נושאת את המזהה, והפענוח מחזיר אותו", () => {
+    expect(parseForumCommand(forumThreadCommand("forum_reply", THREAD))).toEqual({ command: "forum_reply", threadId: THREAD });
+    expect(parseForumCommand(forumThreadCommand("forum_unfollow", THREAD))).toEqual({ command: "forum_unfollow", threadId: THREAD });
+  });
+  it("הפקודה שהוקלדה ביד — בלי מזהה, ורווחים אינם משנים", () => {
+    expect(parseForumCommand("  להשיב  בפורום ")).toEqual({ command: "forum_reply", threadId: null });
+    expect(parseForumCommand("להפסיק לעקוב אחרי השיחה")).toEqual({ command: "forum_unfollow", threadId: null });
+  });
+  it("טקסט אחר, או מזהה בצורה לא תקינה — אינו פקודה", () => {
+    expect(parseForumCommand("תענה בפורום על השאלה של דנה: כן")).toBeNull();
+    expect(parseForumCommand("להשיב בפורום [לא-מזהה]")).toBeNull();
+    expect(parseForumCommand("להשיב בפורום [01HZZZZZZZZZZZZZZZZZZZZZZZ] ועוד")).toBeNull();
   });
 });
 
