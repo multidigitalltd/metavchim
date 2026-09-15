@@ -8,6 +8,7 @@ import {
 import { ulid } from "ulid";
 import {
   applyIntakeAnswers,
+  buyerNeighborhoodKeys,
   buyerSharedTabuStance,
   BuyerRequirementsSchema,
   DEFAULT_COMMISSION_SPLIT,
@@ -32,10 +33,12 @@ import { readOfficeStatuses } from "../../common/office-buyer-statuses";
 import {
   cleanVocabulary,
   freeTextTerms,
+  neighborhoodKey,
+  neighborhoodKeyMatches,
   normalizeRange,
   priceRangeAgorot,
 } from "@metavchim/shared";
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import {
   agentHandover,
   agentNameOf,
@@ -50,6 +53,37 @@ import { OutboxService } from "../../core/outbox.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import { lockContact, shareTenantRow } from "../../common/locks";
 import { ContactErasureService } from "../contacts/contact-erasure.service";
+
+/**
+ * ‎**הכלל עצמו בשפת המסד — ולמה הוא חייב להיות מדויק.**
+ *
+ * ## מה היה קודם
+ *
+ * ‏המסד עשה תת-מחרוזת רחבה (`LIKE '%q%'`) תחת תקרה, והכלל
+ * ‏המשותף הכריע אחריה. אבל התקרה חתכה **לפני** ההכרעה
+ * ‏ובלי סדר: במשרד שבו יותר מ-200 מפתחות מכילים את מה
+ * ‏שהוקלד, התאמות אמיתיות נדחקו החוצה בידי התאמות באמצע
+ * ‏מילה שהכלל היה פוסל בלאו הכי — כלומר קונים שנעלמים
+ * ‏מהסינון בלי שום סימן (ביקורת Codex, P1).
+ *
+ * ## הכלל, מילה במילה
+ *
+ * ‏`neighborhoodKeyMatches` הוא שתי בדיקות על מפתח מקופל: תחילית
+ * ‏המפתח, או תחילית אחד מההיסטים שאחרי רווח. ב-SQL אלה בדיוק
+ * ‏שני ה-`LIKE` שלמטה. השקילות נבדקת מול מסד אמיתי ב-
+ * ‏`neighborhood-match.int.test.ts`, בדיוק כמו שהקיפול נבדק.
+ *
+ * ## ולמה הבריחה נדרשת עכשיו ולא קודם
+ *
+ * ‏כשהמסד רק הרחיב, `%` או `_` שהוקלדו בשדה לא הזיקו —
+ * ‏הקוד צימצם אחריהם. עכשיו המסד מכריע, ותו כזה היה מרחיב
+ * ‏את ההתאמה מעבר לכלל. `!` כתו בריחה מפורש ולא הלוכסן
+ * ‏המרמז, כדי שלא ניתלה במוסכמות מילוט של הספרייה.
+ */
+export function neighborhoodKeyMatchSql(queryKey: string): Prisma.Sql {
+  const escaped = queryKey.replace(/([!%_])/gu, "!$1");
+  return Prisma.sql`(k LIKE ${`${escaped}%`} ESCAPE '!' OR k LIKE ${`% ${escaped}%`} ESCAPE '!')`;
+}
 
 /**
  * ‎**העמודות החמות שנגזרות מ-`requirements` — במקום אחד.**
@@ -78,6 +112,7 @@ export function requirementColumns(
   | "roomsMin"
   | "roomsMax"
   | "sharedTabuStance"
+  | "neighborhoodKeys"
   | "requirements"
 > {
   return {
@@ -106,6 +141,15 @@ export function requirementColumns(
      * ‏שהשאילתה תוכל לשאול עמודה אחת פשוטה.
      */
     sharedTabuStance: buyerSharedTabuStance(requirements) ?? null,
+    /*
+     * ‎**שני המקורות, והגזירה אינה כאן.**
+     *
+     * ‏קונה אומר איפה הוא מחפש גם בהקלדה וגם בנעיצה
+     * ‏על המפה, ושתי האמירות שוות ערך. ההגדרה יושבת
+     * ‏ב-`buyerNeighborhoodKeys`, כדי שהעמודה, המילוי במיגרציה
+     * ‏והסינון לא יוכלו להיפרד זה מזה.
+     */
+    neighborhoodKeys: buyerNeighborhoodKeys(requirements),
     requirements: requirements as object,
   };
 }
@@ -1136,12 +1180,27 @@ export class BuyersService {
      * ‏הערכים — הוא אינו „לא מוכן”, פשוט לא נשאל.
      */
     sharedTabu?: SharedTabuStance;
+    /**
+     * ‎שכונה — טקסט חופשי, בדיוק כמו בשדה שבו היא נכתבת.
+     *
+     * ‏שם שכונה אינו רשום בשום מרשם, ולכן אין מזהה לבקש —
+     * ‏הבורר במסך מציע את מה שכבר הוזן במשרד, ומרשה גם
+     * ‏להקליד משהו שעוד לא נכתב. ההתאמה היא על המפתח
+     * ‏המקופל ולא על הכתיב, ולכן „שיכון ג'” מוצא גם את מי
+     * ‏שנכתב אצלו „שכונת שיכון ג”.
+     */
+    neighborhood?: string;
     cursor?: string;
     limit: number;
   }): Promise<Page<BuyerDto>> {
     const budget = priceRangeAgorot(query.minPrice, query.maxPrice);
     const rooms = normalizeRange(query.minRooms, query.maxRooms);
     const terms = freeTextTerms(query.q);
+    /*
+     * קיפול אחד למה שהוקלד. מפתח ריק — רווחים או סימני
+     * פיסוק בלבד — אינו שכונה ואינו מסנן כלום.
+     */
+    const neighborhoodQueryKey = neighborhoodKey(query.neighborhood ?? "");
 
     /*
      * כל התנאים נאספים לרשימת AND אחת ולא נפרשים כמפתחות נפרדים.
@@ -1150,6 +1209,10 @@ export class BuyersService {
      * האובייקט: המפתח השני מנצח, והראשון נעלם בשקט בלי שום שגיאה.
      */
     const conditions: Prisma.BuyerWhereInput[] = [];
+    /*
+     * ‏תנאי השכונה מצטרף לרשימה הזו **בתוך הטרנזקציה**
+     * ‏למטה, כי הוא דורש שאילתה — והיא חייבת הקשר דייר.
+     */
 
     /*
      * ‏טאבו משותף — שוויון פשוט על העמודה הנגזרת.
@@ -1285,6 +1348,54 @@ export class BuyersService {
     }
 
     return this.prisma.withTenant(async (tx) => {
+      /*
+       * ‎**השכונה — הטקסט שהוקלד מתורגם למפתחות שקיימים.**
+       *
+       * ‏העמודה מחזיקה מפתחות שלמים, ו-`hasSome` יודע לשאול רק
+       * ‏„האם אחד מאלה נמצא שם” — שאלה מאונדקסת (GIN). אבל הכלל
+       * ‏שהמסך מבטיח הוא תחילית מגבול מילה — „אהרון” מוצא את
+       * ‏„רמת אהרון” — ולכן צריך קודם לדעת אלו מפתחות תואמים.
+       *
+       * ‏החלוקה היא זו שאוצר השכונות כבר עובד לפיה: המסד
+       * ‏מצמצם **ברוחב** (תת-מחרוזת), והכלל המשותף מכריע.
+       * ‏כך אין שתי הגדרות ל„מתאים” — וגם `%` או `_` שהוקלדו
+       * ‏בשדה אינם מרחיבים דבר, כי ההכרעה אינה שלהם.
+       */
+      if (neighborhoodQueryKey !== "") {
+        /*
+         * ‎**ובלי תקרה.** קודם היתה כאן תקרה שהגנה על הזיכרון,
+         * ‏וכשהבדיקה היתה רחבה היא גם חתכה התאמות אמיתיות.
+         * ‏עכשיו השאילתה מחזירה **בדיוק את השכונות שהמסך הבטיח**,
+         * ‏והכמות חסומה במציאות: אלה שמות שכונות שהמשרד הקליד
+         * ‏ושמתחילות באותן אותיות — עשרות בודדות גם במשרד גדול.
+         * ‏תקרה שחותכת תוצאות נכונות גרועה משאילתה גדולה בעשרות שורות.
+         */
+        const candidates = await tx.$queryRaw<{ key: string }[]>`
+          SELECT DISTINCT k AS key
+            FROM buyers b
+           CROSS JOIN LATERAL unnest(b.neighborhood_keys) AS k
+           WHERE b.deleted_at IS NULL
+             AND ${neighborhoodKeyMatchSql(neighborhoodQueryKey)}
+        `;
+        /*
+         * ‏הכלל המשותף נשאר בדרך גם אחרי שה-SQL מדויק: הוא
+         * ‏הסמכות, וכל סטייה עתידית תיפול לכיוון הצר — פחות
+         * ‏תוצאות מהמובטח, ולא יותר.
+         */
+        const keys = candidates
+          .map((row) => row.key)
+          .filter((key) => neighborhoodKeyMatches(key, neighborhoodQueryKey));
+        /*
+         * ‎**אף שכונה לא תואמת — ולכן אף קונה.**
+         *
+         * ‏היציאה מפורשת ולא `hasSome: []`: התשובה זהה, אבל
+         * ‏היא היתה תלויה במשמעות של חיתוך עם מערך ריק —
+         * ‏פרט שאיש אינו בודק ושיכול להשתנות בשקט בשדרוג.
+         */
+        if (keys.length === 0) return { items: [], nextCursor: null };
+        conditions.push({ neighborhoodKeys: { hasSome: keys } });
+      }
+
       const rows = await tx.buyer.findMany({
         where: {
           tenantId: TenantContext.current().tenantId,

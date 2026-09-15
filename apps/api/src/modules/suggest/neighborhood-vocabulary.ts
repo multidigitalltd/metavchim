@@ -44,13 +44,13 @@ const VOCABULARY_MAX = 400;
  * הסתמכות על `\s` לבדו הייתה מייצרת מפתח שונה בדיוק בתווים שדבקה
  * מאתר אינטרנט מכניסה — כלומר בשם שנראה תקין על המסך.
  */
-const WHITESPACE = String.raw`[\s\u00A0\u1680\u2000-\u200A\u2028\u2029\u202F\u205F\u3000\uFEFF]+`;
+export const WHITESPACE = String.raw`[\s\u00A0\u1680\u2000-\u200A\u2028\u2029\u202F\u205F\u3000\uFEFF]+`;
 /** גרש וגרשיים על כל צורותיהם — נמחקים, בדיוק כמו ב-JavaScript. */
-const QUOTES = String.raw`[\u0022\u0027\u05F3\u05F4\u2018\u2019\u201C\u201D]`;
+export const QUOTES = String.raw`[\u0022\u0027\u05F3\u05F4\u2018\u2019\u201C\u201D]`;
 /** מקף רגיל, מקף עברי, ומקפים טיפוגרפיים — הופכים לרווח. */
-const DASHES = String.raw`[\u002D\u05BE\u2010-\u2015]`;
+export const DASHES = String.raw`[\u002D\u05BE\u2010-\u2015]`;
 /** ‎„שכונת רמת אהרון” ו„רמת אהרון” הן אותה שכונה. */
-const PREFIX = "^שכונת ";
+export const PREFIX = "^שכונת ";
 
 /**
  * ‎**`neighborhoodKey` בשפת המסד — אותו קיפול, מילה במילה.**
@@ -117,6 +117,34 @@ export async function neighborhoodVocabulary(
    * לצמצום לכל קונה וגם לסינון לפני התקרה, ושני חישובים נפרדים היו
    * שני מקומות שיכולים להיפרד.
    */
+  /**
+   * ‎**צמצום העיר לקונה — עיר יחידה בלבד** (ביקורת Codex).
+   *
+   * שתי הרשימות — הערים והשכונות — הן מערכים שטוחים
+   * ובלתי תלויים: אין בנתונים שום קשר בין שכונה לעיר שלה.
+   * קונה שמחפש בבני ברק ‎**וגם** בחיפה, עם „פרדס כץ”
+   * ו„נווה שאנן”, היה תורם את *שתיהן* לשאילתה על בני
+   * ברק — וטופס הנכס היה מציע „נווה שאנן” בבני ברק.
+   * כלומר הפיצ׳ר שנועד למנוע שכונות שגויות היה מלמד להזין אחת.
+   *
+   * כשלקונה עיר אחת, השיוך חד-משמעי וכל שכונותיו שייכות לה.
+   * זה גם הרוב המכריע של הקונים, ולכן המחיר נמוך — ובלי
+   * הימור על נתון שאינו קיים.
+   *
+   * ‎**מוגדר פעם אחת ומורכב לשני מקורות הקונה** — השכונות
+   * המוקלדות ושמות הנעיצות. שני עותקים היו יכולים להיפרד,
+   * והתוצאה היתה שכונה שמוצעת בעיר אחת ולא באחרת, לפי
+   * איזה שדה מילאו אותה.
+   */
+  const buyerCity = Prisma.sql`(
+    ${city}::text = ''
+    OR (
+      jsonb_typeof(b.requirements -> 'cities') = 'array'
+      AND jsonb_array_length(b.requirements -> 'cities') = 1
+      AND b.requirements -> 'cities' ->> 0 = ${city}
+    )
+  )`;
+
   const rows = await tx.$queryRaw<{ name: string; count: bigint }[]>`
     SELECT name, COUNT(*)::bigint AS count
       FROM (
@@ -162,35 +190,34 @@ export async function neighborhoodVocabulary(
                        END
                      ) AS n
                WHERE b.deleted_at IS NULL
-                 AND (
-                   ${city}::text = ''
-                   OR (
-/*
-                      * ‎**עיר יחידה בלבד** (ביקורת Codex).
-                      *
-                      * שתי הרשימות — הערים והשכונות — הן מערכים
-                      * שטוחים ובלתי תלויים: אין בנתונים שום קשר
-                      * בין שכונה לעיר שלה. קונה שמחפש בבני ברק
-                      * ‎**וגם** בחיפה, עם „פרדס כץ” ו„נווה שאנן”,
-                      * היה תורם את *שתיהן* לשאילתה על בני ברק —
-                      * וטופס הנכס היה מציע „נווה שאנן” בבני ברק.
-                      * כלומר הפיצ׳ר שנועד למנוע שכונות שגויות היה
-                      * מלמד להזין אחת.
-                      *
-                      * כשלקונה עיר אחת, השיוך חד-משמעי וכל
-                      * שכונותיו שייכות לה. זה גם הרוב המכריע של
-                      * הקונים, ולכן המחיר נמוך — ובלי הימור על
-                      * נתון שאינו קיים.
-                      *
-                      * ‎(בלי גרשיים אחוריים כאן: הטקסט יושב בתוך
-                      * תבנית, וגרש אחורי היה סוגר אותה באמצע
-                      * השאילתה.)
-                      */
-                     jsonb_typeof(b.requirements -> 'cities') = 'array'
-                     AND jsonb_array_length(b.requirements -> 'cities') = 1
-                     AND b.requirements -> 'cities' ->> 0 = ${city}
-                   )
-                 )
+                 AND ${buyerCity}
+              UNION ALL
+              /*
+               * ‎**גם שמות הנעיצות על המפה.**
+               *
+               * ‏השדה שלהן נקרא „שם השכונה או האזור”, ומה
+               * ‏שנכתב בו הוא שכונה לכל דבר — ולעיתים האמירה
+               * ‏היחידה שהקונה מסר על המקום. סינון רשימת
+               * ‏הקונים כבר מוצא לפיהן, ואוצר שאינו מכיר אותן
+               * ‏היה מצב שבו אפשר לסנן לפי שכונה שהבורר לעולם
+               * ‏אינו מציע — כלומר סינון שרק מי שמנחש את השם
+               * ‏בדיוק יוכל להפעיל.
+               */
+              SELECT b.id AS buyer_id,
+                     a ->> 'label' AS name,
+                     ${foldedNeighborhood(Prisma.raw("a ->> 'label'"))} AS folded
+                FROM buyers b
+               CROSS JOIN LATERAL jsonb_array_elements(
+                       CASE
+                         WHEN jsonb_typeof(b.requirements -> 'searchAreas') = 'array'
+                         THEN b.requirements -> 'searchAreas'
+                         ELSE '[]'::jsonb
+                       END
+                     ) AS a
+               WHERE b.deleted_at IS NULL
+                 AND jsonb_typeof(a) = 'object'
+                 AND a ->> 'label' IS NOT NULL
+                 AND ${buyerCity}
             ) AS buyer_names
            ORDER BY buyer_id, folded, name
         ) AS per_buyer

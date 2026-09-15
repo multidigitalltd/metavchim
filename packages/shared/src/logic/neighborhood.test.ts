@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  buyerNeighborhoodKeys,
   mergeNeighborhoodUses,
   neighborhoodKey,
+  neighborhoodKeyMatches,
   neighborhoodMatches,
   normalizeNeighborhood,
   suggestNeighborhoods,
@@ -170,5 +172,92 @@ describe("suggestNeighborhoods", () => {
 
   it("אוצר ריק אינו נופל", () => {
     expect(suggestNeighborhoods([], "שיכון")).toEqual([]);
+  });
+});
+
+/**
+ * ‎**הכלל עצמו — בלי הקיפול.**
+ *
+ * ‏הסינון בעמוד הקונים משווה מפתחות ששמורים בעמודה, ולא שמות
+ * ‏גולמיים. הבדיקות כאן מוודאות שהוא אותו כלל ולא כלל שני שנראה
+ * ‏דומה: אם השניים ייפרדו, המסך יציע שכונה והסינון עליה יחזיר ריק.
+ */
+describe("neighborhoodKeyMatches", () => {
+  it("תחילית מתחילת המפתח ומגבול מילה", () => {
+    expect(neighborhoodKeyMatches("רמת אהרון", "רמת")).toBe(true);
+    expect(neighborhoodKeyMatches("רמת אהרון", "אהרון")).toBe(true);
+    expect(neighborhoodKeyMatches("רמת אהרון", "רמת א")).toBe(true);
+  });
+
+  it("אינו תת-מחרוזת חופשית", () => {
+    expect(neighborhoodKeyMatches("רמת אהרון", "מת")).toBe(false);
+    expect(neighborhoodKeyMatches("רמת אהרון", "הרון")).toBe(false);
+  });
+
+  it("שאילתה ריקה מתאימה להכול", () => {
+    expect(neighborhoodKeyMatches("רמת אהרון", "")).toBe(true);
+  });
+
+  /*
+   * ‏זו ההבטחה שהסינון נשען עליה: מה ש-`neighborhoodMatches` מקבל
+   * על שם, הכלל מקבל על המפתח שלו — ולהפך.
+   */
+  it("‎`neighborhoodMatches` הוא הקיפול ועוד הכלל הזה", () => {
+    const names = ["שכונת שיכון ג'", "רמת-אהרון", "פרדס  כץ"];
+    const queries = ["שיכון", "שיכון ג", "אהרון", "כץ", "מת", ""];
+    for (const name of names) {
+      for (const query of queries) {
+        expect(neighborhoodMatches(name, query)).toBe(
+          neighborhoodKeyMatches(neighborhoodKey(name), neighborhoodKey(query)),
+        );
+      }
+    }
+  });
+});
+
+describe("buyerNeighborhoodKeys", () => {
+  /*
+   * ‏הנעיצה על המפה היא הצהרה שקולה להקלדה — שדה השם שלה נקרא „שם
+   * ‏השכונה או האזור”. סינון שרואה רק את הרשימה המוקלדת היה מפספס
+   * ‏בדיוק את הקונים שהסוכן סימן בעצמו.
+   */
+  it("אוסף את שני המקורות — שכונות מוקלדות ושמות של נעיצות", () => {
+    expect(
+      buyerNeighborhoodKeys({
+        neighborhoods: ["שיכון ג'"],
+        searchAreas: [{ label: "רמת אהרון" }],
+      }),
+    ).toEqual(["רמת אהרון", "שיכון ג"]);
+  });
+
+  /* אותה שכונה בשתי כתיבות, ובשני המקורות, היא מפתח אחד. */
+  it("מקפל ומצמצם כפילויות בין המקורות", () => {
+    expect(
+      buyerNeighborhoodKeys({
+        neighborhoods: ["שכונת שיכון ג'", "שיכון ג"],
+        searchAreas: [{ label: "שיכון ג׳" }],
+      }),
+    ).toEqual(["שיכון ג"]);
+  });
+
+  /* „רווחים בלבד” ו„גרשיים בלבד” אינם שכונה, ונעיצה בלי שם אינה שם. */
+  it("מדלג על מה שאין לו מפתח", () => {
+    expect(
+      buyerNeighborhoodKeys({
+        neighborhoods: ["  ", "''"],
+        searchAreas: [{}, { label: "" }],
+      }),
+    ).toEqual([]);
+  });
+
+  /* אותן דרישות — אותו מערך, בלי תלות בסדר ההקלדה. */
+  it("ממוין, ולכן יציב בין כתיבות", () => {
+    expect(buyerNeighborhoodKeys({ neighborhoods: ["ב", "א"] })).toEqual(
+      buyerNeighborhoodKeys({ neighborhoods: ["א", "ב"] }),
+    );
+  });
+
+  it("דרישות בלי אף אחד מהשדות אינן נופלות", () => {
+    expect(buyerNeighborhoodKeys({})).toEqual([]);
   });
 });
