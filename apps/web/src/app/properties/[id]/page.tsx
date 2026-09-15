@@ -14,6 +14,7 @@ import {
   formatPropertyAddress,
   labelOf,
   propertyConditionLabel,
+  DEAL_STATUSES,
   partnershipApplies,
   propertyEvaluableCriteria,
   PROPERTY_FACING_LABELS,
@@ -79,6 +80,7 @@ import {
 import { IconAction } from "../../icon-action";
 import { LoadError } from "../../load-error";
 import { AgentPicker } from "../../agent-picker";
+import { PartnerField } from "../partner-field";
 import { Notice } from "../../notice";
 import { DeletePropertyDialog } from "../delete-property-dialog";
 import { PropertyPitchDialog } from "../../property-pitch-dialog";
@@ -137,6 +139,8 @@ interface PropertyDetail {
   /** הסוכן המטפל. חסר = לא משויך. */
   agentName?: string;
   agentUserId?: string;
+  partnerUserId?: string;
+  partnerName?: string;
   readinessScore: number;
   missingFields: string[];
   ownerContact?: OwnerContact;
@@ -1064,6 +1068,39 @@ export default function PropertyDetailPage({
                   : { agentUserId: property.agentUserId })}
                 {...(property.agentName === undefined ? {} : { agentName: property.agentName })}
               />
+              {/*
+                ‎**השותף יושב מתחת למטפל, ורק על עסקה שנסגרה.**
+
+                ‏על נכס פעיל אין מה לתעד — השת״פ הוא עובדה שנוצרת
+                ‏ברגע הסגירה, ובורר שמופיע לפניה מזמין סימון על
+                ‏משהו שעוד לא קרה. התנאי הוא אותה הגדרת „עסקה”
+                ‏שהלוח סופר (`DEAL_STATUSES`), ולא רשימה שנייה.
+              */}
+              {(DEAL_STATUSES as readonly string[]).includes(property.status) ? (
+                <PartnerField
+                  propertyId={id}
+                  onSaved={(saved) =>
+                    setProperty((prev) =>
+                      prev
+                        ? {
+                            ...prev,
+                            partnerUserId: saved.partnerUserId,
+                            partnerName: saved.partnerName,
+                          }
+                        : prev,
+                    )
+                  }
+                  {...(property.agentUserId === undefined
+                    ? {}
+                    : { agentUserId: property.agentUserId })}
+                  {...(property.partnerUserId === undefined
+                    ? {}
+                    : { partnerUserId: property.partnerUserId })}
+                  {...(property.partnerName === undefined
+                    ? {}
+                    : { partnerName: property.partnerName })}
+                />
+              ) : null}
               {/*
                 ‎**המחיר בשורת הכותרת, וכלום כשאין מחיר.**
 

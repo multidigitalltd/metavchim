@@ -18,6 +18,9 @@ import {
   type PropertyFields,
   isSharedTabuProperty,
   SHARED_TABU_PROPERTY_TYPE,
+  partnerRejection,
+  PARTNER_REJECTION_MESSAGES,
+  DEAL_STATUSES,
 } from "@metavchim/shared";
 import {
   freeTextTerms,
@@ -867,6 +870,15 @@ export class PropertiesService {
        * הסוכן בכל שמירה של מחיר או תיאור.
        */
       agentUserId?: string;
+      /**
+       * ‎**הסוכן השותף על עסקה. מחרוזת ריקה = ניקוי הסימון.**
+       *
+       * ‏בשונה מ-`agentUserId`, הוא **אינו** דורש `tasks.assign`:
+       * ‏הוא אינו מעביר בעלות ואינו משנה ניקוד, ולכן כל מי שרשאי
+       * ‏לערוך את הנכס רשאי לסמן אותו (הכרעת בעל המוצר). דרישת
+       * ‏אישור מנהל על שדה שאינו עולה כלום פירושה שדה שיישאר ריק.
+       */
+      partnerUserId?: string;
     },
   ): Promise<PropertyDto> {
     const tenantId = TenantContext.current().tenantId;
@@ -884,6 +896,7 @@ export class PropertiesService {
       expectStatus,
       clearFields,
       agentUserId,
+      partnerUserId,
       ...fieldPatch
     } = patch;
 
@@ -1104,6 +1117,65 @@ export class PropertiesService {
           await assertAgentInOffice(tx, tenantId, agentUserId);
         }
       }
+      /*
+       * ‎**הסוכן השותף — אותו שער, וכלל אחד לשני הצדדים.**
+       *
+       * ‏`partnerRejection` הוא הכלל היחיד, והמסך קורא ממנו את אותה
+       * ‏תשובה — אחרת הטופס היה מציע צירוף שה-API דוחה. הוא נבדק מול
+       * ‏השיוך **שיהיה אחרי השמירה** ולא מול מה שהיה: שמירה שמחליפה
+       * ‏את הסוכן המטפל ומסמנת שותף באותה פעולה הייתה אחרת יכולה
+       * ‏להגיע למצב „X עם X”.
+       *
+       * ‏אימות השייכות למשרד הוא שאילתה, ולכן הוא רץ רק אחרי
+       * ‏שהכללים הזולים עברו.
+       */
+      /*
+       * ‎**הזוג נבדק כששני צידיו משתנים, ולא רק כשהשותף נשלח**
+       * ‏(ביקורת Codex, P1).
+       *
+       * ‏התנאי הקודם היה `partnerUserId !== undefined` בלבד, ולכן
+       * ‏שמירה שנוגעת **רק** בסוכן המטפל דילגה על כל הבדיקה. שני
+       * ‏מצבים ברחו משם, ושניהם רעים:
+       *
+       * - ‏העברת הנכס לסוכן שהוא כבר השותף — האילוץ במסד תפס את
+       *   ‏זה, אבל כשגיאת Prisma, כלומר 500 במקום הודעה קריאה.
+       * - ‏ניתוק הסוכן המטפל — האילוץ **אינו** תופס (‏`NULL <> x`
+       *   ‏הוא `UNKNOWN`, ו-`CHECK` מקבל אותו), ונשארה שורה עם
+       *   ‏שותף ובלי סוכן מטפל. „שת״פ” של אדם אחד.
+       *
+       * ‏הכלל נבדק עכשיו על **הזוג שיהיה אחרי השמירה**, ולא על מה
+       * ‏שנשלח בבקשה.
+       */
+      const nextAgent =
+        agentUserId === undefined
+          ? existing.agentUserId
+          : agentUserId === ""
+            ? null
+            : agentUserId;
+      const nextPartner =
+        partnerUserId === undefined
+          ? existing.partnerUserId
+          : partnerUserId === ""
+            ? null
+            : partnerUserId;
+      if (nextPartner !== null && (agentUserId !== undefined || partnerUserId !== undefined)) {
+        const rejection = partnerRejection({
+          agentUserId: nextAgent,
+          partnerUserId: nextPartner,
+          /* ‏השייכות למשרד נבדקת בשאילתה למטה; כאן רק שאר הכללים */
+          officeUserIds: [nextPartner],
+        });
+        if (rejection !== null) {
+          throw new BadRequestException(PARTNER_REJECTION_MESSAGES[rejection]);
+        }
+      }
+      /*
+       * ‏השאילתה רצה רק על שותף **שנשלח עכשיו**: שותף שנשמר בעבר
+       * ‏כבר עבר אותה, ובדיקה חוזרת בכל שמירה היא הלוך-חזור מיותר.
+       */
+      if (partnerUserId !== undefined && partnerUserId !== "") {
+        await assertAgentInOffice(tx, tenantId, partnerUserId);
+      }
       const readiness = computeReadiness(mergedFields, {
         hasImages: await this.hasMedia(tx, id),
         hasDescription: Boolean(
@@ -1128,6 +1200,21 @@ export class PropertiesService {
            */
           ...Object.fromEntries((clearFields ?? []).map((key) => [key, null])),
           ...(status !== undefined ? { status } : {}),
+          /*
+           * ‎**חותמת הסגירה נכתבת בחצייה, ולא בכל שמירה** (ביקורת
+           * ‏Codex, P1). „מתי נסגרה” חייבת להיות קבועה: `updatedAt`
+           * ‏זז בכל עריכה, ולכן הוספת סוכן שותף לעסקה מלפני חצי שנה
+           * ‏הייתה מזיזה אותה לחודש הנוכחי ומנפחת את מונה העסקאות.
+           *
+           * ‏החצייה ולא ההימצאות: נכס שכבר `sold` ונערך שוב אינו
+           * ‏„נסגר מחדש”. וחזרה החוצה (למשל `active` אחרי ביטול)
+           * ‏מנקה — אחרת שורה פעילה הייתה נושאת תאריך סגירה.
+           */
+          ...(status === undefined || status === existing.status
+            ? {}
+            : (DEAL_STATUSES as readonly string[]).includes(status)
+              ? { closedAt: new Date() }
+              : { closedAt: null }),
           ...(marketingTitle !== undefined ? { marketingTitle } : {}),
           ...(marketingDescription !== undefined
             ? { marketingDescription }
@@ -1137,6 +1224,10 @@ export class PropertiesService {
           ...(agentUserId === undefined
             ? {}
             : { agentUserId: agentUserId === "" ? null : agentUserId }),
+          /* ‏מחרוזת ריקה = ניקוי מכוון; חסר = לא נגעו בשת״פ */
+          ...(partnerUserId === undefined
+            ? {}
+            : { partnerUserId: partnerUserId === "" ? null : partnerUserId }),
           ...(ownerContact ? { ownerContactId: ownerContact.id } : {}),
           /*
            * `occupantCleared` נבדק בנפרד מ-`occupantContact`: דירה
@@ -1338,14 +1429,21 @@ export class PropertiesService {
        */
       const ownerRedacted = row.ownerContactId !== null && !ownerVisible;
       const occupantRedacted = row.occupantContactId !== null && !occupantVisible;
-      const agents = await agentNames(tx, TenantContext.current().tenantId, [row.agentUserId]);
+      /* ‏שאילתה אחת לשני השמות — שתיים היו שתי הלוך-חזור על אותה טבלה */
+      const agents = await agentNames(tx, TenantContext.current().tenantId, [
+        row.agentUserId,
+        row.partnerUserId,
+      ]);
       const agentName = agentNameOf(agents, row.agentUserId);
+      const partnerName = agentNameOf(agents, row.partnerUserId);
       return {
         ...fields,
         id: row.id,
         status: row.status,
         ...(row.agentUserId === null ? {} : { agentUserId: row.agentUserId }),
         ...(agentName === undefined ? {} : { agentName }),
+        ...(row.partnerUserId === null ? {} : { partnerUserId: row.partnerUserId }),
+        ...(partnerName === undefined ? {} : { partnerName }),
         marketingTitle: row.marketingTitle ?? undefined,
         marketingDescription: row.marketingDescription ?? undefined,
         internalNotes: row.internalNotes ?? undefined,

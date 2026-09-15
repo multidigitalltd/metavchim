@@ -27,6 +27,8 @@ import {
 import { RequireCapability } from "../../common/auth.decorators";
 import { RequireFeature } from "../../common/feature.guard";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
+import { officeMembers } from "../../common/office-members";
+import { PrismaService } from "../../core/prisma.service";
 import { MatchingService, type MatchDto } from "../matching/matching.service";
 import { FeatureCatalogueService } from "./feature-catalogue.service";
 import {
@@ -64,6 +66,7 @@ export const CreatePropertySchema = PropertyFieldsSchema.extend({
    * שאינו בו.
    */
   agentUserId: z.union([IdSchema, z.literal("")]).optional(),
+
   /*
    * ‎**הסטטוס ההתחלתי — ביצירה, ולא רק בעדכון** (ביקורת Codex, P1).
    *
@@ -125,6 +128,21 @@ export const UpdatePropertySchema = CreatePropertySchema.partial()
      * ‏וכאן נוספת רק היכולת לרוקן.
      */
     condition: PropertyConditionSchema.nullable().optional(),
+    /*
+     * ‎**הסוכן השותף — בעדכון בלבד, ובמכוון** (ביקורת Codex, P2).
+     *
+     * ‏הוא ישב קודם ב-`CreatePropertySchema`, ומסלול היצירה **זרק
+     * ‏אותו בשקט**: `create()` אינו מקבל אותו, ו-`fieldsToColumns`
+     * ‏מתעלם ממנו — כלומר הלקוח קיבל „נוצר” על נכס שהשותף שביקש
+     * ‏נמחק ממנו. זו בדיוק התקלה שכבר תועדה כאן על „מי גר בנכס”.
+     *
+     * ‏וזה גם נכון מוצרית: היצירה מרשה `draft`/`active` בלבד, ואין
+     * ‏שת״פ על עסקה שעוד לא נסגרה.
+     *
+     * ‎`null` אינו מתקבל — מחרוזת ריקה היא ערוץ הריקון היחיד, כמו
+     * ‏בשיוך הסוכן המטפל.
+     */
+    partnerUserId: z.union([IdSchema, z.literal("")]).optional(),
     /*
      * ‎**מי גר בנכס — בעדכון בלבד, ובמכוון.**
      *
@@ -256,6 +274,7 @@ export class PropertiesController {
     private readonly matching: MatchingService,
     private readonly catalogue: FeatureCatalogueService,
     private readonly activityReport: PropertyActivityService,
+    private readonly prisma: PrismaService,
   ) {}
 
   /**
@@ -344,6 +363,23 @@ export class PropertiesController {
    * ‏הרשימה משרדית, כמו רשימת הנכסים עצמה. `remaining` הוא המונה
    * ‏המלא ולא אורך העמוד — הוא מה שאומר למי שעובר כמה נשאר.
    */
+  /**
+   * ‎**מי במשרד — לסימון סוכן שותף.**
+   *
+   * ‏אותה רשימה שמאחורי `/tasks/assignees`, **שער אחר**: שיוך משימה
+   * ‏הוא הטלת עבודה ודורש `tasks.assign`; סימון שותף על עסקה הוא
+   * ‏תיעוד של מה שקרה, אינו מעביר בעלות ואינו נוגע בניקוד — ולכן
+   * ‏כל מי שרשאי לערוך את הנכס רשאי לרשום אותו (הכרעת בעל המוצר).
+   *
+   * ‏השאילתה עצמה יושבת ב-`common/office-members` ונקראת משני
+   * ‏הנתיבים; עותק שני היה נפרד ביום שמישהו יוסיף לה תנאי.
+   */
+  @Get("office-agents")
+  @RequireCapability("properties.edit")
+  officeAgents(): Promise<{ id: string; name: string }[]> {
+    return officeMembers(this.prisma);
+  }
+
   @Get("shared-tabu-review")
   @RequireCapability("properties.view")
   async sharedTabuReview(

@@ -24,6 +24,17 @@ const BOARD = (() => {
   return SERVICE.slice(at);
 })();
 
+/**
+ * ‏חלון הספירה בלבד — המקום היחיד שמזין את `boardScore`.
+ */
+const SCORING = (() => {
+  const from = BOARD.indexOf("const window = async (");
+  expect(from, "חלון הספירה לא נמצא").toBeGreaterThan(-1);
+  const to = BOARD.indexOf("const [current, previous]", from);
+  expect(to).toBeGreaterThan(from);
+  return BOARD.slice(from, to);
+})();
+
 describe("השיוך של כל מדד", () => {
   /*
    * ‎**זו ההכרעה שנושאת את המשקל.** פגישה שמנהל קובע לסוכן היא של
@@ -50,11 +61,18 @@ describe("השיוך של כל מדד", () => {
     expect(BOARD).toContain('direction: "outgoing"');
   });
 
-  /* ‏נכס שנמחק אינו גיוס ואינו עסקה, גם אם הסטטוס נשאר */
+  /*
+   * ‏נכס שנמחק אינו גיוס ואינו עסקה, גם אם הסטטוס נשאר.
+   *
+   * ‎**נמדד על חלון הספירה ולא על כל המתודה**: ל-`board` נוספו מאז
+   * ‏קריאות שאינן מזינות את הניקוד (מקטע השת״פים), והספירה על כל
+   * ‏הקובץ הייתה נשברת מכל שאילתה חדשה — כלומר בודקת את אורך הקוד
+   * ‏ולא את הכלל.
+   */
   it("נכס מחוק אינו נספר באף צד", () => {
-    const properties = BOARD.match(/tx\.property\.groupBy/gu) ?? [];
+    const properties = SCORING.match(/tx\.property\.groupBy/gu) ?? [];
     expect(properties.length, "שתי שאילתות נכסים: גיוס וסגירה").toBe(2);
-    expect((BOARD.match(/deletedAt: null/gu) ?? []).length).toBe(2);
+    expect((SCORING.match(/deletedAt: null/gu) ?? []).length).toBe(2);
   });
 });
 

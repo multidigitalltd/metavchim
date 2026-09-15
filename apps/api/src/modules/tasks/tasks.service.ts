@@ -15,6 +15,7 @@ import {
 import { lockRecruitmentTarget } from "../../common/locks";
 import { TenantContext } from "../../common/tenant-context";
 import { leadPoolOwner } from "../../common/ownership";
+import { officeMembers } from "../../common/office-members";
 import { AuditService } from "../../core/audit.service";
 import { OutboxService } from "../../core/outbox.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
@@ -342,13 +343,14 @@ export class TasksService {
    * מוחזרים שם ומזהה בלבד: אימייל, תפקיד ומצב נעילה אינם נחוצים
    * לבחירה מרשימה, וכל שדה מיותר הוא חשיפה מיותרת.
    */
+  /*
+   * ‎**השאילתה עצמה יצאה ל-`common/office-members`** ביום שנוסף לה
+   * ‏קורא שני (סימון סוכן שותף, מאחורי שער אחר). היא לא הועתקה:
+   * ‏שני עותקים של „מי במשרד” היו נפרדים ביום שמישהו יוסיף תנאי
+   * ‏לאחד מהם, ומסך אחד היה מציע את מי שהשני כבר לא.
+   */
   async assignees(): Promise<{ id: string; name: string }[]> {
-    const tenantId = TenantContext.current().tenantId;
-    return this.prisma.user.findMany({
-      where: { tenantId, isActive: true },
-      orderBy: { name: "asc" },
-      select: { id: true, name: true },
-    });
+    return officeMembers(this.prisma);
   }
 
   async create(input: {
