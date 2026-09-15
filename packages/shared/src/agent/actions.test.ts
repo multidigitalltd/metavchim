@@ -466,3 +466,44 @@ describe("קישור פתוח מול טופס לכרטיס", () => {
     expect(carded!.when).toContain("מילוי-עצמי");
   });
 });
+
+/**
+ * ‎**„בין סוכנים ניתן להעביר לידים בלבד” — בקטלוג.**
+ *
+ * ‏שתי הפעולות נראות דומות ואינן: `assign_task` מעבירה משימה והיא
+ * ‏פעולת מנהל; `transfer_lead` מוסרת ליד, וזה החריג היחיד שסוכן
+ * ‏רגיל יכול לעשות. היכולת שכתובה בקטלוג היא מה שקובע מה הבוט
+ * ‏מציע — ואם היא תתיישר עם `assign_task`, החריג נעלם בשקט.
+ */
+describe("שיוך ומסירה בקטלוג", () => {
+  const byId = (id: string) => AGENT_ACTIONS.find((action) => action.id === id);
+
+  it("מסירת ליד היא `leads.edit` — ולא הרשאת מנהל", () => {
+    expect(byId("transfer_lead")?.capability).toBe("leads.edit");
+  });
+
+  it("והעברת משימה נשארת פעולת מנהל", () => {
+    expect(byId("assign_task")?.capability).toBe("tasks.assign");
+  });
+
+  /*
+   * ‎**„תשייך משימה לדנה” במשפט אחד.** בלי השדה הזה הבקשה דורשת
+   * ‏שתי פניות — ליצור על עצמך ואז להעביר — וזה נקרא בשיחה כאילו
+   * ‏היא לא הובנה.
+   */
+  it("יצירת משימה מקבלת „על מי” — רשות", () => {
+    const keys = byId("create_task")?.fields.map((field) => field.key) ?? [];
+    expect(keys).toContain("assigneePhrase");
+    expect(keys).toContain("title");
+  });
+
+  /*
+   * ‏שתי הפעולות נוקבות באותו דבר — סוכן במשרד — ולכן באותו מפתח.
+   * ‏מפתח שני היה נותן למודל שני תיאורים לאותה שאלה.
+   */
+  it("שתיהן נוקבות בסוכן באותו מפתח", () => {
+    for (const id of ["assign_task", "transfer_lead", "create_task"]) {
+      expect(byId(id)?.fields.some((field) => field.key === "assigneePhrase")).toBe(true);
+    }
+  });
+});

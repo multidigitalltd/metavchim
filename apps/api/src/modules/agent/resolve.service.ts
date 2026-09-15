@@ -1359,11 +1359,41 @@ const ENTITY_LOOKUP: Record<
     label: "קשור ל",
     kind: "card",
     optional: true,
+    /*
+     * ‎**„תשייך משימה לדנה” — יצירה והטלה במשפט אחד.**
+     *
+     * ‏עד עכשיו זה דרש שתי פניות: `create_task` יצרה תמיד על
+     * ‏היוצר, ו-`assign_task` העבירה אחר כך. בשיחה בוואטסאפ הפער
+     * ‏הזה נקרא כאילו הבקשה לא הובנה.
+     *
+     * ‎`optional` — ורוב הפעמים ריק, כי „תזכיר לי” הוא על עצמי.
+     * ‏השער עצמו אינו כאן: `TasksService` דורשת `tasks.assign`
+     * ‏ליעד שאינו אתה, ואת אותה הרשאה בדיוק המנהל נותן.
+     */
+    also: {
+      key: "assigneePhrase",
+      idKey: "assigneeId",
+      label: "על מי להטיל",
+      kind: "user",
+      optional: true,
+    },
   },
   add_note: { key: "cardPhrase", idKey: "cardId", label: "לאיזה כרטיס", kind: "card" },
   show_card: { key: "cardPhrase", idKey: "cardId", label: "איזה כרטיס", kind: "anyCard" },
   play_recording: { key: "cardPhrase", idKey: "cardId", label: "שיחה עם מי", kind: "card" },
   update_lead_status: { key: "leadPhrase", idKey: "leadId", label: "איזה ליד", kind: "lead" },
+  /*
+   * ‎**„תעביר את הליד של משה כהן לדנה”.** שני הביטויים חובה: מסירה
+   * ‏בלי לדעת למי אינה מסירה, וליד שיישאר במקומו בשקט הוא בדיוק
+   * ‏הכישלון שהפעולה נועדה למנוע. אותו נימוק של `assign_task`.
+   */
+  transfer_lead: {
+    key: "leadPhrase",
+    idKey: "leadId",
+    label: "איזה ליד",
+    kind: "lead",
+    also: { key: "assigneePhrase", idKey: "assigneeId", label: "למי למסור", kind: "user" },
+  },
   // המרה יוצרת קונה על אותו איש קשר — הליד הוא המפתח היחיד
   convert_lead: { key: "leadPhrase", idKey: "leadId", label: "איזה ליד", kind: "lead" },
   create_property_from_lead: {
@@ -1506,6 +1536,7 @@ const RECOMMENDED: Record<string, readonly string[]> = {
    */
   add_note: ["cardPhrase", "note"],
   update_lead_status: ["leadPhrase", "leadStatus"],
+  transfer_lead: ["leadPhrase", "assigneePhrase"],
   update_buyer: ["buyerPhrase"],
   update_property: ["propertyPhrase"],
   show_exclusivity: ["propertyPhrase"],
