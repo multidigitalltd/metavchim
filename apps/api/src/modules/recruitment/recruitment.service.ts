@@ -5,6 +5,7 @@ import {
   freeTextTerms,
   isSharedTabuProperty,
   isValidSourceUrl,
+  normalizeHouseNumber,
   normalizeRange,
   priceRangeAgorot,
   propertyTypesForTerm,
@@ -724,7 +725,27 @@ export class RecruitmentService {
       ...set("city", input.city),
       ...set("neighborhood", input.neighborhood),
       ...set("street", input.street),
-      ...set("houseNumber", input.houseNumber),
+      /*
+       * ‎**מספר הבית מתנרמל בגבול הכתיבה של הגיוס גם הוא.**
+       *
+       * ‏הכלל נאכף בסכימה, וטופס הגיוס נגזר ממנה ב-`.pick()`
+       * ‏ולכן נושא את ה-`transform` איתו. אבל שני קוראים פונים
+       * ‏ל-`create()` ישירות ואינם עוברים בה: חילוץ מצילום מודעה
+       * ‏והסוכן בוואטסאפ. כלומר „5.0” שצולם או נאמר בקול היה
+       * ‏נכנס כלשונו גם אחרי המיגרציה, ומשם מועתק לנכס
+       * ‏בהמרה (ביקורת Codex).
+       *
+       * ‏זה המקום היחיד שכל כתיבה לשורת גיוס עוברת בו — יצירה
+       * ‏ועדכון גם יחד — והפונקציה היא אותה פונקציה של הסכימה
+       * ‏ושל גבול הכתיבה של הנכס.
+       */
+      ...set(
+        "houseNumber",
+        /* ‏`null` הוא ריקון מפורש ועובר כמות שהוא */
+        input.houseNumber === undefined || input.houseNumber === null
+          ? input.houseNumber
+          : normalizeHouseNumber(input.houseNumber),
+      ),
       ...set("propertyType", input.propertyType),
       ...set("dealType", input.dealType),
       /*

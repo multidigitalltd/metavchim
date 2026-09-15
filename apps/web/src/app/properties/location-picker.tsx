@@ -224,12 +224,18 @@ export function LocationPicker({
     const map = mapRef.current;
     if (map === null) return;
     const features: RadiusFeature[] = [];
-    /* ‏הטבעת שמסמנים עכשיו — היא שקובעת לאן המפה מסתכלת */
+    /*
+     * ‏שתי קבוצות נקודות: הטבעת שמסמנים עכשיו, וכל מה
+     * ‏שמצויר. הראשונה קובעת לאן המפה מסתכלת, וכשאין
+     * ‏טבעת פעילה — השנייה.
+     */
     let active: [number, number][] | null = null;
+    const all: [number, number][] = [];
     const push = (lat: number, lon: number, km: number, isActive: boolean): void => {
       if (!Number.isFinite(km) || km <= 0) return;
       const ring = searchAreaRing(lat, lon, km);
       if (isActive) active = ring;
+      all.push(...ring);
       features.push({
         type: "Feature",
         properties: { active: isActive },
@@ -289,12 +295,25 @@ export function LocationPicker({
      * ‏טבעת של 200 מטר אינה גוררת התקרבות שמאבדת הקשר.
      */
     const fit = (): void => {
-      if (active === null) return;
+      /*
+       * ‎**וכשאין טבעת פעילה — המפה מתאימה לאזורים השמורים.**
+       *
+       * ‏זה בדיוק המצב של פתיחת קונה קיים: יש אזורים שמורים
+       * ‏ואין סיכה בטיוטה. המפה נפתחת במרכז ברירת המחדל,
+       * ‏ואזור שמור בחיפה צויר — ונשאר מחוץ למסך. כלומר
+       * ‏תיקון המוכנות הקודם הביא את העיגולים למקור, ולא את
+       * ‏העין אליהם (ביקורת Codex).
+       *
+       * ‏הכלל אחד: מתאימים למה שצויר, וכשאין מה להראות
+       * ‏המפה אינה זזה.
+       */
+      const points = active ?? (all.length > 0 ? all : null);
+      if (points === null) return;
       let minLon = 180;
       let minLat = 90;
       let maxLon = -180;
       let maxLat = -90;
-      for (const [lon, lat] of active) {
+      for (const [lon, lat] of points) {
         minLon = Math.min(minLon, lon);
         maxLon = Math.max(maxLon, lon);
         minLat = Math.min(minLat, lat);
