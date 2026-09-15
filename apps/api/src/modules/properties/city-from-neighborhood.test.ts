@@ -15,6 +15,10 @@ import { describe, expect, it } from "vitest";
  * ‏הקריאה משאירה קוד תקין שפשוט אינו משלים דבר.
  */
 const service = readFileSync(join(__dirname, "properties.service.ts"), "utf8");
+const importer = readFileSync(
+  join(__dirname, "../import/import.controller.ts"),
+  "utf8",
+);
 
 describe("השלמת עיר מהשכונה", () => {
   it("נקראת בתוך persist, ולא אצל קורא בודד", () => {
@@ -39,5 +43,32 @@ describe("השלמת עיר מהשכונה", () => {
   it("אין תשובה ⇒ השדה נשאר ריק, בלי ניחוש", () => {
     const fn = service.slice(service.indexOf("private async withCompletedCity"));
     expect(fn.slice(0, 1200)).toContain("city === null ? fields");
+  });
+
+  /*
+   * ‎**אצווה אינה תלויה בסדר השורות** (ביקורת Codex, P1).
+   *
+   * ‏הייבוא כותב שורה-שורה, ולכן שורה בלי עיר שקדמה לשורה שנושאת
+   * ‏את העיר של אותה שכונה לא יכלה לראות אותה — ואותו קובץ בדיוק
+   * ‏נקלט אחרת לפי סדר השורות בו. הסבב שאחרי הלולאה מבטל את זה.
+   */
+  it("הייבוא מריץ סבב השלמה אחרי הלולאה, לא בתוכה", () => {
+    const loopEnd = importer.indexOf("return { created, failed, warnings };");
+    expect(loopEnd).toBeGreaterThan(-1);
+    const sweep = importer.indexOf("completeMissingCitiesFor(createdIds)");
+    expect(sweep).toBeGreaterThan(-1);
+    /* ‏אחרי הלולאה ולפני ההחזרה. */
+    expect(sweep).toBeLessThan(loopEnd);
+  });
+
+  it("הסבב מחשב התאמות מחדש למי שהושלם", () => {
+    const fn = service.slice(service.indexOf("async completeMissingCitiesFor("));
+    const body = fn.slice(0, fn.indexOf("private async withCompletedCity"));
+    /*
+     * ‏בלי עיר `recomputeForProperty` יצא מוקדם, ולכן הנכס נשמר
+     * ‏בלי ולו התאמה אחת. השלמה בלי חישוב חוזר הייתה מתקנת את
+     * ‏הכרטיס ומשאירה אותו מחוץ להתאמות.
+     */
+    expect(body).toContain("recomputeForProperty(row.id)");
   });
 });

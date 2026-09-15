@@ -51,6 +51,19 @@ beforeAll(async () => {
     ["01CITYFROMNBGGGGGGGGGGGGGG", "חיפה", "רק במחוק", true],
     /* ‏בלי עיר — אינו מקור */
     ["01CITYFROMNBHHHHHHHHHHHHHH", null, "בלי עיר", false],
+    /*
+     * ‎**עיר של רווחים** — הסכמה היא `min(1)` ולכן `" "` עוברת.
+     * ‏בלי סינון היא הייתה מועמדת, נכתבת על נכס חדש, ומרחיקה
+     * ‏אותו מקוני העיר בשקט (ביקורת Codex).
+     */
+    ["01CITYFROMNBIIIIIIIIIIIIII", "   ", "שכונת הרווח", false],
+    /*
+     * ‎**שני כתיבים של אותה עיר** — `normalizeLocationName` רואה
+     * ‏בהם אותו מקום, וקיבוץ על המחרוזת הגולמית היה מפצל את
+     * ‏הקולות והופך שכונה חד-משמעית ל„תיקו” (ביקורת Codex).
+     */
+    ["01CITYFROMNBJJJJJJJJJJJJJJ", "תל אביב", "הצפון הישן", false],
+    ["01CITYFROMNBKKKKKKKKKKKKKK", "תל אביב-יפו", "הצפון הישן", false],
   ];
   for (const [id, city, neighborhood, deleted] of rows) {
     await owner.$executeRaw`
@@ -92,6 +105,18 @@ describe("cityForNeighborhood", () => {
   it("נמחקים ושורות בלי עיר אינם מקור", async () => {
     await expect(resolve("רק במחוק")).resolves.toBeNull();
     await expect(resolve("בלי עיר")).resolves.toBeNull();
+  });
+
+  it("עיר של רווחים אינה מועמדת", async () => {
+    await expect(resolve("שכונת הרווח")).resolves.toBeNull();
+  });
+
+  it("כתיבים של אותה עיר מאוחדים לפני הדירוג — ואינם „תיקו”", async () => {
+    /*
+     * ‏„תל אביב” ו„תל אביב-יפו” הן אותה עיר; בלי איחוד כל אחת
+     * ‏הייתה מופיעה פעם אחת, והתיקו היה מחזיר `null`.
+     */
+    await expect(resolve("הצפון הישן")).resolves.toBe("תל אביב");
   });
 
   it("שם שאין בו אות אינו שאלה, ואינו פונה למסד", async () => {
