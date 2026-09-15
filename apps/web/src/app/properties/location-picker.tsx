@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import type * as maplibregl from "maplibre-gl";
 import { Marker, type Map as MapLibreMap } from "maplibre-gl";
+import { searchAreaRing } from "@metavchim/shared";
 import { apiGet } from "@/lib/api";
 import { MapCanvas } from "../map-canvas";
 
@@ -21,6 +23,24 @@ import { MapCanvas } from "../map-canvas";
  * מכפתור שאינו קיים.
  */
 
+/*
+ * ‏צורת ה-GeoJSON מוגדרת כאן ולא מיובאת: `@types/geojson` הוא
+ * ‏תלות עקיפה של maplibre ואינו מוצהר ב-`apps/web`. שתי צורות
+ * ‏קטנות טובות מתלות שלישית על שתי שדות.
+ */
+interface RadiusFeature {
+  type: "Feature";
+  properties: { active: boolean };
+  geometry: { type: "Polygon"; coordinates: [number, number][][] };
+}
+interface RadiusData {
+  type: "FeatureCollection";
+  features: RadiusFeature[];
+}
+
+/** מקור אחד לכל עיגולי הרדיוס — שתי השכבות נשענות עליו. */
+const RADIUS_SOURCE = "mv-search-radius";
+
 interface GeocodeResult {
   lat: number;
   lon: number;
@@ -38,6 +58,8 @@ export function LocationPicker({
   addressText,
   onChange,
   onAddressSuggested,
+  radiusKm,
+  otherAreas,
   disabled = false,
   mapHeight = "300px",
 }: {
@@ -47,6 +69,16 @@ export function LocationPicker({
   onChange: (next: LocationValue) => void;
   /** הכתובת שהתקבלה מהמפה — הטופס מחליט מה לעשות איתה. */
   onAddressSuggested?: (label: string) => void;
+  /**
+   * ‎**הרדיוס שמצויר סביב הסיכה — „אילו רחובות זה בעצם”.**
+   *
+   * ‏השדה אמר „רדיוס (ק״מ)” ותו לא, ומתווך אינו יודע לתרגם 1.5 ק״מ
+   * ‏לרחובות (דיווח מהשטח). ‎`undefined` = אין רדיוס למסך הזה —
+   * ‏מיקום נכס הוא נקודה, לא אזור, והוא אינו מצייר דבר.
+   */
+  radiusKm?: number;
+  /** אזורים שכבר נשמרו — מצוירים חיוורים, כדי שהתמונה תהיה מלאה. */
+  otherAreas?: readonly { lat: number; lon: number; radiusKm: number }[];
   disabled?: boolean;
   /**
    * גובה המפה עצמה.
@@ -82,6 +114,16 @@ export function LocationPicker({
   const [note, setNote] = useState<string | null>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
   const markerRef = useRef<Marker | null>(null);
+  /*
+   * ‎**המפה מוכנה — במצב ולא רק ב-`ref`.**
+   *
+   * ‏המפה נוצרת אחרי ש-`/maps/config` חוזר, כלומר הרבה אחרי
+   * ‏הרינדור הראשון. השמה ל-`ref` אינה מרנדרת, ולכן אפקט
+   * ‏שיצא מוקדם על `mapRef.current === null` לא היה רץ שוב לעולם —
+   * ‏ובעריכת קונה עם אזורים שמורים, שבה אף תלות אחרת אינה
+   * ‏משתנה, העיגולים פשוט לא הופיעו (ביקורת Codex).
+   */
+  const [mapReady, setMapReady] = useState(false);
 
   useEffect(() => {
     apiGet<{ forward: boolean; reverse: boolean }>("/maps/capabilities")
@@ -167,6 +209,134 @@ export function LocationPicker({
 
   const hasPoint = value.latitude !== undefined && value.longitude !== undefined;
 
+  /*
+   * ‎**העיגולים נמשכים מחדש בכל שינוי של הנקודה או הרדיוס.**
+   *
+   * ‏מקור אחד (`RADIUS_SOURCE`) ושתי שכבות מעליו — מילוי וקו — כי
+   * ‏זו הדרך של MapLibre לצבוע שטח ולסמן את גבולו. המקור נוצר פעם
+   * ‏אחת ואחר כך רק מקבל נתונים חדשים: יצירה חוזרת בכל הקלדה בשדה
+   * ‏הרדיוס הייתה מהבהבת את השכבה בכל תו.
+   *
+   * ‏הצבע ישיר ולא טוקן, מאותו נימוק של הסיכה למעלה (#266): אריחי
+   * ‏המפה בהירים תמיד, גם כשהמערכת כהה.
+   */
+  useEffect(() => {
+    const map = mapRef.current;
+    if (map === null) return;
+    const features: RadiusFeature[] = [];
+    /*
+     * ‏שתי קבוצות נקודות: הטבעת שמסמנים עכשיו, וכל מה
+     * ‏שמצויר. הראשונה קובעת לאן המפה מסתכלת, וכשאין
+     * ‏טבעת פעילה — השנייה.
+     */
+    let active: [number, number][] | null = null;
+    const all: [number, number][] = [];
+    const push = (lat: number, lon: number, km: number, isActive: boolean): void => {
+      if (!Number.isFinite(km) || km <= 0) return;
+      const ring = searchAreaRing(lat, lon, km);
+      if (isActive) active = ring;
+      all.push(...ring);
+      features.push({
+        type: "Feature",
+        properties: { active: isActive },
+        geometry: { type: "Polygon", coordinates: [ring] },
+      });
+    };
+    for (const area of otherAreas ?? []) push(area.lat, area.lon, area.radiusKm, false);
+    if (hasPoint && radiusKm !== undefined) {
+      push(value.latitude!, value.longitude!, radiusKm, true);
+    }
+    const data: RadiusData = { type: "FeatureCollection", features };
+
+    const draw = (): void => {
+      const existing = map.getSource(RADIUS_SOURCE);
+      if (existing !== undefined) {
+        (existing as maplibregl.GeoJSONSource).setData(data);
+        return;
+      }
+      map.addSource(RADIUS_SOURCE, { type: "geojson", data });
+      map.addLayer({
+        id: `${RADIUS_SOURCE}-fill`,
+        type: "fill",
+        source: RADIUS_SOURCE,
+        paint: {
+          "fill-color": "#c0392b",
+          "fill-opacity": ["case", ["get", "active"], 0.14, 0.07],
+        },
+      });
+      map.addLayer({
+        id: `${RADIUS_SOURCE}-line`,
+        type: "line",
+        source: RADIUS_SOURCE,
+        paint: {
+          "line-color": "#c0392b",
+          "line-width": ["case", ["get", "active"], 2, 1],
+          "line-opacity": ["case", ["get", "active"], 0.9, 0.5],
+        },
+      });
+    };
+
+    /*
+     * ‏`addSource` לפני שהסגנון נטען זורק. `isStyleLoaded` מכסה את
+     * ‏הרכבת הרכיב, ו-`load` את הפעם הראשונה — בלי שניהם העיגול
+     * ‏לא היה מופיע עד השינוי הבא.
+     */
+    /*
+     * ‎**והמפה מתאימה את עצמה לטבעת, אחרת העיגול אינו נראה.**
+     *
+     * ‎`placeMarker` קובע זום 16, ובקו הרוחב של ישראל זה כ-2
+     * ‏מטר לפיקסל — כלומר חלון בן 300 פיקסל מראה כ-600 מטר.
+     * ‏רדיוס של 900 מטר הוא קוטר של 1,800 — הגבול כולו מחוץ
+     * ‏למסך, ומה שנראה הוא גוון אחיד על כל המפה. כלומר
+     * ‏הפיצ'ר כולו — „להבין אילו רחובות נכנסים” — לא עבד
+     * ‏במסלול הנפוץ ביותר (ביקורת Codex).
+     *
+     * ‎`maxZoom: 16` שומר על ההתנהגות הקודמת לרדיוס זעיר:
+     * ‏טבעת של 200 מטר אינה גוררת התקרבות שמאבדת הקשר.
+     */
+    const fit = (): void => {
+      /*
+       * ‎**וכשאין טבעת פעילה — המפה מתאימה לאזורים השמורים.**
+       *
+       * ‏זה בדיוק המצב של פתיחת קונה קיים: יש אזורים שמורים
+       * ‏ואין סיכה בטיוטה. המפה נפתחת במרכז ברירת המחדל,
+       * ‏ואזור שמור בחיפה צויר — ונשאר מחוץ למסך. כלומר
+       * ‏תיקון המוכנות הקודם הביא את העיגולים למקור, ולא את
+       * ‏העין אליהם (ביקורת Codex).
+       *
+       * ‏הכלל אחד: מתאימים למה שצויר, וכשאין מה להראות
+       * ‏המפה אינה זזה.
+       */
+      const points = active ?? (all.length > 0 ? all : null);
+      if (points === null) return;
+      let minLon = 180;
+      let minLat = 90;
+      let maxLon = -180;
+      let maxLat = -90;
+      for (const [lon, lat] of points) {
+        minLon = Math.min(minLon, lon);
+        maxLon = Math.max(maxLon, lon);
+        minLat = Math.min(minLat, lat);
+        maxLat = Math.max(maxLat, lat);
+      }
+      map.fitBounds(
+        [
+          [minLon, minLat],
+          [maxLon, maxLat],
+        ],
+        { padding: 28, maxZoom: 16, duration: 400 },
+      );
+    };
+
+    const render = (): void => {
+      draw();
+      fit();
+    };
+
+    if (map.isStyleLoaded()) render();
+    else map.once("load", render);
+  }, [mapReady, hasPoint, radiusKm, otherAreas, value.latitude, value.longitude]);
+
   return (
     <div>
       {caps?.forward === true ? (
@@ -229,6 +399,8 @@ export function LocationPicker({
         zoom={hasPoint ? 16 : 12}
         onReady={(map) => {
           mapRef.current = map;
+          /* ‏מרנדר מחדש, ולכן אפקט העיגולים רץ עכשיו שהמפה קיימת */
+          setMapReady(true);
           if (hasPoint) placeMarker(value.latitude!, value.longitude!, value.locationSource ?? "pin");
           if (disabled) return;
           // לחיצה על המפה מציבה סיכה — הדרך המהירה כשאין כתובת מדויקת

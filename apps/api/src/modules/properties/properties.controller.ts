@@ -20,6 +20,7 @@ import {
   PropertyConditionSchema,
   PropertyFacingSchema,
   PropertyFieldsSchema,
+  normalizeHouseNumber,
   PropertyStatusSchema,
   type Page,
   type PropertyFields,
@@ -112,7 +113,17 @@ export const UpdatePropertySchema = CreatePropertySchema.partial()
      * ‏אותו — בעוד „הבית בלי מספר” הוא מצב אמיתי בשטח (מגרש, בית
      * ‏פרטי בלי מספור, נכס שהמספר שלו הוזן בטעות).
      */
-    houseNumber: z.string().max(10).nullable().optional(),
+    /*
+     * ‎**אותו ניקוי של `PropertyFieldsSchema`**, ולא הצהרה שנייה
+     * ‏שנשכחת: זה המסלול שבו מתקנים כתובת, כלומר בדיוק
+     * ‏המקום שבו „5.0” אמור להיעלם.
+     */
+    houseNumber: z
+      .string()
+      .max(10)
+      .transform(normalizeHouseNumber)
+      .nullable()
+      .optional(),
     /*
      * ‎**חזית / עורף — ו-`null` מרוקן, כמו מספר הבית.**
      *

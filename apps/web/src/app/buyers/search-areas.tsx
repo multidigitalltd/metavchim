@@ -222,6 +222,20 @@ export function SearchAreas({
             onAddressSuggested={(suggested) => {
               if (!labelTouched) setLabel(suggested);
             }}
+            /*
+              ‎**הרדיוס מצויר, ולא רק נאמר במספר.**
+
+              ‏„1.5 ק״מ” אינו אומר למתווך אילו רחובות ייכנסו להתאמות,
+              ‏והוא זה שצריך להסביר את זה לקונה (דיווח מהשטח). העיגול
+              ‏זז עם הסיכה ומשתנה עם השדה, ולכן הוא התשובה בזמן אמת
+              ‏לשאלה „על מה זה משפיע”.
+
+              ‏האזורים שכבר נוספו מצוירים לצידו חיוורים: התמונה
+              ‏המלאה היא מה שקובע אם נשארה שכונה בחוץ, ולא העיגול
+              ‏הבודד שמסמנים עכשיו.
+            */
+            radiusKm={Number(radius)}
+            otherAreas={value}
             disabled={disabled}
           />
           <div className="mt-2 flex flex-wrap items-end gap-2">

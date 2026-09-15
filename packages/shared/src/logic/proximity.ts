@@ -44,22 +44,78 @@ export interface SearchArea {
 }
 
 /*
- * 1 ק״מ ולא 3: קונה שמסמן נקודה מתכוון בדרך כלל לשכונה — מרחק
- * הליכה — ורדיוס רחב כברירת מחדל הציף את ההתאמות בנכסים "ליד".
- * מי שבאמת גמיש מרחיב את הרדיוס בשדה שליד המפה.
+ * 900 מטר ולא 3 ק״מ: קונה שמסמן נקודה מתכוון בדרך כלל לשכונה —
+ * מרחק הליכה — ורדיוס רחב כברירת מחדל הציף את ההתאמות בנכסים
+ * "ליד". מי שבאמת גמיש מרחיב את הרדיוס בשדה שליד המפה.
+ *
+ * ‎**ולמה 0.9 ולא 1** (הכרעת בעל המוצר): קילומטר עגול נקרא כערך
+ * ‏שהמערכת בחרה כי הוא נוח, ו-900 מטר נקרא כמידה. ההבדל בשטח הוא
+ * ‏כ-20% פחות שטח — ובשכונה צפופה זה בדיוק ההבדל בין „השכונה” לבין
+ * ‏„השכונה ועוד שתיים”.
  */
-export const DEFAULT_SEARCH_RADIUS_KM = 1;
+export const DEFAULT_SEARCH_RADIUS_KM = 0.9;
 export const MIN_SEARCH_RADIUS_KM = 0.2;
 export const MAX_SEARCH_RADIUS_KM = 50;
 /** יותר מזה אינו "כמה אזורים" אלא רשימת משאלות. */
 export const MAX_SEARCH_AREAS = 6;
+
+const EARTH_RADIUS_KM = 6371;
+
+/**
+ * ‎**הטבעת שמציירת את הרדיוס על המפה — ‏`[lon, lat]`, סגורה.**
+ *
+ * ## למה זה נחוץ
+ *
+ * ‏השדה אמר „רדיוס (ק״מ)” ותו לא. מתווך אינו יודע ש-1.5 ק״מ מבני
+ * ‏ברק מגיע עד רמת גן, והמספר לבדו אינו אומר **אילו רחובות** ייכנסו
+ * ‏להתאמות (דיווח מהשטח). עיגול על המפה אומר את זה בלי לקרוא דבר.
+ *
+ * ## למה מצולע ולא עיגול של MapLibre
+ *
+ * ‎`circle-radius` של MapLibre נמדד ב**פיקסלים**, ולכן עיגול כזה
+ * ‏אינו משנה את גודלו בזום — כלומר הוא אינו מייצג מרחק קרקעי אלא
+ * ‏כתם על המסך. מצולע בקואורדינטות הוא השטח האמיתי, והוא מתכווץ
+ * ‏ומתרחב עם המפה כמו שהעין מצפה.
+ *
+ * ## הנוסחה
+ *
+ * ‏נקודת יעד על כדור (`destination point`), אותו מודל של `haversine`
+ * ‏למטה — ולא הזזה ליניארית בקו רוחב ואורך. בקו הרוחב של ישראל
+ * ‏מעלת אורך קצרה ממעלת רוחב בכ-20%, והזזה ליניארית הייתה מציירת
+ * ‏אליפסה מתוחה מזרח-מערב: עיגול שמבטיח שטח אחד ומתאים לאחר.
+ */
+export function searchAreaRing(
+  lat: number,
+  lon: number,
+  radiusKm: number,
+  steps = 64,
+): [number, number][] {
+  const points: [number, number][] = [];
+  const angular = Math.max(0, radiusKm) / EARTH_RADIUS_KM;
+  const latRad = (lat * Math.PI) / 180;
+  const lonRad = (lon * Math.PI) / 180;
+  const sinLat = Math.sin(latRad) * Math.cos(angular);
+  const cosLat = Math.cos(latRad) * Math.sin(angular);
+  for (let i = 0; i <= steps; i += 1) {
+    /* הצעד האחרון חוזר לראשון — טבעת סגורה, כפי ש-GeoJSON דורש. */
+    const bearing = (2 * Math.PI * (i % steps)) / steps;
+    const pointLat = Math.asin(sinLat + cosLat * Math.cos(bearing));
+    const pointLon =
+      lonRad +
+      Math.atan2(
+        Math.sin(bearing) * cosLat,
+        Math.cos(angular) - Math.sin(latRad) * Math.sin(pointLat),
+      );
+    points.push([(pointLon * 180) / Math.PI, (pointLat * 180) / Math.PI]);
+  }
+  return points;
+}
 
 /** מעבר לכפולה הזו של הרדיוס ההתאמה נפסלת. */
 const GRACE_FACTOR = 2;
 /** הציון בדיוק על הגבול — ראו התרשים למעלה. */
 const EDGE_SCORE = 0.8;
 
-const EARTH_RADIUS_KM = 6371;
 
 /**
  * מרחק בקו אווירי בין שתי נקודות, בקילומטרים.

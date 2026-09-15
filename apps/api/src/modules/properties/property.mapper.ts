@@ -2,6 +2,7 @@ import type { Prisma, Property as PropertyRow } from "@prisma/client";
 import {
   isSharedTabuProperty,
   normalizeCustomFeatures,
+  normalizeHouseNumber,
   SHARED_TABU_PROPERTY_TYPE,
   type CustomFeature,
   type OccupancyState,
@@ -169,7 +170,29 @@ export function fieldsToColumns(
   if ("city" in fields) out.city = fields.city ?? null;
   if ("neighborhood" in fields) out.neighborhood = fields.neighborhood ?? null;
   if ("street" in fields) out.street = fields.street ?? null;
-  if ("houseNumber" in fields) out.houseNumber = fields.houseNumber ?? null;
+  /*
+   * ‎**מספר הבית מתנרמל כאן, בגבול הכתיבה עצמו.**
+   *
+   * ‏הכלל נאכף ב-`PropertyFieldsSchema`, וזה נכון לכל מי שעובר
+   * ‏בסכימה — הטופס, הייבוא, טופס המוכר וטופס הגיוס
+   * ‏(גם טופס הגיוס נגזר ממנו ב-`.pick()`, ולכן ה-`transform` נוסע
+   * ‏איתו). אבל **שני קוראים פונים לשירות ישירות** ומדלגים
+   * ‏על הסכימה לגמרי: הסוכן בוואטסאפ, שבונה אובייקט ועושה
+   * ‎`as PropertyFields`, ומסלול ההמרה שמעתיק שורה קיימת לנכס
+   * ‏חדש. כלומר „5.0” היה חוזר דרך שני מסלולים נתמכים מיד
+   * ‏אחרי המיגרציה (ביקורת Codex).
+   *
+   * ‏זה המקום היחיד שכל כתיבה לעמודה עוברת בו — יצירה ועדכון
+   * ‏גם יחד — ולכן הכלל נאכף בו ללא תלות במי קרא. אותה
+   * ‏פונקציה שבסכימה, ולא כלל שני.
+   */
+  if ("houseNumber" in fields) {
+    const houseNumber = fields.houseNumber;
+    out.houseNumber =
+      houseNumber === undefined || houseNumber === null
+        ? null
+        : normalizeHouseNumber(houseNumber);
+  }
   if ("propertyType" in fields) out.propertyType = fields.propertyType ?? null;
   if ("dealType" in fields) out.dealType = fields.dealType ?? null;
   if ("rooms" in fields) out.rooms = fields.rooms ?? null;
