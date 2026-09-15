@@ -1,4 +1,9 @@
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from "@nestjs/common";
 import { ulid } from "ulid";
 import {
   OPEN_LEAD_STATUSES,
@@ -310,10 +315,33 @@ export class LeadsService {
       const handover = agentHandover(lead.assignedToUserId, agentUserId);
       if (handover === null) return { moved: false, agentName };
 
-      await tx.lead.updateMany({
-        where: { id, tenantId: ctx.tenantId },
+      /*
+       * ‎**הכתיבה מותנית בבעלים שעליו ניתנה הרשות** (ביקורת Codex).
+       *
+       * ‏כאן, בשונה מכל העברה אחרת במערכת, **ההרשאה עצמה נגזרת
+       * ‏מהבעלים**: „מותר לי למסור כי הליד שלי”. כלומר קריאה ישנה
+       * ‏אינה רק מירוץ על ערך — היא הרשאה שניתנה על מצב שכבר אינו
+       * ‏קיים. סוכן קרא „הליד שלי”, מנהל העביר אותו בינתיים, וכתיבה
+       * ‏בלתי מותנית הייתה דורסת את הבעלים החדש בסמכות שפקעה.
+       *
+       * ‎**השוואה-והחלפה ולא נעילה.** נעילה מייעצת מגנה רק מפני מי
+       * ‏שלוקח אותה, ו-`CallsService.moveLead` אינו לוקח; תנאי על
+       * ‏העמודה נאכף במסד מול **כל** כותב, מי שלקח ומי שלא.
+       *
+       * ‏וזה גם מה ששומר על יומן הביקורת: `metadata.from` נכתב רק
+       * ‏אם הערך הזה עדיין היה שם ברגע הכתיבה.
+       */
+      const updated = await tx.lead.updateMany({
+        where: { id, tenantId: ctx.tenantId, assignedToUserId: lead.assignedToUserId },
         data: { assignedToUserId: agentUserId },
       });
+      /*
+       * ‏„הליד זז בינתיים” אינו כישלון שקט ואינו הצלחה: המוסר צריך
+       * ‏לדעת שהמסירה שלו **לא** קרתה, ולמה.
+       */
+      if (updated.count === 0) {
+        throw new ConflictException("הליד שויך לסוכן אחר בינתיים — רעננו ונסו שוב");
+      }
       await this.audit.record(tx, {
         action: "lead.agent_changed",
         entityType: "lead",

@@ -1416,8 +1416,19 @@ export class AgentExecuteService {
     if (leadId === undefined) throw new BadRequestException("לא נבחר ליד למסירה");
     if (assigneeId === undefined) throw new BadRequestException("לא נבחר סוכן למסור לו");
     const result = await this.leads.handOver(leadId, assigneeId);
+    /*
+     * ‎**אחרי מסירה מוצלחת הקישור הוא לרשימה, ולא לליד** (ביקורת
+     * ‏Codex).
+     *
+     * ‏מסנן הבעלות מוציא את הליד משדה הראייה של המוסר באותו רגע,
+     * ‏ולכן כרטיס הליד מחזיר לו 404 — כלומר הפעולה הצליחה והקישור
+     * ‏שנלווה אליה שבור. בדיוק הסוכן שהפעולה הזו נועדה לו.
+     *
+     * ‎**ב„כבר אצלו” הקישור נשאר**: שם שום דבר לא זז, והליד עדיין
+     * ‏נראה למי ששאל — או שהוא שלו, או שיש לו ראייה משרדית.
+     */
     return {
-      href: `/leads/${leadId}`,
+      href: result.moved ? "/leads" : `/leads/${leadId}`,
       message: result.moved
         ? `הליד נמסר ל${result.agentName}`
         : `הליד כבר משויך ל${result.agentName}`,
