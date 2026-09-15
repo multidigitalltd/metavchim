@@ -58,6 +58,7 @@ import type { Prisma } from "@prisma/client";
 import { ContactErasureService } from "../contacts/contact-erasure.service";
 import { ContactsService } from "../contacts/contacts.service";
 import { ListingsService } from "../collaboration/listings.service";
+import { cityForNeighborhood } from "../suggest/neighborhood-city";
 import {
   MatchingService,
   type MatchTrigger,
@@ -644,6 +645,84 @@ export class PropertiesService {
    * לא תידרס בידי פענוח אוטומטי, וזו בדיוק ההבחנה שהעמודה
    * `location_source` נועדה לה.
    */
+  /**
+   * ‎**עיר חסרה מושלמת מהשכונה — לפני הגיאוקודינג ולפני הכתיבה.**
+   *
+   * ‏הטפסים דורשים עיר, ולכן מי שמגיע לכאן בלעדיה הגיע מייבוא
+   * ‏אקסל, מהסוכן בוואטסאפ, או מחילוץ מצילום מודעה או מהקלטה.
+   * ‏שם „פרדס כץ” מגיעה בלי „בני ברק”.
+   *
+   * ‎**ובלי עיר הנכס אינו נכנס להתאמות כלל** — לא כשגיאה, אלא
+   * ‏בשקט: הסינון הגס נשען על שם העיר, והמיקום הוא קריטריון חובה
+   * ‏במנוע. השורה נשמרת, נראית תקינה, ואינה מתאימה לאיש.
+   *
+   * ‏לפני הגיאוקודינג בכוונה: הכתובת שנשלחת לספק מקבלת גם את
+   * ‏העיר, ו„פרדס כץ” לבדה מפוענחת גרוע יותר מ„פרדס כץ, בני ברק”.
+   *
+   * ‏קריאה אחת, ורק כשבאמת חסר: מי שיש לו עיר אינו נוגע במסד.
+   */
+  /**
+   * ‎**סבב השלמה אחרי אצווה — כי הראיה עשויה להגיע בשורה הבאה.**
+   *
+   * ‏ייבוא אקסל כותב שורה-שורה, ולכן שורה בלי עיר שמגיעה **לפני**
+   * ‏השורה שנושאת את העיר של אותה שכונה אינה יכולה לראות אותה:
+   * ‏בזמן הכתיבה שלה השורה השנייה עוד לא במסד. התוצאה היא שאותו
+   * ‏קובץ בדיוק נקלט אחרת לפי סדר השורות בו — הראשונה נשארת בלי
+   * ‏עיר, ובסדר הפוך שתיהן מושלמות (ביקורת Codex, P1).
+   *
+   * ‏הסבב רץ **אחרי** שכל האצווה נכתבה, ולכן כל הראיות כבר שם
+   * ‏והסדר מפסיק להשפיע.
+   *
+   * ‎**וההתאמות מחושבות מחדש למי שהושלם.** בלי עיר `recomputeForProperty`
+   * ‏יצא מוקדם, ולכן הנכס נשמר בלי ולו התאמה אחת; השלמה בלי חישוב
+   * ‏חוזר הייתה מתקנת את הכרטיס ומשאירה אותו מחוץ להתאמות — כלומר
+   * ‏בדיוק הבעיה שהיא באה לפתור.
+   *
+   * ‏מחזיר כמה הושלמו, כדי שהקורא יוכל לדווח.
+   */
+  async completeMissingCitiesFor(ids: readonly string[]): Promise<number> {
+    if (ids.length === 0) return 0;
+    const rows = await this.prisma.withTenant((tx) =>
+      tx.property.findMany({
+        where: { id: { in: [...ids] }, deletedAt: null },
+        select: { id: true, city: true, neighborhood: true },
+      }),
+    );
+
+    let filled = 0;
+    for (const row of rows) {
+      /* ‏אותם שני תנאים של `withCompletedCity` — „ריק” הוא גם רווחים. */
+      if (row.city !== null && row.city.trim() !== "") continue;
+      if (row.neighborhood === null || row.neighborhood.trim() === "") continue;
+      const neighborhood = row.neighborhood;
+      const city = await this.prisma.withTenant((tx) =>
+        cityForNeighborhood(tx, neighborhood),
+      );
+      if (city === null) continue;
+      await this.prisma.withTenant((tx) =>
+        tx.property.updateMany({ where: { id: row.id }, data: { city } }),
+      );
+      filled += 1;
+      try {
+        await this.matching.recomputeForProperty(row.id);
+      } catch {
+        /* ‏הנכס כבר נושא עיר; חישוב ההתאמות אינו חלק מהצלחת ההשלמה. */
+      }
+    }
+    return filled;
+  }
+
+  private async withCompletedCity(fields: PropertyFields): Promise<PropertyFields> {
+    if (fields.city !== undefined && fields.city.trim() !== "") return fields;
+    const neighborhood = fields.neighborhood;
+    if (neighborhood === undefined || neighborhood.trim() === "") return fields;
+    const city = await this.prisma.withTenant((tx) =>
+      cityForNeighborhood(tx, neighborhood),
+    );
+    /* ‏אין תשובה ⇒ נשאר ריק. ניחוש גרוע מחוסר — ראו `cityForNeighborhood`. */
+    return city === null ? fields : { ...fields, city };
+  }
+
   private async withGeocodedLocation(
     fields: PropertyFields,
   ): Promise<PropertyFields> {
@@ -719,7 +798,9 @@ export class PropertiesService {
      * לתוך טרנזקציית מסד. וכשל שלה אינו מפיל קליטת נכס — הסוכן
      * יסמן ידנית, בדיוק כמו קודם.
      */
-    const fields = await this.withGeocodedLocation(input.fields);
+    const fields = await this.withGeocodedLocation(
+      await this.withCompletedCity(input.fields),
+    );
     const readiness = computeReadiness(fields, {
       /*
        * נכס חדש אין לו עדיין מדיה — התמונות נטענות אחרי היצירה,

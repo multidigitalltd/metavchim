@@ -53,6 +53,15 @@ export class ImportController {
     const failed: ImportResult["failed"] = [];
     const warnings: ImportResult["warnings"] = [];
     let created = 0;
+    /*
+     * ‎**המזהים נאספים כדי להשלים ערים אחרי האצווה.**
+     *
+     * ‏השלמת עיר מהשכונה קוראת את מה שכבר במסד, ולכן שורה בלי עיר
+     * ‏שקדמה לשורה שנושאת את העיר של אותה שכונה לא יכלה לראות
+     * ‏אותה. סבב אחרי הלולאה הופך את התוצאה לבלתי תלויה בסדר
+     * ‏השורות בקובץ.
+     */
+    const createdIds: string[] = [];
 
     for (const [index, rawRow] of body.rows.entries()) {
       const parsed = ImportRowSchema.safeParse(rawRow);
@@ -88,7 +97,7 @@ export class ImportController {
             warning: "טלפון בעל הנכס אינו מספר ישראלי תקין — הנכס נקלט בלי קישור לבעלים",
           });
         }
-        await this.properties.createForImport({
+        const createdId = await this.properties.createForImport({
           fields,
           marketingTitle,
           marketingDescription,
@@ -98,6 +107,7 @@ export class ImportController {
             ? { owner: { name: ownerName, phone: ownerPhone } }
             : {}),
         });
+        createdIds.push(createdId);
         created += 1;
       } catch (error) {
         failed.push({
@@ -106,6 +116,8 @@ export class ImportController {
         });
       }
     }
+
+    await this.properties.completeMissingCitiesFor(createdIds);
 
     return { created, failed, warnings };
   }
