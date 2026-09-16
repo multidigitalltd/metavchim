@@ -20,6 +20,14 @@ import { formatIsraeliNumber } from "./israel-time.js";
 export interface PitchProperty {
   /** ‏כותרת שיווקית, או תיאור נגזר כשאין. */
   title: string;
+  /**
+   * ‎**הכותרת נגזרה מהשדות** — ולכן היא כבר אומרת חדרים ועיר.
+   *
+   * ‏עובדה שמי שבנה את השם יודע (`clientTitleIsDerived`), ולא ניחוש
+   * ‏מהמחרוזת: השוואת הכלה מחקה „הדר” מפני ש„נהדרת” מכילה אותו,
+   * ‏כלומר שכונה אמיתית נעלמה מהמייל בשקט (ביקורת Codex).
+   */
+  derivedTitle?: boolean;
   city?: string;
   neighborhood?: string;
   rooms?: number;
@@ -53,29 +61,25 @@ export function pitchPropertyLine(property: PitchProperty): string {
    * ‏שם נגזר („דירת 4 חדרים בחולון”), הצירוף קרא „דירת 4 חדרים
    * ‏בחולון — 4 חדרים · חולון” (ביקורת Codex).
    *
-   * ‏המבחן הוא הכלה, ולא דגל „הכותרת נגזרה”: גם משרד שכתב „דירה
-   * ‏מהממת בחולון” אינו צריך לקבל „· חולון” אחריה.
+   * ‏הדילוג נשען על מה ש**ידוע** — שהשם נגזר, ולכן החדרים והעיר
+   * ‏כבר בתוכו — ולא על חיפוש מחרוזת בכותרת. חיפוש כזה מוחק גם
+   * ‏שכונה שהכותרת רק נראית כאילו היא מכילה („הדר” בתוך „נהדרת”),
+   * ‏וזו מחיקה שקטה של מידע אמיתי. כותרת שכתב המשרד נשארת כלשונה,
+   * ‏והפרטים אחריה נשארים שלמים — חזרה קוסמטית עדיפה על אובדן.
    */
-  const fresh = (part: string | null | undefined): string | null =>
-    part === null || part === undefined || part === "" || property.title.includes(part) ? null : part;
-  /*
-   * ‎**והמיקום נבדק לפי רכיביו** (ביקורת Codex): „קריית שרת, חולון”
-   * ‏כמחרוזת אחת אינו מוכל בכותרת, ולכן העיר הייתה חוזרת בכל זאת.
-   * ‏השכונה נשארת, העיר יורדת — „דירת 4 חדרים בחולון — קריית שרת”.
-   */
-  const location = [property.neighborhood, property.city]
-    .map((part) => fresh(part))
-    .filter((part): part is string => part !== null)
+  const derived = property.derivedTitle === true;
+  const location = [property.neighborhood, derived ? undefined : property.city]
+    .filter((part): part is string => typeof part === "string" && part !== "")
     .join(", ");
   const parts = [
-    fresh(property.rooms === undefined ? null : `${formatIsraeliNumber(property.rooms)} חדרים`),
-    fresh(property.areaSqm === undefined ? null : `${formatIsraeliNumber(property.areaSqm)} מ״ר`),
+    derived || property.rooms === undefined
+      ? null
+      : `${formatIsraeliNumber(property.rooms)} חדרים`,
+    property.areaSqm === undefined ? null : `${formatIsraeliNumber(property.areaSqm)} מ״ר`,
     location === "" ? null : location,
-    fresh(
-      property.priceAgorot === undefined
-        ? null
-        : `${formatIsraeliNumber(Math.round(property.priceAgorot / 100))} ₪`,
-    ),
+    property.priceAgorot === undefined
+      ? null
+      : `${formatIsraeliNumber(Math.round(property.priceAgorot / 100))} ₪`,
   ].filter((part): part is string => part !== null);
   return parts.length === 0 ? property.title : `${property.title} — ${parts.join(" · ")}`;
 }

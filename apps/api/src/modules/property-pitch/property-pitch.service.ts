@@ -10,6 +10,7 @@ import { ulid } from "ulid";
 import {
   buildPropertyPitchEmail,
   clientPropertyTitle,
+  clientTitleIsDerived,
   pitchRecipientState,
   type PitchProperty,
   type PitchRecipientState,
@@ -389,6 +390,8 @@ export class PropertyPitchService {
           rooms: row.rooms === null ? null : Number(row.rooms),
           city: row.city,
         }),
+        /* ‏שם נגזר כבר אומר חדרים ועיר — השורה שאחריו לא תחזור עליהם */
+        derivedTitle: clientTitleIsDerived({ marketingTitle: row.marketingTitle }),
         ...(row.city === null ? {} : { city: row.city }),
         ...(row.neighborhood === null ? {} : { neighborhood: row.neighborhood }),
         ...(row.rooms === null ? {} : { rooms: Number(row.rooms) }),

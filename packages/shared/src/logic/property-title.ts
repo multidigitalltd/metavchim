@@ -16,14 +16,32 @@ import { PROPERTY_TYPE_LABELS_HE } from "./csv-export.js";
  * ‏כתובת לא נכנסת לכאן בכוונה: זה השם שיוצא ללקוח ולרשת, ושם
  * ‏הרחוב אינו נחשף לפני שהמשרד בחר לחשוף אותו.
  */
-export function clientPropertyTitle(property: {
+export interface ClientTitleFields {
   marketingTitle?: string | null;
   propertyType?: string | null;
   rooms?: number | null;
   city?: string | null;
-}): string {
+}
+
+/** ‏הכותרת השיווקית כפי שהיא, או `null` כשאין כזו — כלל אחד לשתי השאלות. */
+function marketingTitleOf(property: ClientTitleFields): string | null {
   const marketing = property.marketingTitle?.trim();
-  if (marketing !== undefined && marketing !== "") return marketing;
+  return marketing === undefined || marketing === "" ? null : marketing;
+}
+
+/**
+ * ‎**האם השם נגזר מהשדות** — ולכן כבר אומר את מספר החדרים ואת העיר.
+ *
+ * ‏מי שמרכיב שורת פרטים אחרי השם צריך לדעת זאת, אחרת הוא חוזר
+ * ‏עליהם. השאלה נענית כאן ולא אצלו, כי כאן יודעים מה נכנס לשם.
+ */
+export function clientTitleIsDerived(property: ClientTitleFields): boolean {
+  return marketingTitleOf(property) === null;
+}
+
+export function clientPropertyTitle(property: ClientTitleFields): string {
+  const marketing = marketingTitleOf(property);
+  if (marketing !== null) return marketing;
 
   /*
    * ‎**`Object.hasOwn` ולא אינדוקס ישיר** (ביקורת Codex).
