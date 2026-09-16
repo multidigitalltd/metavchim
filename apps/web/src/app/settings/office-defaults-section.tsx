@@ -31,6 +31,8 @@ export interface OfficeDefaults {
   autoShareProperties: boolean;
   autoShareBuyers: boolean;
   autoEmailOffers: boolean;
+  /** הלוגו של המשרד מוטבע בפינת כל תמונת נכס חדשה */
+  photoLogoOverlay: boolean;
 }
 
 type Key = keyof OfficeDefaults;
@@ -135,6 +137,26 @@ export function OfficeDefaultsSection({
           locked={busy !== null}
           saved={saved === "autoEmailOffers"}
           onChange={(next) => void toggle("autoEmailOffers", next)}
+        />
+      </fieldset>
+
+      <fieldset
+        className="mt-3 rounded-lg border p-3.5"
+        style={{ borderColor: "var(--color-border)" }}
+      >
+        <legend className="px-1 text-sm font-bold">תמונות נכס</legend>
+        <Row
+          row={{
+            key: "photoLogoOverlay",
+            title: "הלוגו של המשרד מוטבע בפינת כל תמונה שמועלית",
+            detail:
+              "על תמונות חדשות בלבד, ועל תמונות ישנות כשלוחצים „לשפר”. דורש לוגו בלשונית „המשרד”. כל תמונה משופרת אוטומטית בכל מקרה — יישור, אור, חדות וכיווץ — והמקור אינו נשמר.",
+          }}
+          checked={value.photoLogoOverlay}
+          busy={busy === "photoLogoOverlay"}
+          locked={busy !== null}
+          saved={saved === "photoLogoOverlay"}
+          onChange={(next) => void toggle("photoLogoOverlay", next)}
         />
       </fieldset>
     </section>

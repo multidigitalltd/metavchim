@@ -129,6 +129,25 @@ export class TenantLogoService {
     return { ok: true };
   }
 
+  /**
+   * ‏הקובץ עצמו כ-Buffer — להטבעה על תמונות נכס.
+   *
+   * ‎`null` כשאין לוגו או כשהאחסון לא החזיר אותו: תמונה של דירה
+   * ‏אינה נדחית בגלל הלוגו, והקורא ממשיך בלעדיו.
+   */
+  async bytesFor(tenantId: string): Promise<Buffer | null> {
+    try {
+      const obj = await this.rawFor(tenantId);
+      const chunks: Buffer[] = [];
+      for await (const chunk of obj.body as AsyncIterable<Buffer | string>) {
+        chunks.push(typeof chunk === "string" ? Buffer.from(chunk) : chunk);
+      }
+      return Buffer.concat(chunks);
+    } catch {
+      return null;
+    }
+  }
+
   /** האם למשרד יש לוגו — לפרופיל, כדי שהמסך ידע אם לבקש אותו. */
   async has(tenantId: string): Promise<boolean> {
     const tenant = await this.prisma.tenant.findUnique({

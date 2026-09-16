@@ -14,7 +14,7 @@ import {
 } from "@nestjs/common";
 import { FileInterceptor } from "@nestjs/platform-express";
 import { z } from "zod";
-import { IdSchema } from "@metavchim/shared";
+import { IdSchema, PhotoBlurSchema, type PhotoBlurRequest } from "@metavchim/shared";
 import { RequireCapability } from "../../common/auth.decorators";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { MAX_IMAGE_BYTES, MediaService, type MediaDto } from "./media.service";
@@ -82,6 +82,27 @@ export class MediaController {
     @Param("mediaId", IdParam) mediaId: string,
   ): Promise<void> {
     await this.media.makePrimary(propertyId, mediaId);
+  }
+
+  /** ‏„לשפר” על תמונה שהועלתה לפני הכלי. אותה יכולת כמו ההעלאה. */
+  @Post(":mediaId/enhance")
+  @RequireCapability("properties.edit")
+  enhance(
+    @Param("id", IdParam) propertyId: string,
+    @Param("mediaId", IdParam) mediaId: string,
+  ): Promise<MediaDto> {
+    return this.media.enhance(propertyId, mediaId);
+  }
+
+  /** ‏טשטוש מלבנים — בלתי הפיך; המלבנים כשברים של התמונה. */
+  @Post(":mediaId/blur")
+  @RequireCapability("properties.edit")
+  blur(
+    @Param("id", IdParam) propertyId: string,
+    @Param("mediaId", IdParam) mediaId: string,
+    @Body(new ZodValidationPipe(PhotoBlurSchema)) body: PhotoBlurRequest,
+  ): Promise<MediaDto> {
+    return this.media.blur(propertyId, mediaId, body.rects);
   }
 
   @Patch(":mediaId")
