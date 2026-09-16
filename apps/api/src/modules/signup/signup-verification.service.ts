@@ -69,7 +69,16 @@ export interface PendingSignup {
   ownerName: string;
   email: string;
   phone: string | null;
-  passwordHash: string;
+  /**
+   * ‎`null` = החשבון נפתח בלי סיסמה כלל — כניסה עם Google.
+   *
+   * ‏ולא סיסמה אקראית שאיש אינו מכיר: `users.password_hash` הוא
+   * ‏`NULL`-able במכוון (‏`loginWithVerifiedEmail` מאפס אותו בדיוק
+   * ‏כך למי שנכנס עם Google), ו-`NULL` אומר „אין סיסמה” בזמן ששדה
+   * ‏מלא אומר „יש סיסמה, רק לא ידועה”. השני הוא דלת שנשארת פתוחה
+   * ‏אם מישהו אי פעם ינחש את מקור האקראיות.
+   */
+  passwordHash: string | null;
   plan: string;
   coupon: string | null;
 }
@@ -85,6 +94,22 @@ declare const verified: unique symbol;
  * בזמן הידור, ולא בבדיקה שמישהו צריך לזכור לכתוב.
  */
 export type VerifiedSignup = PendingSignup & { readonly [verified]: true };
+
+/**
+ * ‎**זהות שספק חיצוני כבר אימת — היצרן השני של `VerifiedSignup`.**
+ *
+ * ‏המותג מבטיח „הכתובת אומתה”, לא „נשלח קוד”. כניסה עם Google מוכיחה
+ * ‏בדיוק את מה שהקוד מוכיח: ‎`email_verified` אומר ש-Google עצמה
+ * ‏אימתה בעלות על התיבה, והבקר דוחה זהות בלעדיו עוד לפני כאן.
+ *
+ * ‎**והפונקציה יושבת בקובץ הזה ולא אצל הקורא, ובכוונה.** ‏המותג הוא
+ * ‏`unique symbol` מקומי; כל עוד כל יצרן שלו נמצא כאן, „דייר נוצר רק
+ * ‏אחרי אימות” נשאר כלל שנאכף בהידור. יצרן שהיה יושב במודול אחר היה
+ * ‏דורש `as VerifiedSignup` שם — כלומר בדיוק הפתח שהמותג נועד לסגור.
+ */
+export function providerVerifiedSignup(pending: PendingSignup): VerifiedSignup {
+  return pending as VerifiedSignup;
+}
 
 interface StoredPending {
   pending: PendingSignup;

@@ -28,6 +28,7 @@ import {
   type SessionInfo,
 } from "./auth.service";
 import { GoogleAuthService } from "./google-auth.service";
+import { SignupService } from "../signup/signup.service";
 import { LoginOtpService } from "./login-otp.service";
 import { LoginThrottleService } from "./login-throttle.service";
 import { PasswordResetService } from "./password-reset.service";
@@ -91,6 +92,19 @@ const ResetPasswordSchema = z
   })
   .strict();
 
+/**
+ * ‎**„אין חשבון כזה” — הכרעה אחת, ולא ביטוי רגולרי בשני מקומות.**
+ *
+ * ‏`loginWithVerifiedEmail` זורק את ההודעה הזו גם על משתמש שאינו
+ * ‏קיים וגם על משתמש מושבת. שני הענפים שמסתמכים עליה — פתיחת משרד
+ * ‏חינמי, וההודעה שחוזרת למסך — חייבים לזהות אותה אותו דבר; שתי
+ * ‏בדיקות נפרדות היו מתפצלות ביום שהנוסח משתנה, ואז אחד מהם היה
+ * ‏שותק.
+ */
+function isUnknownAccount(error: unknown): boolean {
+  return error instanceof UnauthorizedException && /לא קיים/u.test(error.message);
+}
+
 @Controller("auth")
 export class AuthController {
   constructor(
@@ -99,6 +113,11 @@ export class AuthController {
     private readonly otp: LoginOtpService,
     private readonly passwordReset: PasswordResetService,
     private readonly google: GoogleAuthService,
+    /*
+     * ‏רק לפתיחת משרד חינמי לכתובת Google שאין לה חשבון. הכניסה
+     * ‏עצמה נשארת ב-`AuthService`.
+     */
+    private readonly signup: SignupService,
   ) {}
 
   /** אילו אמצעי התחברות פעילים — מסך הכניסה מציג לפי זה. */
@@ -180,7 +199,29 @@ export class AuthController {
         res.redirect(loginError("unverified"));
         return;
       }
-      const user = await this.auth.loginWithVerifiedEmail(identity.email);
+      /*
+       * ‎**כתובת שאין לה חשבון פותחת משרד חינמי, ולא נעצרת בדלת.**
+       *
+       * ‏עד כה כאן נגמר הסיפור: „החשבון לא קיים במערכת — פנו למנהל
+       * ‏המשרד”. זה נכון למי שהוזמן למשרד קיים, ולא נכון בכלל למי
+       * ‏שסתם רוצה להתחיל — הוא הגיע עם כתובת ש-Google אימתה, ואין
+       * ‏לו שום דרך להמשיך (בקשת המשתמש).
+       *
+       * ‏הפתיחה דרך `SignupService` ולא כתיבה כאן: שם יושבים בחירת
+       * ‏המסלול, בדיקת הכתובת, הדייר והמשתמש בטרנזקציה אחת ומייל
+       * ‏הפתיחה. ‎`null` משם = לא נפתח חשבון (כתובת תפוסה, או שאין
+       * ‏מסלול חינמי ציבורי), ואז חוזרים להודעה הרגילה במקום לומר
+       * ‏משהו שאינו נכון.
+       */
+      let user: Awaited<ReturnType<AuthService["loginWithVerifiedEmail"]>>;
+      try {
+        user = await this.auth.loginWithVerifiedEmail(identity.email);
+      } catch (error) {
+        if (!isUnknownAccount(error)) throw error;
+        const created = await this.signup.createFromVerifiedIdentity(identity);
+        if (created === null) throw error;
+        user = created;
+      }
       const { token, expiresAt } = await this.auth.issueSession(user, {
         ip: req.ip,
         userAgent: req.headers["user-agent"],
@@ -190,8 +231,7 @@ export class AuthController {
     } catch (error) {
       // אימייל שאינו רשום במשרד — הודעה נפרדת, כי זו לא תקלה אלא
       // חוסר הרשאה, והמתווך צריך לדעת לפנות למנהל
-      const unknown = error instanceof UnauthorizedException && /לא קיים/u.test(error.message);
-      res.redirect(loginError(unknown ? "unknown" : "failed"));
+      res.redirect(loginError(isUnknownAccount(error) ? "unknown" : "failed"));
     }
   }
 
