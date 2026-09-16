@@ -1410,7 +1410,15 @@ export default function BuyerDetailPage({
               )}
             </section>
 
-            <NetworkPropertyMatches buyerId={id} />
+            {/*
+              ‏„פרסם קונה ברשת” מעביר ללשונית הרשת ולא מפרסם בלחיצה:
+              ‏הפרסום דורש חלוקת עמלה ותיאור חובה, וטופס שני שלו כאן
+              ‏היה נפרד מהראשון בעדכון הבא.
+            */}
+            <NetworkPropertyMatches
+              buyerId={id}
+              onPublish={() => selectTab("network")}
+            />
           </div>
 
           {/* היסטוריית ההצעות נשארת רוחב מלא — היא לא עמודה, היא ציר זמן */}
