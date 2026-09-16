@@ -25,6 +25,7 @@ import { EmailService } from "../../core/email.service";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PrismaService } from "../../core/prisma.service";
 import { WhatsAppSendService } from "../messaging/whatsapp-send.service";
+import { PropertyBidsService } from "./property-bids.service";
 
 /**
  * דוח הפעילות בנכס שהמתווך מוסר לבעל הנכס.
@@ -93,6 +94,8 @@ export interface OwnerActivityReportDto {
   truncated: boolean;
   /** „מה אמרו הקונים” — הסיכום המספרי והמשפטים שיוצאים למוכר. */
   feedback: { summary: ViewingFeedbackSummary; sentences: string[] };
+  /** ‏„הצעות מחיר” — משפטי השרשורים הפתוחים וההצעה שהתקבלה, כפי שהם יוצאים למוכר. */
+  bids: { sentences: string[] };
   /**
    * ‎**במה אפשר לשלוח לבעל הנכס בפועל.**
    *
@@ -138,6 +141,7 @@ export class PropertyActivityService {
     private readonly email: EmailService,
     private readonly whatsapp: WhatsAppSendService,
     private readonly plans: PlanCatalogService,
+    private readonly bids: PropertyBidsService,
   ) {}
 
   /** הדוח כפי שהמסך מציג אותו. */
@@ -176,6 +180,7 @@ export class PropertyActivityService {
       },
       truncated,
       feedback: { summary: feedbackSummary, sentences: viewingFeedbackSentences(feedbackSummary) },
+      bids: { sentences: await this.bidSentences(propertyId) },
       owner: await this.ownerChannels(propertyId),
     };
   }
@@ -327,6 +332,7 @@ export class PropertyActivityService {
     const feedbackSentences = viewingFeedbackSentences(
       summarizeViewingFeedback(PropertyActivityService.heldViewings(appointments)),
     );
+    const bidSentences = await this.bidSentences(propertyId);
 
     const context = await this.prisma.withTenant(async (tx) => {
       const property = await tx.property.findFirst({
@@ -408,6 +414,7 @@ export class PropertyActivityService {
               entries,
               ...(truncated ? { truncated: true } : {}),
               feedbackSentences,
+              bidSentences,
               now: new Date(),
             }),
           })
@@ -421,6 +428,7 @@ export class PropertyActivityService {
             entries,
             truncated,
             feedbackSentences,
+            bidSentences,
           });
 
     await this.prisma.withTenant((tx) =>
@@ -491,6 +499,7 @@ export class PropertyActivityService {
     entries: ReturnType<typeof buildOwnerActivity>;
     truncated: boolean;
     feedbackSentences: readonly string[];
+    bidSentences: readonly string[];
   }): Promise<string> {
     if (input.to === undefined) {
       throw new BadRequestException("אין אימייל בכרטיס בעל הנכס — אפשר להוסיף אותו ולשלוח שוב");
@@ -504,6 +513,7 @@ export class PropertyActivityService {
       ...(input.truncated ? { truncated: true } : {}),
       now: new Date(),
       feedbackSentences: input.feedbackSentences,
+      bidSentences: input.bidSentences,
     });
     await this.email.send(
       input.to,
@@ -541,6 +551,11 @@ export class PropertyActivityService {
    * מביאה כותרת פגישה, הערה, סיכום שיחה או מזהה איש קשר, ולכן אין
    * מה לסנן בהמשך הדרך.
    */
+  /** ‏משפטי „הצעות מחיר” לדוח — שרשורים פתוחים וההצעה שהתקבלה, בלי שמות קונים. */
+  private bidSentences(propertyId: string): Promise<string[]> {
+    return this.prisma.withTenant((tx) => this.bids.sentencesFor(tx, propertyId));
+  }
+
   private async collect(
     propertyId: string,
     range: OwnerActivityRange,

@@ -17,6 +17,8 @@ import { PropertiesService } from "./properties.service";
 import { PropertyActivityService } from "./property-activity.service";
 import { PropertyChecksController } from "./property-checks.controller";
 import { PropertyChecksService } from "./property-checks.service";
+import { PropertyBidsController } from "./property-bids.controller";
+import { PropertyBidsService } from "./property-bids.service";
 import { PropertyReofferController } from "./property-reoffer.controller";
 import { PropertyReofferService } from "./property-reoffer.service";
 import { PropertyTwinsController } from "./property-twins.controller";
@@ -55,6 +57,7 @@ import { PropertyTwinsService } from "./property-twins.service";
     LandingController,
     PropertyChecksController,
     PropertyReofferController,
+    PropertyBidsController,
   ],
   providers: [
     PropertiesService,
@@ -65,6 +68,7 @@ import { PropertyTwinsService } from "./property-twins.service";
     LandingService,
     PropertyChecksService,
     PropertyReofferService,
+    PropertyBidsService,
   ],
   exports: [PropertiesService, LandingService, PropertyPhotoService],
 })

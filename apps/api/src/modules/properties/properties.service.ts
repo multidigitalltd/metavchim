@@ -2410,6 +2410,7 @@ export class PropertiesService {
       await tx.propertyCheck.deleteMany({
         where: { tenantId: ctx.tenantId, propertyId: id },
       });
+      await tx.propertyBid.deleteMany({ where: { tenantId: ctx.tenantId, propertyId: id } });
 
       /*
        * תיק הבלעדיות של הנכס. הפעולות לפני התקופות — הן מצביעות
