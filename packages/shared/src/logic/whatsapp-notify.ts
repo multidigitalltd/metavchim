@@ -81,6 +81,9 @@ const TYPE_CATEGORY: Record<string, WhatsAppNotifyCategory> = {
   task_reminder: "tasks",
   appointment_reminder: "tasks",
   viewing_followup: "tasks",
+  /* ‏אוטומציות „נכס תקוע” ו„קונה שקט” — משימה לסוכן, ולכן בקטגוריית המשימות */
+  property_stale: "tasks",
+  buyer_quiet: "tasks",
   /** „הדוח למוכר מוכן” — משוב מביקורים שהצטבר השבוע על נכס */
   viewing_feedback_digest: "tasks",
   offer_followup: "tasks",
@@ -352,6 +355,8 @@ const TYPE_ICON: Record<string, string> = {
   task_reminder: "⏰",
   appointment_reminder: "📅",
   viewing_followup: "🚪",
+  property_stale: "🪧",
+  buyer_quiet: "🤫",
   viewing_feedback_digest: "🗣️",
   offer_followup: "📨",
   buyer: "🙋",

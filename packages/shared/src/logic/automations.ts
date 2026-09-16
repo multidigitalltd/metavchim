@@ -53,7 +53,9 @@ export type AutomationKey =
   | "exclusivity"
   | "missed_call_intake"
   | "pbx_silent"
-  | "viewing_reminder";
+  | "viewing_reminder"
+  | "stale_property"
+  | "quiet_buyer";
 
 /** יחידת הסף שאפשר לכוון. `null` = לאוטומציה אין מספר, רק כן/לא. */
 export type AutomationUnit = "hours" | "days" | null;
@@ -124,6 +126,26 @@ export const AUTOMATIONS: readonly AutomationSpec[] = [
     unit: "days",
     defaultValue: 7,
     min: 1,
+    max: 90,
+  },
+  {
+    key: "stale_property",
+    title: "נכס תקוע",
+    what: "נפתחת משימה לסוכן של הנכס — עם הפער מהממוצע למ״ר בשכונה, מה אמרו הקונים שביקרו, ואיפה שולחים דוח למוכר.",
+    when: "כשנכס בשיווק X ימים בלי סיור, בלי פנייה ובלי עדכון. נבדק פעם ביום; חוזר רק אחרי פעילות חדשה.",
+    unit: "days",
+    defaultValue: 21,
+    min: 7,
+    max: 120,
+  },
+  {
+    key: "quiet_buyer",
+    title: "קונה שקט",
+    what: "נפתחת משימה לסוכן של הקונה ליצור קשר, עם התראה.",
+    when: "כשקונה פעיל (חם או מתעניין) לא היה איתו קשר X ימים — לא שיחה, לא הודעה, לא סיור. נבדק פעם ביום.",
+    unit: "days",
+    defaultValue: 14,
+    min: 3,
     max: 90,
   },
   {
