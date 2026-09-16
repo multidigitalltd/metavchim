@@ -829,6 +829,33 @@ export class ListingsService {
    * ולא כלל שני שאפשר לשכוח לעדכן.
    */
   private ownBuyersWhere(tenantId: string): Prisma.BuyerWhereInput {
+    /*
+     * ‎**מי שמודול הקונים חסום אצלו אינו מקבל אף קונה — גם לא את
+     * ‏אלה שמשויכים אליו.**
+     *
+     * ‏`ownershipFilter` הגולמי מייצר `{ ownerUserId: <אני> }` כשאין
+     * ‏`buyers.view_all`, ו**אינו בודק כלל** את `buyers.view_own`.
+     * ‏שתי היכולות ניתנות לשלילה בנפרד, ולכן משתמש שנשללה ממנו
+     * ‏הראייה בקונים אך נשארה לו `collaboration.offer` עדיין קיבל
+     * ‏את הקונים המשויכים אליו — ובנתיב שמקבל מזהה קונה בכתובת זה
+     * ‏השם המפוענח והדרישות הפרטיות של אותו כרטיס (ביקורת Codex, P1).
+     *
+     * ‏זו בדיוק הנפילה ש-`leadOwnershipFilter` כבר תוקנה בגללה, ושם
+     * ‏ההערה אומרת אותו דבר במילים אחרות: „`view_own` הוא הסף:
+     * ‏בלעדיו נדרשת קבוצה שלא תתאים לשום שורה, ולא אובייקט ריק —
+     * ‏ריק פירושו „בלי סינון”, כלומר ההפך הגמור.”
+     *
+     * ‏קבוצה ריקה ולא זריקה, כדי ששני הקוראים יתנהגו נכון בלי כלל
+     * ‏שני: הפיד ממשיך לעבוד ופשוט אינו מציג `myMatches`, והנתיב
+     * ‏שמחפש קונה לפי מזהה אינו מוצא אותו וחוזר „קונה לא נמצא”.
+     */
+    const ctx = TenantContext.current();
+    if (
+      !ctx.capabilities.has("buyers.view_all") &&
+      !ctx.capabilities.has("buyers.view_own")
+    ) {
+      return { id: { in: [] } };
+    }
     return {
       tenantId,
       deletedAt: null,

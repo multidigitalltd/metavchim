@@ -251,3 +251,30 @@ describe("„הפנייה נשלחה” נספר לפי הקונה", () => {
     expect(row?.interestSent).toBe(false);
   });
 });
+
+/**
+ * ‎**מי שמודול הקונים חסום אצלו אינו מקבל קונה — גם לא משלו.**
+ *
+ * ‏`ownershipFilter` הגולמי מייצר `{ ownerUserId: <אני> }` ואינו בודק
+ * ‏את `buyers.view_own` כלל. שתי היכולות ניתנות לשלילה בנפרד, ולכן
+ * ‏משתמש שנשללה ממנו הראייה בקונים אך נשארה לו `collaboration.offer`
+ * ‏עדיין קיבל את הקונים המשויכים אליו — וכאן זה השם המפוענח והדרישות
+ * ‏הפרטיות של הכרטיס (ביקורת Codex, P1). אותה נפילה בדיוק שכבר תוקנה
+ * ‏ב-`leadOwnershipFilter`.
+ */
+describe("הסף: יכולת הראייה בקונים", () => {
+  it("בלי buyers.view_own ובלי view_all — אין קונה, גם לא המשויך אליי", async () => {
+    const service = serviceFor({ buyers: [MY_BUYER] });
+    await expect(
+      asUser(["collaboration.offer"], () => service.matchesForBuyer("01BUYER")),
+    ).rejects.toThrow("קונה לא נמצא");
+  });
+
+  it("עם buyers.view_own — הקונה המשויך אליי נפתח כרגיל", async () => {
+    const service = serviceFor({ buyers: [MY_BUYER] });
+    const out = await asUser(["collaboration.offer", "buyers.view_own"], () =>
+      service.matchesForBuyer("01BUYER"),
+    );
+    expect(out.map((l) => l.id)).toEqual(["01THEIRS"]);
+  });
+});

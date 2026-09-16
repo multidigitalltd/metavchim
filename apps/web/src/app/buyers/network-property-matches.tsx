@@ -3,11 +3,13 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   DEFAULT_COMMISSION_SPLIT,
+  describeCommissionTerms,
   presentationChips,
   publisherStatedSplit,
   type CommissionTerms,
 } from "@metavchim/shared";
 import { ApiError, apiGet, apiList, apiPatch, apiPost } from "@/lib/api";
+import { ProposedSplitNote } from "../collaboration/commission-terms-tabs";
 import { NetChips } from "../collaboration/net-chips";
 import { IconHandshake, IconHome } from "../icons";
 import { Notice } from "../notice";
@@ -300,13 +302,28 @@ export function NetworkPropertyMatches({
                 </div>
                 {/* ‏כל מה שאינו מזהה — לפני אישור החיבור, לא אחריו */}
                 <NetChips chips={presentationChips(listing)} />
+                {/*
+                  ‎**התנאים כפי שפורסמו, ולא אחוז שנגזר מהם.**
+
+                  ‏כאן ישב `100 − (publisherStatedSplit ?? commissionSplit)`,
+                  ‏ושתי טעויות נבלעו בו: כשהחלוקה שונה בין צד הקונה לצד
+                  ‏המוכר הוא הציג רק את המשלים של צד אחד, וכשהמפרסם ניסח
+                  ‏את החלוקה **במילים** `commissionSplit` הוא הכותרת —
+                  ‏שנופלת ל-50 — כלומר הכרטיס הצהיר „העמלה שלי 50%” על
+                  ‏תנאי שאיש לא סיכם, ממש ליד כפתור בלחיצה אחת (ביקורת
+                  ‏Codex, P1). ההערה על `headlineCommissionSplit` אומרת
+                  ‏זאת במפורש: „שום מסך אינו מציג אותה כתנאי הפרסום, כי
+                  ‏היא אינה כזו”.
+
+                  ‎`describeCommissionTerms` הוא בדיוק הפונקציה לשורה
+                  ‏אחת בכרטיס: היא מאחדת כשהצדדים זהים, מפרטת כששונים,
+                  ‏ואומרת „לא צוין” במקום להמציא מספר.
+                */}
                 <div
                   className="text-[length:var(--type-caption)]"
                   style={{ color: "var(--color-text-muted)" }}
                 >
-                  <IconHandshake s={13} /> העמלה שלי{" "}
-                  {100 - (publisherStatedSplit(listing.terms, "property") ?? listing.commissionSplit)}
-                  %
+                  <IconHandshake s={13} /> {describeCommissionTerms(listing.terms)}
                   {listing.officeName === undefined ? null : ` · ${listing.officeName}`}
                 </div>
                 {match === undefined ? null : (
@@ -340,6 +357,20 @@ export function NetworkPropertyMatches({
                     יש לי קונה לנכס הזה
                   </button>
                 )}
+              </div>
+              {/*
+                ‎**שורה משלה ברוחב מלא, ולא מתחת לכפתור.**
+
+                ‏הכפתור שולח אחוז גם כשהמפרסם ניסח את החלוקה במילים,
+                ‏ואז המספר הוא **ההצעה שלנו** — וזה מה שהרכיב אומר
+                ‏(‎`null` כשיש אחוז מוצהר). כשהוא ישב בעמודת הפעולה
+                ‏הצרה המשפט נחתך בקצה הכרטיס: העמודה `flex-none`, כלומר
+                ‏אינה גולשת. ‎`basis-full` שולח אותו לשורה שלו בתוך
+                ‏אותה `flex-wrap`. התגלה ברינדור — בדיקת הגלישה
+                ‏האופקית של הדף לא תפסה את זה, כי הכרטיס חותך.
+              */}
+              <div className="basis-full">
+                <ProposedSplitNote terms={listing.terms} kind="property" />
               </div>
             </div>
           );
