@@ -1,5 +1,5 @@
 import { inboundDestination } from "./support-routing.js";
-import { inboundToken, isProviderInboundRoute, replyAddressFor } from "./email-inbound.js";
+import { inboundToken, replyAddressFor } from "./email-inbound.js";
 
 /**
  * ‎**„למה התשובה של הלקוח הגיעה לתמיכה?” — בדיקה שעונה על זה.**
@@ -102,9 +102,7 @@ export function checkReplyChain(inboundAddress: string | null): ReplyChainResult
     id: "address",
     ok: true,
     title: "כתובת הקליטה והסוד",
-    detail: isProviderInboundRoute(address)
-      ? `${address} — נתיב קליטה של הספק`
-      : address,
+    detail: address,
   });
 
   const replyTo = replyAddressFor(address, REPLY_CHAIN_SAMPLE_TOKEN);
@@ -154,7 +152,13 @@ export function checkReplyChain(inboundAddress: string | null): ReplyChainResult
       id: "mailbox_hash",
       ok: false,
       title: "זיהוי הטוקן בתשובה החוזרת",
-      detail: `הספק ימסור „${hash}” ואנחנו מצפים ל-„${REPLY_CHAIN_SAMPLE_TOKEN}”`,
+      /*
+       * ‏ערך מול ערך, בלי פרוזה עברית ביניהם. משפט מעורב עברית-לטינית
+       * ‏שנושא טוקן נשבר בתצוגה דו-כיוונית — הגרשיים והמספרים קופצים
+       * ‏למקום אחר — ואז מי שבא להשוות מול הספק משווה מחרוזת אחרת.
+       * ‏ההסבר בעברית יושב ב-`fix`, שם אין ערכים.
+       */
+      detail: `${hash} ≠ ${REPLY_CHAIN_SAMPLE_TOKEN}`,
       fix: local.includes("+")
         ? "כתובת הקליטה מכילה „+” בחלק שלפני ה-@. הספק מוסר את כל מה שאחרי ה-„+” הראשון, ולכן הטוקן חוזר מעוות וכל תשובה נופלת לתמיכה. השתמשו בכתובת בלי „+”."
         : "הטוקן החוזר אינו זהה לזה שנשלח. בדקו שהספק מוסר את חלק ה-Plus כפי שהוא, באותיות גדולות.",
@@ -165,7 +169,7 @@ export function checkReplyChain(inboundAddress: string | null): ReplyChainResult
     id: "mailbox_hash",
     ok: true,
     title: "זיהוי הטוקן בתשובה החוזרת",
-    detail: `„${hash}” — מזוהה`,
+    detail: hash,
   });
 
   /*

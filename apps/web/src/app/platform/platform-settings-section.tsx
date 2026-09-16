@@ -1043,11 +1043,15 @@ export function PlatformSettingsSection({
                       </span>
                       <strong>{step.title}</strong>
                       {/*
-                        ‏הערך עצמו ב-LTR: כתובות וטוקנים נשברים בתצוגת
+                        ‏כתובת או טוקן ב-LTR — הם נשברים בתצוגת
                         ‏ימין-לשמאל, ואז מי שבא להשוות מול הספק משווה
-                        ‏מחרוזת אחרת.
+                        ‏מחרוזת אחרת. פרט שנאמר בעברית („לא מוגדרים”)
+                        ‏נשאר RTL: כפייה אחידה הייתה שוברת את השני.
                       */}
-                      <span dir="ltr" style={{ color: "var(--color-text-muted)" }}>
+                      <span
+                        dir={/[\u0590-\u05FF]/u.test(step.detail) ? "rtl" : "ltr"}
+                        style={{ color: "var(--color-text-muted)" }}
+                      >
                         {step.detail}
                       </span>
                     </div>
