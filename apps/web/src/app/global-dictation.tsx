@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { appendDictated } from "@metavchim/shared";
 import { DictationControls } from "./dictation-field";
@@ -18,8 +18,17 @@ import { DictationControls } from "./dictation-field";
  * הפקדים ישבו קודם צמוד **מתחת** לשדה — כלומר בדיוק על הפקד הבא
  * בטופס: מי שהקליד עיר ולחץ על „להשוות” שמתחתיה לחץ על המיקרופון
  * (mousedown נבלע בפקדים, והלחיצה שנועדה לקפל אותם מעולם לא
- * הגיעה לכפתור). בתוך השדה הם אינם מכסים דבר מלבד קצה השדה עצמו —
- * בעברית הטקסט מתחיל מימין, והצד השמאלי פנוי כמעט תמיד.
+ * הגיעה לכפתור).
+ *
+ * ## שני מצבים, שני מקומות
+ *
+ * - **המתנה:** כפתור אייקון קטן בפינה השמאלית-תחתונה של השדה, והשדה
+ *   מקבל ריפוד שמאלי בגודלו — כך הטקסט לעולם אינו מתחת לכפתור, גם
+ *   בשדה חיפוש צר (ביקורת Codex). בעברית הטקסט מתחיל מימין, והצד
+ *   השמאלי הוא הפנוי.
+ * - **הקלטה / תמלול:** הפאנל המלא (עצור, מצב) צריך רוחב, ולכן הוא
+ *   עולה **מעל** השדה, מיושר לקצהו. מה שמעל השדה הוא לרוב התווית
+ *   שלו — לכיסוי של שניות בזמן שמדברים. מתחת לשדה לעולם לא.
  *
  * מה לא מקבל מיקרופון בכוונה: סיסמאות, אימייל, מספרים ותאריכים
  * (הכתבה חופשית רק מלכלכת אותם), ושדות שכבר יש להם פקדי הכתבה
@@ -99,13 +108,44 @@ export function GlobalDictation() {
   const fieldRef = useRef<TextField | null>(null);
   fieldRef.current = field;
   const busyRef = useRef(false);
+  const [active, setActive] = useState(false);
+  const activeRef = useRef(false);
+  activeRef.current = active;
   const baseRef = useRef<string | null>(null);
+
+  /*
+   * ‏הריפוד השמור: כל עוד הכפתור בתוך השדה, השדה מקבל ריפוד שמאלי
+   * ‏ברוחב הכפתור. הערך המקורי נשמר ומוחזר כשהכפתור יוצא — עובר
+   * ‏למצב הקלטה, השדה מתחלף, או הרכיב יורד.
+   */
+  useLayoutEffect(() => {
+    const el = field;
+    const box = boxRef.current;
+    if (el === null || box === null || active) return;
+    const original = el.style.paddingLeft;
+    const reserve = (): void => {
+      el.style.paddingLeft = `${box.offsetWidth + 8}px`;
+    };
+    reserve();
+    /* ‏הפקדים נטענים אחרי שהתיבה כבר במקום (זיהוי יכולות ההכתבה) — הרוחב משתנה, והריפוד עוקב */
+    const observer = new ResizeObserver(reserve);
+    observer.observe(box);
+    return () => {
+      observer.disconnect();
+      el.style.paddingLeft = original;
+    };
+  }, [field, active, pos]);
 
   useEffect(() => {
     function place(el: TextField): void {
       const r = el.getBoundingClientRect();
-      /* ‏הפינה השמאלית-תחתונה של השדה, מבפנים — ה-translate מרים את התיבה לגובהה */
-      setPos({ top: r.bottom + window.scrollY - 4, left: r.left + window.scrollX + 4 });
+      setPos(
+        activeRef.current
+          ? /* ‏מעל השדה, מיושר לקצהו השמאלי — ה-translate מרים את הפאנל לגובהו */
+            { top: r.top + window.scrollY - 4, left: r.left + window.scrollX }
+          : /* ‏הפינה השמאלית-תחתונה של השדה, מבפנים */
+            { top: r.bottom + window.scrollY - 4, left: r.left + window.scrollX + 4 },
+      );
     }
     function onFocusIn(event: FocusEvent): void {
       const target = event.target;
@@ -139,13 +179,15 @@ export function GlobalDictation() {
     document.addEventListener("mousedown", onPointerDown);
     window.addEventListener("scroll", onReposition, true);
     window.addEventListener("resize", onReposition);
+    /* ‏מעבר בין המתנה להקלטה משנה את המקום — ממקמים מחדש */
+    onReposition();
     return () => {
       document.removeEventListener("focusin", onFocusIn);
       document.removeEventListener("mousedown", onPointerDown);
       window.removeEventListener("scroll", onReposition, true);
       window.removeEventListener("resize", onReposition);
     };
-  }, []);
+  }, [active]);
 
   if (field === null || pos === null) return null;
 
@@ -171,9 +213,13 @@ export function GlobalDictation() {
       }}
     >
       <DictationControls
+        compact={!active}
         onAppend={append}
         onIdle={() => (baseRef.current = null)}
-        onBusyChange={(busy) => (busyRef.current = busy)}
+        onBusyChange={(busy) => {
+          busyRef.current = busy;
+          setActive(busy);
+        }}
       />
     </div>,
     document.body,

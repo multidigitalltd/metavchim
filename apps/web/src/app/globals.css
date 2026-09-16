@@ -3295,6 +3295,13 @@ a.mv-bar-row:focus-visible {
 .mv-dictate-btn:hover {
   background: var(--color-hover-soft);
 }
+/* ‏אייקון בלבד — המיקרופון שיושב בתוך שדה טקסט ממוקד (global-dictation) */
+.mv-dictate-btn--compact {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  justify-content: center;
+}
 /* המצב האחרון שנבחר — מודגש, אבל השני נשאר לחיץ באותה מידה.
    הערכה הכהה נדרסה כאן בעבר בטוקנים, כי הזוג הקשיח שהיה בכלל
    הבסיס לא עבר דרכה. משעברו גם הם לטוקנים, ההחרגה מיותרת */
