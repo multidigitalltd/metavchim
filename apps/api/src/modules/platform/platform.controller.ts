@@ -44,6 +44,7 @@ import {
   MAX_BURN_CREDITS,
   resolveReferralFeePercent,
   PLAN_FEATURES,
+  PlanCodeSchema,
   blockedModulesRejectionReason,
   couponDefinitionRejection,
   describeCoupon,
@@ -198,12 +199,6 @@ export const TelephonyWebhookQuerySchema = z
 const PurgeWebhookLogSchema = z
   .object({ olderThanHours: z.coerce.number().int().min(0).max(24 * 90) })
   .strict();
-
-const PlanCodeSchema = z
-  .string()
-  .min(2)
-  .max(20)
-  .regex(/^[a-z0-9_]+$/u, "קוד מסלול באותיות לטיניות קטנות, ספרות וקו תחתון");
 
 const CreateAgencySchema = z
   .object({
