@@ -91,8 +91,8 @@ export class WebLeadService {
       propertyId?: string;
     },
     source: string,
-  ): Promise<void> {
-    await this.prisma.$transaction(async (tx) => {
+  ): Promise<{ leadId: string; contactId: string }> {
+    const ids = await this.prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
 
       const phoneHash = this.crypto.phoneHash(input.phone);
@@ -213,8 +213,11 @@ export class WebLeadService {
           entityId: leadId,
         },
       });
+      /* ‏מי שקלט צריך לפעמים לקשור משהו לליד — סיור בבית פתוח, למשל */
+      return { leadId, contactId: contact.id };
     });
     this.logger.log(`ליד מהאתר נקלט (tenant ${tenantId})`);
+    return ids;
   }
 
   /**
@@ -357,7 +360,8 @@ export class WebLeadService {
         id: ulid(),
         tenantId,
         name: "lead.created",
-        payload: { leadId, tenantId, source },
+        /* ‏השדה חובה בסכמת האירוע — בלעדיו הניתוב נכשל בשקט וה-SLA לא נקבע */
+        payload: { leadId, tenantId, source, requiresHuman: false },
       },
     });
     return { leadId, repeat: false };

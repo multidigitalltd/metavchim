@@ -522,7 +522,7 @@ export function OwnerActivity({
  * שלוש הקשות על שורת סיור שהתקיים. מוצג כתוויות כשיש, וכשלושה
  * בוררים קטנים כשאין — או כשלוחצים „לשנות”.
  */
-function ViewingFeedbackCell({
+export function ViewingFeedbackCell({
   appointmentId,
   feedback,
   canEdit,

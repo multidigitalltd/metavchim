@@ -2417,6 +2417,8 @@ model Appointment {
   /// מתי נלחץ. בלעדיו "אישר" על סיור שנדחה מאז נקרא כאישור למועד
   /// החדש, בזמן שהוא ניתן לישן. מתאפס יחד עם `reminderSentAt`.
   reminderReplyAt DateTime? @map("reminder_reply_at")
+  /// ‏מבקר בבית פתוח — הפגישה היא הסיור שלו, וזה האירוע שאליו נרשם
+  openHouseId     String?   @map("open_house_id") @db.Char(26)
   createdBy       String?   @map("created_by") @db.Char(26)
   createdAt       DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @updatedAt @map("updated_at")
@@ -2425,7 +2427,27 @@ model Appointment {
   @@index([tenantId, status, startsAt])
   @@index([tenantId, googleEventId])
   @@index([tenantId, propertyId])
+  @@index([tenantId, openHouseId])
   @@map("appointments")
+}
+
+/// ‏בית פתוח על נכס — משבצות זמן; המבקרים הם פגישות `viewing` עם `openHouseId`
+model OpenHouse {
+  id              String    @id @db.Char(26)
+  tenantId        String    @map("tenant_id") @db.Char(26)
+  propertyId      String    @map("property_id") @db.Char(26)
+  startsAt        DateTime  @map("starts_at")
+  endsAt          DateTime  @map("ends_at")
+  slotMinutes     Int       @map("slot_minutes") @db.SmallInt
+  slotCapacity    Int?      @map("slot_capacity") @db.SmallInt
+  /// planned | done | cancelled
+  status          String    @default("planned") @db.VarChar(12)
+  createdByUserId String?   @map("created_by_user_id") @db.Char(26)
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  @@index([tenantId, propertyId, startsAt])
+  @@map("open_houses")
 }
 
 // משימות ותזכורות (docs/01 — מודול 7): רשימת ה"לעשות" האישית של הסוכן,
