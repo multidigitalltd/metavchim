@@ -64,6 +64,7 @@ import { PropertyOwner, type OwnerContact } from "../property-owner";
 import { OwnerActivity } from "./owner-activity";
 import { PartnerSuggestions } from "./partner-suggestions";
 import { PriceBenchmark } from "./price-benchmark";
+import { ReofferCard } from "./reoffer-card";
 import { PropertyOccupant, type OccupantContact } from "../property-occupant";
 import { LocationPicker } from "../location-picker-lazy";
 import { ExclusivityPanel } from "../exclusivity-panel";
@@ -129,6 +130,9 @@ interface PropertyDetail {
   condition?: PropertyCondition;
   hasSafeRoom?: boolean;
   priceAgorot?: number;
+  /** ‏המחיר הקודם ומועד השינוי — „ירד המחיר” בכרטיס */
+  previousPriceAgorot?: number | null;
+  priceChangedAt?: string | null;
   entryDate?: string;
   entryNote?: string;
   internalNotes?: string;
@@ -1577,6 +1581,17 @@ export default function PropertyDetailPage({
               ‏ולכן אין כאן תנאי שני שיוכל לסתור אותו.
             */}
             <PriceBenchmark propertyId={property.id} />
+            {/*
+              ‏„ירד המחיר — להציע שוב”: רק כשיש ירידה (שדות הנכס מכריעים,
+              ‏בלי בקשה בכל טעינה) ולמי שרשאי לראות קונים.
+            */}
+            {property.previousPriceAgorot !== undefined &&
+            property.previousPriceAgorot !== null &&
+            property.priceAgorot !== undefined &&
+            property.previousPriceAgorot > property.priceAgorot &&
+            (can(user, "buyers.view_own") || can(user, "buyers.view_all")) ? (
+              <ReofferCard propertyId={property.id} canSend={can(user, "offers.send")} />
+            ) : null}
             {partnershipApplies(property) &&
             can(user, "matches.view") &&
             (can(user, "buyers.view_own") || can(user, "buyers.view_all")) ? (

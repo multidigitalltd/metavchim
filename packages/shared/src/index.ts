@@ -185,6 +185,7 @@ export * from "./logic/whatsapp-link-code.js";
 export * from "./logic/property-activity.js";
 export * from "./logic/property-checks.js";
 export * from "./logic/property-photo.js";
+export * from "./logic/price-drop-reoffer.js";
 export * from "./logic/viewing-feedback.js";
 export * from "./schemas/property-checks.js";
 export * from "./schemas/property-photo.js";

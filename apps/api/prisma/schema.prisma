@@ -540,6 +540,9 @@ model Property {
   facing               String?   @db.VarChar(10)
   condition            String?   @db.VarChar(20)
   priceAgorot          BigInt?   @map("price_agorot")
+  /// המחיר הקודם ומועד השינוי האחרון — „ירד מ-X ל-Y ב-…” בכרטיס, והצעה חוזרת לקונים שאמרו „גבוה”.
+  previousPriceAgorot BigInt?   @map("previous_price_agorot")
+  priceChangedAt      DateTime? @map("price_changed_at")
   priceFlexible        Boolean?  @map("price_flexible")
   /// מועד כניסה/מסירה — **המצב הוא השדה, התאריך נלווה אליו**.
   ///
@@ -1169,11 +1172,14 @@ model Interaction {
   kind      String   @db.VarChar(20) // note | call | whatsapp | status_change | system
   direction String?  @db.VarChar(10) // in | out
   content   String
+  /// פנייה **על נכס** — הצעה חוזרת אחרי הורדת מחיר וכד'. אופציונלי, לצד ההורה (ליד/קונה).
+  propertyId String? @map("property_id") @db.Char(26)
   createdBy String?  @map("created_by") @db.Char(26)
   createdAt DateTime @default(now()) @map("created_at")
 
   @@index([tenantId, leadId, createdAt])
   @@index([tenantId, buyerId, createdAt])
+  @@index([tenantId, propertyId, createdAt])
   @@map("interactions")
 }
 
@@ -2397,6 +2403,7 @@ model Appointment {
   @@index([tenantId, startsAt])
   @@index([tenantId, status, startsAt])
   @@index([tenantId, googleEventId])
+  @@index([tenantId, propertyId])
   @@map("appointments")
 }
 
