@@ -62,11 +62,22 @@ export const PlanCodeSchema = z
 export const OptionalPhoneInputSchema = z
   .string()
   .trim()
+  /*
+   * ‎**„ריק” נקבע על מה שהוקלד, ולא על מה שיצא מהנרמול.**
+   *
+   * ‏`normalizePhone` מסיר כל תו שאינו ספרה, ולכן `abc`, `()` ו-`---`
+   * ‏יוצאים ממנו כמחרוזת ריקה בדיוק כמו שדה שלא מולא. בדיקה על
+   * ‏התוצאה הייתה מקבלת את שלושתם כ„לא הוזן טלפון”, שומרת `null`,
+   * ‏ולא אומרת דבר — כלומר בדיוק הכישלון השקט שהסכימה הזו נכתבה כדי
+   * ‏לסגור, רק בכיוון ההפוך (ביקורת Codex).
+   *
+   * ‏לכן הבדיקה על הגלם, והנרמול רק אחריה.
+   */
   .max(25, "מספר הטלפון ארוך מדי")
-  .transform(normalizePhone)
-  .refine((phone) => phone === "" || PhoneSchema.safeParse(phone).success, {
+  .refine((raw) => raw === "" || PhoneSchema.safeParse(normalizePhone(raw)).success, {
     message: "מספר טלפון ישראלי לא תקין — למשל 050-1234567",
   })
+  .transform((raw) => (raw === "" ? "" : normalizePhone(raw)))
   .optional();
 
 export const SignupInputSchema = z

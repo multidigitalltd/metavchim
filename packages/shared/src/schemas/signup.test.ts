@@ -41,6 +41,22 @@ describe("סכימת ההרשמה — טלפון", () => {
     expect(SignupInputSchema.parse(base).phone).toBeUndefined();
   });
 
+  /*
+   * ‏`normalizePhone` מסיר כל תו שאינו ספרה, ולכן אלה יוצאים ממנו
+   * ‏כמחרוזת ריקה — בדיוק כמו שדה שלא מולא. בדיקה על התוצאה במקום
+   * ‏על הגלם קיבלה אותם כ„לא הוזן טלפון” ושמרה `null` בלי לומר דבר:
+   * ‏אותו כישלון שקט שהקובץ הזה נכתב כדי לסגור (ביקורת Codex).
+   */
+  it.each([["אותיות", "abc"], ["סוגריים ריקים", "()"], ["מקפים בלבד", "---"]])(
+    "%s אינו „לא הוזן” אלא פסילה",
+    (_label, phone) => {
+      const parsed = SignupInputSchema.safeParse({ ...base, phone });
+      expect(parsed.success).toBe(false);
+      if (parsed.success) return;
+      expect(parsed.error.issues[0]?.path).toEqual(["phone"]);
+    },
+  );
+
   it("מספר שאינו ישראלי עדיין נדחה, ובהודעה שאומרת מה לתקן", () => {
     const parsed = SignupInputSchema.safeParse({ ...base, phone: "12345" });
     expect(parsed.success).toBe(false);
