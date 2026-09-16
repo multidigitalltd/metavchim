@@ -1166,15 +1166,26 @@ async function assessStaleProperty(tenantId: string, propertyId: string, cutoff:
     if (!property) return;
 
     const now = new Date();
-    const [lastViewing, lastLead, lastCall] = await Promise.all([
+    /*
+     * ‏סיור **שנקבע** להמשך השבוע הוא פעילות, גם אם עוד לא התקיים:
+     * ‏קביעתו אינה נוגעת בשורת הנכס, ובלי הבדיקה הזו הנכס היה מקבל
+     * ‏משימה שטוענת „בלי סיור” בזמן שיש אחד ביומן (ביקורת Codex).
+     * ‏לגיל הפעילות נספר רק הסיור האחרון שכבר התקיים.
+     */
+    const [lastViewing, upcomingViewing, lastLead, lastCall] = await Promise.all([
       tx.appointment.findFirst({
         where: { tenantId, propertyId, kind: "viewing", status: { not: "cancelled" }, startsAt: { lte: now } },
         orderBy: { startsAt: "desc" },
         select: { startsAt: true },
       }),
+      tx.appointment.findFirst({
+        where: { tenantId, propertyId, kind: "viewing", status: { not: "cancelled" }, startsAt: { gt: now } },
+        select: { id: true },
+      }),
       tx.lead.findFirst({ where: { tenantId, propertyId }, orderBy: { createdAt: "desc" }, select: { createdAt: true } }),
       tx.call.findFirst({ where: { tenantId, propertyId }, orderBy: { occurredAt: "desc" }, select: { occurredAt: true } }),
     ]);
+    if (upcomingViewing !== null) return;
     const lastActivity = new Date(Math.max(
       property.updatedAt.getTime(),
       lastViewing?.startsAt.getTime() ?? 0,
@@ -1193,18 +1204,26 @@ async function assessStaleProperty(tenantId: string, propertyId: string, cutoff:
     const perSqm = pricePerSqmAgorot(property.priceAgorot === null ? null : Number(property.priceAgorot), property.areaSqm);
     const cityKey = normalizeLocationName(property.city ?? "");
     if (perSqm !== null && cityKey !== "") {
-      const rows = await tx.property.findMany({
-        where: {
-          tenantId, deletedAt: null, id: { not: propertyId }, dealType: property.dealType,
-          status: { in: ["active", "on_hold", "sold", "rented"] }, priceAgorot: { gt: 0 }, areaSqm: { gt: 0 },
-        },
-        select: { city: true, neighborhood: true, priceAgorot: true, areaSqm: true },
+      const comparable = {
+        tenantId, deletedAt: null, id: { not: propertyId }, dealType: property.dealType,
+        status: { in: ["active", "on_hold", "sold", "rented"] }, priceAgorot: { gt: 0 }, areaSqm: { gt: 0 },
+      };
+      /*
+       * ‏קודם אילו כתיבים של העיר, ורק אז אילו נכסים — התקרה חלה
+       * ‏**בתוך העיר**, כמו בכרטיס הנכס. תקרה על כל המשרד הייתה נותנת
+       * ‏לערים אחרות לדחוק את בני ההשוואה החוצה (ביקורת Codex).
+       */
+      const cities = await tx.property.groupBy({ by: ["city"], where: comparable });
+      const sameCity = cities
+        .map((row) => row.city)
+        .filter((city): city is string => city !== null && normalizeLocationName(city) === cityKey);
+      const rows = sameCity.length === 0 ? [] : await tx.property.findMany({
+        where: { ...comparable, city: { in: sameCity } },
+        select: { neighborhood: true, priceAgorot: true, areaSqm: true },
         orderBy: { createdAt: "desc" },
         take: STALE_PROPERTY_BENCHMARK_SCAN,
       });
-      const inCity = rows
-        .filter((row) => normalizeLocationName(row.city ?? "") === cityKey)
-        .map((row) => ({ neighborhood: row.neighborhood, priceAgorot: Number(row.priceAgorot), areaSqm: row.areaSqm }));
+      const inCity = rows.map((row) => ({ neighborhood: row.neighborhood, priceAgorot: Number(row.priceAgorot), areaSqm: row.areaSqm }));
       const wanted = property.neighborhood ?? "";
       const inNeighborhood = wanted === "" ? [] : inCity.filter((row) => neighborhoodSame(row.neighborhood ?? "", wanted));
       const scoped = averagePerSqmAgorot(inNeighborhood) !== null
