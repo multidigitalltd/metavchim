@@ -12,7 +12,7 @@ import { loadEnv } from "../../config/env";
 import { AuditService } from "../../core/audit.service";
 import { OutboxService } from "../../core/outbox.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
-import { StorageService } from "../../core/storage.service";
+import { StorageService, type StoredObject } from "../../core/storage.service";
 import { ContactsService } from "../contacts/contacts.service";
 import { buildOfferMessage, MessagingService } from "../messaging/messaging.service";
 
@@ -428,7 +428,7 @@ export class OffersService {
   async publicImage(
     token: string,
     index: number,
-  ): Promise<{ body: NodeJS.ReadableStream; contentType?: string; contentLength?: number }> {
+  ): Promise<StoredObject> {
     const key = await this.prisma.withPublicOffer(token, async (tx) => {
       const offer = await tx.offer.findFirst({ where: { publicToken: token } });
       if (!offer) throw new NotFoundException("ההצעה לא נמצאה");

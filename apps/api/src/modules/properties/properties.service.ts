@@ -1869,12 +1869,13 @@ export class PropertiesService {
           propertyId: { in: pageRows.map((r) => r.id) },
         },
         orderBy: { sortOrder: "asc" },
-        select: { propertyId: true, id: true },
+        select: { propertyId: true, id: true, bytesUpdatedAt: true },
       });
-      const primaryIdByProperty = new Map<string, string>();
+      /* ‏החותמת נכנסת לכתובת: תמונה שטושטשה מקבלת כתובת חדשה גם ברשימה */
+      const primaryIdByProperty = new Map<string, { id: string; version: Date }>();
       for (const m of media) {
         if (!primaryIdByProperty.has(m.propertyId))
-          primaryIdByProperty.set(m.propertyId, m.id);
+          primaryIdByProperty.set(m.propertyId, { id: m.id, version: m.bytesUpdatedAt });
       }
 
       // מספר הקונים הממתינים לכל נכס — זו הפעולה הבאה שהמתווך מחפש
@@ -1913,7 +1914,7 @@ export class PropertiesService {
           hasDescription: Boolean(row.marketingDescription),
           hasOwner: Boolean(row.ownerContactId),
         });
-        const primaryId = primaryIdByProperty.get(row.id);
+        const primary = primaryIdByProperty.get(row.id);
         return {
           ...fields,
           id: row.id,
@@ -1922,7 +1923,7 @@ export class PropertiesService {
           // מחושב ולא שמור — ראו ההסבר ב-getById
           readinessScore: readiness.score,
           missingFields: readiness.missingFields,
-          thumbnailUrl: primaryId ? mediaRawPath(row.id, primaryId) : undefined,
+          thumbnailUrl: primary ? mediaRawPath(row.id, primary.id, primary.version) : undefined,
           suggestedMatchCount: matchCountByProperty.get(row.id) ?? 0,
           ...(row.agentUserId === null ? {} : { agentUserId: row.agentUserId }),
           ...(agentName === undefined ? {} : { agentName }),

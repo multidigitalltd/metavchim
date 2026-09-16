@@ -7,12 +7,16 @@ import {
   HttpCode,
   Param,
   Post,
+  Req,
+  Res,
   StreamableFile,
 } from "@nestjs/common";
 import { Throttle } from "@nestjs/throttler";
 import { z } from "zod";
 import { IdSchema, PhoneInputSchema } from "@metavchim/shared";
+import type { Request, Response } from "express";
 import { Public, RequireCapability } from "../../common/auth.decorators";
+import { objectResponse } from "../../common/object-response";
 import { RequireFeature } from "../../common/feature.guard";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { LandingService, type LandingView } from "./landing.service";
@@ -73,18 +77,16 @@ export class LandingController {
     });
   }
 
+  /** ‏תמונת נכס — משתכתבת במקום (טשטוש), ולכן ETag ולא שעה של מטמון. */
   @Public()
   @Get("public/landing/:token/media/:mediaId")
-  @Header("Cache-Control", "public, max-age=3600")
   async image(
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
     @Param("token", new ZodValidationPipe(TokenSchema)) token: string,
     @Param("mediaId", new ZodValidationPipe(IdSchema)) mediaId: string,
-  ): Promise<StreamableFile> {
-    const obj = await this.landing.publicImage(token, mediaId);
-    return new StreamableFile(obj.body as never, {
-      type: obj.contentType ?? "application/octet-stream",
-      ...(obj.contentLength !== undefined ? { length: obj.contentLength } : {}),
-    });
+  ): Promise<StreamableFile | undefined> {
+    return objectResponse(req, res, await this.landing.publicImage(token, mediaId), "public");
   }
 
   /**

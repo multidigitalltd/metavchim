@@ -326,12 +326,12 @@ export class PropertyTwinsService {
     const media = await tx.propertyMedia.findMany({
       where: { tenantId, propertyId: { in: rows.map((r) => r.id) } },
       orderBy: { sortOrder: "asc" },
-      select: { propertyId: true, id: true },
+      select: { propertyId: true, id: true, bytesUpdatedAt: true },
     });
-    const primaryByProperty = new Map<string, string>();
+    const primaryByProperty = new Map<string, { id: string; version: Date }>();
     for (const item of media) {
       if (!primaryByProperty.has(item.propertyId)) {
-        primaryByProperty.set(item.propertyId, item.id);
+        primaryByProperty.set(item.propertyId, { id: item.id, version: item.bytesUpdatedAt });
       }
     }
 
@@ -341,7 +341,7 @@ export class PropertyTwinsService {
         // נכס בארכיון — הקשר נשאר במסד ואינו מוצג. ראו למעלה.
         if (row === undefined) return [];
         const rooms = row.rooms === null ? undefined : Number(row.rooms);
-        const primaryId = primaryByProperty.get(row.id);
+        const primary = primaryByProperty.get(row.id);
         return [
           {
             id: row.id,
@@ -374,8 +374,8 @@ export class PropertyTwinsService {
             ...(row.marketingTitle !== null
               ? { marketingTitle: row.marketingTitle }
               : {}),
-            ...(primaryId !== undefined
-              ? { thumbnailUrl: mediaRawPath(row.id, primaryId) }
+            ...(primary !== undefined
+              ? { thumbnailUrl: mediaRawPath(row.id, primary.id, primary.version) }
               : {}),
             ...(link.note !== null ? { note: link.note } : {}),
             linkedAt: link.createdAt,

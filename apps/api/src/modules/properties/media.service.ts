@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
 import { photoLogoOverlayOn, type PhotoBlurRect } from "@metavchim/shared";
 import { lockProperty } from "../../common/locks";
 import { ulid } from "ulid";
@@ -14,7 +14,7 @@ import {
   type EnhancedPhoto,
 } from "../../core/photo-enhancer";
 import { PrismaService } from "../../core/prisma.service";
-import { StorageService } from "../../core/storage.service";
+import { StorageService, type StoredObject } from "../../core/storage.service";
 import { TenantLogoService } from "../../core/tenant-logo.service";
 import { ListingsService } from "../collaboration/listings.service";
 import { refreshReadiness } from "./readiness.writer";
@@ -323,10 +323,18 @@ export class MediaService {
    * ‏מקום**, לא רק בכרטיס. הסיומת במפתח (`.jpg` של תמונה ישנה)
    * ‏נשארת; ה-Content-Type שנשמר לצד האובייקט הוא שקובע מה מוגש.
    *
-   * ‏נעילה מייעצת לכל תמונה: שני שכתובים במקביל (טשטוש משתי
-   * ‏לשוניות) היו קוראים את אותו קובץ, וזה שכותב שני מוחק את
-   * ‏המלבן של הראשון. הנעילה מסדרת אותם, והשני קורא את מה
-   * ‏שהראשון כתב.
+   * ## ‏מה בתוך הטרנזקציה ומה מחוץ לה
+   *
+   * ‏ההורדה והעיבוד — שניות על תמונה גדולה עם כמה מלבנים — רצים
+   * ‏**מחוץ** לטרנזקציה: הטרנזקציה האינטראקטיבית פוקעת אחרי חמש
+   * ‏שניות, ואם היא פוקעת אחרי שהאחסון כבר נכתב נשארים בייטים
+   * ‏חדשים בלי חותמת, בלי יומן, ועם שגיאה למשתמש (ביקורת Codex).
+   *
+   * ‏בפנים נשארים רק הצעדים הקצרים, תחת נעילה מייעצת לכל תמונה:
+   * ‏בדיקה שהקובץ לא השתנה מאז שנקרא (`bytesUpdatedAt`), הכתיבה
+   * ‏לאחסון, ועדכון השורה. שני שכתובים במקביל (טשטוש משתי לשוניות)
+   * ‏מסודרים: השני מגלה שהחותמת זזה, קורא את מה שהראשון כתב,
+   * ‏ומעבד מחדש — פעם אחת; אם גם אז השתנה, 409.
    */
   private async rewriteBytes(
     propertyId: string,
@@ -335,13 +343,11 @@ export class MediaService {
     options: { markEnhanced: boolean; action: string },
   ): Promise<MediaDto> {
     const tenantId = TenantContext.current().tenantId;
-    const updated = await this.prisma.withTenant(async (tx) => {
-      const lockKey = `property-media-bytes:${tenantId}:${mediaId}`;
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`;
-      const row = await tx.propertyMedia.findFirst({
-        where: { id: mediaId, tenantId, propertyId },
-        select: { s3Key: true },
-      });
+    const where = { id: mediaId, tenantId, propertyId };
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const row = await this.prisma.withTenant((tx) =>
+        tx.propertyMedia.findFirst({ where, select: { s3Key: true, bytesUpdatedAt: true } }),
+      );
       if (!row) throw new NotFoundException("תמונה לא נמצאה");
       const input = await this.readObject(row.s3Key);
       let result: EnhancedPhoto;
@@ -351,21 +357,30 @@ export class MediaService {
         if (error instanceof UnreadablePhotoError) throw new BadRequestException(error.message);
         throw error;
       }
-      await this.storage.put(row.s3Key, result.buffer, PHOTO_MIME, tenantId);
-      const now = new Date();
-      const saved = await tx.propertyMedia.update({
-        where: { id: mediaId },
-        data: { bytesUpdatedAt: now, ...(options.markEnhanced ? { enhancedAt: now } : {}) },
+
+      const saved = await this.prisma.withTenant(async (tx) => {
+        const lockKey = `property-media-bytes:${tenantId}:${mediaId}`;
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`;
+        const current = await tx.propertyMedia.findFirst({ where, select: { bytesUpdatedAt: true } });
+        if (!current) throw new NotFoundException("תמונה לא נמצאה");
+        if (current.bytesUpdatedAt.getTime() !== row.bytesUpdatedAt.getTime()) return null;
+        await this.storage.put(row.s3Key, result.buffer, PHOTO_MIME, tenantId);
+        const now = new Date();
+        const updated = await tx.propertyMedia.update({
+          where: { id: mediaId },
+          data: { bytesUpdatedAt: now, ...(options.markEnhanced ? { enhancedAt: now } : {}) },
+        });
+        await this.audit.record(tx, {
+          action: options.action,
+          entityType: "property",
+          entityId: propertyId,
+          metadata: { mediaId },
+        });
+        return updated;
       });
-      await this.audit.record(tx, {
-        action: options.action,
-        entityType: "property",
-        entityId: propertyId,
-        metadata: { mediaId },
-      });
-      return saved;
-    });
-    return toDto(propertyId, updated);
+      if (saved !== null) return toDto(propertyId, saved);
+    }
+    throw new ConflictException("התמונה השתנתה בינתיים — רעננו ונסו שוב");
   }
 
   /** ‏„לשפר” על תמונה שהועלתה לפני הכלי — אותו צינור של ההעלאה. */
@@ -390,10 +405,7 @@ export class MediaService {
    * (בפרודקשן MinIO חי על רשת פנימית של compose, בלי כתובת ציבורית;
    * URL חתום שנוצר מולו לא נגיש מהדפדפן — ביקורת Codex).
    */
-  async getRaw(
-    propertyId: string,
-    mediaId: string,
-  ): Promise<{ body: NodeJS.ReadableStream; contentType?: string; contentLength?: number }> {
+  async getRaw(propertyId: string, mediaId: string): Promise<StoredObject> {
     const tenantId = TenantContext.current().tenantId;
     const row = await this.prisma.withTenant((tx) =>
       tx.propertyMedia.findFirst({

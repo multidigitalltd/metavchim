@@ -19,6 +19,20 @@ import { PrismaService } from "./prisma.service";
  * פנימית או מאחורי שער — וזה בדיוק המצב בפרודקשן שלנו. הפונקציה
  * שחתמה כתובות הוסרה כדי שהמסלול הזה לא ייווצר שוב.
  */
+/**
+ * ‏אובייקט כפי שהאחסון מחזיר אותו להזרמה.
+ *
+ * ‎`etag` — חותמת התוכן של האחסון, שמשתנה כשהבייטים משתנים. תמונת
+ * ‏נכס משתכתבת במקום (טשטוש, שיפור), ולכן הנתיבים שמגישים אותה
+ * ‏מוסרים אותה לדפדפן ועונים 304 כשלא השתנה (`objectResponse`).
+ */
+export interface StoredObject {
+  body: NodeJS.ReadableStream;
+  contentType?: string;
+  contentLength?: number;
+  etag?: string;
+}
+
 @Injectable()
 export class StorageService implements OnModuleInit {
   private readonly logger = new Logger(StorageService.name);
@@ -133,14 +147,13 @@ export class StorageService implements OnModuleInit {
    * קריאת אובייקט להזרמה דרך ה-API — הדפדפן לא מדבר עם שרת האחסון
    * ישירות (בפרודקשן MinIO על רשת פנימית בלבד, ללא כתובת ציבורית).
    */
-  async getObject(
-    key: string,
-  ): Promise<{ body: NodeJS.ReadableStream; contentType?: string; contentLength?: number }> {
+  async getObject(key: string): Promise<StoredObject> {
     const res = await this.client.send(new GetObjectCommand({ Bucket: this.bucket, Key: key }));
     return {
       body: res.Body as NodeJS.ReadableStream,
       contentType: res.ContentType,
       contentLength: res.ContentLength,
+      etag: res.ETag,
     };
   }
 }
