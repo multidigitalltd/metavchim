@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, GoneException, Injectable, NotFoundException } from "@nestjs/common";
+import { ConflictException, GoneException, Injectable, NotFoundException } from "@nestjs/common";
 import { recordMentorWin } from "../../common/mentor-wins";
 import type { Property } from "@prisma/client";
 import { randomBytes } from "node:crypto";
@@ -110,10 +110,7 @@ export class OffersService {
         });
       } catch (error) {
         if (!(error instanceof AgreementFieldsMissingError)) throw error;
-        throw new BadRequestException(
-          "כדי לשלוח הצעה צריך שהלקוח יחתום על הזמנה בכתב, ולהפקתה חסרים " +
-            `פרטי חובה: ${error.fields.join(", ")}. השלימו אותם בהגדרות המשרד ואז נסו שוב.`,
-        );
+        throw error.forAction("כדי לשלוח הצעה");
       }
     });
   }
