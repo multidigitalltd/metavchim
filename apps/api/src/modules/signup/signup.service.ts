@@ -102,11 +102,13 @@ export class SignupService {
    * ‎`null` — הכתובת כבר תפוסה (משתמש מושבת, למשל), או שאין מסלול
    * ‏חינמי ציבורי. הקורא חוזר להודעה הרגילה: לא נפתח חשבון, ולא
    * ‏נאמר משהו שאינו נכון.
+   *
+   * ‎`source` — מקור הבקשה, לתקרת הפתיחות. ראו `chargeTenantOpening`.
    */
-  async createFromVerifiedIdentity(identity: {
-    email: string;
-    name?: string;
-  }): Promise<ValidatedUser | null> {
+  async createFromVerifiedIdentity(
+    identity: { email: string; name?: string },
+    source: string | undefined,
+  ): Promise<ValidatedUser | null> {
     const email = identity.email.toLowerCase().trim();
     const plan = await this.freeSelfServePlan();
     if (plan === null) return null;
@@ -126,6 +128,24 @@ export class SignupService {
      * ‏ריק היה מייצר משרד בלי שם בכל מסך.
      */
     const personName = identity.name?.trim() || email.split("@")[0] || "בעל המשרד";
+
+    /*
+     * ‎**התקרה כאן ולא בבקר.** זו הפונקציה שפותחת את הדייר, וכל כלל
+     * ‏שיושב אצל הקורא הוא כלל שהקורא הבא שוכח.
+     *
+     * ‎**ואחרי כל מה שיכול לחזור בלי לפתוח כלום.** התחברות רגילה של
+     * ‏סוכן קיים אינה מגיעה לכאן בכלל, וגם „הכתובת תפוסה” — כלומר מי
+     * ‏שהמשרד שלו השבית אותו — כבר חזר למעלה. אילו הגבייה ישבה
+     * ‏בכניסה, משתמש מושבת שמנסה שוב ושוב היה שורף את מכסת הפתיחות
+     * ‏של כל מי שיושב מאחורי אותה כתובת NAT. מה שנספר כאן הוא ניסיון
+     * ‏פתיחה של דייר חדש ותו לא.
+     *
+     * ‏עדיין **לפני** `create`, ולא אחריו: „בדוק ואז כתוב” בלי
+     * ‏להזמין מקום מראש מאפשר לבקשות מקבילות לחמוק בין הבדיקות, ומה
+     * ‏שחומק כאן הוא דייר.
+     */
+    await this.verification.chargeTenantOpening(source);
+
     const { user } = await this.create(
       providerVerifiedSignup({
         agencyName: personName,

@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  HttpException,
   Injectable,
   Logger,
   OnModuleDestroy,
@@ -9,6 +10,7 @@ import {
 import { createHash, createHmac, randomBytes, randomInt, timingSafeEqual } from "node:crypto";
 import IORedis from "ioredis";
 import { normalizeSignupCode, SIGNUP_CODE_LENGTH } from "@metavchim/shared";
+import { chargeFixedWindow, releaseFixedWindow } from "../../common/fixed-window-quota";
 import { loadEnv } from "../../config/env";
 import { EmailRejectedError, EmailService } from "../../core/email.service";
 
@@ -54,6 +56,29 @@ const MAX_ATTEMPTS = 5;
  */
 const MAX_CODES_PER_EMAIL = 3;
 const EMAIL_WINDOW_SECONDS = 60 * 60;
+
+/**
+ * ‎**כמה משרדים אפשר לפתוח בשעה ממקור אחד — הכלל, לשני הנתיבים.**
+ *
+ * ‏הנתיב הציבורי הראשון (`POST /signup`) הוגבל לשלוש בשעה לפי מקור
+ * ‏הבקשה, וזה היה מספיק כל עוד זו הייתה הדרך היחידה לפתוח דייר.
+ * ‏החזרה מ-Google פותחת דייר גם היא, וירשה רק את התקרה הכללית של
+ * ‏‎300 בקשות לדקה — כלומר מי שמחזיק אצווה של חשבונות Google יכול
+ * ‏היה למלא את המסד במאות משרדי רפאים בדקה, מכתובת אחת (ביקורת
+ * ‏Codex).
+ *
+ * ‎**המספר אחד לשניהם, ובכוונה.** „כמה דיירים ייפתחו ממקור אחד
+ * ‏בשעה” הוא כלל אחד, לא שתי העדפות; שני מספרים נפרדים היו נפרדים
+ * ‏עוד יותר ביום שבו מישהו מעלה את האחד ולא יודע על השני. המונים
+ * ‏עצמם נפרדים — אחד ב-`@nestjs/throttler` והשני ב-Redis — אבל
+ * ‏התקרה שלהם היא אותה תקרה.
+ *
+ * ‎**זו ספירה של פתיחות בפועל ולא של ניסיונות**, ולכן היא בפועל
+ * ‏הדוקה יותר מזו של הטופס: התחברות רגילה של סוכן קיים אינה נוגעת
+ * ‏במונה כלל, וגם לא כניסה של מי שהושבת.
+ */
+export const MAX_TENANTS_PER_SOURCE = 3;
+export const TENANT_SOURCE_WINDOW_SECONDS = 60 * 60;
 
 /**
  * כמה זמן שליחה נחשבת „בדרך” וחוסמת שליחה חוזרת נוספת — ראו
@@ -164,8 +189,9 @@ export class SignupVerificationService implements OnModuleDestroy {
     await this.redis.quit().catch(() => undefined);
   }
 
-  private hmac(code: string): string {
-    return createHmac("sha256", this.hmacKey).update(code).digest("hex");
+  /** ‏גיבוב עם מפתח — לקוד האימות, ולכל ערך שאסור לו לשבת במפתח Redis. */
+  private hmac(value: string): string {
+    return createHmac("sha256", this.hmacKey).update(value).digest("hex");
   }
 
   private static fingerprint(emailAddress: string): string {
@@ -549,6 +575,45 @@ export class SignupVerificationService implements OnModuleDestroy {
     return `signup-pending:sent:${SignupVerificationService.fingerprint(emailAddress)}`;
   }
 
+  /**
+   * ‎**פתיחת דייר ממקור אחד — גבייה לפני שנכתבת שורה כלשהי.**
+   *
+   * ‏הגבייה לפני ולא אחרי, מאותה סיבה כמו במכסת האימייל: בדיקה
+   * ‏שקודמת לכתיבה בלי להזמין מקום מאפשרת לבקשות מקבילות לחמוק בין
+   * ‏הבדיקות, וכאן מה שחומק הוא דייר.
+   *
+   * ‎**ובלי החזר.** במכסת האימייל ההחזר נדרש כי כישלון של הספק שרף
+   * ‏מכסה על מייל שלא נשלח — נזק לאדם שלא עשה דבר. כאן פתיחה
+   * ‏שנכשלה היא כמעט תמיד „הכתובת כבר תפוסה”, כלומר בדיוק המקרה
+   * ‏שהתקרה באה לתמחר, וההחזר היה מחזיר למי שמחזיק אצווה של חשבונות
+   * ‏את היכולת לנסות ללא הגבלה. שריפה של מקום אחד היא המחיר, והוא
+   * ‏זניח מול שלוש פתיחות בשעה ממקור אחד.
+   *
+   * ‏המפתח הוא HMAC ולא הכתובת כפי שהיא: מפתח Redis נוסע ליומנים
+   * ‏ולגיבויים, ו-IPv4 שלם הוא מרחב שאפשר לסרוק — גיבוב פשוט שם
+   * ‏אינו מסתיר דבר.
+   */
+  async chargeTenantOpening(source: string | undefined): Promise<void> {
+    /*
+     * ‏בלי מקור — דלי אחד משותף, ולא ויתור על ההגבלה. `req.ip` הוא
+     * ‏כתובת השקע ואינו בשליטת מי שפונה, ולכן „ריק” כאן הוא תקלת
+     * ‏הגדרה ולא התחמקות; בנתיב ציבורי שפותח דייר עדיף שתקלה כזו
+     * ‏תצמצם את הפתיחות ולא תפתח אותן לרווחה.
+     */
+    const { allowed } = await chargeFixedWindow(this.redis, {
+      key: `signup-open:source:${this.hmac(source ?? "unknown")}`,
+      limit: MAX_TENANTS_PER_SOURCE,
+      windowSeconds: TENANT_SOURCE_WINDOW_SECONDS,
+      unavailableMessage: "פתיחת החשבון אינה זמינה כרגע — נסו שוב בעוד רגע",
+    });
+    if (!allowed) {
+      throw new HttpException(
+        "נפתחו כבר כמה חשבונות מהכתובת הזו — נסו שוב בעוד שעה או פנו אלינו",
+        429,
+      );
+    }
+  }
+
   /** מזהה הדור של חלון המכסה — ראו `refundEmailQuota`. */
   private quotaWindowKey(emailAddress: string): string {
     return `${this.quotaKey(emailAddress)}:window`;
@@ -569,73 +634,27 @@ export class SignupVerificationService implements OnModuleDestroy {
    * ממילא בתקרה עצמה.
    */
   private async chargeEmailQuota(emailAddress: string): Promise<string | null> {
-    const key = this.quotaKey(emailAddress);
     /*
-     * המונה והתפוגה **בפעולה אחת.**
-     *
-     * ‎`INCR` ואז `EXPIRE` הם שתי פקודות, ובין השתיים אפשר להיכשל.
-     * מה שנשאר אז הוא מפתח מונה **בלי תפוגה**: הוא ממשיך לגדול בכל
-     * ניסיון, ומרגע שעבר את התקרה הכתובת חסומה **לתמיד** ולא לשעה
-     * (ביקורת Codex). זה הכשל הגרוע ביותר האפשרי בהגבלת קצב —
-     * הגבלה שאין לה סוף.
-     *
-     * ‎Lua מריץ את שתיהן כיחידה. התפוגה נקבעת גם אם המפתח קיים
-     * ואיבד אותה משום מה — `ttl == -1` — כדי שמפתח כזה שכבר שרד
-     * מגרסה קודמת ייפדה מעצמו בפנייה הבאה.
+     * ‏שלושת הכללים של המונה — הגדלה ותפוגה כיחידה, ביטול ההגדלה של
+     * ‏בקשה שנדחתה, וחותם דור לחלון — יושבים ב-`chargeFixedWindow`
+     * ‏ולא כאן. הם אינם העדפה של המסלול הזה אלא הכללים של כל מונה
+     * ‏במערכת, וכל עוד הם היו כתובים כאן, המגביל הבא היה כותב
+     * ‏`INCR` משלו ומקבל בחזרה את שלושת הבאגים שהם מתקנים.
      */
-    /*
-     * **החלון מסומן במזהה, כדי שההחזר יידע למי הוא שייך.**
-     *
-     * ההחזר היה `DECR` עיוור, ולכן פגע בכל דבר חוץ מהחלון שנגבה:
-     * מפתח שפג בינתיים נוצר מחדש בערך ‎-1 **בלי תפוגה**, וחלון חדש
-     * שכבר נפתח ספג הפחתה של בקשה שאינה שייכת לו — ומכאן יותר
-     * משלוש שליחות בשעה (ביקורת Codex). המזהה נכתב עם הגבייה
-     * הראשונה, חי בדיוק כמו המונה, וההחזר מותנה בו.
-     */
-    /*
-     * **בקשה שנדחתה אינה משאירה את ההגדלה שלה.**
-     *
-     * הבדיקה ישבה מחוץ לסקריפט, ולכן הבקשה הרביעית הגדילה ל-4,
-     * נדחתה — והשאירה את ה-4 במונה. אם אחת מקודמותיה קיבלה אחר-כך
-     * דחייה ודאית והוחזרה, המונה ירד ל-3 בעוד שרק שתי שליחות
-     * בפועל יצאו: הבקשה הלגיטימית הבאה מוצאת תקרה מלאה עד סוף
-     * השעה (ביקורת Codex). הביטול קורה באותו סקריפט, ולכן אין רגע
-     * שבו הספירה כוללת ניסיון שנדחה.
-     */
-    const charged = await this.redis.eval(
-      `local n = redis.call('INCR', KEYS[1])
-       if n == 1 or redis.call('TTL', KEYS[1]) == -1 then
-         redis.call('EXPIRE', KEYS[1], ARGV[1])
-         redis.call('SET', KEYS[2], ARGV[2], 'EX', ARGV[1])
-       end
-       if n > tonumber(ARGV[3]) then
-         redis.call('DECR', KEYS[1])
-         return { 0, '' }
-       end
-       return { 1, redis.call('GET', KEYS[2]) }`,
-      2,
-      key,
-      this.quotaWindowKey(emailAddress),
-      String(EMAIL_WINDOW_SECONDS),
-      SignupVerificationService.freshVersion(),
-      String(MAX_CODES_PER_EMAIL),
-    );
-    const [allowedRaw, windowRaw] = Array.isArray(charged) ? charged : [];
-    /*
-     * תשובה שאי אפשר לקרוא **עוצרת** את השליחה. „אם זה מספר וגם מעל
-     * התקרה” נכשל לכיוון הפתוח, כלומר הופך תקלה בספירה לביטול
-     * ההגבלה — אותו לקח כמו במונה הניסיונות.
-     */
-    if (typeof allowedRaw !== "number") {
-      throw new ServiceUnavailableException("שליחת הקוד אינה זמינה כרגע — נסו שוב בעוד רגע");
-    }
-    if (allowedRaw !== 1) {
+    const { allowed, window } = await chargeFixedWindow(this.redis, {
+      key: this.quotaKey(emailAddress),
+      stampKey: this.quotaWindowKey(emailAddress),
+      stamp: SignupVerificationService.freshVersion(),
+      limit: MAX_CODES_PER_EMAIL,
+      windowSeconds: EMAIL_WINDOW_SECONDS,
+      unavailableMessage: "שליחת הקוד אינה זמינה כרגע — נסו שוב בעוד רגע",
+    });
+    if (!allowed) {
       throw new BadRequestException(
         "נשלחו כבר כמה קודים לכתובת הזו — נסו שוב בעוד שעה או פנו אלינו",
       );
     }
-    /* בלי מזהה חלון לא יוחזר דבר — עדיף לגבות יתר על לאבד תקרה. */
-    return typeof windowRaw === "string" && windowRaw !== "" ? windowRaw : null;
+    return window;
   }
 
   /**
@@ -645,18 +664,11 @@ export class SignupVerificationService implements OnModuleDestroy {
    * שנשארה גבויה היא הכיוון הבטוח מבין השניים.
    */
   private async refundEmailQuota(emailAddress: string, window: string): Promise<void> {
-    await this.redis
-      .eval(
-        `if redis.call('GET', KEYS[2]) == ARGV[1] and redis.call('EXISTS', KEYS[1]) == 1 then
-           return redis.call('DECR', KEYS[1])
-         end
-         return 0`,
-        2,
-        this.quotaKey(emailAddress),
-        this.quotaWindowKey(emailAddress),
-        window,
-      )
-      .catch(() => this.logger.warn("החזר מכסת האימייל נכשל"));
+    await releaseFixedWindow(this.redis, {
+      key: this.quotaKey(emailAddress),
+      stampKey: this.quotaWindowKey(emailAddress),
+      window,
+    }).catch(() => this.logger.warn("החזר מכסת האימייל נכשל"));
   }
 
   /**

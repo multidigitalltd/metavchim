@@ -4,6 +4,7 @@ import {
   Delete,
   Get,
   HttpCode,
+  HttpException,
   NotFoundException,
   Param,
   Patch,
@@ -103,6 +104,17 @@ const ResetPasswordSchema = z
  */
 function isUnknownAccount(error: unknown): boolean {
   return error instanceof UnauthorizedException && /לא קיים/u.test(error.message);
+}
+
+/**
+ * ‎**„נחסמת בגלל קצב” — נשאל מהסטטוס, ולא מנוסח ההודעה.**
+ *
+ * ‏התקרה על פתיחת דיירים יושבת בעומק `SignupService`, ומה שמגיע
+ * ‏לכאן הוא חריגה עם סטטוס ‎429. בדיקה לפי טקסט הייתה נשברת בשקט
+ * ‏בשינוי נוסח, ואז מי שנחסם לשעה היה מקבל „נסו שוב”.
+ */
+function isRateLimited(error: unknown): boolean {
+  return error instanceof HttpException && error.getStatus() === 429;
 }
 
 @Controller("auth")
@@ -218,7 +230,7 @@ export class AuthController {
         user = await this.auth.loginWithVerifiedEmail(identity.email);
       } catch (error) {
         if (!isUnknownAccount(error)) throw error;
-        const created = await this.signup.createFromVerifiedIdentity(identity);
+        const created = await this.signup.createFromVerifiedIdentity(identity, req.ip);
         if (created === null) throw error;
         user = created;
       }
@@ -231,7 +243,18 @@ export class AuthController {
     } catch (error) {
       // אימייל שאינו רשום במשרד — הודעה נפרדת, כי זו לא תקלה אלא
       // חוסר הרשאה, והמתווך צריך לדעת לפנות למנהל
-      res.redirect(loginError(isUnknownAccount(error) ? "unknown" : "failed"));
+      if (isUnknownAccount(error)) {
+        res.redirect(loginError("unknown"));
+        return;
+      }
+      /*
+       * ‎**„נסו שוב בעוד שעה” ולא „נסו שוב”.** התקרה על פתיחת
+       * ‏חשבונות היא המקום היחיד כאן שחוסם למשך זמן, והודעת הכישלון
+       * ‏הכללית („נסו שוב או התחברו עם סיסמה”) הייתה שולחת את מי
+       * ‏שנתקל בה ללחוץ שוב ושוב על כפתור שלא ייפתח לו — ועוד בלי
+       * ‏שיש לו בכלל סיסמה לחזור אליה.
+       */
+      res.redirect(loginError(isRateLimited(error) ? "busy" : "failed"));
     }
   }
 
