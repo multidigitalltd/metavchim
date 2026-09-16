@@ -82,6 +82,7 @@ function serviceFor(
     },
   };
   const plans = { tenantHasFeature: async () => true };
+  const bids = { sentencesFor: async () => [] };
   const email = {
     send: async (input: { to: string }) => {
       sent.push(input.to);
@@ -95,6 +96,7 @@ function serviceFor(
     email as never,
     whatsapp as never,
     plans as never,
+    bids as never,
   );
 }
 

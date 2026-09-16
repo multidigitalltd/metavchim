@@ -60,6 +60,7 @@ import { AgreementsPanel } from "../../agreements-panel";
 import { DocumentsPanel } from "../../documents-panel";
 import { EntityTasks, type TaskListResponse } from "../../entity-tasks";
 import { ChecksPanel, type PropertyChecksResponse } from "./checks-panel";
+import { BidsPanel, type PropertyBidsResponse } from "./bids-panel";
 import { PropertyOwner, type OwnerContact } from "../property-owner";
 import { OwnerActivity } from "./owner-activity";
 import { PartnerSuggestions } from "./partner-suggestions";
@@ -371,6 +372,7 @@ export default function PropertyDetailPage({
       "network",
       "owner",
       "exclusivity",
+      "bids",
       "checks",
       "agreements",
       "tasks",
@@ -387,6 +389,13 @@ export default function PropertyDetailPage({
     apiGet<PropertyChecksResponse>(`/properties/${id}/checks`)
       .then((data) => setOpenChecks(data.progress.remaining))
       .catch(() => setOpenChecks(undefined));
+  }, [id]);
+  /* ‏מונה ההצעות הפתוחות — שרשורים שממתינים לתשובה, כמו מונה הבדיקות */
+  const [openBids, setOpenBids] = useState<number | undefined>(undefined);
+  useEffect(() => {
+    apiGet<PropertyBidsResponse>(`/properties/${id}/bids`)
+      .then((data) => setOpenBids(data.summary.openThreads))
+      .catch(() => setOpenBids(undefined));
   }, [id]);
   /*
    * מונה הנכסים התואמים, כמו מונה המשימות: נטען כאן כדי שהמספר יופיע על
@@ -1396,6 +1405,8 @@ export default function PropertyDetailPage({
           { key: "network", label: "שיתופי פעולה" },
           { key: "owner", label: "בעל הנכס" },
           { key: "exclusivity", label: "בלעדיות" },
+          /* משא ומתן — המונה הוא שרשורים שממתינים לתשובה */
+          { key: "bids", label: "הצעות מחיר", count: openBids },
           /* תיק הבדיקות לפני החתמה — המונה הוא מה שטרם נבדק */
           { key: "checks", label: "בדיקות", count: openChecks },
           { key: "agreements", label: "מסמכים והסכמים" },
@@ -2547,6 +2558,14 @@ export default function PropertyDetailPage({
             „סקירה”, וההסכמים ייפתחו כאן.
           </p>
         )}
+      </TabPanel>
+
+      <TabPanel tab="bids" active={tab}>
+        <BidsPanel
+          propertyId={property.id}
+          canEdit={canEditOwner}
+          onSummary={(summary) => setOpenBids(summary.openThreads)}
+        />
       </TabPanel>
 
       <TabPanel tab="checks" active={tab}>

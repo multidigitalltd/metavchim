@@ -669,6 +669,27 @@ model Property {
 /// תיק הבדיקות של הנכס — מצב של בדיקה אחת מהרשימה הסגורה
 /// (`PROPERTY_CHECKS`). שורה רק למה שסומן; ההנמקה במיגרציה
 /// `20260916100000_property_checks`.
+model PropertyBid {
+  id              String    @id @db.Char(26)
+  tenantId        String    @map("tenant_id") @db.Char(26)
+  propertyId      String    @map("property_id") @db.Char(26)
+  buyerId         String    @map("buyer_id") @db.Char(26)
+  /// buyer | seller (הצעת נגד של המוכר)
+  side            String    @db.VarChar(8)
+  amountAgorot    BigInt    @map("amount_agorot")
+  /// open | countered | superseded | accepted | rejected | withdrawn
+  status          String    @default("open") @db.VarChar(12)
+  note            String?   @db.VarChar(500)
+  createdByUserId String?   @map("created_by_user_id") @db.Char(26)
+  decidedAt       DateTime? @map("decided_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  @@index([tenantId, propertyId, createdAt])
+  @@index([tenantId, buyerId])
+  @@map("property_bids")
+}
+
 model PropertyCheck {
   id              String    @id @db.Char(26)
   tenantId        String    @map("tenant_id") @db.Char(26)

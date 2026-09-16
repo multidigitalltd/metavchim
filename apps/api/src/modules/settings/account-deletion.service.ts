@@ -471,6 +471,7 @@ export class AccountDeletionService {
         await tx.listingFollow.deleteMany({ where: { tenantId } });
         /* ‏תיק הבדיקות של הנכסים — לוויין בלי מפתח זר, כמו המשימות */
         await tx.propertyCheck.deleteMany({ where: { tenantId } });
+        await tx.propertyBid.deleteMany({ where: { tenantId } });
         /*
          * ‏נכסים לגיוס. **לפני `property`** — שורה שגויסה נושאת
          * ‎`convertedPropertyId`, ומחיקת הנכס לפניה הייתה משאירה

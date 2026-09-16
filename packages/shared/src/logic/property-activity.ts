@@ -345,6 +345,8 @@ export function ownerActivityText(input: {
    * בהם את המשפט החופשי של הסוכן.
    */
   feedbackSentences?: readonly string[];
+  /** „הצעות מחיר” — משפטים מסוכמים מהמו״מ (`bidSummarySentences`), מספרים בלי שמות. */
+  bidSentences?: readonly string[];
   now: Date;
 }): string {
   const summary = summarizeOwnerActivity(input.entries, input.now);
@@ -363,6 +365,12 @@ export function ownerActivityText(input: {
   if (feedback.length > 0) {
     lines.push("מה אמרו הקונים שביקרו:");
     for (const sentence of feedback) lines.push(`• ${sentence}`);
+    lines.push("");
+  }
+  const bids = input.bidSentences ?? [];
+  if (bids.length > 0) {
+    lines.push("הצעות מחיר:");
+    for (const sentence of bids) lines.push(`• ${sentence}`);
     lines.push("");
   }
 
@@ -419,6 +427,8 @@ export function ownerActivityEmail(input: {
   truncated?: boolean;
   /** „מה אמרו הקונים” — ראו `ownerActivityText`. */
   feedbackSentences?: readonly string[];
+  /** „הצעות מחיר” — ראו `ownerActivityText`. */
+  bidSentences?: readonly string[];
   now: Date;
 }): { subject: string; heading: string; greeting?: string; paragraphs: string[]; footnote: string } {
   const summary = summarizeOwnerActivity(input.entries, input.now);
@@ -430,6 +440,10 @@ export function ownerActivityEmail(input: {
     const feedback = input.feedbackSentences ?? [];
     if (feedback.length > 0) {
       paragraphs.push(`מה אמרו הקונים שביקרו: ${feedback.join(" · ")}.`);
+    }
+    const bids = input.bidSentences ?? [];
+    if (bids.length > 0) {
+      paragraphs.push(`הצעות מחיר: ${bids.join(" ")}`);
     }
     const headline = [
       summary.held > 0 ? `${summary.held} מפגשים התקיימו` : null,

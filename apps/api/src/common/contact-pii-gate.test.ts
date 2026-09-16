@@ -167,6 +167,10 @@ const CLASSIFIED: Record<string, Entry> = {
     why: "שליחת הצעת נכס — הלקוח מגיע דרך כרטיס הקונה, שמסונן ב-ownershipFilter",
   },
   "modules/offers/offers.service.ts": { as: "entity", why: "הצעה לכרטיס" },
+  "modules/properties/property-bids.service.ts": {
+    as: "entity",
+    why: "הצעות מחיר — שמות הקונים רק למי שרואה את הקונה (ownershipFilter); הסכומים לכולם",
+  },
   "modules/properties/property-reoffer.service.ts": {
     as: "entity",
     why: "הצעה חוזרת אחרי הורדת מחיר — הקונה מגיע דרך כרטיס הקונה, שמסונן ב-ownershipFilter",
