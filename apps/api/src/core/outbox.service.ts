@@ -17,12 +17,26 @@ export class OutboxService {
     name: E,
     payload: DomainEventPayload<E>,
   ): Promise<void> {
+    await this.emitFor(tx, TenantContext.current().tenantId, name, payload);
+  }
+
+  /**
+   * ‏אותה פליטה כשהמשרד ידוע מהנתונים ולא מההתחברות — נתיבים ציבוריים
+   * ‏(הרשמה לבית פתוח מדף הנחיתה), שבהם אין `TenantContext` ובכל זאת
+   * ‏הסיור שנוצר צריך תזכורת ופולו-אפ כמו כל סיור.
+   */
+  async emitFor<E extends DomainEventName>(
+    tx: TenantTx,
+    tenantId: string,
+    name: E,
+    payload: DomainEventPayload<E>,
+  ): Promise<void> {
     // ולידציה מול החוזה — אירוע לא-תקני נתפס בכתיבה, לא אצל הצרכן.
     const validated = DomainEvents[name].parse(payload);
     await tx.outboxEvent.create({
       data: {
         id: ulid(),
-        tenantId: TenantContext.current().tenantId,
+        tenantId,
         name,
         payload: validated as object,
       },

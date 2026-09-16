@@ -410,3 +410,28 @@ describe("מזהה הפגישה עובר לרשומה", () => {
     expect("appointmentId" in entries[0]!).toBe(false);
   });
 });
+
+describe("הצעות מחיר בדוח למוכר", () => {
+  it("הטקסט והמייל נושאים את משפטי המו״מ אחרי המשוב", () => {
+    const entries = buildOwnerActivity({
+      appointments: [{ kind: "viewing", startsAt: new Date("2026-09-10T10:00:00Z"), status: "completed", outcome: null }],
+      calls: [],
+    });
+    const bidSentences = ["2 הצעות על השולחן, הגבוהה 2,200,000 ₪."];
+    const text = ownerActivityText({ propertyLabel: "דיזנגוף 10", officeName: "המשרד", periodLabel: "כל התקופה", entries, bidSentences, now: new Date("2026-09-16T00:00:00Z") });
+    expect(text).toContain("הצעות מחיר:\n• 2 הצעות על השולחן, הגבוהה 2,200,000 ₪.");
+    const email = ownerActivityEmail({ propertyLabel: "דיזנגוף 10", officeName: "המשרד", periodLabel: "כל התקופה", entries, bidSentences, now: new Date("2026-09-16T00:00:00Z") });
+    expect(email.paragraphs.some((p) => p.startsWith("הצעות מחיר: 2 הצעות"))).toBe(true);
+    /* ‏בלי הצעות — בלי כותרת ריקה */
+    expect(ownerActivityText({ propertyLabel: "x", officeName: "y", periodLabel: "z", entries, now: new Date() })).not.toContain("הצעות מחיר");
+  });
+
+  it("הצעות מחיר נאמרות גם בתקופה בלי פעילות — בטקסט ובמייל", () => {
+    const base = { propertyLabel: "ויטל 41", officeName: "משרד", periodLabel: "החודש", entries: [], bidSentences: ["הצעה אחת על השולחן, הגבוהה 2,000,000 ₪."], now: new Date("2026-09-16T10:00:00Z") };
+    const text = ownerActivityText(base);
+    expect(text).toContain("לא נרשמה פעילות בתקופה זו.");
+    expect(text).toContain("הצעות מחיר:\n• הצעה אחת על השולחן, הגבוהה 2,000,000 ₪.");
+    const mail = ownerActivityEmail(base);
+    expect(mail.paragraphs).toContain("הצעות מחיר: הצעה אחת על השולחן, הגבוהה 2,000,000 ₪.");
+  });
+});

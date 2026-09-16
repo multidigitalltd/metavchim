@@ -133,6 +133,9 @@ export interface PropertyDto extends PropertyFields {
    */
   agentUserId?: string;
   agentName?: string;
+  /** ‏המחיר הקודם ומועד השינוי האחרון; `null` = המחיר לא השתנה מעולם */
+  previousPriceAgorot: number | null;
+  priceChangedAt: string | null;
   /**
    * ‎**הסוכן השותף — אותו זוג, ומאותה סיבה.**
    *

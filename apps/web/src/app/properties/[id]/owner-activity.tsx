@@ -49,6 +49,8 @@ interface ActivityReport {
   truncated: boolean;
   /** „מה אמרו הקונים” — המספרים והמשפטים שיוצאים למוכר; חסר בשרת ישן */
   feedback?: { summary: ViewingFeedbackSummary; sentences: string[] };
+  /** ‏„הצעות מחיר” — המשפטים שיוצאים למוכר; חסר בשרת ישן */
+  bids?: { sentences: string[] };
   /**
    * ‏במה אפשר להגיע לבעל הנכס — מהשרת, כי פרטיו מוצפנים והמסך אינו
    * מחזיק אותם. השדה אופציונלי כדי שגרסת מסך חדשה מול שרת ישן לא
@@ -262,6 +264,7 @@ export function OwnerActivity({
     const periodLabel = PERIODS.find((p) => p.key === selection.period)?.label ?? "כל התקופה";
     return ownerActivityText({
       ...(report?.feedback === undefined ? {} : { feedbackSentences: report.feedback.sentences }),
+      ...(report?.bids === undefined ? {} : { bidSentences: report.bids.sentences }),
       propertyLabel,
       officeName,
       periodLabel,
@@ -519,7 +522,7 @@ export function OwnerActivity({
  * שלוש הקשות על שורת סיור שהתקיים. מוצג כתוויות כשיש, וכשלושה
  * בוררים קטנים כשאין — או כשלוחצים „לשנות”.
  */
-function ViewingFeedbackCell({
+export function ViewingFeedbackCell({
   appointmentId,
   feedback,
   canEdit,

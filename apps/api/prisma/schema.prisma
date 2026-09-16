@@ -540,6 +540,9 @@ model Property {
   facing               String?   @db.VarChar(10)
   condition            String?   @db.VarChar(20)
   priceAgorot          BigInt?   @map("price_agorot")
+  /// המחיר הקודם ומועד השינוי האחרון — „ירד מ-X ל-Y ב-…” בכרטיס, והצעה חוזרת לקונים שאמרו „גבוה”.
+  previousPriceAgorot BigInt?   @map("previous_price_agorot")
+  priceChangedAt      DateTime? @map("price_changed_at")
   priceFlexible        Boolean?  @map("price_flexible")
   /// מועד כניסה/מסירה — **המצב הוא השדה, התאריך נלווה אליו**.
   ///
@@ -666,6 +669,27 @@ model Property {
 /// תיק הבדיקות של הנכס — מצב של בדיקה אחת מהרשימה הסגורה
 /// (`PROPERTY_CHECKS`). שורה רק למה שסומן; ההנמקה במיגרציה
 /// `20260916100000_property_checks`.
+model PropertyBid {
+  id              String    @id @db.Char(26)
+  tenantId        String    @map("tenant_id") @db.Char(26)
+  propertyId      String    @map("property_id") @db.Char(26)
+  buyerId         String    @map("buyer_id") @db.Char(26)
+  /// buyer | seller (הצעת נגד של המוכר)
+  side            String    @db.VarChar(8)
+  amountAgorot    BigInt    @map("amount_agorot")
+  /// open | countered | superseded | accepted | rejected | withdrawn
+  status          String    @default("open") @db.VarChar(12)
+  note            String?   @db.VarChar(500)
+  createdByUserId String?   @map("created_by_user_id") @db.Char(26)
+  decidedAt       DateTime? @map("decided_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  @@index([tenantId, propertyId, createdAt])
+  @@index([tenantId, buyerId])
+  @@map("property_bids")
+}
+
 model PropertyCheck {
   id              String    @id @db.Char(26)
   tenantId        String    @map("tenant_id") @db.Char(26)
@@ -1169,11 +1193,14 @@ model Interaction {
   kind      String   @db.VarChar(20) // note | call | whatsapp | status_change | system
   direction String?  @db.VarChar(10) // in | out
   content   String
+  /// פנייה **על נכס** — הצעה חוזרת אחרי הורדת מחיר וכד'. אופציונלי, לצד ההורה (ליד/קונה).
+  propertyId String? @map("property_id") @db.Char(26)
   createdBy String?  @map("created_by") @db.Char(26)
   createdAt DateTime @default(now()) @map("created_at")
 
   @@index([tenantId, leadId, createdAt])
   @@index([tenantId, buyerId, createdAt])
+  @@index([tenantId, propertyId, createdAt])
   @@map("interactions")
 }
 
@@ -1504,6 +1531,26 @@ model Offer {
 
   @@index([tenantId, status, createdAt])
   @@map("offers")
+}
+
+/// ‏דף השוואה לקונה — 2–3 נכסים זה לצד זה, תמונת מצב בלי PII, קישור ציבורי לפי טוקן
+model Comparison {
+  id              String    @id @db.Char(26)
+  tenantId        String    @map("tenant_id") @db.Char(26)
+  buyerId         String    @map("buyer_id") @db.Char(26)
+  publicToken     String    @unique @map("public_token") @db.Char(43)
+  tokenExpires    DateTime  @map("token_expires")
+  presentation    Json      @default("{}")
+  /// ‏מזהי הנכסים שהקונה סימן „מעוניין” בדף
+  responses       Json      @default("[]")
+  openCount       Int       @default(0) @map("open_count")
+  firstOpenedAt   DateTime? @map("first_opened_at")
+  createdByUserId String?   @map("created_by_user_id") @db.Char(26)
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  @@index([tenantId, buyerId, createdAt])
+  @@map("comparisons")
 }
 
 // ביקוש אנונימי משותף ברשת (docs/04 §7): ללא PII, תקציב מעוגל, אזור
@@ -2390,6 +2437,8 @@ model Appointment {
   /// מתי נלחץ. בלעדיו "אישר" על סיור שנדחה מאז נקרא כאישור למועד
   /// החדש, בזמן שהוא ניתן לישן. מתאפס יחד עם `reminderSentAt`.
   reminderReplyAt DateTime? @map("reminder_reply_at")
+  /// ‏מבקר בבית פתוח — הפגישה היא הסיור שלו, וזה האירוע שאליו נרשם
+  openHouseId     String?   @map("open_house_id") @db.Char(26)
   createdBy       String?   @map("created_by") @db.Char(26)
   createdAt       DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @updatedAt @map("updated_at")
@@ -2397,7 +2446,28 @@ model Appointment {
   @@index([tenantId, startsAt])
   @@index([tenantId, status, startsAt])
   @@index([tenantId, googleEventId])
+  @@index([tenantId, propertyId])
+  @@index([tenantId, openHouseId])
   @@map("appointments")
+}
+
+/// ‏בית פתוח על נכס — משבצות זמן; המבקרים הם פגישות `viewing` עם `openHouseId`
+model OpenHouse {
+  id              String    @id @db.Char(26)
+  tenantId        String    @map("tenant_id") @db.Char(26)
+  propertyId      String    @map("property_id") @db.Char(26)
+  startsAt        DateTime  @map("starts_at")
+  endsAt          DateTime  @map("ends_at")
+  slotMinutes     Int       @map("slot_minutes") @db.SmallInt
+  slotCapacity    Int?      @map("slot_capacity") @db.SmallInt
+  /// planned | done | cancelled
+  status          String    @default("planned") @db.VarChar(12)
+  createdByUserId String?   @map("created_by_user_id") @db.Char(26)
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  @@index([tenantId, propertyId, startsAt])
+  @@map("open_houses")
 }
 
 // משימות ותזכורות (docs/01 — מודול 7): רשימת ה"לעשות" האישית של הסוכן,

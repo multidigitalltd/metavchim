@@ -10,6 +10,8 @@ import { FeatureCatalogueModule } from "./feature-catalogue.module";
 import { LandingController } from "./landing.controller";
 import { LandingService } from "./landing.service";
 import { MediaController } from "./media.controller";
+import { OpenHouseController } from "./open-house.controller";
+import { OpenHouseService } from "./open-house.service";
 import { MediaService } from "./media.service";
 import { PropertyPhotoService } from "./property-photo.service";
 import { PropertiesController } from "./properties.controller";
@@ -17,6 +19,10 @@ import { PropertiesService } from "./properties.service";
 import { PropertyActivityService } from "./property-activity.service";
 import { PropertyChecksController } from "./property-checks.controller";
 import { PropertyChecksService } from "./property-checks.service";
+import { PropertyBidsController } from "./property-bids.controller";
+import { PropertyBidsService } from "./property-bids.service";
+import { PropertyReofferController } from "./property-reoffer.controller";
+import { PropertyReofferService } from "./property-reoffer.service";
 import { PropertyTwinsController } from "./property-twins.controller";
 import { PropertyTwinsService } from "./property-twins.service";
 
@@ -52,6 +58,9 @@ import { PropertyTwinsService } from "./property-twins.service";
     MediaController,
     LandingController,
     PropertyChecksController,
+    PropertyReofferController,
+    PropertyBidsController,
+    OpenHouseController,
   ],
   providers: [
     PropertiesService,
@@ -61,6 +70,9 @@ import { PropertyTwinsService } from "./property-twins.service";
     PropertyPhotoService,
     LandingService,
     PropertyChecksService,
+    PropertyReofferService,
+    PropertyBidsService,
+    OpenHouseService,
   ],
   exports: [PropertiesService, LandingService, PropertyPhotoService],
 })

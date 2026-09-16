@@ -60,6 +60,7 @@ export function DictationControls({
   onBusyChange,
   disabled,
   browserOnly,
+  compact,
 }: {
   onAppend: (text: string) => void;
   /** נקרא כשסבב ההקלטה הסתיים — הזדמנות לאפס את טקסט הבסיס. */
@@ -80,6 +81,8 @@ export function DictationControls({
    * שיחה וכן משתלם לחכות.
    */
   browserOnly?: boolean;
+  /** ‏כפתור אייקון בלבד במצב המתנה — למיקרופון שיושב בתוך שדה טקסט */
+  compact?: boolean;
 }) {
   const {
     browserReady,
@@ -176,7 +179,8 @@ export function DictationControls({
          */
         <button
           type="button"
-          className="mv-dictate-btn"
+          className={compact === true ? "mv-dictate-btn mv-dictate-btn--compact" : "mv-dictate-btn"}
+          aria-label={compact === true ? "דברו במקום להקליד" : undefined}
           disabled={disabled}
           onClick={() =>
             begin(
@@ -194,7 +198,8 @@ export function DictationControls({
               : "הסוכן הקולי מקשיב וכותב — התמלול בשרת של המערכת, ומגיע בסוף ההקלטה"
           }
         >
-          <MicIcon /> דברו במקום להקליד
+          <MicIcon />
+          {compact === true ? null : " דברו במקום להקליד"}
         </button>
       )}
       {error ? (

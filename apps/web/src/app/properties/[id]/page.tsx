@@ -52,6 +52,7 @@ import { SuggestionsCard } from "./suggestions-card";
 
 import { PropertyTimeline } from "./property-timeline";
 import { MediaSection } from "./media-section";
+import { SignQr } from "./sign-qr";
 import { PropertyTwins } from "./property-twins";
 import { NetworkDemandMatches } from "../network-demand-matches";
 import { NetworkShareSection } from "../../network-share-section";
@@ -59,10 +60,13 @@ import { AgreementsPanel } from "../../agreements-panel";
 import { DocumentsPanel } from "../../documents-panel";
 import { EntityTasks, type TaskListResponse } from "../../entity-tasks";
 import { ChecksPanel, type PropertyChecksResponse } from "./checks-panel";
+import { BidsPanel, type PropertyBidsResponse } from "./bids-panel";
+import { OpenHousePanel, upcomingRegistered, type OpenHousesResponse } from "./open-house-panel";
 import { PropertyOwner, type OwnerContact } from "../property-owner";
 import { OwnerActivity } from "./owner-activity";
 import { PartnerSuggestions } from "./partner-suggestions";
 import { PriceBenchmark } from "./price-benchmark";
+import { ReofferCard } from "./reoffer-card";
 import { PropertyOccupant, type OccupantContact } from "../property-occupant";
 import { LocationPicker } from "../location-picker-lazy";
 import { ExclusivityPanel } from "../exclusivity-panel";
@@ -128,6 +132,9 @@ interface PropertyDetail {
   condition?: PropertyCondition;
   hasSafeRoom?: boolean;
   priceAgorot?: number;
+  /** ‏המחיר הקודם ומועד השינוי — „ירד המחיר” בכרטיס */
+  previousPriceAgorot?: number | null;
+  priceChangedAt?: string | null;
   entryDate?: string;
   entryNote?: string;
   internalNotes?: string;
@@ -366,6 +373,8 @@ export default function PropertyDetailPage({
       "network",
       "owner",
       "exclusivity",
+      "bids",
+      "openhouse",
       "checks",
       "agreements",
       "tasks",
@@ -382,6 +391,20 @@ export default function PropertyDetailPage({
     apiGet<PropertyChecksResponse>(`/properties/${id}/checks`)
       .then((data) => setOpenChecks(data.progress.remaining))
       .catch(() => setOpenChecks(undefined));
+  }, [id]);
+  /* ‏מונה הנרשמים לבית הפתוח הקרוב — אותו נימוק */
+  const [openHouseCount, setOpenHouseCount] = useState<number | undefined>(undefined);
+  useEffect(() => {
+    apiGet<OpenHousesResponse>(`/properties/${id}/open-houses`)
+      .then((data) => setOpenHouseCount(upcomingRegistered(data) || undefined))
+      .catch(() => setOpenHouseCount(undefined));
+  }, [id]);
+  /* ‏מונה ההצעות הפתוחות — שרשורים שממתינים לתשובה, כמו מונה הבדיקות */
+  const [openBids, setOpenBids] = useState<number | undefined>(undefined);
+  useEffect(() => {
+    apiGet<PropertyBidsResponse>(`/properties/${id}/bids`)
+      .then((data) => setOpenBids(data.summary.openThreads))
+      .catch(() => setOpenBids(undefined));
   }, [id]);
   /*
    * מונה הנכסים התואמים, כמו מונה המשימות: נטען כאן כדי שהמספר יופיע על
@@ -1320,11 +1343,12 @@ export default function PropertyDetailPage({
         */}
 
         {landingUrl ? (
-          <p
+          <div
             role="status"
-            className="m-0 mt-3 flex flex-wrap items-center gap-2 rounded-lg px-3 py-2 text-sm"
+            className="mt-3 rounded-lg px-3 py-2 text-sm"
             style={{ background: "#F1FEF4", border: "1px solid #BDF4CB" }}
           >
+          <p className="m-0 flex flex-wrap items-center gap-2">
             {/*
               הכותרת אמרה „והקישור הועתק” תמיד, גם כשהדפדפן חסם את
               הלוח — והמתווך הדביק אז משהו אחר. הדף באמת מוכן בכל
@@ -1361,6 +1385,9 @@ export default function PropertyDetailPage({
               — שלחו בוואטסאפ, פרסמו במודעה, וכל פנייה מהדף תיכנס ללידים.
             </span>
           </p>
+          {/* ‏אותו קישור, כקוד לשלט — ראו sign-qr.tsx */}
+          <SignQr url={landingUrl} label={address || "הנכס"} />
+          </div>
         ) : null}
       </div>
 
@@ -1387,6 +1414,10 @@ export default function PropertyDetailPage({
           { key: "network", label: "שיתופי פעולה" },
           { key: "owner", label: "בעל הנכס" },
           { key: "exclusivity", label: "בלעדיות" },
+          /* משא ומתן — המונה הוא שרשורים שממתינים לתשובה */
+          { key: "bids", label: "הצעות מחיר", count: openBids },
+          /* בית פתוח — המונה הוא הנרשמים לאירוע הקרוב */
+          { key: "openhouse", label: "בית פתוח", count: openHouseCount },
           /* תיק הבדיקות לפני החתמה — המונה הוא מה שטרם נבדק */
           { key: "checks", label: "בדיקות", count: openChecks },
           { key: "agreements", label: "מסמכים והסכמים" },
@@ -1572,6 +1603,17 @@ export default function PropertyDetailPage({
               ‏ולכן אין כאן תנאי שני שיוכל לסתור אותו.
             */}
             <PriceBenchmark propertyId={property.id} />
+            {/*
+              ‏„ירד המחיר — להציע שוב”: רק כשיש ירידה (שדות הנכס מכריעים,
+              ‏בלי בקשה בכל טעינה) ולמי שרשאי לראות קונים.
+            */}
+            {property.previousPriceAgorot !== undefined &&
+            property.previousPriceAgorot !== null &&
+            property.priceAgorot !== undefined &&
+            property.previousPriceAgorot > property.priceAgorot &&
+            (can(user, "buyers.view_own") || can(user, "buyers.view_all")) ? (
+              <ReofferCard propertyId={property.id} canSend={can(user, "offers.send")} />
+            ) : null}
             {partnershipApplies(property) &&
             can(user, "matches.view") &&
             (can(user, "buyers.view_own") || can(user, "buyers.view_all")) ? (
@@ -2527,6 +2569,25 @@ export default function PropertyDetailPage({
             „סקירה”, וההסכמים ייפתחו כאן.
           </p>
         )}
+      </TabPanel>
+
+      <TabPanel tab="bids" active={tab}>
+        <BidsPanel
+          propertyId={property.id}
+          canEdit={canEditOwner}
+          onSummary={(summary) => setOpenBids(summary.openThreads)}
+        />
+      </TabPanel>
+
+      <TabPanel tab="openhouse" active={tab}>
+        <OpenHousePanel
+          propertyId={property.id}
+          propertyLabel={property.marketingTitle || address || "הנכס"}
+          priceAgorot={property.priceAgorot ?? null}
+          officeName={user?.tenantName ?? "משרד התיווך"}
+          canEdit={canEditOwner}
+          onLoaded={(data) => setOpenHouseCount(upcomingRegistered(data) || undefined)}
+        />
       </TabPanel>
 
       <TabPanel tab="checks" active={tab}>

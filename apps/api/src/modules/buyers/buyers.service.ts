@@ -1785,6 +1785,14 @@ export class BuyersService {
       await tx.interaction.deleteMany({
         where: { tenantId: ctx.tenantId, buyerId: id },
       });
+      /*
+       * ‏הצעות המחיר שלו — לוויין בלי מפתח זר, כולל ההערה החופשית.
+       * ‏שורת הקונה ננעלת קודם: רישום הצעה נועל אותה גם הוא לפני
+       * ‏הבדיקה, ולכן הצעה שנרשמת במקביל תראה את המחיקה (ביקורת Codex).
+       */
+      await tx.$queryRaw`SELECT id FROM buyers WHERE id = ${id} AND tenant_id = ${ctx.tenantId} FOR UPDATE`;
+      await tx.propertyBid.deleteMany({ where: { tenantId: ctx.tenantId, buyerId: id } });
+      await tx.comparison.deleteMany({ where: { tenantId: ctx.tenantId, buyerId: id } });
       await tx.appointment.updateMany({
         where: { tenantId: ctx.tenantId, buyerId: id },
         data: { buyerId: null },
