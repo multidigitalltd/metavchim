@@ -173,7 +173,19 @@ export default function BuyersPage() {
    */
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
-  const [bulkNote, setBulkNote] = useState<string | null>(null);
+  /*
+   * ‎**תוצאת פעולה מרוכזת — ותמיד מעל הרשימה, לא במקומה.**
+   *
+   * ‏`error` ברמת המסך מחליף את כל התוכן ב-`Notice` (ראו הרינדור
+   * ‏למטה), ולכן הוא הודעה על **כשל טעינה** בלבד. הודעה כמו „הסימון
+   * ‏יצא מהסינון” שנשלחת דרכו מסתירה את הבורר ואת „נקה סינון” —
+   * ‏כלומר בדיוק את מה שהיא מבקשת מהמשתמש לעשות (ביקורת Codex).
+   *
+   * ‏הגוון נשמר עם הטקסט: אזהרה אינה ירוקה.
+   */
+  const [bulkNote, setBulkNote] = useState<
+    { tone: "success" | "warning"; text: string } | null
+  >(null);
 
   // קישורי הפילוח מהדשבורד: /buyers?maturity=hot וכדומה
   useFilterFromUrl({
@@ -311,7 +323,14 @@ export default function BuyersPage() {
    */
   async function removeSelected(permanent: boolean): Promise<void> {
     const ids = selectedVisible.map((b) => b.id);
-    if (ids.length === 0) return;
+    /* ‏אותה יציאה שקטה בדיוק, ראו `shareSelected`. */
+    if (ids.length === 0) {
+      setBulkNote({
+        tone: "warning",
+        text: "הקונים שסומנו אינם ברשימה המסוננת — נקו את הסינון או בחרו מחדש",
+      });
+      return;
+    }
     /*
      * ‎**הגילוי לפני האישור — גם במחיקה המרוכזת.**
      *
@@ -353,11 +372,13 @@ export default function BuyersPage() {
         ids,
         permanent,
       });
-      setBulkNote(
-        res.skipped === 0
-          ? `${res.removed} כרטיסים ${permanent ? "נמחקו" : "הועברו לארכיון"}`
-          : `${res.removed} ${permanent ? "נמחקו" : "הועברו לארכיון"}, ${res.skipped} דולגו — כרטיס של סוכן אחר, או כזה שכבר נמחק`,
-      );
+      setBulkNote({
+        tone: res.skipped === 0 ? "success" : "warning",
+        text:
+          res.skipped === 0
+            ? `${res.removed} כרטיסים ${permanent ? "נמחקו" : "הועברו לארכיון"}`
+            : `${res.removed} ${permanent ? "נמחקו" : "הועברו לארכיון"}, ${res.skipped} דולגו — כרטיס של סוכן אחר, או כזה שכבר נמחק`,
+      });
       setSelected(new Set());
     } catch {
       setError("המחיקה נכשלה — נסו שוב");
@@ -401,7 +422,18 @@ export default function BuyersPage() {
    */
   async function shareSelected(): Promise<void> {
     const ids = selectedVisible.map((b) => b.id);
-    if (ids.length === 0) return;
+    /*
+     * ‏יציאה שקטה הייתה כפתור שלא מגיב: מי שסימן קונים ואז שינה
+     * ‏סינון נשאר עם בחירה שאינה ברשימה, ולחיצה על „העלה לרשת”
+     * ‏לא עשתה דבר ולא אמרה דבר.
+     */
+    if (ids.length === 0) {
+      setBulkNote({
+        tone: "warning",
+        text: "הקונים שסומנו אינם ברשימה המסוננת — נקו את הסינון או בחרו מחדש",
+      });
+      return;
+    }
     if (!window.confirm(`לפרסם ${ids.length} קונים לרשת השיתופים? יפורסמו בלי שם ובלי טלפון, בחלוקת עמלה 50/50.`)) return;
 
     setBulkBusy(true);
@@ -414,11 +446,13 @@ export default function BuyersPage() {
       );
       const failed = res.results.filter((r) => !r.ok);
       const reasons = [...new Set(failed.map((r) => r.error ?? "השיתוף נכשל"))];
-      setBulkNote(
-        failed.length === 0
-          ? `${res.results.length} קונים פורסמו לרשת`
-          : `${res.results.length - failed.length} פורסמו, ${failed.length} לא — ${reasons.join(" · ")}`,
-      );
+      setBulkNote({
+        tone: failed.length === 0 ? "success" : "warning",
+        text:
+          failed.length === 0
+            ? `${res.results.length} קונים פורסמו לרשת`
+            : `${res.results.length - failed.length} פורסמו, ${failed.length} לא — ${reasons.join(" · ")}`,
+      });
       setSelected(new Set());
     } catch {
       setError("הפרסום לרשת נכשל — נסו שוב");
@@ -625,7 +659,21 @@ export default function BuyersPage() {
                   className="mv-list-card mb-3 flex flex-wrap items-center gap-2 px-4 py-3"
                   role="status"
                 >
-                  <strong className="text-[length:var(--type-body-sm)]">{selectedVisible.length} נבחרו</strong>
+                  {/*
+                    ‎**הסרגל אומר מה קורה כשהבחירה יצאה מהסינון.**
+
+                    ‏הבחירה נשמרת לפי מזהה, והפעולות עובדות על
+                    ‏`selectedVisible` — כלומר רק על מי שנמצא ברשימה
+                    ‏המסוננת כרגע. מי שסימן קונים ואז שינה סינון קיבל
+                    ‏„0 נבחרו” וכפתור שלא עושה דבר: הפעולה יצאה מיד
+                    ‏כי אין למי. עכשיו הסרגל אומר זאת, ובטל בחירה
+                    ‏נשאר הדרך החוצה.
+                  */}
+                  <strong className="text-[length:var(--type-body-sm)]">
+                    {selectedVisible.length === 0
+                      ? `${selected.size} נבחרו — ואף אחד מהם אינו בסינון הנוכחי`
+                      : `${selectedVisible.length} נבחרו`}
+                  </strong>
                   <button
                     type="button"
                     className="mv-btn-plain"
@@ -669,7 +717,7 @@ export default function BuyersPage() {
                 </div>
               ) : null}
 
-              {bulkNote ? <Notice tone="success">{bulkNote}</Notice> : null}
+              {bulkNote ? <Notice tone={bulkNote.tone}>{bulkNote.text}</Notice> : null}
 
               {/* מובייל: כרטיסים במקום טבלה בת 6 עמודות (docs/06 §1.5) */}
               <ul className="flex flex-col gap-3 sm:hidden">
