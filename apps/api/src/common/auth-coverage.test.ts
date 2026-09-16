@@ -35,11 +35,20 @@ function decoratorNames(node: ts.Node): string[] {
     .map((id) => id.text);
 }
 
+/** השערים (Guards) שמוצהרים ב-`@UseGuards(...)` על הצומת — לפי שם. */
+function guardNames(node: ts.Node): string[] {
+  return (ts.canHaveDecorators(node) ? (ts.getDecorators(node) ?? []) : [])
+    .filter((d): d is ts.Decorator & { expression: ts.CallExpression } => ts.isCallExpression(d.expression))
+    .filter((d) => ts.isIdentifier(d.expression.expression) && d.expression.expression.text === "UseGuards")
+    .flatMap((d) => d.expression.arguments.filter(ts.isIdentifier).map((arg) => arg.text));
+}
+
 interface Route {
   file: string;
   controller: string;
   handler: string;
   gates: string[];
+  guards: string[];
 }
 
 function routesIn(file: string): Route[] {
@@ -70,6 +79,7 @@ function routesIn(file: string): Route[] {
         controller: statement.name?.text ?? "?",
         handler: member.name.getText(source),
         gates,
+        guards: [...guardNames(member), ...guardNames(statement)],
       });
     }
   }
@@ -106,6 +116,24 @@ describe("כיסוי הרשאות על נתיבי ה-API", () => {
       .map((route) => `${route.controller}.${route.handler}: ${route.gates.join(" + ")}`);
 
     expect(contradictory).toEqual([]);
+  });
+
+  /*
+   * ‎`@PlatformAdmin()` הוא **סימון** — מטא-דאטה שהשער קורא. בלי
+   * ‎`@UseGuards(PlatformAdminGuard)` על המתודה או על המחלקה איש אינו
+   * קורא אותו, והנתיב פתוח לכל משתמש מחובר בעודו נראה מוגן. כך נפתחו
+   * נעיצה, נעילה והסתרה בפורום לכל מתווך (נמצא ב-QA אחרי ההשקה):
+   * הבדיקה הקודמת ראתה את הסימון והסתפקה בו.
+   */
+  it("כל נתיב שמסומן PlatformAdmin גם נושא את השער שאוכף אותו", () => {
+    const unguarded = routes
+      .filter((route) => route.gates.includes("PlatformAdmin") && !route.guards.includes("PlatformAdminGuard"))
+      .map((route) => `${route.file} → ${route.controller}.${route.handler}`);
+
+    expect(
+      unguarded,
+      `@PlatformAdmin() בלי @UseGuards(PlatformAdminGuard) אינו אוכף דבר. הוסיפו את השער על המתודה או על המחלקה:\n${unguarded.join("\n")}`,
+    ).toEqual([]);
   });
 
   it("כל נתיבי ניהול הפלטפורמה מוגנים בשער מנהל הפלטפורמה", () => {

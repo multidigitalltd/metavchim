@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Query } from "@nestjs/common";
+import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Query, UseGuards } from "@nestjs/common";
 import { Throttle } from "@nestjs/throttler";
 import { z } from "zod";
 import {
@@ -24,6 +24,7 @@ import {
   type ForumThreadList,
 } from "@metavchim/shared";
 import { AnyAuthenticated, PlatformAdmin } from "../../common/auth.decorators";
+import { PlatformAdminGuard } from "../../common/platform-admin.guard";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import {
   ForumService,
@@ -205,12 +206,14 @@ export class ForumController {
 
   @Get("reports")
   @PlatformAdmin()
+  @UseGuards(PlatformAdminGuard)
   reports(): Promise<{ items: ForumReportDto[] }> {
     return this.forum.openReports();
   }
 
   @Post("reports/:id/resolve")
   @PlatformAdmin()
+  @UseGuards(PlatformAdminGuard)
   @HttpCode(204)
   resolveReport(@Param("id", IdParam) id: string): Promise<void> {
     return this.forum.resolveReport(id);
@@ -218,6 +221,7 @@ export class ForumController {
 
   @Patch("moderate/:target/:id")
   @PlatformAdmin()
+  @UseGuards(PlatformAdminGuard)
   @HttpCode(204)
   moderate(
     @Param("target", TargetParam) target: "thread" | "post" | "listing" | "rating",
