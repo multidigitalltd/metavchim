@@ -214,14 +214,29 @@ describe("שיוך סוכן — נכס, ליד וקונה", () => {
   });
 
   /*
-   * ‎**והסרגל המרוכז נגזר מאותה יכולת.** הוא מעביר לידים בין
-   * ‏סוכנים, וזו בדיוק הפעולה ש-`assertCanAssignAgents` מגדיר
-   * ‏כפעולת מנהל. בלי התנאי כאן הבורר היה מוצג לסוכן רגיל, נשלף
-   * ‏ב-403, ונראה כמו פקד שבור.
+   * ‎**והסרגל המרוכז הוא היוצא מן הכלל — כי הוא מעביר לידים.**
+   *
+   * ‏„בין סוכנים ניתן להעביר לידים בלבד” (הכרעת בעלת המוצר), וסוכן
+   * ‏שיוצא לחופשה מוסר את שלו בלחיצה אחת. לכן הבורר נפתח גם
+   * ‏ל-`leads.edit`, ולא רק ל-`tasks.assign` — אבל **השרת שואל על
+   * ‏כל ליד בנפרד**: מה שאינו שלו מדולג ונספר ככזה.
+   *
+   * ‏שני הצדדים נבדקים יחד, כי פתיחת הבורר בלי הרפיית השער הייתה
+   * ‏פקד שנשלף ב-403, והרפיית השער בלי בורר הייתה יכולת שאיש אינו
+   * ‏מגיע אליה.
    */
-  it("וגם סרגל הפעולות ביומן השיחות", () => {
-    expect(WEB("calls/page.tsx")).toMatch(/mayAssign=\{can\(user, "tasks\.assign"\)\}/u);
+  it("וגם סרגל הפעולות ביומן השיחות — פתוח לסוכן, ונאכף לכל ליד", () => {
+    expect(WEB("calls/page.tsx")).toMatch(
+      /mayAssign=\{can\(user, "tasks\.assign"\) \|\| can\(user, "leads\.edit"\)\}/u,
+    );
     expect(WEB("calls/bulk-bar.tsx")).toMatch(/useAssignees\(mayAssign\)/u);
+    const calls = API("calls/calls.service.ts");
+    /* ‏אין שער גורף על האצווה… */
+    expect(calls.slice(calls.indexOf("async assignMany("))).not.toContain(
+      "assertCanAssignAgents()",
+    );
+    /* ‏…ויש שאלה על כל ליד, בצורת דילוג ולא חריגה */
+    expect(calls).toContain("if (!mayHandOverLead(lead.assignedToUserId)) return \"skipped\";");
   });
 
   /*

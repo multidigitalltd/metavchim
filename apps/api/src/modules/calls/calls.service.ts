@@ -20,7 +20,7 @@ import {
   agentNameOf,
   agentNames,
   assertAgentInOffice,
-  assertCanAssignAgents,
+  mayHandOverLead,
 } from "../../common/agent-names";
 import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
@@ -647,7 +647,19 @@ export class CallsService {
    * ‏וזה מדויק: היא אכן כבר עברה.
    */
   async assignMany(ids: readonly string[], agentUserId: string): Promise<CallBulkResult> {
-    assertCanAssignAgents();
+    /*
+     * ‎**אין כאן שער גורף, וההרשאה נשאלת על כל ליד בנפרד.**
+     *
+     * ‏מה שעובר כאן הוא **לידים** (`moveLead`), וליד הוא היוצא מן
+     * ‏הכלל: „בין סוכנים ניתן להעביר לידים בלבד”. סוכן שיוצא לחופשה
+     * ‏צריך למסור את שלו בלחיצה אחת ולא ליד-ליד (בקשת בעלת המוצר),
+     * ‏ו-`assertCanAssignAgents` כאן חסם בדיוק את זה.
+     *
+     * ‎**השאלה עברה ל-`moveLead`, ולא בוטלה:** שם היא נשאלת על
+     * ‏הבעלים בפועל של כל ליד, בתוך הטרנזקציה שקוראת אותו. סוכן
+     * ‏עדיין אינו יכול למשוך אליו ליד של עמית — הוא רק יכול למסור
+     * ‏את שלו.
+     */
     const { tenantId } = TenantContext.current();
 
     /*
@@ -728,12 +740,28 @@ export class CallsService {
         select: { assignedToUserId: true },
       });
       if (lead === null) return "skipped";
+      /*
+       * ‎**„אין הרשאה” הוא דילוג, ולא חריגה** — אותה משמעות שכבר
+       * ‏מוצהרת ב-`CallBulkResult.skipped` („נעלם, אין הרשאה, או
+       * ‏נכשל”). הטלת חריגה כאן הייתה מפילה אצווה של עשרים לידים
+       * ‏בגלל שורה אחת שאינה של המוסר.
+       *
+       * ‎`mayHandOverLead` ולא בדיקה מקומית: זו אותה הכרעה בדיוק
+       * ‏שהבוט והכרטיס שואלים, בצורת בוליאני במקום סירוב.
+       */
+      if (!mayHandOverLead(lead.assignedToUserId)) return "skipped";
       const handover = agentHandover(lead.assignedToUserId, agentUserId);
       if (handover === null) return "already";
-      await tx.lead.updateMany({
-        where: { id: leadId, tenantId },
+      /*
+       * ‎**מותנית בבעלים שעליו ניתנה הרשות** — אותו נימוק בדיוק של
+       * ‎`LeadsService.handOver`: כשההרשאה נגזרת מהבעלים, קריאה
+       * ‏ישנה היא סמכות שפקעה ולא רק ערך ישן.
+       */
+      const updated = await tx.lead.updateMany({
+        where: { id: leadId, tenantId, assignedToUserId: lead.assignedToUserId },
         data: { assignedToUserId: agentUserId },
       });
+      if (updated.count === 0) return "skipped";
       await this.audit.record(tx, {
         action: "lead.agent_changed",
         entityType: "lead",

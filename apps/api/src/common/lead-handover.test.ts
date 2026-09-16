@@ -130,3 +130,40 @@ describe("מסירת ליד — שלוש שאלות, ולא אחת", () => {
     expect(handOver).toContain("ConflictException");
   });
 });
+
+/**
+ * ‎**מסירה מרוכזת — אותו כלל, בצורת דילוג במקום סירוב.**
+ *
+ * ‏סוכן שיוצא לחופשה מוסר את כל הלידים שלו בלחיצה אחת, ולא ליד-ליד
+ * ‏(בקשת בעלת המוצר). מה שהופך את זה לבטוח הוא ש„מותר לי למסור”
+ * ‏נשאלת על **כל ליד בנפרד**, ולא פעם אחת על האצווה.
+ */
+describe("מסירה מרוכזת — כלל אחד בשתי צורות", () => {
+  const helper = readFileSync(new URL("./agent-names.ts", import.meta.url), "utf8");
+
+  /*
+   * ‏שני מימושים לאותה שאלה היו נפרדים ביום שמישהו יגע באחד מהם —
+   * ‏וההפרדה הזו היא בדיוק מה שהופך „דילוג” ל„מותר”.
+   */
+  it("הסירוב נגזר מהבוליאני, ולא מחזיק תנאי משלו", () => {
+    const assertFn = helper.slice(helper.indexOf("export function assertCanHandOverLead"));
+    expect(assertFn).toContain("if (mayHandOverLead(currentOwnerUserId)) return;");
+    expect(assertFn).not.toContain('capabilities.has("tasks.assign")');
+  });
+
+  /*
+   * ‎**והאצווה מדלגת ואינה נופלת.** חריגה על שורה אחת שאינה של
+   * ‏המוסר הייתה מפילה עשרים לידים שכן שלו — ו-`skipped` כבר מוצהר
+   * ‏כ„נעלם, אין הרשאה, או נכשל”.
+   */
+  it("והאצווה מדלגת על מה שאינו שלו, במקום להיכשל", () => {
+    const calls = readFileSync(
+      new URL("../modules/calls/calls.service.ts", import.meta.url),
+      "utf8",
+    );
+    const move = calls.slice(calls.indexOf("private async moveLead("));
+    expect(move).toContain('if (!mayHandOverLead(lead.assignedToUserId)) return "skipped";');
+    /* ‏ואותה השוואה-והחלפה של המסירה הבודדת */
+    expect(move).toContain("assignedToUserId: lead.assignedToUserId");
+  });
+});

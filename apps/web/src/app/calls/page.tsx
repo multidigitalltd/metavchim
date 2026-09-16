@@ -861,7 +861,17 @@ export default function CallsPage() {
         <>
           <CallsBulkBar
             ids={pickedVisible}
-            mayAssign={can(user, "tasks.assign")}
+            /*
+              ‎**גם סוכן רגיל — כי מה שעובר כאן הוא לידים.**
+
+              ‏„בין סוכנים ניתן להעביר לידים בלבד”, והסרגל הזה מעביר
+              ‏בדיוק את זה. סוכן שיוצא לחופשה מוסר את שלו בלחיצה
+              ‏אחת (בקשת בעלת המוצר), ולא ליד-ליד.
+
+              ‏השרת שואל על כל ליד בנפרד: מה שאינו שלו מדולג ונספר
+              ‏ככזה. המסך רק פותח את הבורר.
+            */
+            mayAssign={can(user, "tasks.assign") || can(user, "leads.edit")}
             onClear={() => setPicked(new Set())}
             onDone={(action, ids, outcome) => {
               setBulkNote(outcome);

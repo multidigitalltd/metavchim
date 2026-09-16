@@ -140,9 +140,25 @@ export function assertCanAssignAgents(): void {
  * ‏בשורה הזו” ושאלת „מותר לי למסור אותה” הן שתיים, ואיחודן היה
  * ‏נותן לסוכן לגלות שיוך של לידים שאינו רואה.
  */
-export function assertCanHandOverLead(currentOwnerUserId: string | null): void {
+export function mayHandOverLead(currentOwnerUserId: string | null): boolean {
   const ctx = TenantContext.current();
-  if (ctx.capabilities.has("tasks.assign")) return;
-  if (currentOwnerUserId !== null && currentOwnerUserId === ctx.userId) return;
+  if (ctx.capabilities.has("tasks.assign")) return true;
+  return currentOwnerUserId !== null && currentOwnerUserId === ctx.userId;
+}
+
+/**
+ * ‎**אותה הכרעה, כשהתשובה היא סירוב ולא דילוג.**
+ *
+ * ‏מסירה של ליד **אחד** — מהבוט או מהכרטיס — חייבת לומר „לא” בקול:
+ * ‏מי שביקש למסור ליד מסוים וקיבל שקט אינו יודע אם זה קרה. פעולה
+ * ‏מרוכזת על עשרים לידים היא ההפך: שם „אין הרשאה” הוא **דילוג**
+ * ‏על שורה, ונספר ככזה — ראו `CallBulkResult.skipped`. הטלת חריגה
+ * ‏שם הייתה מפילה את כל האצווה בגלל שורה אחת.
+ *
+ * ‏שתי הצורות, כלל אחד: הפרדתן לשני מימושים הייתה הצורה שכבר נפלה
+ * ‏כאן פעמים רבות.
+ */
+export function assertCanHandOverLead(currentOwnerUserId: string | null): void {
+  if (mayHandOverLead(currentOwnerUserId)) return;
   throw new ForbiddenException("אפשר למסור רק ליד שמשויך אליך");
 }
