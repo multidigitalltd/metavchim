@@ -115,6 +115,8 @@ const NOTIFY_MEMORY: Record<string, string> = {
   task_reminder: "הזכרתי לך משימה",
   appointment_reminder: "הזכרתי לך פגישה",
   viewing_followup: "עדכנתי אותך על מעקב אחרי סיור",
+  property_stale: "עדכנתי אותך על נכס שנתקע בשיווק",
+  buyer_quiet: "עדכנתי אותך על קונה שלא היה איתו קשר",
   offer_followup: "עדכנתי אותך על מעקב אחרי הצעה",
   property: "עדכנתי אותך על נכס חדש",
   property_delisted: "עדכנתי אותך על נכס שירד מהשוק",

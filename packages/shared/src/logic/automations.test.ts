@@ -34,6 +34,8 @@ describe("קטלוג האוטומציות", () => {
     expect(automationSpec("stale_lead")?.defaultValue).toBe(7);
     expect(automationSpec("offer_followup")?.defaultValue).toBe(48);
     expect(automationSpec("viewing_followup")?.defaultValue).toBe(1);
+    expect(automationSpec("stale_property")?.defaultValue).toBe(21);
+    expect(automationSpec("quiet_buyer")?.defaultValue).toBe(14);
   });
 });
 

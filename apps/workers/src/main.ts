@@ -114,6 +114,11 @@ import {
   propertyAddressOr,
   shouldAlertPbxSilence,
   summarizeViewingFeedback,
+  averagePerSqmAgorot,
+  perSqmGapPercent,
+  pricePerSqmAgorot,
+  normalizeLocationName,
+  neighborhoodSame,
   viewingFeedbackSentences,
 } from "@metavchim/shared";
 
@@ -1085,6 +1090,296 @@ async function warmStaleLead(
       },
     });
   });
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+/** ‏קונה „פעיל” — לא בשל אינו נספר: אין למי לחזור עדיין. */
+const ACTIVE_BUYER_MATURITIES = ["very_hot", "hot", "interested"];
+/** ‏כמה נכסים השוואתיים לכל היותר לממוצע למ״ר בסריקה — תקרה, לא מדיניות. */
+const STALE_PROPERTY_BENCHMARK_SCAN = 300;
+
+/**
+ * ‏מי מקבל את המשימה: הסוכן המשויך אם עדיין פעיל, אחרת בעלי המשרד.
+ * ‏אותו כלל כמו „ליד שהתקרר”: סוכן שהושבת אינו רואה משימות, ומשימה
+ * ‏שאיש אינו רואה היא לא-כלום.
+ */
+async function assigneeFor(
+  tx: Prisma.TransactionClient,
+  tenantId: string,
+  preferredUserId: string | null,
+): Promise<{ assignee: string; notifyUserIds: string[] } | null> {
+  const preferredActive =
+    preferredUserId !== null &&
+    (await tx.user.findFirst({ where: { id: preferredUserId, tenantId, isActive: true }, select: { id: true } })) !== null;
+  if (preferredActive) return { assignee: preferredUserId!, notifyUserIds: [preferredUserId!] };
+  const owners = await tx.user.findMany({
+    where: { tenantId, role: "owner", isActive: true },
+    orderBy: { createdAt: "asc" },
+    select: { id: true },
+  });
+  if (owners.length === 0) return null;
+  return { assignee: owners[0]!.id, notifyUserIds: owners.map((o) => o.id) };
+}
+
+/** ‏משימה מאותו מקור שעדיין פתוחה, או שנוצרה אחרי הפעילות האחרונה — לא מכפילים. */
+async function taskAlreadyRaised(
+  tx: Prisma.TransactionClient,
+  tenantId: string,
+  sourceKey: string,
+  lastActivity: Date,
+): Promise<boolean> {
+  const existing = await tx.task.findFirst({
+    where: { tenantId, sourceKey, OR: [{ status: "open" }, { createdAt: { gte: lastActivity } }] },
+    select: { id: true },
+  });
+  return existing !== null;
+}
+
+function propertyLabelOf(p: { marketingTitle: string | null; street: string | null; houseNumber: string | null; city: string | null }): string {
+  const address = [[p.street, p.houseNumber].filter(Boolean).join(" "), p.city].filter((part) => part).join(", ");
+  return p.marketingTitle || address || "הנכס";
+}
+
+/**
+ * ‏„נכס תקוע” — נכס בשיווק שלא קרה בו דבר X ימים.
+ *
+ * ‏„דבר” = סיור (שנקבע ולא בוטל), פנייה (ליד או שיחה על הנכס), או
+ * ‏עדכון של הכרטיס. `updatedAt` נספר בכוונה: נכס שהמתווך ערך השבוע
+ * ‏אינו נשכח, גם אם איש לא ביקר — ובלי זה נכס שהופעל היום היה
+ * ‏„תקוע” מיד, כי אין עמודת „מתי הופעל”.
+ *
+ * ‏המשימה נושאת את מה שהמתווך צריך לשיחה עם המוכר: הפער מהממוצע
+ * ‏למ״ר בשכונה (או בעיר) על מלאי המשרד, ומה אמרו הקונים שכן ביקרו.
+ * ‏מספרים ולא „כדאי להוריד מחיר” — זו שיחה של המתווך, לא של המערכת.
+ */
+async function assessStaleProperty(tenantId: string, propertyId: string, cutoff: Date): Promise<void> {
+  await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
+    await tx.$executeRaw`SELECT id FROM properties WHERE id = ${propertyId} AND tenant_id = ${tenantId} FOR UPDATE`;
+    const property = await tx.property.findFirst({
+      where: { id: propertyId, tenantId, deletedAt: null, status: "active" },
+      select: {
+        agentUserId: true, marketingTitle: true, street: true, houseNumber: true, city: true, neighborhood: true,
+        dealType: true, priceAgorot: true, areaSqm: true, updatedAt: true,
+      },
+    });
+    if (!property) return;
+
+    const now = new Date();
+    const [lastViewing, lastLead, lastCall] = await Promise.all([
+      tx.appointment.findFirst({
+        where: { tenantId, propertyId, kind: "viewing", status: { not: "cancelled" }, startsAt: { lte: now } },
+        orderBy: { startsAt: "desc" },
+        select: { startsAt: true },
+      }),
+      tx.lead.findFirst({ where: { tenantId, propertyId }, orderBy: { createdAt: "desc" }, select: { createdAt: true } }),
+      tx.call.findFirst({ where: { tenantId, propertyId }, orderBy: { occurredAt: "desc" }, select: { occurredAt: true } }),
+    ]);
+    const lastActivity = new Date(Math.max(
+      property.updatedAt.getTime(),
+      lastViewing?.startsAt.getTime() ?? 0,
+      lastLead?.createdAt.getTime() ?? 0,
+      lastCall?.occurredAt.getTime() ?? 0,
+    ));
+    if (lastActivity > cutoff) return;
+
+    const sourceKey = `property-stale:${propertyId}`;
+    if (await taskAlreadyRaised(tx, tenantId, sourceKey, lastActivity)) return;
+    const who = await assigneeFor(tx, tenantId, property.agentUserId);
+    if (who === null) return;
+
+    /* ‏הפער מהממוצע — אותו כלל כמו בכרטיס הנכס: אותה עיר, אותו סוג עסקה, לפחות שלושה */
+    const lines: string[] = [];
+    const perSqm = pricePerSqmAgorot(property.priceAgorot === null ? null : Number(property.priceAgorot), property.areaSqm);
+    const cityKey = normalizeLocationName(property.city ?? "");
+    if (perSqm !== null && cityKey !== "") {
+      const rows = await tx.property.findMany({
+        where: {
+          tenantId, deletedAt: null, id: { not: propertyId }, dealType: property.dealType,
+          status: { in: ["active", "on_hold", "sold", "rented"] }, priceAgorot: { gt: 0 }, areaSqm: { gt: 0 },
+        },
+        select: { city: true, neighborhood: true, priceAgorot: true, areaSqm: true },
+        orderBy: { createdAt: "desc" },
+        take: STALE_PROPERTY_BENCHMARK_SCAN,
+      });
+      const inCity = rows
+        .filter((row) => normalizeLocationName(row.city ?? "") === cityKey)
+        .map((row) => ({ neighborhood: row.neighborhood, priceAgorot: Number(row.priceAgorot), areaSqm: row.areaSqm }));
+      const wanted = property.neighborhood ?? "";
+      const inNeighborhood = wanted === "" ? [] : inCity.filter((row) => neighborhoodSame(row.neighborhood ?? "", wanted));
+      const scoped = averagePerSqmAgorot(inNeighborhood) !== null
+        ? { label: `בשכונה`, benchmark: averagePerSqmAgorot(inNeighborhood)! }
+        : averagePerSqmAgorot(inCity) !== null
+          ? { label: `בעיר`, benchmark: averagePerSqmAgorot(inCity)! }
+          : null;
+      if (scoped !== null) {
+        const gap = perSqmGapPercent(perSqm, scoped.benchmark);
+        if (gap !== null) {
+          lines.push(
+            gap === 0
+              ? `המחיר למ״ר כמו הממוצע ${scoped.label} (${scoped.benchmark.count} נכסים).`
+              : `המחיר למ״ר ${gap > 0 ? "גבוה" : "נמוך"} ב-${Math.abs(gap)}% מהממוצע ${scoped.label} (${scoped.benchmark.count} נכסים).`,
+          );
+        }
+      }
+    }
+    const viewings = await tx.appointment.findMany({
+      where: {
+        tenantId, propertyId, kind: "viewing", status: "completed",
+        OR: [{ feedbackPrice: { not: null } }, { feedbackCondition: { not: null } }, { feedbackFit: { not: null } }],
+      },
+      select: { feedbackPrice: true, feedbackCondition: true, feedbackFit: true },
+      take: 200,
+    });
+    const sentences = viewingFeedbackSentences(
+      summarizeViewingFeedback(viewings.map((v) => ({ price: v.feedbackPrice, condition: v.feedbackCondition, fit: v.feedbackFit }))),
+    );
+    if (sentences.length > 0) lines.push(`מה אמרו הקונים שביקרו: ${sentences.join(" · ")}.`);
+
+    const quietDays = Math.floor((now.getTime() - lastActivity.getTime()) / DAY_MS);
+    const label = propertyLabelOf(property);
+    const notes = [
+      `${quietDays} ימים בלי סיור, בלי פנייה ובלי עדכון בכרטיס.`,
+      ...lines,
+      "הדוח למוכר מוכן לשליחה: כרטיס הנכס ⟵ „בעל הנכס” ⟵ „שלח דוח”.",
+    ].join("\n").slice(0, 2000);
+    await tx.task.create({
+      data: {
+        id: ulid(), tenantId, assignedToUserId: who.assignee,
+        title: `🪧 נכס תקוע — לדבר עם המוכר: ${label}`.slice(0, 200),
+        notes, dueAt: now, entityType: "property", entityId: propertyId, sourceKey,
+      },
+    });
+    for (const userId of who.notifyUserIds) {
+      await tx.notification.create({
+        data: {
+          id: ulid(), tenantId, userId, type: "property_stale",
+          title: `🪧 נכס תקוע — ${label}`,
+          body: `${quietDays} ימים בלי סיור ובלי פנייה. ${lines[0] ?? "נוצרה משימה לדבר עם המוכר."}`.slice(0, 500),
+          entityType: "property", entityId: propertyId,
+        },
+      });
+    }
+  });
+}
+
+/** ‏סריקת „נכס תקוע” — פעם ביום, נכסים בשיווק בלבד, לפי הסף של המשרד. */
+async function processStalePropertySweep(): Promise<void> {
+  const tenants = await prisma.tenant.findMany({ where: { status: { in: ["active", "trial"] } }, select: { id: true } });
+  for (const tenant of tenants) {
+    const settings = await automationSettings(tenant.id);
+    if (!settings.stale_property.enabled) continue;
+    const cutoff = new Date(Date.now() - (automationThresholdMs("stale_property", settings) ?? 21 * DAY_MS));
+    let cursor: string | undefined;
+    for (;;) {
+      const batch = await prisma.$transaction(async (tx) => {
+        await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenant.id}, true)`;
+        /* ‏סינון גס באינדקס (status, updatedAt); האימות המדויק — בתוך הנעילה */
+        return tx.property.findMany({
+          where: { tenantId: tenant.id, deletedAt: null, status: "active", updatedAt: { lte: cutoff } },
+          select: { id: true },
+          orderBy: { id: "asc" },
+          take: 200,
+          ...(cursor === undefined ? {} : { cursor: { id: cursor }, skip: 1 }),
+        });
+      });
+      for (const row of batch) await assessStaleProperty(tenant.id, row.id, cutoff);
+      if (batch.length < 200) break;
+      cursor = batch[batch.length - 1]!.id;
+    }
+  }
+}
+
+/**
+ * ‏„קונה שקט” — קונה פעיל שלא היה איתו קשר X ימים.
+ *
+ * ‏„קשר” = אינטראקציה שאדם רשם (לא `system` — אחרת האוטומציה הייתה
+ * ‏מאפסת את עצמה), הודעת וואטסאפ או מייל לאיש הקשר, שיחה, או סיור.
+ * ‏גם עדכון של כרטיס הקונה נספר: מי שערך את הדרישות אתמול לא שכח
+ * ‏את הקונה.
+ */
+async function assessQuietBuyer(tenantId: string, buyerId: string, cutoff: Date): Promise<void> {
+  await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
+    await tx.$executeRaw`SELECT id FROM buyers WHERE id = ${buyerId} AND tenant_id = ${tenantId} FOR UPDATE`;
+    const buyer = await tx.buyer.findFirst({
+      where: { id: buyerId, tenantId, deletedAt: null, maturity: { in: ACTIVE_BUYER_MATURITIES } },
+      select: { contactId: true, ownerUserId: true, updatedAt: true },
+    });
+    if (!buyer) return;
+    const now = new Date();
+    const [lastInteraction, lastMessage, lastEmail, lastCall, lastAppointment] = await Promise.all([
+      tx.interaction.findFirst({ where: { tenantId, buyerId, kind: { not: "system" } }, orderBy: { createdAt: "desc" }, select: { createdAt: true } }),
+      tx.message.findFirst({ where: { tenantId, contactId: buyer.contactId }, orderBy: { createdAt: "desc" }, select: { createdAt: true } }),
+      tx.emailMessage.findFirst({ where: { tenantId, contactId: buyer.contactId }, orderBy: { createdAt: "desc" }, select: { createdAt: true } }),
+      tx.call.findFirst({ where: { tenantId, contactId: buyer.contactId }, orderBy: { occurredAt: "desc" }, select: { occurredAt: true } }),
+      tx.appointment.findFirst({ where: { tenantId, buyerId, status: { not: "cancelled" }, startsAt: { lte: now } }, orderBy: { startsAt: "desc" }, select: { startsAt: true } }),
+    ]);
+    const lastActivity = new Date(Math.max(
+      buyer.updatedAt.getTime(),
+      lastInteraction?.createdAt.getTime() ?? 0,
+      lastMessage?.createdAt.getTime() ?? 0,
+      lastEmail?.createdAt.getTime() ?? 0,
+      lastCall?.occurredAt.getTime() ?? 0,
+      lastAppointment?.startsAt.getTime() ?? 0,
+    ));
+    if (lastActivity > cutoff) return;
+
+    const sourceKey = `buyer-quiet:${buyerId}`;
+    if (await taskAlreadyRaised(tx, tenantId, sourceKey, lastActivity)) return;
+    const who = await assigneeFor(tx, tenantId, buyer.ownerUserId);
+    if (who === null) return;
+
+    const quietDays = Math.floor((now.getTime() - lastActivity.getTime()) / DAY_MS);
+    await tx.task.create({
+      data: {
+        id: ulid(), tenantId, assignedToUserId: who.assignee,
+        title: "🤫 קונה שקט — ליצור קשר",
+        notes: `${quietDays} ימים בלי שיחה, הודעה או סיור. עדכון קצר על מה שנכנס לשוק שומר את הקונה אצלכם.`,
+        dueAt: now, entityType: "buyer", entityId: buyerId, sourceKey,
+      },
+    });
+    for (const userId of who.notifyUserIds) {
+      await tx.notification.create({
+        data: {
+          id: ulid(), tenantId, userId, type: "buyer_quiet",
+          title: "🤫 קונה שקט",
+          body: `קונה פעיל בלי קשר ${quietDays} ימים — נוצרה משימה ליצור קשר.`,
+          entityType: "buyer", entityId: buyerId,
+        },
+      });
+    }
+    await tx.interaction.create({
+      data: { id: ulid(), tenantId, buyerId, kind: "system", content: `בלי קשר ${quietDays} ימים — נוצרה משימה ליצור קשר`, createdBy: null },
+    });
+  });
+}
+
+/** ‏סריקת „קונה שקט” — פעם ביום, קונים פעילים בלבד, לפי הסף של המשרד. */
+async function processQuietBuyerSweep(): Promise<void> {
+  const tenants = await prisma.tenant.findMany({ where: { status: { in: ["active", "trial"] } }, select: { id: true } });
+  for (const tenant of tenants) {
+    const settings = await automationSettings(tenant.id);
+    if (!settings.quiet_buyer.enabled) continue;
+    const cutoff = new Date(Date.now() - (automationThresholdMs("quiet_buyer", settings) ?? 14 * DAY_MS));
+    let cursor: string | undefined;
+    for (;;) {
+      const batch = await prisma.$transaction(async (tx) => {
+        await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenant.id}, true)`;
+        /* ‏סינון גס באינדקס (maturity, updatedAt); האימות המדויק — בתוך הנעילה */
+        return tx.buyer.findMany({
+          where: { tenantId: tenant.id, deletedAt: null, maturity: { in: ACTIVE_BUYER_MATURITIES }, updatedAt: { lte: cutoff } },
+          select: { id: true },
+          orderBy: { id: "asc" },
+          take: 200,
+          ...(cursor === undefined ? {} : { cursor: { id: cursor }, skip: 1 }),
+        });
+      });
+      for (const row of batch) await assessQuietBuyer(tenant.id, row.id, cutoff);
+      if (batch.length < 200) break;
+      cursor = batch[batch.length - 1]!.id;
+    }
+  }
 }
 
 /**
@@ -4114,6 +4409,8 @@ async function processLow(job: Job): Promise<void> {
   if (job.name === "lead-sla-sweep") return processLeadSlaSweep();
   if (job.name === "daily-brief") return processDailyBrief();
   if (job.name === "stale-lead-sweep") return processStaleLeadSweep();
+  if (job.name === "stale-property-sweep") return processStalePropertySweep();
+  if (job.name === "quiet-buyer-sweep") return processQuietBuyerSweep();
   if (job.name === "weekly-summary") return processWeeklySummary();
   if (job.name === "viewing-feedback-digest") return processViewingFeedbackDigest();
   if (job.name === "recurring-tasks") return processRecurringTasks();
@@ -4257,6 +4554,25 @@ void lowQueue
     console.error(
       `stale-lead-sweep scheduler registration failed: ${String(error)}`,
     );
+  });
+// „נכס תקוע” ו„קונה שקט” — 09:20 ו-09:40 שעון ישראל, כל יום, אחרי „ליד שהתקרר”
+void lowQueue
+  .upsertJobScheduler(
+    "stale-property-sweep",
+    { pattern: "20 9 * * *", tz: "Asia/Jerusalem" },
+    { name: "stale-property-sweep" },
+  )
+  .catch((error: unknown) => {
+    console.error(`stale-property-sweep scheduler registration failed: ${String(error)}`);
+  });
+void lowQueue
+  .upsertJobScheduler(
+    "quiet-buyer-sweep",
+    { pattern: "40 9 * * *", tz: "Asia/Jerusalem" },
+    { name: "quiet-buyer-sweep" },
+  )
+  .catch((error: unknown) => {
+    console.error(`quiet-buyer-sweep scheduler registration failed: ${String(error)}`);
   });
 // סיכום שבועי לבעל המשרד — ראשון 08:00 שעון ישראל
 void lowQueue
