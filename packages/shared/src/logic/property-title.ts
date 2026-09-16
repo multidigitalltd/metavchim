@@ -25,10 +25,20 @@ export function clientPropertyTitle(property: {
   const marketing = property.marketingTitle?.trim();
   if (marketing !== undefined && marketing !== "") return marketing;
 
-  const kind =
-    (property.propertyType === null || property.propertyType === undefined
-      ? undefined
-      : PROPERTY_TYPE_LABELS_HE[property.propertyType as keyof typeof PROPERTY_TYPE_LABELS_HE]) ?? "נכס";
+  /*
+   * ‎**`Object.hasOwn` ולא אינדוקס ישיר** (ביקורת Codex).
+   *
+   * ‏`property_type` הוא מחרוזת חופשית במסד — ייבוא, חילוץ משיחה,
+   * ‏שורה ישנה — ולכן ערך כמו `constructor` מחזיר את פונקציית
+   * ‏האב-טיפוס במקום `undefined`. ה-`??` אינו תופס אותו, והכותרת
+   * ‏הייתה מפסיקה להיות מחרוזת: הצעה נופלת על סכימת הטיפוסים,
+   * ‏ושורת הפיצ׳ זורקת על `.includes` — ובמקרה הגרוע קוד הפונקציה
+   * ‏היה יוצא ללקוח.
+   */
+  const type = property.propertyType ?? "";
+  const kind = Object.hasOwn(PROPERTY_TYPE_LABELS_HE, type)
+    ? PROPERTY_TYPE_LABELS_HE[type as keyof typeof PROPERTY_TYPE_LABELS_HE]
+    : "נכס";
   const rooms = property.rooms ?? null;
   /* ‏„דירה” לפני מניין חדרים נוטה ל„דירת”; שאר הסוגים אינם נוטים */
   const head =

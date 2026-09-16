@@ -47,6 +47,19 @@ describe("שם הנכס שיוצא ללקוח", () => {
     expect(clientPropertyTitle({ propertyType: "apartment", rooms: 3.5, city: "בת ים" })).toBe("דירת 3.5 חדרים בבת ים");
   });
 
+  /*
+   * ‏`property_type` הוא מחרוזת חופשית במסד, ולכן ערך כמו
+   * ‏`constructor` החזיר את פונקציית האב-טיפוס — כלומר הכותרת
+   * ‏חדלה להיות מחרוזת (ביקורת Codex).
+   */
+  it("מפתח מאב-טיפוס אינו הופך לשם", () => {
+    for (const type of ["constructor", "toString", "hasOwnProperty", "__proto__"]) {
+      const title = clientPropertyTitle({ propertyType: type, rooms: 3, city: "חולון" });
+      expect(typeof title, type).toBe("string");
+      expect(title, type).toBe("נכס 3 חדרים בחולון");
+    }
+  });
+
   it("סוג שאינו בקטלוג אינו דולף", () => {
     expect(clientPropertyTitle({ propertyType: "warehouse_of_doom", rooms: 2, city: "חולון" })).toBe("נכס 2 חדרים בחולון");
   });

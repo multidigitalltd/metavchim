@@ -45,28 +45,38 @@ export interface PropertyPitchInput {
  * ‏שדה הופך ל„3 חדרים · רעננה”, ולא לשורה עם מפרידים ריקים.
  */
 export function pitchPropertyLine(property: PitchProperty): string {
+  /*
+   * ‎**מה שהכותרת כבר אומרת אינו נאמר שוב.**
+   *
+   * ‏השורה נכתבה כשהכותרת הייתה תמיד שם שיווקי או ערך גולמי, ולכן
+   * ‏הרשימה שאחריה לא יכלה לחזור עליה. מרגע שנכס בלי כותרת מקבל
+   * ‏שם נגזר („דירת 4 חדרים בחולון”), הצירוף קרא „דירת 4 חדרים
+   * ‏בחולון — 4 חדרים · חולון” (ביקורת Codex).
+   *
+   * ‏המבחן הוא הכלה, ולא דגל „הכותרת נגזרה”: גם משרד שכתב „דירה
+   * ‏מהממת בחולון” אינו צריך לקבל „· חולון” אחריה.
+   */
+  const fresh = (part: string | null | undefined): string | null =>
+    part === null || part === undefined || part === "" || property.title.includes(part) ? null : part;
+  /*
+   * ‎**והמיקום נבדק לפי רכיביו** (ביקורת Codex): „קריית שרת, חולון”
+   * ‏כמחרוזת אחת אינו מוכל בכותרת, ולכן העיר הייתה חוזרת בכל זאת.
+   * ‏השכונה נשארת, העיר יורדת — „דירת 4 חדרים בחולון — קריית שרת”.
+   */
+  const location = [property.neighborhood, property.city]
+    .map((part) => fresh(part))
+    .filter((part): part is string => part !== null)
+    .join(", ");
   const parts = [
-    property.rooms === undefined ? null : `${formatIsraeliNumber(property.rooms)} חדרים`,
-    property.areaSqm === undefined ? null : `${formatIsraeliNumber(property.areaSqm)} מ״ר`,
-    [property.neighborhood, property.city].filter(Boolean).join(", ") || null,
-    property.priceAgorot === undefined
-      ? null
-      : `${formatIsraeliNumber(Math.round(property.priceAgorot / 100))} ₪`,
-  ].filter(
-    (part): part is string =>
-      /*
-       * ‎**מה שהכותרת כבר אומרת אינו נאמר שוב.**
-       *
-       * ‏השורה נכתבה כשהכותרת הייתה תמיד שם שיווקי או ערך גולמי,
-       * ‏ולכן הרשימה שאחריה לא יכלה לחזור עליה. מרגע שנכס בלי
-       * ‏כותרת מקבל שם נגזר („דירת 4 חדרים בחולון”), הצירוף קרא
-       * „‏דירת 4 חדרים בחולון — 4 חדרים · חולון” (ביקורת Codex).
-       *
-       * ‏המבחן הוא הכלה, ולא דגל „הכותרת נגזרה”: גם משרד שכתב
-       * „‏דירה מהממת בחולון” אינו צריך לקבל „· חולון” אחריה.
-       */
-      part !== null && part !== "" && !property.title.includes(part),
-  );
+    fresh(property.rooms === undefined ? null : `${formatIsraeliNumber(property.rooms)} חדרים`),
+    fresh(property.areaSqm === undefined ? null : `${formatIsraeliNumber(property.areaSqm)} מ״ר`),
+    location === "" ? null : location,
+    fresh(
+      property.priceAgorot === undefined
+        ? null
+        : `${formatIsraeliNumber(Math.round(property.priceAgorot / 100))} ₪`,
+    ),
+  ].filter((part): part is string => part !== null);
   return parts.length === 0 ? property.title : `${property.title} — ${parts.join(" · ")}`;
 }
 
