@@ -52,6 +52,7 @@ import { SuggestionsCard } from "./suggestions-card";
 
 import { PropertyTimeline } from "./property-timeline";
 import { MediaSection } from "./media-section";
+import { SignQr } from "./sign-qr";
 import { PropertyTwins } from "./property-twins";
 import { NetworkDemandMatches } from "../network-demand-matches";
 import { NetworkShareSection } from "../../network-share-section";
@@ -1320,11 +1321,12 @@ export default function PropertyDetailPage({
         */}
 
         {landingUrl ? (
-          <p
+          <div
             role="status"
-            className="m-0 mt-3 flex flex-wrap items-center gap-2 rounded-lg px-3 py-2 text-sm"
+            className="mt-3 rounded-lg px-3 py-2 text-sm"
             style={{ background: "#F1FEF4", border: "1px solid #BDF4CB" }}
           >
+          <p className="m-0 flex flex-wrap items-center gap-2">
             {/*
               הכותרת אמרה „והקישור הועתק” תמיד, גם כשהדפדפן חסם את
               הלוח — והמתווך הדביק אז משהו אחר. הדף באמת מוכן בכל
@@ -1361,6 +1363,9 @@ export default function PropertyDetailPage({
               — שלחו בוואטסאפ, פרסמו במודעה, וכל פנייה מהדף תיכנס ללידים.
             </span>
           </p>
+          {/* ‏אותו קישור, כקוד לשלט — ראו sign-qr.tsx */}
+          <SignQr url={landingUrl} label={address || "הנכס"} />
+          </div>
         ) : null}
       </div>
 
