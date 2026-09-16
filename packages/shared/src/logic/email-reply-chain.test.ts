@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   checkReplyChain,
+  replyChainVerdict,
   REPLY_CHAIN_SAMPLE_TOKEN,
   REPLY_LOCAL_MAX,
   type ReplyChainStepId,
@@ -70,5 +71,33 @@ describe("שרשרת התשובה — שלוש נקודות הקטיעה השק�
     const failed = result.steps.find((step) => !step.ok)!;
     expect(failed.detail).toContain(`office+${REPLY_CHAIN_SAMPLE_TOKEN}`);
     expect(failed.fix).toContain("+");
+  });
+});
+
+describe("מסקנת הבדיקה — מה מונה הטוקנים מוכיח, ומה לא", () => {
+  /*
+   * ‏`replyAddressFor` כותב את שורת הטוקן **לפני** שהוא בונה את
+   * ‏הכתובת, ולכן חלק מקומי ארוך מדי מייצר טוקן ואז מחזיר `null`:
+   * ‏שורה קיימת, ושום כותרת לא יצאה. גם שינוי הגדרות משאיר שורות
+   * ‏היסטוריות. „יש טוקנים” אינו מוכיח שיצאו מיילים עם Reply-To,
+   * ‏ומסקנה כזו הייתה שולחת את המנהל לחפש בחצי הלא נכון
+   * ‏(ביקורת Codex).
+   */
+  it("שרשרת שבורה — המסקנה אינה טוענת דבר על מה שיצא", () => {
+    for (const tokensIssued of [0, 1, 5000]) {
+      const verdict = replyChainVerdict({ chainOk: false, tokensIssued });
+      expect(verdict).toContain("השלב המסומן");
+      expect(verdict).not.toContain("יוצאים עם כתובת תשובה");
+    }
+  });
+
+  /** ‏ובכיוון ההפוך המונה כן חד-משמעי: אפס שורות = לא יצא כלום. */
+  it("אפס טוקנים — זה כן ניתן לקבוע", () => {
+    expect(replyChainVerdict({ chainOk: true, tokensIssued: 0 })).toContain("לא נשא Reply-To");
+  });
+
+  it("שרשרת תקינה עם טוקנים — הטענה על ההווה, לא על ההיסטוריה", () => {
+    const verdict = replyChainVerdict({ chainOk: true, tokensIssued: 412 });
+    expect(verdict).toContain("עכשיו");
   });
 });
