@@ -9,9 +9,17 @@ import { DictationControls } from "./dictation-field";
  * מיקרופון בכל שדה טקסט — בלי לגעת באף טופס.
  *
  * רכיב אחד שמורכב פעם אחת ב-layout: כשמתמקדים בשדה טקסט חופשי
- * (input טקסט/חיפוש או textarea), פקדי ההכתבה צצים צמוד מתחתיו.
- * כך כל שדה במערכת — כולל אלה שעוד לא נכתבו — מקבל הכתבה, במקום
- * להדביק פקדים ידנית בעשרות טפסים.
+ * (input טקסט/חיפוש או textarea), פקדי ההכתבה צצים **בתוך השדה**,
+ * בפינה השמאלית-תחתונה שלו. כך כל שדה במערכת — כולל אלה שעוד לא
+ * נכתבו — מקבל הכתבה, במקום להדביק פקדים ידנית בעשרות טפסים.
+ *
+ * ## למה בתוך השדה ולא מתחתיו
+ *
+ * הפקדים ישבו קודם צמוד **מתחת** לשדה — כלומר בדיוק על הפקד הבא
+ * בטופס: מי שהקליד עיר ולחץ על „להשוות” שמתחתיה לחץ על המיקרופון
+ * (mousedown נבלע בפקדים, והלחיצה שנועדה לקפל אותם מעולם לא
+ * הגיעה לכפתור). בתוך השדה הם אינם מכסים דבר מלבד קצה השדה עצמו —
+ * בעברית הטקסט מתחיל מימין, והצד השמאלי פנוי כמעט תמיד.
  *
  * מה לא מקבל מיקרופון בכוונה: סיסמאות, אימייל, מספרים ותאריכים
  * (הכתבה חופשית רק מלכלכת אותם), ושדות שכבר יש להם פקדי הכתבה
@@ -96,7 +104,8 @@ export function GlobalDictation() {
   useEffect(() => {
     function place(el: TextField): void {
       const r = el.getBoundingClientRect();
-      setPos({ top: r.bottom + window.scrollY + 4, left: r.left + window.scrollX });
+      /* ‏הפינה השמאלית-תחתונה של השדה, מבפנים — ה-translate מרים את התיבה לגובהה */
+      setPos({ top: r.bottom + window.scrollY - 4, left: r.left + window.scrollX + 4 });
     }
     function onFocusIn(event: FocusEvent): void {
       const target = event.target;
@@ -155,6 +164,7 @@ export function GlobalDictation() {
         position: "absolute",
         top: pos.top,
         left: pos.left,
+        transform: "translateY(-100%)",
         zIndex: 70,
         background: "var(--color-surface)",
         borderColor: "var(--color-border)",
