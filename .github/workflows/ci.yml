@@ -173,6 +173,13 @@ jobs:
       - name: Screens never ask for more than the gate accepts
         run: pnpm --filter @metavchim/web verify:limits
 
+      # ‏טופס ההרשמה הוא noValidate, ולכן אין לו ולידציה משלו כלל:
+      # ‏כל שגיאת הקלדה נסעה לשרת וחזרה כ„קלט לא תקין” בלי לומר איזה
+      # ‏שדה. לקוחות דיווחו שאי אפשר לפתוח חשבון. סכימה אחת למסך
+      # ‏ולשרת היא מה שסוגר את זה, וזה מה שהשער מוודא.
+      - name: Signup validates with one shared schema
+        run: pnpm --filter @metavchim/web verify:signup
+
       # ההדרכות והתיעוד הם בית אחד, והבית הוא הציבורי. השער מוודא
       # ש-`/guides` נשאר הפניה ולא חוזר להיות מסך שני שמצייר את אותו
       # תוכן — הפיצול הזה כבר ייצר כאן שתי גרסאות שנפרדו זו מזו.

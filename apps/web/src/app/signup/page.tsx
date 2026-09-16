@@ -3,7 +3,12 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { featureLabel, FREE_PRICE_LABEL, normalizeSignupCode } from "@metavchim/shared";
+import {
+  featureLabel,
+  FREE_PRICE_LABEL,
+  normalizeSignupCode,
+  SignupInputSchema,
+} from "@metavchim/shared";
 import { apiGet, apiPost, ApiError, apiList } from "@/lib/api";
 import { activeA11yCount, loadA11y } from "@/lib/a11y-prefs";
 import { persistA11yToServer, resyncA11yForUser } from "@/lib/a11y-sync";
@@ -53,6 +58,21 @@ interface OfferedPlan {
   trialDays: number;
 }
 
+/**
+ * ‏פסילה של שדה — **מתחת לשדה שפסל**, לא בהודעה כללית מעל הטופס.
+ *
+ * זה כל ההבדל בין „קלט לא תקין” לבין „הסיסמה חייבת להיות באורך 10
+ * תווים לפחות” מתחת לשדה הסיסמה. הראשון גרם ללקוחות לסגור את הדף.
+ */
+function FieldError({ name, message }: { name: string; message: string | undefined }): React.JSX.Element | null {
+  if (message === undefined) return null;
+  return (
+    <p id={`${name}-error`} role="alert" className="m-0 mt-1 text-sm" style={{ color: "var(--color-danger)" }}>
+      {message}
+    </p>
+  );
+}
+
 export default function SignupPage(): React.JSX.Element {
   const router = useRouter();
   const [plans, setPlans] = useState<OfferedPlan[] | null>(null);
@@ -74,6 +94,12 @@ export default function SignupPage(): React.JSX.Element {
    * ולא רק באג טכני אלא הצהרה שגויה (ביקורת Codex).
    */
   const [accepted, setAccepted] = useState(false);
+  /*
+   * ‏פסילה לכל שדה, לפי שם השדה בטופס. „קלט לא תקין” מעל הטופס הוא
+   * ‏מה שלקוחות דיווחו עליו — הודעה שאי אפשר לפעול לפיה. ההודעה
+   * ‏יושבת מתחת לשדה שפסל, וגם מסכמת למעלה כדי שקורא מסך ישמע אותה.
+   */
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   /*
    * הקופון נבדק בלחיצה ולא בכל הקלדה.
    *
@@ -148,34 +174,72 @@ export default function SignupPage(): React.JSX.Element {
     }
   }
 
+  /** ‏פסילה אחת לכל שדה — הראשונה, כי היא זו שיש לתקן קודם. */
+  function showIssues(issues: readonly { path: string; message: string }[]): void {
+    const byField: Record<string, string> = {};
+    for (const issue of issues) {
+      const field = issue.path.split(".")[0] ?? "";
+      if (field !== "" && byField[field] === undefined) byField[field] = issue.message;
+    }
+    setFieldErrors(byField);
+    setError(
+      Object.keys(byField).length === 0
+        ? "ההרשמה נכשלה — נסו שוב"
+        : "יש לתקן את המסומן בטופס: " + Object.values(byField).join(" · "),
+    );
+    const first = Object.keys(byField)[0];
+    if (first !== undefined) document.getElementById(first)?.focus();
+  }
+
   async function submit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
     if (chosen === null) return;
-    if (!accepted) {
-      setError("יש לאשר את תנאי השימוש ומדיניות הפרטיות");
+    const form = new FormData(event.currentTarget);
+    /*
+     * ‎**אותה סכימה שהשרת בודק בה** — לא עותק שלה.
+     *
+     * הטופס הוא `noValidate`, ולכן `required`, `minLength`
+     * ו-`type="email"` שעל השדות אינם עוצרים דבר. עד התיקון הזה
+     * המשמעות הייתה שכל שגיאת הקלדה נסעה לשרת וחזרה כ„קלט לא תקין”
+     * — בלי לומר איזה שדה ובלי לומר מה לתקן, וזה מה שגרם ללקוחות
+     * לדווח שאי אפשר לפתוח חשבון. שלב הקוד באותו מסך כבר עשה את
+     * הדבר הנכון (`normalizeSignupCode` משותף), ושלב הפרטים לא.
+     */
+    const parsed = SignupInputSchema.safeParse({
+      agencyName: String(form.get("agencyName") ?? ""),
+      ownerName: String(form.get("ownerName") ?? ""),
+      email: String(form.get("email") ?? ""),
+      phone: String(form.get("phone") ?? ""),
+      password: String(form.get("password") ?? ""),
+      plan: chosen,
+      // נשלח רק כשהוזן; השרת מנרמל ובודק שוב — הבדיקה במסך היא נוחות
+      ...(coupon.trim() !== "" ? { coupon: coupon.trim() } : {}),
+      acceptTerms: accepted,
+    });
+    if (!parsed.success) {
+      showIssues(parsed.error.issues.map((issue) => ({
+        path: issue.path.join("."),
+        message: issue.message,
+      })));
       return;
     }
-    const form = new FormData(event.currentTarget);
     setSubmitting(true);
     setError(null);
+    setFieldErrors({});
     try {
-      const res = await apiPost<{ token: string; email: string }>("/signup", {
-        agencyName: String(form.get("agencyName") ?? "").trim(),
-        ownerName: String(form.get("ownerName") ?? "").trim(),
-        email: String(form.get("email") ?? "").trim(),
-        phone: String(form.get("phone") ?? "").trim(),
-        password: String(form.get("password") ?? ""),
-        plan: chosen,
-        // נשלח רק כשהוזן; השרת מנרמל ובודק שוב — הבדיקה במסך היא נוחות
-        ...(coupon.trim() !== "" ? { coupon: coupon.trim() } : {}),
-        acceptTerms: true,
-      });
+      const res = await apiPost<{ token: string; email: string }>("/signup", parsed.data);
       // עדיין לא נפתח משרד — נשלח קוד, וזה כל מה שקרה
       setPending(res);
       setCode("");
       setResent(null);
     } catch (err: unknown) {
-      setError(err instanceof ApiError ? err.message : "ההרשמה נכשלה — נסו שוב");
+      /*
+       * גם פסילה שהגיעה מהשרת מוצגת על השדה. השרת כבר שולח `issues`,
+       * ורק המסך לא קרא אותן — ולכן דווקא המקרה שהבדיקה המקומית לא
+       * תפסה (אימייל תפוס, קופון שפג) הוא זה שחייב להיות ברור.
+       */
+      if (err instanceof ApiError && err.issues.length > 0) showIssues(err.issues);
+      else setError(err instanceof ApiError ? err.message : "ההרשמה נכשלה — נסו שוב");
     } finally {
       setSubmitting(false);
     }
@@ -456,7 +520,10 @@ export default function SignupPage(): React.JSX.Element {
               maxLength={120}
               autoComplete="organization"
               className="mv-auth-input"
+              aria-invalid={fieldErrors.agencyName !== undefined}
+              aria-describedby={fieldErrors.agencyName === undefined ? undefined : "agencyName-error"}
             />
+            <FieldError name="agencyName" message={fieldErrors.agencyName} />
           </div>
 
           <div className="mv-auth-field">
@@ -469,7 +536,10 @@ export default function SignupPage(): React.JSX.Element {
               maxLength={120}
               autoComplete="name"
               className="mv-auth-input"
+              aria-invalid={fieldErrors.ownerName !== undefined}
+              aria-describedby={fieldErrors.ownerName === undefined ? undefined : "ownerName-error"}
             />
+            <FieldError name="ownerName" message={fieldErrors.ownerName} />
           </div>
 
           <div className="mv-auth-field">
@@ -482,7 +552,10 @@ export default function SignupPage(): React.JSX.Element {
               dir="ltr"
               autoComplete="email"
               className="mv-auth-input"
+              aria-invalid={fieldErrors.email !== undefined}
+              aria-describedby={fieldErrors.email === undefined ? undefined : "email-error"}
             />
+            <FieldError name="email" message={fieldErrors.email} />
           </div>
 
           <div className="mv-auth-field">
@@ -496,7 +569,10 @@ export default function SignupPage(): React.JSX.Element {
               autoComplete="tel"
               placeholder="050-1234567"
               className="mv-auth-input"
+              aria-invalid={fieldErrors.phone !== undefined}
+              aria-describedby={fieldErrors.phone === undefined ? undefined : "phone-error"}
             />
+            <FieldError name="phone" message={fieldErrors.phone} />
           </div>
 
           <div className="mv-auth-field">
@@ -510,8 +586,12 @@ export default function SignupPage(): React.JSX.Element {
               autoComplete="new-password"
               dir="ltr"
               className="mv-auth-input"
-              aria-describedby="password-hint"
+              aria-invalid={fieldErrors.password !== undefined}
+              aria-describedby={
+                fieldErrors.password === undefined ? "password-hint" : "password-hint password-error"
+              }
             />
+            <FieldError name="password" message={fieldErrors.password} />
             <p id="password-hint" className="m-0 mt-1 text-sm" style={{ color: "var(--color-text-muted)" }}>
               לפחות 10 תווים. זו הסיסמה שמגינה על נתוני הלקוחות של המשרד.
             </p>
