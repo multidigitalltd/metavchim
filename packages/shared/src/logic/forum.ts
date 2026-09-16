@@ -417,28 +417,6 @@ export function forumActivityEmail(
   };
 }
 
-/** מייל ההשקה — למי שלחץ „עדכנו אותי” כשהפורום היה „בקרוב”. */
-export function forumLaunchEmail(
-  firstName: string,
-  webOrigin: string,
-): { subject: string; content: EmailContent } {
-  const origin = webOrigin.replace(/\/+$/u, "");
-  return {
-    subject: "הפורום המקצועי למתווכים נפתח",
-    content: {
-      heading: "הפורום נפתח — כמו שהבטחנו",
-      greeting: `שלום ${firstName},`,
-      paragraphs: [
-        "ביקשתם שנעדכן כשהפורום המקצועי עולה — והוא כאן: שאלות והתייעצויות בין מתווכים מכל הארץ, במקום אחד.",
-        "אפשר לשאול בשם או בעילום שם מלא, לעקוב אחרי שיחות במייל ובוואטסאפ, לדרג בעלי מקצוע מניסיון אישי, ולהשתמש במחשבונים ובכלים של המקצוע.",
-      ],
-      button: { label: "לכניסה לפורום", url: `${origin}/forum` },
-      footnote: "הודעה אחת, כפי שהבטחנו. לא נשלח עוד מיילים על הפורום אלא אם תבחרו לעקוב אחרי שיחות.",
-    },
-  };
-}
-
-
 /* ==================== חיפוש ==================== */
 
 /**
