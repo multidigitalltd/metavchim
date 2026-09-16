@@ -311,7 +311,11 @@ export default function BuyersPage() {
    */
   async function removeSelected(permanent: boolean): Promise<void> {
     const ids = selectedVisible.map((b) => b.id);
-    if (ids.length === 0) return;
+    /* ‏אותה יציאה שקטה בדיוק, ראו `shareSelected`. */
+    if (ids.length === 0) {
+      setError("הקונים שסומנו אינם ברשימה המסוננת — נקו את הסינון או בחרו מחדש");
+      return;
+    }
     /*
      * ‎**הגילוי לפני האישור — גם במחיקה המרוכזת.**
      *
@@ -401,7 +405,15 @@ export default function BuyersPage() {
    */
   async function shareSelected(): Promise<void> {
     const ids = selectedVisible.map((b) => b.id);
-    if (ids.length === 0) return;
+    /*
+     * ‏יציאה שקטה הייתה כפתור שלא מגיב: מי שסימן קונים ואז שינה
+     * ‏סינון נשאר עם בחירה שאינה ברשימה, ולחיצה על „העלה לרשת”
+     * ‏לא עשתה דבר ולא אמרה דבר.
+     */
+    if (ids.length === 0) {
+      setError("הקונים שסומנו אינם ברשימה המסוננת — נקו את הסינון או בחרו מחדש");
+      return;
+    }
     if (!window.confirm(`לפרסם ${ids.length} קונים לרשת השיתופים? יפורסמו בלי שם ובלי טלפון, בחלוקת עמלה 50/50.`)) return;
 
     setBulkBusy(true);
@@ -625,7 +637,21 @@ export default function BuyersPage() {
                   className="mv-list-card mb-3 flex flex-wrap items-center gap-2 px-4 py-3"
                   role="status"
                 >
-                  <strong className="text-[length:var(--type-body-sm)]">{selectedVisible.length} נבחרו</strong>
+                  {/*
+                    ‎**הסרגל אומר מה קורה כשהבחירה יצאה מהסינון.**
+
+                    ‏הבחירה נשמרת לפי מזהה, והפעולות עובדות על
+                    ‏`selectedVisible` — כלומר רק על מי שנמצא ברשימה
+                    ‏המסוננת כרגע. מי שסימן קונים ואז שינה סינון קיבל
+                    ‏„0 נבחרו” וכפתור שלא עושה דבר: הפעולה יצאה מיד
+                    ‏כי אין למי. עכשיו הסרגל אומר זאת, ובטל בחירה
+                    ‏נשאר הדרך החוצה.
+                  */}
+                  <strong className="text-[length:var(--type-body-sm)]">
+                    {selectedVisible.length === 0
+                      ? `${selected.size} נבחרו — ואף אחד מהם אינו בסינון הנוכחי`
+                      : `${selectedVisible.length} נבחרו`}
+                  </strong>
                   <button
                     type="button"
                     className="mv-btn-plain"
