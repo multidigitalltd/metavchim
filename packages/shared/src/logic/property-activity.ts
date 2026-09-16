@@ -324,6 +324,12 @@ export function ownerActivityText(input: {
    * העובדה שיש עוד (ביקורת Codex).
    */
   truncated?: boolean;
+  /**
+   * „מה אמרו הקונים” — משפטים מסוכמים מהמשוב שנאסף אחרי הביקורים
+   * (`viewingFeedbackSentences`). מספרים בלבד: אין בהם מי, ואין
+   * בהם את המשפט החופשי של הסוכן.
+   */
+  feedbackSentences?: readonly string[];
   now: Date;
 }): string {
   const summary = summarizeOwnerActivity(input.entries, input.now);
@@ -336,6 +342,13 @@ export function ownerActivityText(input: {
   if (input.entries.length === 0) {
     lines.push("לא נרשמה פעילות בתקופה זו.");
     return lines.join("\n");
+  }
+
+  const feedback = input.feedbackSentences ?? [];
+  if (feedback.length > 0) {
+    lines.push("מה אמרו הקונים שביקרו:");
+    for (const sentence of feedback) lines.push(`• ${sentence}`);
+    lines.push("");
   }
 
   const headline = [
@@ -389,6 +402,8 @@ export function ownerActivityEmail(input: {
   ownerName?: string;
   entries: readonly OwnerActivityEntry[];
   truncated?: boolean;
+  /** „מה אמרו הקונים” — ראו `ownerActivityText`. */
+  feedbackSentences?: readonly string[];
   now: Date;
 }): { subject: string; heading: string; greeting?: string; paragraphs: string[]; footnote: string } {
   const summary = summarizeOwnerActivity(input.entries, input.now);
@@ -397,6 +412,10 @@ export function ownerActivityEmail(input: {
   if (input.entries.length === 0) {
     paragraphs.push("לא נרשמה פעילות בתקופה זו.");
   } else {
+    const feedback = input.feedbackSentences ?? [];
+    if (feedback.length > 0) {
+      paragraphs.push(`מה אמרו הקונים שביקרו: ${feedback.join(" · ")}.`);
+    }
     const headline = [
       summary.held > 0 ? `${summary.held} מפגשים התקיימו` : null,
       summary.upcoming > 0 ? `${summary.upcoming} נקבעו וטרם התקיימו` : null,

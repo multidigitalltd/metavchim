@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parseForumCommand } from "./forum.js";
+import { parseViewingFeedbackCommand } from "./viewing-feedback.js";
 import { MENTOR_PLAYBOOK } from "./mentor-playbook.js";
 import {
   DEFAULT_WHATSAPP_NOTIFY_PREFS,
@@ -861,5 +862,28 @@ describe("notifyQuickReplies — הפורום: הכפתור קשור לשרשו�
     expect(buttons).toBeNull();
     // וגם התראה בלי מזהה שרשור
     expect(notifyQuickReplies([item({ type: "forum_reply" })])).toBeNull();
+  });
+});
+
+describe("notifyQuickReplies — אחרי הסיור: שלוש תשובות על המחיר, קשורות לסיור", () => {
+  const APPT = "01HXXXXXXXXXXXXXXXXXXXXXXX";
+  it("התראת „איך היה?” יחידה על סיור — הכפתורים נושאים את מזהה הסיור", () => {
+    const buttons = notifyQuickReplies([
+      item({ type: "viewing_followup", title: "סיור הסתיים", entityType: "appointment", entityId: APPT }),
+    ]);
+    expect(buttons?.map((b) => b.arg)).toEqual([
+      `משוב סיור: המחיר גבוה [${APPT}:price:high]`,
+      `משוב סיור: המחיר הוגן [${APPT}:price:fair]`,
+      `משוב סיור: המחיר נמוך [${APPT}:price:low]`,
+    ]);
+    for (const button of buttons ?? []) {
+      expect(button.action).toBe("cmd");
+      expect(button.title.length).toBeLessThanOrEqual(WA_BUTTON_TITLE_MAX);
+      expect(parseViewingFeedbackCommand(button.arg ?? "")?.appointmentId).toBe(APPT);
+    }
+  });
+  it("באגד עם התראות אחרות, או בלי מזהה סיור — הכפתורים הרגילים", () => {
+    expect(notifyQuickReplies([item({ type: "viewing_followup", entityType: "appointment", entityId: APPT }), item({ type: "lead" })])).toBeNull();
+    expect(notifyQuickReplies([item({ type: "viewing_followup", entityType: "buyer", entityId: APPT })])).toBeNull();
   });
 });

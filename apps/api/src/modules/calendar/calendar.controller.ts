@@ -13,7 +13,11 @@ import {
 } from "@nestjs/common";
 import { FileInterceptor } from "@nestjs/platform-express";
 import { z } from "zod";
-import { IdSchema } from "@metavchim/shared";
+import { IdSchema,
+  VIEWING_CONDITION_FEEDBACK,
+  VIEWING_FIT_FEEDBACK,
+  VIEWING_PRICE_FEEDBACK,
+} from "@metavchim/shared";
 import { RequireCapability } from "../../common/auth.decorators";
 import { RequireFeature } from "../../common/feature.guard";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
@@ -42,6 +46,10 @@ const UpdateSchema = z
     outcome: z.enum(["liked", "not_fit", "negotiating", "needs_other"]).nullable().optional(),
     notes: z.string().max(2000).nullable().optional(),
     title: z.string().max(200).nullable().optional(),
+    /** משוב מהביקור למוכר — שלוש רשימות סגורות; `null` מוחק (docs/03) */
+    feedbackPrice: z.enum(VIEWING_PRICE_FEEDBACK).nullable().optional(),
+    feedbackCondition: z.enum(VIEWING_CONDITION_FEEDBACK).nullable().optional(),
+    feedbackFit: z.enum(VIEWING_FIT_FEEDBACK).nullable().optional(),
   })
   .strict();
 

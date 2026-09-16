@@ -5,6 +5,12 @@ import {
   jerusalemLocalInputValue,
   jerusalemWallErrorMessage,
   resolveJerusalemLocalInput,
+  VIEWING_CONDITION_FEEDBACK,
+  VIEWING_CONDITION_LABELS,
+  VIEWING_FIT_FEEDBACK,
+  VIEWING_FIT_LABELS,
+  VIEWING_PRICE_FEEDBACK,
+  VIEWING_PRICE_LABELS,
 } from "@metavchim/shared";
 import { API_BASE, apiPatch, apiPost, ApiError } from "@/lib/api";
 import { Notice } from "../notice";
@@ -68,6 +74,10 @@ export function AppointmentFollowUp({
   const [reason, setReason] = useState("");
   const [outcome, setOutcome] = useState("");
   const [notes, setNotes] = useState("");
+  /* המשוב למוכר — שלוש הקשות; ריק = לא נשאל (docs/03 — appointments) */
+  const [feedbackPrice, setFeedbackPrice] = useState("");
+  const [feedbackCondition, setFeedbackCondition] = useState("");
+  const [feedbackFit, setFeedbackFit] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -114,6 +124,9 @@ export function AppointmentFollowUp({
       await apiPatch(`/appointments/${appointment.id}`, {
         ...(outcome !== "" ? { outcome } : { status: "completed" }),
         ...(notes.trim() !== "" ? { notes: notes.trim() } : {}),
+        ...(feedbackPrice !== "" ? { feedbackPrice } : {}),
+        ...(feedbackCondition !== "" ? { feedbackCondition } : {}),
+        ...(feedbackFit !== "" ? { feedbackFit } : {}),
       });
 
       if (file) {
@@ -235,6 +248,25 @@ export function AppointmentFollowUp({
                 ))}
               </select>
             </div>
+          ) : null}
+          {appointment.kind === "viewing" ? (
+            <fieldset className="m-0 border-0 p-0">
+              <legend className="mb-1 text-sm">מה אמר הקונה — נספר בדוח למוכר, בלי שמות</legend>
+              <div className="flex flex-wrap gap-2">
+                <select aria-label="על המחיר" value={feedbackPrice} onChange={(e) => setFeedbackPrice(e.target.value)} className="rounded-lg border px-3 py-2" style={inputStyle}>
+                  <option value="">על המחיר…</option>
+                  {VIEWING_PRICE_FEEDBACK.map((v) => <option key={v} value={v}>{VIEWING_PRICE_LABELS[v]}</option>)}
+                </select>
+                <select aria-label="על מצב הנכס" value={feedbackCondition} onChange={(e) => setFeedbackCondition(e.target.value)} className="rounded-lg border px-3 py-2" style={inputStyle}>
+                  <option value="">על מצב הנכס…</option>
+                  {VIEWING_CONDITION_FEEDBACK.map((v) => <option key={v} value={v}>{VIEWING_CONDITION_LABELS[v]}</option>)}
+                </select>
+                <select aria-label="על ההתאמה" value={feedbackFit} onChange={(e) => setFeedbackFit(e.target.value)} className="rounded-lg border px-3 py-2" style={inputStyle}>
+                  <option value="">על ההתאמה…</option>
+                  {VIEWING_FIT_FEEDBACK.map((v) => <option key={v} value={v}>{VIEWING_FIT_LABELS[v]}</option>)}
+                </select>
+              </div>
+            </fieldset>
           ) : null}
           <div>
             <label htmlFor={`nt-${appointment.id}`} className="mb-1 block text-sm">

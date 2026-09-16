@@ -2358,6 +2358,10 @@ model Appointment {
   status          String    @default("scheduled") @db.VarChar(20) // scheduled | completed | cancelled | no_show
   // תוצאת פולו-אפ אחרי סיור: liked | not_fit | negotiating | needs_other (אפיון §13)
   outcome         String?   @db.VarChar(20)
+  /// משוב מהביקור למוכר — רשימות סגורות (`VIEWING_*_FEEDBACK`); רק לסיור
+  feedbackPrice     String? @map("feedback_price") @db.VarChar(12)
+  feedbackCondition String? @map("feedback_condition") @db.VarChar(12)
+  feedbackFit       String? @map("feedback_fit") @db.VarChar(12)
   notes           String?   @db.VarChar(2000)
   googleEventId   String?   @map("google_event_id") @db.VarChar(120)
   googleSyncedAt  DateTime? @map("google_synced_at")

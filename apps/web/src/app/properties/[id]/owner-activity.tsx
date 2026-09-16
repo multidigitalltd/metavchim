@@ -8,8 +8,15 @@ import {
   ownerActivityText,
   type OwnerActivityKind,
   type OwnerActivityResult,
+  VIEWING_CONDITION_FEEDBACK,
+  VIEWING_CONDITION_LABELS,
+  VIEWING_FIT_FEEDBACK,
+  VIEWING_FIT_LABELS,
+  VIEWING_PRICE_FEEDBACK,
+  VIEWING_PRICE_LABELS,
+  type ViewingFeedbackSummary,
 } from "@metavchim/shared";
-import { API_BASE, ApiError, apiGet, apiPost } from "@/lib/api";
+import { API_BASE, ApiError, apiGet, apiPatch, apiPost } from "@/lib/api";
 import { useCopy } from "@/lib/clipboard";
 import { IconSheet } from "../../icons";
 import { Notice } from "../../notice";
@@ -31,12 +38,17 @@ interface ActivityEntry {
   kind: OwnerActivityKind;
   result: OwnerActivityResult;
   durationMinutes?: number;
+  /** רק לסיור שהתקיים — כדי לרשום משוב מכאן (docs/03 — appointments) */
+  appointmentId?: string;
+  feedback?: { price: string | null; condition: string | null; fit: string | null };
 }
 
 interface ActivityReport {
   entries: ActivityEntry[];
   summary: { total: number; held: number; upcoming: number; inquiries: number; lastAt?: string };
   truncated: boolean;
+  /** „מה אמרו הקונים” — המספרים והמשפטים שיוצאים למוכר; חסר בשרת ישן */
+  feedback?: { summary: ViewingFeedbackSummary; sentences: string[] };
   /**
    * ‏במה אפשר להגיע לבעל הנכס — מהשרת, כי פרטיו מוצפנים והמסך אינו
    * מחזיק אותם. השדה אופציונלי כדי שגרסת מסך חדשה מול שרת ישן לא
@@ -242,6 +254,7 @@ export function OwnerActivity({
   function messageText(): string {
     const periodLabel = PERIODS.find((p) => p.key === selection.period)?.label ?? "כל התקופה";
     return ownerActivityText({
+      ...(report?.feedback === undefined ? {} : { feedbackSentences: report.feedback.sentences }),
       propertyLabel,
       officeName,
       periodLabel,
@@ -323,6 +336,28 @@ export function OwnerActivity({
         </dl>
       )}
 
+      {/*
+        ‏„מה אמרו הקונים” — מה שמוריד מחיר בלי ויכוח. המשפטים הם
+        ‏בדיוק מה שייכנס לדוח שיוצא למוכר: מספרים, בלי מי ובלי המשפט
+        ‏החופשי של הסוכן (docs/03 — appointments).
+      */}
+      {report !== null && report.feedback !== undefined && report.feedback.sentences.length > 0 ? (
+        <section className="mv-card mv-card--pad mt-[14px]" aria-labelledby="viewing-feedback-heading">
+          <h3 id="viewing-feedback-heading" className="m-0 text-[length:var(--type-body)] font-extrabold">
+            מה אמרו הקונים שביקרו
+            <span className="ms-2 font-semibold" style={{ color: "var(--color-text-muted)" }}>
+              {report.feedback.summary.withFeedback} עם משוב
+            </span>
+          </h3>
+          <ul className="m-0 mt-2 flex list-none flex-col gap-1 p-0 text-[length:var(--type-caption-lg)]">
+            {report.feedback.sentences.map((sentence) => (
+              <li key={sentence}>• {sentence}</li>
+            ))}
+          </ul>
+          <p className="mv-form-hint mt-2">נכנס לדוח למוכר כמות שהוא — בלי שמות ובלי ההערות שלכם.</p>
+        </section>
+      ) : null}
+
       {error ? <Notice tone="danger">{error}</Notice> : null}
 
       {loading ? (
@@ -346,6 +381,7 @@ export function OwnerActivity({
                   <th className="p-[6px] text-right font-bold">מתי</th>
                   <th className="p-[6px] text-right font-bold">פעולה</th>
                   <th className="p-[6px] text-right font-bold">תוצאה</th>
+                  <th className="p-[6px] text-right font-bold">מה אמר הקונה</th>
                 </tr>
               </thead>
               <tbody>
@@ -365,6 +401,16 @@ export function OwnerActivity({
                     </td>
                     <td className="p-[6px] font-bold" style={{ color: RESULT_TONE[entry.result] }}>
                       {OWNER_ACTIVITY_RESULT_LABELS[entry.result]}
+                    </td>
+                    <td className="p-[6px]">
+                      {entry.appointmentId !== undefined && entry.feedback !== undefined ? (
+                        <ViewingFeedbackCell
+                          appointmentId={entry.appointmentId}
+                          feedback={entry.feedback}
+                          canEdit={canSend}
+                          onSaved={() => void load()}
+                        />
+                      ) : null}
                     </td>
                   </tr>
                 ))}
@@ -457,5 +503,90 @@ export function OwnerActivity({
         </>
       ) : null}
     </section>
+  );
+}
+
+/* ---------- משוב לסיור — מהכרטיס ---------- */
+
+/**
+ * שלוש הקשות על שורת סיור שהתקיים. מוצג כתוויות כשיש, וכשלושה
+ * בוררים קטנים כשאין — או כשלוחצים „לשנות”.
+ */
+function ViewingFeedbackCell({
+  appointmentId,
+  feedback,
+  canEdit,
+  onSaved,
+}: {
+  appointmentId: string;
+  feedback: { price: string | null; condition: string | null; fit: string | null };
+  canEdit: boolean;
+  onSaved: () => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [price, setPrice] = useState(feedback.price ?? "");
+  const [condition, setCondition] = useState(feedback.condition ?? "");
+  const [fit, setFit] = useState(feedback.fit ?? "");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const labels = [
+    feedback.price === null ? null : (VIEWING_PRICE_LABELS as Record<string, string>)[feedback.price] ?? null,
+    feedback.condition === null ? null : (VIEWING_CONDITION_LABELS as Record<string, string>)[feedback.condition] ?? null,
+    feedback.fit === null ? null : (VIEWING_FIT_LABELS as Record<string, string>)[feedback.fit] ?? null,
+  ].filter((label): label is string => label !== null);
+
+  async function save(): Promise<void> {
+    setBusy(true);
+    setError(null);
+    try {
+      await apiPatch(`/appointments/${appointmentId}`, {
+        feedbackPrice: price === "" ? null : price,
+        feedbackCondition: condition === "" ? null : condition,
+        feedbackFit: fit === "" ? null : fit,
+      });
+      setEditing(false);
+      onSaved();
+    } catch (err: unknown) {
+      setError(err instanceof ApiError ? err.message : "השמירה נכשלה");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!editing) {
+    return (
+      <span className="flex flex-wrap items-center gap-1.5">
+        {labels.length === 0 ? (
+          <span style={{ color: "var(--color-text-muted)" }}>—</span>
+        ) : (
+          labels.map((label) => <span key={label} className="mv-pill mv-domain-neutral">{label}</span>)
+        )}
+        {canEdit ? (
+          <button type="button" className="mv-btn-plain" onClick={() => setEditing(true)}>
+            {labels.length === 0 ? "לרשום משוב" : "לשנות"}
+          </button>
+        ) : null}
+      </span>
+    );
+  }
+  const selectStyle = { borderColor: "var(--color-input-border)", background: "var(--color-field)" } as const;
+  return (
+    <span className="flex flex-wrap items-center gap-1.5">
+      <select aria-label="על המחיר" value={price} onChange={(e) => setPrice(e.target.value)} className="rounded-lg border px-2 py-1" style={selectStyle}>
+        <option value="">על המחיר…</option>
+        {VIEWING_PRICE_FEEDBACK.map((v) => <option key={v} value={v}>{VIEWING_PRICE_LABELS[v]}</option>)}
+      </select>
+      <select aria-label="על מצב הנכס" value={condition} onChange={(e) => setCondition(e.target.value)} className="rounded-lg border px-2 py-1" style={selectStyle}>
+        <option value="">על המצב…</option>
+        {VIEWING_CONDITION_FEEDBACK.map((v) => <option key={v} value={v}>{VIEWING_CONDITION_LABELS[v]}</option>)}
+      </select>
+      <select aria-label="על ההתאמה" value={fit} onChange={(e) => setFit(e.target.value)} className="rounded-lg border px-2 py-1" style={selectStyle}>
+        <option value="">על ההתאמה…</option>
+        {VIEWING_FIT_FEEDBACK.map((v) => <option key={v} value={v}>{VIEWING_FIT_LABELS[v]}</option>)}
+      </select>
+      <button type="button" className="mv-btn-soft" disabled={busy} onClick={() => void save()}>{busy ? "שומר…" : "לשמור"}</button>
+      <button type="button" className="mv-btn-plain" disabled={busy} onClick={() => setEditing(false)}>ביטול</button>
+      {error ? <span style={{ color: "var(--color-danger)" }}>{error}</span> : null}
+    </span>
   );
 }

@@ -34,6 +34,7 @@ import {
 import { notificationUrl, type PushableNotification } from "./web-push.js";
 import type { WhatsAppButton } from "./whatsapp-buttons.js";
 import { forumThreadCommand } from "./forum.js";
+import { VIEWING_PRICE_FEEDBACK, VIEWING_PRICE_LABELS, viewingFeedbackCommand } from "./viewing-feedback.js";
 
 /* ==================== קטגוריות ==================== */
 
@@ -80,6 +81,8 @@ const TYPE_CATEGORY: Record<string, WhatsAppNotifyCategory> = {
   task_reminder: "tasks",
   appointment_reminder: "tasks",
   viewing_followup: "tasks",
+  /** „הדוח למוכר מוכן” — משוב מביקורים שהצטבר השבוע על נכס */
+  viewing_feedback_digest: "tasks",
   offer_followup: "tasks",
   custom_automation: "tasks",
   appointment_scheduled: "tasks",
@@ -349,6 +352,7 @@ const TYPE_ICON: Record<string, string> = {
   task_reminder: "⏰",
   appointment_reminder: "📅",
   viewing_followup: "🚪",
+  viewing_feedback_digest: "🗣️",
   offer_followup: "📨",
   buyer: "🙋",
   property: "🏠",
@@ -496,11 +500,30 @@ function forumButtons(threadId: string): WhatsAppButton[] {
   ];
 }
 
+/**
+ * הכפתורים אחרי סיור — השאלה הראשונה מהמשוב („מה אמר הקונה על
+ * המחיר?”), על הסיור **שההודעה דיברה עליו**: המזהה בכפתור. שלוש
+ * תשובות = שלושת הכפתורים של Meta; השאלות הבאות מגיעות מהסוכן
+ * אחרי הלחיצה (docs/03 — appointments).
+ */
+function viewingFeedbackButtons(appointmentId: string): WhatsAppButton[] {
+  const icons: Record<(typeof VIEWING_PRICE_FEEDBACK)[number], string> = { high: "💰", fair: "👍", low: "📉" };
+  return VIEWING_PRICE_FEEDBACK.map((value) => ({
+    action: "cmd",
+    arg: viewingFeedbackCommand(appointmentId, "price", value),
+    title: `${icons[value]} ${VIEWING_PRICE_LABELS[value]}`,
+  }));
+}
+
 export function notifyQuickReplies(
   items: readonly NotifyItem[],
   details?: NotifyDetailsLookup,
 ): WhatsAppButton[] | null {
   const types = new Set(items.map((item) => item.type));
+  if (items.length === 1 && items[0]!.type === "viewing_followup" && items[0]!.entityType === "appointment") {
+    const appointmentId = items[0]!.entityId ?? "";
+    return appointmentId === "" ? null : viewingFeedbackButtons(appointmentId);
+  }
   if (items.length > 0 && [...types].every((type) => type.startsWith("forum_"))) {
     /*
      * הכפתור נושא את השרשור, ולכן רק כשהאגד כולו על שרשור **אחד**.

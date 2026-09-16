@@ -6,6 +6,7 @@ import { OutboxService } from "../../core/outbox.service";
 import { PrismaService } from "../../core/prisma.service";
 import { CallsService } from "../calls/calls.service";
 import { ExclusivityService } from "../exclusivity/exclusivity.service";
+import { ViewingFeedbackService } from "./viewing-feedback.service";
 import { formatJerusalemDate, formatJerusalemTime } from "@metavchim/shared";
 
 export interface AppointmentDto {
@@ -20,6 +21,10 @@ export interface AppointmentDto {
   status: string;
   outcome?: string;
   notes?: string;
+  /** משוב מהביקור למוכר (docs/03) — רק לסיור */
+  feedbackPrice?: string;
+  feedbackCondition?: string;
+  feedbackFit?: string;
 }
 
 const OUTCOME_LABELS: Record<string, string> = {
@@ -286,6 +291,9 @@ export class CalendarService {
       outcome?: string | null;
       notes?: string | null;
       title?: string | null;
+      feedbackPrice?: string | null;
+      feedbackCondition?: string | null;
+      feedbackFit?: string | null;
     },
   ): Promise<AppointmentDto> {
     const ctx = TenantContext.current();
@@ -297,10 +305,16 @@ export class CalendarService {
       if (patch.outcome && existing.kind !== "viewing") {
         throw new BadRequestException("תוצאת סיור זמינה רק לפגישות מסוג סיור בנכס");
       }
+      // המשוב למוכר — אותו כלל, במקום אחד (ViewingFeedbackService)
+      const feedback = ViewingFeedbackService.apply(
+        { feedbackPrice: patch.feedbackPrice, feedbackCondition: patch.feedbackCondition, feedbackFit: patch.feedbackFit },
+        existing,
+      );
 
       await tx.appointment.update({
         where: { id },
         data: {
+          ...feedback,
           ...(patch.status !== undefined ? { status: patch.status } : {}),
           // תוצאה חדשה גוררת "התקיימה"; ניקוי תוצאה (null) לא נוגע בסטטוס
           ...(patch.outcome !== undefined
@@ -321,6 +335,10 @@ export class CalendarService {
           googleSyncedAt: null,
         },
       });
+
+      if (Object.keys(feedback).length > 0) {
+        await ViewingFeedbackService.recordAudit(this.audit, tx, id, existing.propertyId);
+      }
 
       // תוצאת סיור מתועדת בציר הזמן של הליד ושל הקונה — ההיסטוריה במקום אחד
       if (patch.outcome && existing.leadId) {
@@ -444,6 +462,9 @@ function toDto(row: {
   status: string;
   outcome: string | null;
   notes: string | null;
+  feedbackPrice?: string | null;
+  feedbackCondition?: string | null;
+  feedbackFit?: string | null;
 }): AppointmentDto {
   return {
     id: row.id,
@@ -457,5 +478,8 @@ function toDto(row: {
     status: row.status,
     outcome: row.outcome ?? undefined,
     notes: row.notes ?? undefined,
+    feedbackPrice: row.feedbackPrice ?? undefined,
+    feedbackCondition: row.feedbackCondition ?? undefined,
+    feedbackFit: row.feedbackFit ?? undefined,
   };
 }

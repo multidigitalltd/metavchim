@@ -113,6 +113,8 @@ import {
   pbxSilenceMessage,
   propertyAddressOr,
   shouldAlertPbxSilence,
+  summarizeViewingFeedback,
+  viewingFeedbackSentences,
 } from "@metavchim/shared";
 
 for (const candidate of [
@@ -507,6 +509,12 @@ async function processViewingFollowup(job: Job): Promise<void> {
         sourceKey,
       },
     });
+    /*
+     * ‎**ההתראה מצביעה על הסיור עצמו**, לא על הקונה: הכפתורים
+     * ‏בוואטסאפ („המחיר גבוה / הוגן / נמוך”) נושאים את מזהה הסיור,
+     * ‏והמשוב נרשם עליו (docs/03 — appointments). המשימה נשארת על
+     * ‏הקונה/הליד/הנכס — היא „לחזור ללקוח”, וזה כרטיס הלקוח.
+     */
     await tx.notification.create({
       data: {
         id: ulid(),
@@ -514,9 +522,9 @@ async function processViewingFollowup(job: Job): Promise<void> {
         userId: appt.createdBy,
         type: "viewing_followup",
         title: "🚶 סיור הסתיים — איך היה?",
-        body: `"${what}" הסתיים ועדיין אין סיכום — נוצרה משימה לחזור ללקוח ולרשום תוצאה.`,
-        entityType: entity?.type ?? null,
-        entityId: entity?.id ?? null,
+        body: `"${what}" הסתיים ועדיין אין סיכום — נוצרה משימה לחזור ללקוח ולרשום תוצאה. מה אמר הקונה על המחיר?`,
+        entityType: "appointment",
+        entityId: appointmentId,
       },
     });
   });
@@ -1440,6 +1448,82 @@ async function processDailyBrief(): Promise<void> {
  * שהתקיימו והמרות. משלים את דו"ח הבוקר של הסוכן ברמה העסקית.
  * הולך רק ל-owner/admin (בעלי view_all). אידמפוטנטי פר שבוע.
  */
+/**
+ * „הדוח למוכר מוכן” — פעם בשבוע, לכל נכס שהצטבר עליו משוב מביקורים
+ * (docs/03 — appointments). התראה לסוכן של הנכס עם המשפטים שיוצאו
+ * למוכר, ולא שליחה למוכר: דוח שאומר „המחיר גבוה” צריך סוכן שיודע
+ * לנהל את השיחה אחריו. אידמפוטנטי לשבוע הקלנדרי, כמו הסיכום השבועי.
+ */
+async function processViewingFeedbackDigest(): Promise<void> {
+  const now = new Date();
+  const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+  const weekAnchor = new Date(now);
+  weekAnchor.setUTCHours(0, 0, 0, 0);
+  weekAnchor.setUTCDate(weekAnchor.getUTCDate() - weekAnchor.getUTCDay());
+  const tenants = await prisma.tenant.findMany({
+    where: { status: { in: ["active", "trial"] } },
+    select: { id: true },
+  });
+  for (const tenant of tenants) {
+    await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenant.id}, true)`;
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`viewing-feedback:${tenant.id}`}))`;
+      const rows = await tx.appointment.findMany({
+        where: {
+          tenantId: tenant.id,
+          kind: "viewing",
+          status: "completed",
+          propertyId: { not: null },
+          startsAt: { gte: weekAgo },
+          OR: [
+            { feedbackPrice: { not: null } },
+            { feedbackCondition: { not: null } },
+            { feedbackFit: { not: null } },
+          ],
+        },
+        select: { propertyId: true, createdBy: true, feedbackPrice: true, feedbackCondition: true, feedbackFit: true },
+      });
+      const byProperty = new Map<string, typeof rows>();
+      for (const row of rows) {
+        if (row.propertyId === null) continue;
+        byProperty.set(row.propertyId, [...(byProperty.get(row.propertyId) ?? []), row]);
+      }
+      for (const [propertyId, viewings] of byProperty) {
+        const property = await tx.property.findFirst({
+          where: { id: propertyId, tenantId: tenant.id, deletedAt: null },
+          select: { agentUserId: true, marketingTitle: true, street: true, houseNumber: true, city: true },
+        });
+        if (!property) continue;
+        const recipient = property.agentUserId ?? viewings.find((v) => v.createdBy !== null)?.createdBy ?? null;
+        if (recipient === null) continue;
+        const already = await tx.notification.findFirst({
+          where: { tenantId: tenant.id, type: "viewing_feedback_digest", entityId: propertyId, createdAt: { gte: weekAnchor } },
+          select: { id: true },
+        });
+        if (already) continue;
+        const sentences = viewingFeedbackSentences(
+          summarizeViewingFeedback(viewings.map((v) => ({ price: v.feedbackPrice, condition: v.feedbackCondition, fit: v.feedbackFit }))),
+        );
+        if (sentences.length === 0) continue;
+        const address = [[property.street, property.houseNumber].filter(Boolean).join(" "), property.city].filter((p) => p).join(", ");
+        const label = property.marketingTitle || address || "הנכס";
+        await tx.notification.create({
+          data: {
+            id: ulid(),
+            tenantId: tenant.id,
+            userId: recipient,
+            type: "viewing_feedback_digest",
+            title: `🗣️ ${viewings.length === 1 ? "ביקור אחד עם משוב" : `${viewings.length} ביקורים עם משוב`} השבוע — ${label}`,
+            body: `${sentences.join(" · ")}. הדוח למוכר מוכן: בכרטיס הנכס, לשונית „בעל הנכס”, „שלח דוח”.`,
+            entityType: "property",
+            entityId: propertyId,
+          },
+        });
+      }
+    });
+  }
+}
+
 async function processWeeklySummary(): Promise<void> {
   const now = new Date();
   const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
@@ -4031,6 +4115,7 @@ async function processLow(job: Job): Promise<void> {
   if (job.name === "daily-brief") return processDailyBrief();
   if (job.name === "stale-lead-sweep") return processStaleLeadSweep();
   if (job.name === "weekly-summary") return processWeeklySummary();
+  if (job.name === "viewing-feedback-digest") return processViewingFeedbackDigest();
   if (job.name === "recurring-tasks") return processRecurringTasks();
   if (job.name === "subscription-expiry") return processSubscriptionExpiry();
   if (job.name === "exclusivity-sweep") return processExclusivitySweep();
@@ -4183,6 +4268,18 @@ void lowQueue
   .catch((error: unknown) => {
     console.error(
       `weekly-summary scheduler registration failed: ${String(error)}`,
+    );
+  });
+// „הדוח למוכר מוכן” — ראשון 09:00 שעון ישראל, שעה אחרי הסיכום השבועי
+void lowQueue
+  .upsertJobScheduler(
+    "viewing-feedback-digest",
+    { pattern: "0 9 * * 0", tz: "Asia/Jerusalem" },
+    { name: "viewing-feedback-digest" },
+  )
+  .catch((error: unknown) => {
+    console.error(
+      `viewing-feedback-digest scheduler registration failed: ${String(error)}`,
     );
   });
 // ניקוי יומן הסוכן — 04:00 שעון ישראל, כשהמערכת שקטה. פעם ביום
