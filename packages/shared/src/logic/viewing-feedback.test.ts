@@ -16,6 +16,7 @@ describe("סיכום המשוב מביקורים", () => {
       { price: null, condition: null, fit: null },
     ]);
     expect(s.withFeedback).toBe(2);
+    expect(s.asked).toEqual({ price: 2, condition: 1, fit: 1 });
     expect(s.price).toEqual({ high: 2, fair: 0, low: 0 });
     expect(s.condition.needs_work).toBe(1);
     expect(s.fit.location).toBe(1);
@@ -54,5 +55,20 @@ describe("כפתורי הוואטסאפ אחרי הסיור", () => {
     expect(nextViewingFeedbackField({ price: "high", condition: null, fit: null })).toBe("condition");
     expect(nextViewingFeedbackField({ price: "high", condition: "good", fit: null })).toBe("fit");
     expect(nextViewingFeedbackField({ price: "high", condition: "good", fit: "fits" })).toBeNull();
+  });
+});
+
+describe("המכנה הוא מי שנשאל על השאלה, לא כל מי שהשאיר משוב", () => {
+  it("ביקור שענה רק על מצב הנכס אינו נספר במכנה של המחיר", () => {
+    const s = summarizeViewingFeedback([
+      { price: "high", condition: null, fit: null },
+      { price: null, condition: "needs_work", fit: null },
+      { price: null, condition: null, fit: null },
+    ]);
+    expect(s.withFeedback).toBe(2);
+    expect(s.asked).toEqual({ price: 1, condition: 1, fit: 0 });
+    const sentences = viewingFeedbackSentences(s);
+    expect(sentences).toContain("1 מתוך 1 אמרו שהמחיר גבוה");
+    expect(sentences.some((line) => line.includes("מתוך 2"))).toBe(false);
   });
 });

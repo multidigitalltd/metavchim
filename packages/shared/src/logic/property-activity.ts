@@ -25,6 +25,8 @@ import { formatJerusalemDate, formatJerusalemTime } from "./israel-time.js";
  * וההערות הן יומן פנימי של הסוכן.
  */
 export interface OwnerAppointmentRow {
+  /** ‏מזהה הפגישה — לא חובה; כשקיים הוא עובר לרשומה כדי שהמסך יוכל לחזור אליה */
+  id?: string;
   /** viewing | meeting | call */
   kind: string;
   startsAt: Date;
@@ -82,6 +84,8 @@ export type OwnerActivityResult =
   | "unknown";
 
 export interface OwnerActivityEntry {
+  /** ‏מזהה הפגישה שממנה נבנתה הרשומה — רק לפגישות, ורק כשהקלט נשא אותו */
+  appointmentId?: string;
   at: Date;
   kind: OwnerActivityKind;
   result: OwnerActivityResult;
@@ -182,7 +186,18 @@ export function buildOwnerActivity(input: {
   for (const row of input.appointments) {
     const kind = APPOINTMENT_KINDS[row.kind];
     if (kind === undefined) continue;
-    entries.push({ at: row.startsAt, kind, result: appointmentResult(row) });
+    entries.push({
+      at: row.startsAt,
+      kind,
+      result: appointmentResult(row),
+      /*
+       * ‏המזהה עובר כשניתן — ולא נגזר אחר כך מהמועד: שני סיורים
+       * ‏באותו נכס באותה שעה (שני קונים) הם שתי רשומות, ומפתח לפי
+       * ‏מועד היה מצמיד את שתיהן לאותו סיור, ועריכת משוב באחת
+       * ‏הייתה כותבת על השנייה (ביקורת Codex).
+       */
+      ...(row.id === undefined ? {} : { appointmentId: row.id }),
+    });
   }
 
   for (const row of input.calls) {

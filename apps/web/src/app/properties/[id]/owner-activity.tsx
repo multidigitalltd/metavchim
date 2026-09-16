@@ -109,12 +109,19 @@ export function OwnerActivity({
   propertyLabel,
   officeName,
   canSend,
+  canEditFeedback,
 }: {
   propertyId: string;
   propertyLabel: string;
   officeName: string;
   /** ‏`properties.edit` — השליחה יוצאת ללקוח בשם המשרד. */
   canSend: boolean;
+  /**
+   * ‎`calendar.manage` — עריכת המשוב כותבת על הפגישה (`PATCH /appointments`),
+   * ‏וזו יכולת נפרדת מעריכת הנכס. עורך שנפתח ותמיד מחזיר 403 גרוע
+   * ‏מעורך שאינו מוצג (ביקורת Codex).
+   */
+  canEditFeedback: boolean;
 }) {
   /*
    * התקופה **וגבול הטווח שלה יחד**, בעדכון מצב אחד.
@@ -407,7 +414,7 @@ export function OwnerActivity({
                         <ViewingFeedbackCell
                           appointmentId={entry.appointmentId}
                           feedback={entry.feedback}
-                          canEdit={canSend}
+                          canEdit={canEditFeedback}
                           onSaved={() => void load()}
                         />
                       ) : null}

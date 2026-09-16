@@ -389,3 +389,24 @@ describe("„מה אמרו הקונים” בדוח למוכר", () => {
     expect(without.paragraphs.some((p) => p.includes("מה אמרו הקונים"))).toBe(false);
   });
 });
+
+describe("מזהה הפגישה עובר לרשומה", () => {
+  it("שני סיורים באותה שעה נשארים שתי רשומות עם שני מזהים", () => {
+    const at = new Date("2026-09-10T10:00:00Z");
+    const entries = buildOwnerActivity({
+      appointments: [
+        { id: "A", kind: "viewing", startsAt: at, status: "completed", outcome: null },
+        { id: "B", kind: "viewing", startsAt: at, status: "completed", outcome: null },
+      ],
+      calls: [],
+    });
+    expect(entries.map((e) => e.appointmentId).sort()).toEqual(["A", "B"]);
+  });
+  it("בלי מזהה בקלט — אין שדה מזהה ברשומה", () => {
+    const entries = buildOwnerActivity({
+      appointments: [{ kind: "viewing", startsAt: new Date(), status: "scheduled", outcome: null }],
+      calls: [],
+    });
+    expect("appointmentId" in entries[0]!).toBe(false);
+  });
+});

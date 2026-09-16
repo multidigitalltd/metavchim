@@ -147,14 +147,14 @@ export class PropertyActivityService {
     const summary = summarizeOwnerActivity(entries, new Date());
     const feedbackSummary = summarizeViewingFeedback(PropertyActivityService.heldViewings(appointments));
     /*
-     * ‎הרשומה ⟵ הפגישה שלה, לפי מועד: `buildOwnerActivity` ממיין
-     * ‏ואינו מחזיר מזהים (בכוונה), ומועד הסיור הוא המפתח היציב היחיד.
+     * ‏הרשומה ⟵ הפגישה שלה **לפי מזהה**, שעובר דרך `buildOwnerActivity`.
+     * ‏מועד אינו מפתח: שני סיורים באותה שעה הם שני קונים (ביקורת Codex).
      */
-    const byStart = new Map(appointments.map((row) => [`${row.kind}:${row.startsAt.getTime()}`, row]));
+    const byId = new Map(appointments.map((row) => [row.id, row]));
 
     return {
       entries: entries.map((entry) => {
-        const source = entry.kind === "viewing" ? byStart.get(`viewing:${entry.at.getTime()}`) : undefined;
+        const source = entry.kind === "viewing" && entry.appointmentId !== undefined ? byId.get(entry.appointmentId) : undefined;
         return {
           at: entry.at.toISOString(),
           kind: entry.kind,

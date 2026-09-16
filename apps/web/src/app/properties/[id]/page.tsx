@@ -2479,6 +2479,7 @@ export default function PropertyDetailPage({
               שנראים פעילים ותמיד מחזירים 403 (ביקורת Codex).
             */
             canSend={canEditOwner}
+            canEditFeedback={can(user, "calendar.manage")}
           />
         </div>
       </TabPanel>

@@ -50,6 +50,14 @@ export interface ViewingFeedbackRow {
 export interface ViewingFeedbackSummary {
   /** ביקורים שיש בהם לפחות תשובה אחת */
   withFeedback: number;
+  /**
+   * ‏כמה ענו על **כל שאלה** בנפרד — המכנה של „k מתוך n”.
+   *
+   * ‎`null` פירושו „לא נשאל”, ולכן ביקור שענה רק על מצב הנכס אינו
+   * ‏נספר במכנה של המחיר: „1 מתוך 2 אמרו שהמחיר גבוה” כשרק אחד
+   * ‏נשאל על המחיר היה מספר שקרי למוכר (ביקורת Codex).
+   */
+  asked: { price: number; condition: number; fit: number };
   price: Record<ViewingPriceFeedback, number>;
   condition: Record<ViewingConditionFeedback, number>;
   fit: Record<ViewingFitFeedback, number>;
@@ -63,6 +71,7 @@ function isOneOf<T extends string>(list: readonly T[], value: string | null): va
 export function summarizeViewingFeedback(rows: readonly ViewingFeedbackRow[]): ViewingFeedbackSummary {
   const summary: ViewingFeedbackSummary = {
     withFeedback: 0,
+    asked: { price: 0, condition: 0, fit: 0 },
     price: { high: 0, fair: 0, low: 0 },
     condition: { good: 0, needs_work: 0 },
     fit: { fits: 0, location: 0, size: 0, layout: 0 },
@@ -71,14 +80,17 @@ export function summarizeViewingFeedback(rows: readonly ViewingFeedbackRow[]): V
     let any = false;
     if (isOneOf(VIEWING_PRICE_FEEDBACK, row.price)) {
       summary.price[row.price] += 1;
+      summary.asked.price += 1;
       any = true;
     }
     if (isOneOf(VIEWING_CONDITION_FEEDBACK, row.condition)) {
       summary.condition[row.condition] += 1;
+      summary.asked.condition += 1;
       any = true;
     }
     if (isOneOf(VIEWING_FIT_FEEDBACK, row.fit)) {
       summary.fit[row.fit] += 1;
+      summary.asked.fit += 1;
       any = true;
     }
     if (any) summary.withFeedback += 1;
@@ -94,13 +106,13 @@ function count(n: number, singular: string, plural: string): string {
  * המשפטים שהמוכר מקבל — רק מה שנאמר, בסדר שמשנה: קודם המחיר.
  *
  * „6 מתוך 8 אמרו שהמחיר גבוה” ולא „75%”: המוכר סופר אנשים, לא
- * אחוזים, ומספר קטן במכנה אומר לו בעצמו כמה זה שווה.
+ * אחוזים, ומספר קטן במכנה אומר לו בעצמו כמה זה שווה. המכנה הוא
+ * **מי שנשאל על המחיר**, לא כל מי שהשאיר משוב כלשהו.
  */
 export function viewingFeedbackSentences(summary: ViewingFeedbackSummary): string[] {
-  const n = summary.withFeedback;
-  if (n === 0) return [];
+  if (summary.withFeedback === 0) return [];
   const out: string[] = [];
-  const of = (k: number): string => `${k} מתוך ${n}`;
+  const of = (k: number): string => `${k} מתוך ${summary.asked.price}`;
   if (summary.price.high > 0) out.push(`${of(summary.price.high)} אמרו שהמחיר גבוה`);
   if (summary.price.fair > 0) out.push(`${of(summary.price.fair)} אמרו שהמחיר הוגן`);
   if (summary.price.low > 0) out.push(`${of(summary.price.low)} אמרו שהמחיר נמוך`);
