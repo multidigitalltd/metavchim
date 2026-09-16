@@ -26,9 +26,12 @@ import { SelectMenu } from "../select-menu";
 import { AuthorBadge, KIND_DOMAIN, threadHref, type ThreadDto, type ThreadSummary } from "./forum-shared";
 
 /**
- * רשימת השרשורים — הלשונית הראשית, וגם „שאלות אנונימיות” (עם
- * ‎`anonymousOnly`). הסינון בשרת: הרשימה מדפדפת, והמסך אינו מחזיק
- * את כל הפורום בזיכרון.
+ * רשימת השרשורים — הלשונית הראשית. הסינון בשרת: הרשימה מדפדפת,
+ * והמסך אינו מחזיק את כל הפורום בזיכרון.
+ *
+ * ‏עילום שם הוא **אפשרות בפרסום** (התיבה בטופס), לא מסנן: מדור
+ * ‏נפרד לשאלות אנונימיות הפך אותן ל„סוג” של שאלה, והן פשוט שאלות
+ * ‏(החלטת בעל המוצר).
  */
 
 type Sort = "active" | "newest" | "top";
@@ -40,11 +43,9 @@ const SORTS: [Sort, string][] = [
 ];
 
 export function ThreadList({
-  anonymousOnly = false,
   followingOnly = false,
   reloadKey = 0,
 }: {
-  anonymousOnly?: boolean;
   followingOnly?: boolean;
   reloadKey?: number;
 }) {
@@ -65,13 +66,12 @@ export function ThreadList({
       if (topic !== "") params.set("topic", topic);
       if (sort !== "active") params.set("sort", sort);
       if (unanswered) params.set("unanswered", "1");
-      if (anonymousOnly) params.set("anonymous", "1");
       if (followingOnly) params.set("following", "1");
       if (cursor !== null) params.set("cursor", cursor);
       const text = params.toString();
       return text === "" ? "" : `?${text}`;
     },
-    [q, topic, sort, unanswered, anonymousOnly, followingOnly],
+    [q, topic, sort, unanswered, followingOnly],
   );
 
   const load = useCallback(() => {
@@ -114,20 +114,15 @@ export function ThreadList({
     <div>
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <button type="button" className="mv-btn-primary" onClick={() => setComposing((v) => !v)}>
-          <IconPlus s={16} /> {anonymousOnly ? "שאלה בעילום שם" : "שאלה או דיון חדש"}
+          <IconPlus s={16} /> שאלה או דיון חדש
         </button>
         <p className="m-0 text-[length:var(--type-caption-lg)]" style={{ color: "var(--color-text-muted)" }}>
-          {anonymousOnly
-            ? "כל מה שכאן פורסם בעילום שם — הזהות אינה נשמרת בשום מקום."
-            : "מתווכים מכל הארץ עונים זה לזה. שאלה טובה נשארת ונמצאת בחיפוש."}
+          מתווכים מכל הארץ עונים זה לזה. שאלה טובה נשארת ונמצאת בחיפוש.
         </p>
       </div>
 
       {composing ? (
-        <Composer
-          defaultAnonymous={anonymousOnly}
-          onClose={() => setComposing(false)}
-        />
+        <Composer onClose={() => setComposing(false)} />
       ) : null}
 
       <div className="mv-filter-bar" data-active={filtering ? "on" : undefined}>
@@ -243,13 +238,13 @@ export function ThreadRow({ thread }: { thread: ThreadSummary }) {
 
 /* ---------- שאלה חדשה ---------- */
 
-function Composer({ defaultAnonymous, onClose }: { defaultAnonymous: boolean; onClose: () => void }) {
+function Composer({ onClose }: { onClose: () => void }) {
   const router = useRouter();
   const [kind, setKind] = useState<ForumKind>("question");
   const [topic, setTopic] = useState<ForumTopic>("general");
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
-  const [anonymous, setAnonymous] = useState(defaultAnonymous);
+  const [anonymous, setAnonymous] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 

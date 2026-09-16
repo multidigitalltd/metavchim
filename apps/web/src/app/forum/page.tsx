@@ -1,11 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { apiGet } from "@/lib/api";
 import { useRequireAuth } from "@/lib/use-auth";
 import { useFeature } from "@/lib/use-features";
 import { EntityTabs, TabPanel, useEntityTab } from "../entity-tabs";
-import { IconBell, IconChat, IconCheck, IconEye, IconSparkle, IconStar, IconUsers, IconGear } from "../icons";
+import { IconBell, IconChat, IconGear, IconStar, IconUsers } from "../icons";
 import { Calculators } from "./forum-calculators";
 import { FollowingPanel } from "./forum-following";
 import { ListingDirectory } from "./forum-listings";
@@ -14,37 +12,28 @@ import { ThreadList } from "./forum-threads";
 /**
  * הפורום המקצועי — המסך שמאחורי ההבטחה שהייתה כאן כ„בקרוב” (docs/16).
  *
- * חמש לשוניות: השאלות והדיונים, השאלות האנונימיות בנפרד (כי זה
- * הפיצ'ר), הכלים, בעלי המקצוע, ומה שאני עוקב/ת אחריו. הלשונית
- * נשמרת בכתובת, כדי שקישור „לפורום, לכלים” יוביל לכלים.
+ * ארבע לשוניות: השאלות והדיונים, הכלים, בעלי המקצוע, ומה שאני
+ * עוקב/ת אחריו. הלשונית נשמרת בכתובת, כדי שקישור „לפורום, לכלים”
+ * יוביל לכלים.
+ *
+ * ‎**בלי לשונית „בעילום שם” ובלי מונים** (החלטת בעל המוצר): עילום
+ * שם הוא אפשרות בפרסום ובתגובה, לא מדור; ארבעת המונים שהיו כאן
+ * ("שרשורים 0") אמרו על פורום צעיר רק שהוא ריק. הלשוניות הן
+ * הניווט הראשי של המסך, ולכן גדולות מברירת המחדל של כרטיס ישות.
  */
 
 const TABS = [
-  { key: "threads", label: "שאלות ודיונים" },
-  { key: "anonymous", label: "בעילום שם" },
-  { key: "tools", label: "כלים" },
-  { key: "pros", label: "בעלי מקצוע" },
-  { key: "following", label: "עוקב/ת" },
+  { key: "threads", label: "שאלות ודיונים", icon: <IconChat s={18} /> },
+  { key: "tools", label: "כלים ומחשבונים", icon: <IconGear s={18} /> },
+  { key: "pros", label: "בעלי מקצוע", icon: <IconStar s={18} /> },
+  { key: "following", label: "במעקב שלי", icon: <IconBell s={18} /> },
 ] as const;
 const TAB_KEYS = TABS.map((t) => t.key);
-
-interface Summary {
-  threads: number;
-  answered: number;
-  repliesThisWeek: number;
-  following: number;
-}
 
 export default function ForumPage() {
   const { loading } = useRequireAuth();
   const hasWhatsapp = useFeature("voice_intake");
   const [tab, setTab] = useEntityTab([...TAB_KEYS], "threads");
-  const [summary, setSummary] = useState<Summary | null>(null);
-
-  useEffect(() => {
-    if (loading) return;
-    apiGet<Summary>("/forum/summary").then(setSummary).catch(() => undefined);
-  }, [loading, tab]);
 
   if (loading) return null;
 
@@ -54,38 +43,25 @@ export default function ForumPage() {
       <header className="mv-hero">
         <span className="mv-hero-icon" aria-hidden="true"><IconUsers s={26} /></span>
         <div className="min-w-0 flex-1">
-          <h1 className="m-0 text-2xl font-extrabold">
-            הפורום המקצועי
-            <span
-              className="mx-2 inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 align-middle text-[length:var(--type-body-sm)] font-extrabold"
-              style={{ background: "var(--color-primary-soft)", color: "var(--color-primary)" }}
-            >
-              <IconEye s={14} /> גם בעילום שם
-            </span>
-          </h1>
+          <h1 className="m-0 text-2xl font-extrabold">הפורום המקצועי</h1>
           <p className="m-0 mt-1" style={{ color: "var(--color-text-muted)" }}>
-            מתווכים מכל הארץ, במקום אחד — שאלות שלא שואלים בקבוצה, תשובות שנשארות.
+            ידע מקצועי, שאלות ותשובות וכלי עבודה למתווכים — במקום אחד.
           </p>
         </div>
       </header>
 
-      <dl className="mt-5 grid gap-3 sm:grid-cols-4">
-        <Kpi domain="mv-domain-blue" icon={<IconChat s={16} />} label="שרשורים" value={summary?.threads} />
-        <Kpi domain="mv-domain-green" icon={<IconCheck s={16} />} label="שאלות שנענו" value={summary?.answered} />
-        <Kpi domain="mv-domain-amber" icon={<IconSparkle s={16} />} label="תגובות השבוע" value={summary?.repliesThisWeek} />
-        <Kpi domain="mv-domain-violet" icon={<IconBell s={16} />} label="שיחות במעקב שלי" value={summary?.following} />
-      </dl>
-
-      <div className="mt-5">
-        <EntityTabs tabs={TABS.map((t) => ({ key: t.key, label: t.label }))} active={tab} onSelect={setTab} label="לשוניות הפורום" />
+      <div className="mv-forum-tabs mt-5">
+        <EntityTabs
+          tabs={TABS.map((t) => ({ key: t.key, label: t.label, icon: t.icon }))}
+          active={tab}
+          onSelect={setTab}
+          label="לשוניות הפורום"
+        />
       </div>
 
-      <div className="mt-4">
+      <div className="mt-2">
         <TabPanel tab="threads" active={tab}>
           <ThreadList />
-        </TabPanel>
-        <TabPanel tab="anonymous" active={tab}>
-          <ThreadList anonymousOnly />
         </TabPanel>
         <TabPanel tab="tools" active={tab}>
           <section aria-labelledby="calc-heading" className="mb-6">
@@ -110,19 +86,6 @@ export default function ForumPage() {
           <FollowingPanel hasWhatsapp={hasWhatsapp} />
         </TabPanel>
       </div>
-    </div>
-  );
-}
-
-function Kpi({ domain, icon, label, value }: { domain: string; icon: React.ReactNode; label: string; value: number | undefined }) {
-  const zero = value === undefined || value === 0;
-  return (
-    <div className={`mv-kpi mv-kpi--static mv-kpi--compact ${zero ? "mv-domain-neutral" : domain}`}>
-      <dt className="mv-kpi__head">
-        <span className="mv-kpi__label">{label}</span>
-        <span className="mv-tile" aria-hidden="true">{icon}</span>
-      </dt>
-      <dd className="mv-kpi__value mv-ltr m-0">{value === undefined ? "…" : value}</dd>
     </div>
   );
 }

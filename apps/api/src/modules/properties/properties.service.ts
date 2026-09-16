@@ -145,6 +145,12 @@ export function sharedTabuWhere(value: boolean | undefined): Prisma.PropertyWher
  */
 const BENCHMARK_SCAN_LIMIT = 2000;
 
+/** ‏הממוצע למ״ר לפי מיקום — למחשבון השטח בפורום (`GET properties/benchmarks/per-sqm`). */
+export interface PerSqmBenchmarksDto {
+  neighborhood: (PerSqmBenchmark & { label: string }) | null;
+  city: (PerSqmBenchmark & { label: string }) | null;
+}
+
 @Injectable()
 export class PropertiesService {
   private readonly logger = new Logger(PropertiesService.name);
@@ -1652,73 +1658,13 @@ export class PropertiesService {
        */
       const subjectPrice = subject.priceAgorot === null ? null : Number(subject.priceAgorot);
       const perSqmAgorot = pricePerSqmAgorot(subjectPrice, subject.areaSqm);
-      const cityKey = normalizeLocationName(subject.city ?? "");
-      if (cityKey === "") return { perSqmAgorot, neighborhood: null, city: null };
-
-      /*
-       * ‎**אותו סוג עסקה, ותמיד.** מ״ר של שכירות ומ״ר של מכירה הם
-       * ‏שני סדרי גודל שונים, וממוצע שמערבב אותם אינו שגוי במעט —
-       * ‏הוא חסר משמעות.
-       *
-       * ‎`take` הוא תקרה ולא מדיניות: משרד עם עשרות אלפי נכסים אינו
-       * ‏אמור לשלוף את כולם לשאלה שעל המסך. המיון מהחדש לישן, כי אם
-       * ‏בכל זאת נחתך — מה שנשאר הוא גם מה שרלוונטי יותר לשוק היום.
-       */
-      const comparable = {
+      const benchmarks = await this.perSqmBenchmarks(tx, {
         tenantId,
-        deletedAt: null,
-        id: { not: subject.id },
+        city: subject.city ?? "",
+        neighborhood: subject.neighborhood ?? "",
         dealType: subject.dealType,
-        status: { in: [...PRICE_BENCHMARK_STATUSES] },
-        priceAgorot: { gt: 0 },
-        areaSqm: { gt: 0 },
-      };
-
-      /*
-       * ‎**קודם אילו ערים, ורק אז אילו נכסים.**
-       *
-       * ‏הגרסה הראשונה שלפה את כל הנכסים ההשוואתיים של המשרד עם
-       * ‏תקרה, וסיננה לעיר ב-JS אחר כך — כלומר במשרד עם יותר
-       * ‏מ-`BENCHMARK_SCAN_LIMIT` נכסים, נכסים **בערים אחרות** דחקו
-       * ‏החוצה את בני ההשוואה של העיר הנדונה. התוצאה: אמת מידה
-       * ‏שנעלמת אף שיש מדגם, או ממוצע מוטה שמשתנה כשמוסיפים מלאי
-       * ‏שאינו קשור (ביקורת Codex).
-       *
-       * ‏רשימת הערים היא קבוצה קטנה — עשרות ערכים למשרד — ולכן
-       * ‏קיפולה ב-JS אינו עולה דבר, והתקרה חלה עכשיו **בתוך העיר**.
-       * ‏זו אותה צורה בדיוק של השלמת העיר מהשכונה: לקבץ במסד, לקפל
-       * ‏ב-JS, ולא לכתוב כלל שני ב-SQL.
-       */
-      const cities = await tx.property.groupBy({ by: ["city"], where: comparable });
-      const sameCity = cities
-        .map((row) => row.city)
-        .filter((city): city is string => city !== null)
-        .filter((city) => normalizeLocationName(city) === cityKey);
-      if (sameCity.length === 0) return { perSqmAgorot, neighborhood: null, city: null };
-
-      /*
-       * ‎`take` הוא תקרה ולא מדיניות: עיר אחת במשרד אחד אינה אמורה
-       * ‏להגיע לאלפיים נכסים השוואתיים, ואם בכל זאת — המיון מהחדש
-       * ‏לישן משאיר את מה שרלוונטי יותר לשוק היום.
-       */
-      const rows = await tx.property.findMany({
-        where: { ...comparable, city: { in: sameCity } },
-        select: { neighborhood: true, priceAgorot: true, areaSqm: true },
-        orderBy: { createdAt: "desc" },
-        take: BENCHMARK_SCAN_LIMIT,
+        excludeId: subject.id,
       });
-
-      const inCity = rows.map((row) => ({
-        neighborhood: row.neighborhood,
-        priceAgorot: row.priceAgorot === null ? null : Number(row.priceAgorot),
-        areaSqm: row.areaSqm,
-      }));
-      const wanted = subject.neighborhood ?? "";
-      const inNeighborhood =
-        wanted === ""
-          ? []
-          : inCity.filter((row) => neighborhoodSame(row.neighborhood ?? "", wanted));
-
       const dress = (
         benchmark: PerSqmBenchmark | null,
         label: string,
@@ -1729,10 +1675,128 @@ export class PropertiesService {
 
       return {
         perSqmAgorot,
-        neighborhood: dress(averagePerSqmAgorot(inNeighborhood), subject.neighborhood ?? ""),
-        city: dress(averagePerSqmAgorot(inCity), subject.city ?? ""),
+        neighborhood: dress(benchmarks.neighborhood, subject.neighborhood ?? ""),
+        city: dress(benchmarks.city, subject.city ?? ""),
       };
     });
+  }
+
+  /**
+   * ‎**הממוצע למ״ר בשכונה ובעיר — בלי נכס.**
+   *
+   * ‏מחשבון השטח בפורום שואל „כמה למ״ר בשכונה הזאת” על דירה שאינה
+   * ‏בכרטיס עדיין — הלקוח בטלפון, המספרים על נייר. אותו חישוב
+   * ‏בדיוק כמו בכרטיס הנכס, על אותו מלאי של המשרד; רק בלי נכס
+   * ‏להוציא מהמדגם ובלי פער, כי אין למה להשוות — המסך משווה.
+   */
+  async perSqmBenchmarksFor(query: {
+    city: string;
+    neighborhood?: string;
+    dealType: string;
+  }): Promise<PerSqmBenchmarksDto> {
+    return this.prisma.withTenant(async (tx) => {
+      const benchmarks = await this.perSqmBenchmarks(tx, {
+        tenantId: TenantContext.current().tenantId,
+        city: query.city,
+        neighborhood: query.neighborhood ?? "",
+        dealType: query.dealType,
+        excludeId: null,
+      });
+      return {
+        neighborhood:
+          benchmarks.neighborhood === null
+            ? null
+            : { ...benchmarks.neighborhood, label: query.neighborhood ?? "" },
+        city: benchmarks.city === null ? null : { ...benchmarks.city, label: query.city },
+      };
+    });
+  }
+
+  /**
+   * ‏החישוב המשותף לכרטיס הנכס ולמחשבון: הממוצע למ״ר בעיר ובשכונה,
+   * ‏על נכסי המשרד באותו סוג עסקה.
+   */
+  private async perSqmBenchmarks(
+    tx: TenantTx,
+    input: {
+      tenantId: string;
+      city: string;
+      neighborhood: string;
+      dealType: string | null;
+      excludeId: string | null;
+    },
+  ): Promise<{ neighborhood: PerSqmBenchmark | null; city: PerSqmBenchmark | null }> {
+    const cityKey = normalizeLocationName(input.city);
+    if (cityKey === "") return { neighborhood: null, city: null };
+
+    /*
+     * ‎**אותו סוג עסקה, ותמיד.** מ״ר של שכירות ומ״ר של מכירה הם
+     * ‏שני סדרי גודל שונים, וממוצע שמערבב אותם אינו שגוי במעט —
+     * ‏הוא חסר משמעות.
+     *
+     * ‎`take` הוא תקרה ולא מדיניות: משרד עם עשרות אלפי נכסים אינו
+     * ‏אמור לשלוף את כולם לשאלה שעל המסך. המיון מהחדש לישן, כי אם
+     * ‏בכל זאת נחתך — מה שנשאר הוא גם מה שרלוונטי יותר לשוק היום.
+     */
+    const comparable = {
+      tenantId: input.tenantId,
+      deletedAt: null,
+      ...(input.excludeId === null ? {} : { id: { not: input.excludeId } }),
+      dealType: input.dealType,
+      status: { in: [...PRICE_BENCHMARK_STATUSES] },
+      priceAgorot: { gt: 0 },
+      areaSqm: { gt: 0 },
+    };
+
+    /*
+     * ‎**קודם אילו ערים, ורק אז אילו נכסים.**
+     *
+     * ‏הגרסה הראשונה שלפה את כל הנכסים ההשוואתיים של המשרד עם
+     * ‏תקרה, וסיננה לעיר ב-JS אחר כך — כלומר במשרד עם יותר
+     * ‏מ-`BENCHMARK_SCAN_LIMIT` נכסים, נכסים **בערים אחרות** דחקו
+     * ‏החוצה את בני ההשוואה של העיר הנדונה. התוצאה: אמת מידה
+     * ‏שנעלמת אף שיש מדגם, או ממוצע מוטה שמשתנה כשמוסיפים מלאי
+     * ‏שאינו קשור (ביקורת Codex).
+     *
+     * ‏רשימת הערים היא קבוצה קטנה — עשרות ערכים למשרד — ולכן
+     * ‏קיפולה ב-JS אינו עולה דבר, והתקרה חלה עכשיו **בתוך העיר**.
+     * ‏זו אותה צורה בדיוק של השלמת העיר מהשכונה: לקבץ במסד, לקפל
+     * ‏ב-JS, ולא לכתוב כלל שני ב-SQL.
+     */
+    const cities = await tx.property.groupBy({ by: ["city"], where: comparable });
+    const sameCity = cities
+      .map((row) => row.city)
+      .filter((city): city is string => city !== null)
+      .filter((city) => normalizeLocationName(city) === cityKey);
+    if (sameCity.length === 0) return { neighborhood: null, city: null };
+
+    /*
+     * ‎`take` הוא תקרה ולא מדיניות: עיר אחת במשרד אחד אינה אמורה
+     * ‏להגיע לאלפיים נכסים השוואתיים, ואם בכל זאת — המיון מהחדש
+     * ‏לישן משאיר את מה שרלוונטי יותר לשוק היום.
+     */
+    const rows = await tx.property.findMany({
+      where: { ...comparable, city: { in: sameCity } },
+      select: { neighborhood: true, priceAgorot: true, areaSqm: true },
+      orderBy: { createdAt: "desc" },
+      take: BENCHMARK_SCAN_LIMIT,
+    });
+
+    const inCity = rows.map((row) => ({
+      neighborhood: row.neighborhood,
+      priceAgorot: row.priceAgorot === null ? null : Number(row.priceAgorot),
+      areaSqm: row.areaSqm,
+    }));
+    const wanted = input.neighborhood;
+    const inNeighborhood =
+      wanted === ""
+        ? []
+        : inCity.filter((row) => neighborhoodSame(row.neighborhood ?? "", wanted));
+
+    return {
+      neighborhood: averagePerSqmAgorot(inNeighborhood),
+      city: averagePerSqmAgorot(inCity),
+    };
   }
 
   async list(query: {
