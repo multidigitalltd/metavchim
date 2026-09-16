@@ -45,6 +45,9 @@ import {
   resolveReferralFeePercent,
   PLAN_FEATURES,
   PlanCodeSchema,
+  checkReplyChain,
+  replyChainVerdict,
+  type ReplyChainResult,
   blockedModulesRejectionReason,
   couponDefinitionRejection,
   describeCoupon,
@@ -96,6 +99,7 @@ import {
   type PlatformCreditRow,
   type PlatformCreditsReport,
 } from "./platform-credits.service";
+import { EmailInboxService } from "../email-inbox/email-inbox.service";
 import { FunnelEnrollmentService } from "../funnel/funnel-enrollment.service";
 import { AccountDeletionService } from "../settings/account-deletion.service";
 import { LeadPricingService } from "../../core/lead-pricing.service";
@@ -817,6 +821,8 @@ export class PlatformController {
      * ‏כאן שליחה — מודול המשפך אינו מחזיק ערוץ יוצא כלל.
      */
     private readonly funnel: FunnelEnrollmentService,
+    /* ‏רק ל-`inboundConfig()` — מקור אמת אחד ל„כתובת קליטה + סוד”. */
+    private readonly emailInbox: EmailInboxService,
   ) {}
 
   /**
@@ -2009,6 +2015,63 @@ export class PlatformController {
    * הגדרות הפלטפורמה — מצב בלבד, בלי לחשוף ערכים. מפתחות שהוגדרו
    * במשתני סביבה מסומנים כמקור "env" (נשלטים מהשרת, לא מהמסך).
    */
+  /**
+   * ‎**„למה התשובה של הלקוח הגיעה לתמיכה?” — כפתור שעונה על זה.**
+   *
+   * ‏מסך ההגדרות מראה שדות: כתובת קליטה מלאה, סוד מוגדר. שדות מלאים
+   * ‏אינם מוכיחים ששרשרת התשובה עובדת — כתובת כמו `reply+office@…`
+   * ‏נראית תקינה לחלוטין, עוברת את בניית ה-`Reply-To`, והספק מחזיר
+   * ‏ממנה טוקן מעוות; **כל** תשובה של **כל** לקוח נופלת אז לתמיכה,
+   * ‏ושום שדה במסך אינו נראה שגוי. לכן הבדיקה מריצה את הכתובת
+   * ‏האמיתית דרך אותן פונקציות שרצות בשליחה ובקליטה, ומפרקת את
+   * ‏התוצאה כפי שהספק מפרק אותה.
+   *
+   * ‎**ומה שהיא אינה קוראת חשוב לא פחות.** היא אינה נוגעת בהודעות,
+   * ‏בפניות או בכרטיסים של אף משרד. המונה היחיד שהיא קוראת הוא
+   * ‏`email_reply_tokens` — טבלה שבמכוון אינה תחת RLS ואין בה PII
+   * ‏(טוקן אקראי ומזהים בלבד; שמות וטלפונים חיים ב-contacts
+   * ‏המוצפנת). המונה עונה על השאלה הראשונה שצריך לשאול: האם בכלל
+   * ‏יצא אי פעם מייל עם כתובת תשובה.
+   */
+  @Get("email-reply-chain")
+  async emailReplyChain(): Promise<{
+    chain: ReplyChainResult;
+    /** הסוד מוגדר. הערך עצמו לעולם אינו חוזר בשום נתיב. */
+    secretSet: boolean;
+    outgoing: {
+      /** כמה כתובות תשובה הונפקו אי פעם. 0 = שום מייל לא נשא Reply-To. */
+      tokensIssued: number;
+      /** מתי הונפקה האחרונה — `null` כשאין אף אחת. */
+      lastIssuedAt: string | null;
+    };
+    verdict: string;
+  }> {
+    /*
+     * ‏דרך `inboundConfig()` ולא בקריאה ישירה להגדרות: הכלל „צריך
+     * ‏גם כתובת וגם סוד” הוא בדיוק מה שמכריע אם `replyAddressFor`
+     * ‏יחזיר כתובת, ועותק שני שלו כאן היה יכול לומר „מוגדר” על מה
+     * ‏שהשליחה רואה כלא מוגדר.
+     */
+    const config = await this.emailInbox.inboundConfig();
+    const chain = checkReplyChain(config?.address ?? null);
+    const [tokensIssued, newest] = await Promise.all([
+      this.prisma.emailReplyToken.count(),
+      this.prisma.emailReplyToken.findFirst({
+        orderBy: { createdAt: "desc" },
+        select: { createdAt: true },
+      }),
+    ]);
+    return {
+      chain,
+      secretSet: config !== null,
+      outgoing: {
+        tokensIssued,
+        lastIssuedAt: newest?.createdAt.toISOString() ?? null,
+      },
+      verdict: replyChainVerdict({ chainOk: chain.ok, tokensIssued }),
+    };
+  }
+
   @Get("settings")
   async settings(): Promise<{
     postmark: {

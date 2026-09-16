@@ -2,6 +2,7 @@ import { Module } from "@nestjs/common";
 import { CardcomService } from "../../core/cardcom.service";
 import { AuthModule } from "../auth/auth.module";
 import { BillingModule } from "../billing/billing.module";
+import { EmailInboxModule } from "../email-inbox/email-inbox.module";
 import { FunnelModule } from "../funnel/funnel.module";
 import { MessagingModule } from "../messaging/messaging.module";
 import { TelephonyModule } from "../telephony/telephony.module";
@@ -29,7 +30,21 @@ import { ServiceVersionsService } from "./service-versions.service";
   // MessagingModule — בדיקת חיבור הוואטסאפ של הסוכן האישי מהמסך
   // BillingModule — יצירת הצעות מנוי בלינק (SubscriptionOfferService)
   // FunnelModule — פתיחה מחדש של רישום כשמנהל מחזיר למשרד ניסיון
-  imports: [AuthModule, TelephonyModule, MessagingModule, BillingModule, FunnelModule, WebhookLogModule],
+  /*
+   * ‏`EmailInboxModule` — רק בשביל `inboundConfig()` בבדיקת שרשרת
+   * ‏התשובה. הכלל „צריך גם כתובת וגם סוד” חייב להיות אותו כלל
+   * ‏שהשליחה מפעילה, אחרת הבדיקה תאמר „מוגדר” על מה שהשליחה רואה
+   * ‏כלא מוגדר.
+   */
+  imports: [
+    AuthModule,
+    TelephonyModule,
+    MessagingModule,
+    BillingModule,
+    FunnelModule,
+    WebhookLogModule,
+    EmailInboxModule,
+  ],
   /*
    * שולחן החיבורים בקונטרולר משלו: הגבול שלו הוא שהוא נוגע בטבלת
    * החיבורים בלבד, ומבחן מבני קורא בדיוק את שני הקבצים האלה.
