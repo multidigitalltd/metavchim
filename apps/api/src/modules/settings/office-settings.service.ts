@@ -1,6 +1,11 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
 import { z } from "zod";
-import { BOARD_VISIBILITY_KEY, boardOpenToAgents } from "@metavchim/shared";
+import {
+  BOARD_VISIBILITY_KEY,
+  PHOTO_LOGO_OVERLAY_KEY,
+  boardOpenToAgents,
+  photoLogoOverlayOn,
+} from "@metavchim/shared";
 import { AuditService } from "../../core/audit.service";
 import { lockTenantRow } from "../../common/locks";
 import { TenantContext } from "../../common/tenant-context";
@@ -72,6 +77,8 @@ export class OfficeSettingsService {
        * ‏יכול להשתנות בשתיים בלבד.
        */
       boardVisibleToAgents: boardOpenToAgents(settings),
+      /* ‏אותו כלל: המפתח נקרא גם בהעלאת תמונה, ולכן חי בחבילה המשותפת */
+      photoLogoOverlay: photoLogoOverlayOn(settings),
     };
   }
 
@@ -138,6 +145,7 @@ export class OfficeSettingsService {
       "autoShareBuyers",
       "autoEmailOffers",
       BOARD_VISIBILITY_KEY,
+      PHOTO_LOGO_OVERLAY_KEY,
     ] as const;
     for (const field of BOOLEAN_FIELDS) {
       const value = body[field];
@@ -207,6 +215,8 @@ export interface OfficeSettings {
   autoEmailOffers: boolean;
   /** ‏האם „המשרד שלנו” פתוח לסוכנים ולא להנהלה בלבד. */
   boardVisibleToAgents: boolean;
+  /** ‏האם הלוגו של המשרד מוטבע על תמונות נכס חדשות. */
+  photoLogoOverlay: boolean;
 }
 
 /**
@@ -250,6 +260,12 @@ export const OfficeSettingsSchema = z
      * ‏מקבילה של אחוז העמלה.
      */
     boardVisibleToAgents: z.boolean().optional(),
+    /*
+     * ‏הלוגו על תמונות הנכס: מדיניות משרד, כמו הפרסום לרשת — הסוכן
+     * ‏שמעלה תמונה מבצע אותה. כבוי כברירת מחדל: תמונה של דירה של
+     * ‏מוכר עם לוגו עליה היא בחירה, לא ברירת מחדל.
+     */
+    photoLogoOverlay: z.boolean().optional(),
   })
   .strict();
 

@@ -2,10 +2,11 @@ import {
   Body,
   Controller,
   Get,
-  Header,
   HttpCode,
   Param,
   Post,
+  Req,
+  Res,
   Query,
   StreamableFile,
 } from "@nestjs/common";
@@ -13,6 +14,8 @@ import { z } from "zod";
 import { IdSchema, OfferStatusSchema } from "@metavchim/shared";
 import { Public, RequireCapability } from "../../common/auth.decorators";
 import { RequireFeature } from "../../common/feature.guard";
+import type { Request, Response } from "express";
+import { objectResponse } from "../../common/object-response";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { OfferEmailService } from "./offer-email.service";
 import {
@@ -139,19 +142,19 @@ export class OffersController {
     return this.offers.publicView(token);
   }
 
-  /** תמונות ההצעה — מוזרמות דרך ה-API (שרת האחסון פנימי בלבד). */
+  /**
+   * תמונות ההצעה — מוזרמות דרך ה-API (שרת האחסון פנימי בלבד).
+   * ‏התמונה משתכתבת במקום (טשטוש), ולכן ETag ולא שעה של מטמון.
+   */
   @Public()
   @Get("public/offers/:token/media/:index")
-  @Header("Cache-Control", "public, max-age=3600")
   async image(
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
     @Param("token", new ZodValidationPipe(TokenSchema)) token: string,
     @Param("index", new ZodValidationPipe(z.coerce.number().int().min(0).max(19))) index: number,
-  ): Promise<StreamableFile> {
-    const obj = await this.offers.publicImage(token, index);
-    return new StreamableFile(obj.body as never, {
-      type: obj.contentType ?? "application/octet-stream",
-      ...(obj.contentLength !== undefined ? { length: obj.contentLength } : {}),
-    });
+  ): Promise<StreamableFile | undefined> {
+    return objectResponse(req, res, await this.offers.publicImage(token, index), "public");
   }
 
   /** הסרה מקבלת הצעות במייל — מהקישור שבתחתית כל מייל אוטומטי. */

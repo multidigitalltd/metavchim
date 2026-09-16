@@ -8,6 +8,8 @@ import {
   Param,
   Patch,
   Post,
+  Req,
+  Res,
   Query,
   StreamableFile,
 } from "@nestjs/common";
@@ -33,7 +35,9 @@ import {
   type CoopDealStage,
   type PayoutMode,
 } from "@metavchim/shared";
+import type { Request, Response } from "express";
 import { RequireCapability } from "../../common/auth.decorators";
+import { objectResponse } from "../../common/object-response";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import {
   CollaborationService,
@@ -413,26 +417,27 @@ export class CollaborationController {
      מתיר לאתר זר להטמיע תמונה של לקוח.
      ------------------------------------------------------------------ */
 
+  /* ‏תמונות הנכס משתכתבות במקום (טשטוש), ולכן ETag ולא חמש דקות של מטמון */
   @Get("listings/:id/photo/:index")
   @RequireCapability("collaboration.offer")
-  @Header("Cache-Control", "private, max-age=300")
-  @Header("Cross-Origin-Resource-Policy", "same-site")
   async listingPhoto(
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
     @Param("id", new ZodValidationPipe(IdSchema)) id: string,
     @Param("index", new ZodValidationPipe(PhotoIndexSchema)) index: number,
-  ): Promise<StreamableFile> {
-    return streamed(await this.listings.photo(id, index));
+  ): Promise<StreamableFile | undefined> {
+    return objectResponse(req, res, await this.listings.photo(id, index), "private");
   }
 
   @Get("offers/:id/photo/:index")
   @RequireCapability("collaboration.offer")
-  @Header("Cache-Control", "private, max-age=300")
-  @Header("Cross-Origin-Resource-Policy", "same-site")
   async offerPhoto(
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
     @Param("id", new ZodValidationPipe(IdSchema)) id: string,
     @Param("index", new ZodValidationPipe(PhotoIndexSchema)) index: number,
-  ): Promise<StreamableFile> {
-    return streamed(await this.collaboration.offerPhoto(id, index));
+  ): Promise<StreamableFile | undefined> {
+    return objectResponse(req, res, await this.collaboration.offerPhoto(id, index), "private");
   }
 
   /*

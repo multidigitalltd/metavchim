@@ -671,6 +671,8 @@ export class SettingsController {
     autoShareProperties: boolean;
     autoShareBuyers: boolean;
     autoEmailOffers: boolean;
+    /** ‏הלוגו מוטבע על תמונות נכס חדשות — מתג במסך ההגדרות */
+    photoLogoOverlay: boolean;
     /**
      * ‎**כמה מקומות לסוכן הוואטסאפ יש למשרד, וכמה תפוסים.**
      *
@@ -712,6 +714,7 @@ export class SettingsController {
       autoShareProperties: office.autoShareProperties,
       autoShareBuyers: office.autoShareBuyers,
       autoEmailOffers: office.autoEmailOffers,
+      photoLogoOverlay: office.photoLogoOverlay,
     };
   }
 

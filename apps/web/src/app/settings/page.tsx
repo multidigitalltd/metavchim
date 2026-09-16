@@ -183,6 +183,8 @@ interface TenantSettings {
   autoShareProperties: boolean;
   autoShareBuyers: boolean;
   autoEmailOffers: boolean;
+  /** הלוגו של המשרד מוטבע על תמונות נכס חדשות */
+  photoLogoOverlay: boolean;
   /** מקומות לסוכן הוואטסאפ — כמה יש למשרד, וכמה מהם תפוסים */
   whatsappAgentSeats: number;
   whatsappAgentSeatsUsed: number;
@@ -404,6 +406,7 @@ export default function SettingsPage() {
     autoShareProperties?: boolean;
     autoShareBuyers?: boolean;
     autoEmailOffers?: boolean;
+    photoLogoOverlay?: boolean;
   }): Promise<void> {
     await apiPatch("/settings/tenant", patch);
     setTenant((prev) => (prev === null ? prev : { ...prev, ...patch }));
@@ -1391,6 +1394,7 @@ export default function SettingsPage() {
                     autoShareProperties: tenant.autoShareProperties,
                     autoShareBuyers: tenant.autoShareBuyers,
                     autoEmailOffers: tenant.autoEmailOffers,
+                    photoLogoOverlay: tenant.photoLogoOverlay,
                   }}
                   onSave={saveTenantFlags}
                 />

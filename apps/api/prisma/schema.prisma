@@ -1063,6 +1063,10 @@ model PropertyMedia {
   altText    String?  @map("alt_text") @db.VarChar(300)
   sortOrder  Int      @default(0) @map("sort_order")
   createdAt  DateTime @default(now()) @map("created_at")
+  /// מתי שופרה (יישור, אור, חדות, WebP). NULL = הועלתה לפני הכלי — המסך מציע „לשפר”.
+  enhancedAt DateTime? @map("enhanced_at")
+  /// מתי הקובץ עצמו השתנה לאחרונה (שיפור/טשטוש) — נכנס לכתובת כדי לעקוף את מטמון הדפדפן.
+  bytesUpdatedAt DateTime @default(now()) @map("bytes_updated_at")
 
   property Property @relation(fields: [propertyId], references: [id])
 

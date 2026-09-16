@@ -5,7 +5,7 @@ import { TenantContext } from "../../common/tenant-context";
 import { TenantLogoService } from "../../core/tenant-logo.service";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
-import { StorageService } from "../../core/storage.service";
+import { StorageService, type StoredObject } from "../../core/storage.service";
 import { WebLeadService } from "../leads/web-lead.service";
 
 /**
@@ -194,7 +194,7 @@ export class LandingService {
   async publicImage(
     token: string,
     mediaId: string,
-  ): Promise<{ body: NodeJS.ReadableStream; contentType?: string; contentLength?: number }> {
+  ): Promise<StoredObject> {
     const s3Key = await this.prisma.withPublicLanding(token, async (tx) => {
       const property = await tx.property.findFirst({
         where: { landingToken: token },

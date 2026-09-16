@@ -1,21 +1,28 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, apiGet } from "@/lib/api";
+import type { PhotoBlurRect } from "@metavchim/shared";
+import { api, apiGet, apiPost, ApiError } from "@/lib/api";
 import { IconCamera, IconStar } from "../../icons";
 import { LoadError } from "../../load-error";
 import { Notice } from "../../notice";
+import { PhotoBlurEditor } from "./photo-blur-editor";
 
 /**
  * גלריית תמונות הנכס: העלאה (עם טקסט חלופי — ת"י 5568), תמונה ראשית,
- * ומחיקה. התצוגה ב-URL חתום קצר-מועד מהאחסון — לא דרך ה-API.
+ * מחיקה, ומה שהשרת עושה לכל תמונה: **שיפור אוטומטי** (יישור, אור,
+ * חדות, כיווץ) בהעלאה, „לשפר” לתמונות שהועלו לפני הכלי, וטשטוש
+ * ידני של מלבנים. המקור אינו נשמר — ראו `photo-enhancer.ts` ב-API.
  */
 
 interface MediaItem {
   id: string;
   altText?: string;
   sortOrder: number;
+  /** נושא חותמת גרסה — תמונה שהשתנתה מקבלת כתובת חדשה ועוקפת את המטמון */
   url: string;
+  /** `null` = הועלתה לפני הכלי — מוצע „לשפר” */
+  enhancedAt: string | null;
 }
 
 const API_BASE = (process.env["NEXT_PUBLIC_API_URL"] ?? "http://localhost:3001") + "/api/v1";
@@ -51,6 +58,9 @@ export function MediaSection({
   const [progress, setProgress] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  /** התמונה שפתוחה בעורך הטשטוש — אחת בכל פעם */
+  const [blurTarget, setBlurTarget] = useState<MediaItem | null>(null);
+  const [blurError, setBlurError] = useState<string | null>(null);
 
   /*
    * „אין תמונות עדיין” על טעינה שנכשלה מזמין להעלות שוב את אותן
@@ -158,6 +168,44 @@ export function MediaSection({
     }
   }
 
+  /**
+   * „לשפר” — אותו צינור של ההעלאה, על תמונה שהועלתה לפני הכלי.
+   * הכתובת שחוזרת נושאת חותמת חדשה, ולכן הרענון מציג את התוצאה
+   * ולא את מה שבמטמון.
+   */
+  async function onEnhance(mediaIds: string[]): Promise<void> {
+    setBusy(true);
+    setError(null);
+    try {
+      for (const [index, mediaId] of mediaIds.entries()) {
+        if (mediaIds.length > 1) setProgress(`${index + 1}/${mediaIds.length}`);
+        await apiPost(`/properties/${propertyId}/media/${mediaId}/enhance`, {});
+      }
+      await refresh();
+    } catch (err: unknown) {
+      setError(err instanceof ApiError ? err.message : "השיפור נכשל");
+      await refresh().catch(() => undefined);
+    } finally {
+      setBusy(false);
+      setProgress(null);
+    }
+  }
+
+  async function onBlur(rects: PhotoBlurRect[]): Promise<void> {
+    if (blurTarget === null) return;
+    setBusy(true);
+    setBlurError(null);
+    try {
+      await apiPost(`/properties/${propertyId}/media/${blurTarget.id}/blur`, { rects });
+      setBlurTarget(null);
+      await refresh();
+    } catch (err: unknown) {
+      setBlurError(err instanceof ApiError ? err.message : "הטשטוש נכשל");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function onMakePrimary(mediaId: string): Promise<void> {
     setBusy(true);
     setError(null);
@@ -216,8 +264,48 @@ export function MediaSection({
         </label>
       </div>
 
+      {/*
+        מה קורה לתמונה מעצמו — נאמר פעם אחת, כאן, ולא בכל כרטיס.
+        בלי זה המתווך מגלה שהתמונה „לא זהה למה שהעליתי” ומניח תקלה.
+      */}
+      <p className="m-0 mb-3 text-[length:var(--type-caption-lg)]" style={{ color: "var(--color-text-soft)" }}>
+        כל תמונה שמועלית משופרת אוטומטית — יישור, אור, חדות וכיווץ — ונשמרת בלי
+        פרטי המיקום מהטלפון. המקור אינו נשמר.
+        {(items ?? []).some((m) => m.enhancedAt === null) ? (
+          <>
+            {" "}
+            <button
+              type="button"
+              className="mv-btn-soft"
+              disabled={busy}
+              onClick={() => void onEnhance((items ?? []).filter((m) => m.enhancedAt === null).map((m) => m.id))}
+            >
+              {(() => {
+                const n = (items ?? []).filter((m) => m.enhancedAt === null).length;
+                return n === 1 ? "לשפר תמונה ישנה אחת" : `לשפר ${n} תמונות ישנות`;
+              })()}
+            </button>
+          </>
+        ) : null}
+      </p>
+
       {error ? (
         <Notice tone="danger">{error}</Notice>
+      ) : null}
+
+      {blurTarget !== null ? (
+        <PhotoBlurEditor
+          key={blurTarget.id}
+          src={API_BASE + blurTarget.url}
+          alt={blurTarget.altText ?? `תמונה ${(items ?? []).findIndex((m) => m.id === blurTarget.id) + 1}`}
+          busy={busy}
+          error={blurError}
+          onApply={(rects) => void onBlur(rects)}
+          onClose={() => {
+            setBlurTarget(null);
+            setBlurError(null);
+          }}
+        />
       ) : null}
 
       {loadFailed ? (
@@ -317,6 +405,30 @@ export function MediaSection({
                     הפוך לראשית
                   </button>
                 )}
+                {m.enhancedAt === null ? (
+                  <button
+                    type="button"
+                    onClick={() => void onEnhance([m.id])}
+                    disabled={busy}
+                    className="mv-btn-plain"
+                    style={{ minHeight: 32, padding: "5px 10px", fontSize: "var(--type-caption)" }}
+                  >
+                    לשפר<span className="mv-visually-hidden"> את {m.altText ?? `תמונה ${index + 1}`}</span>
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setBlurError(null);
+                    setBlurTarget(m);
+                  }}
+                  disabled={busy}
+                  aria-pressed={blurTarget?.id === m.id}
+                  className="mv-btn-plain"
+                  style={{ minHeight: 32, padding: "5px 10px", fontSize: "var(--type-caption)" }}
+                >
+                  טשטוש<span className="mv-visually-hidden"> ב{m.altText ?? `תמונה ${index + 1}`}</span>
+                </button>
                 <button
                   type="button"
                   onClick={() => onDelete(m.id)}

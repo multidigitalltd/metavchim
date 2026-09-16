@@ -1,11 +1,21 @@
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
+import { photoLogoOverlayOn, type PhotoBlurRect } from "@metavchim/shared";
 import { lockProperty } from "../../common/locks";
 import { ulid } from "ulid";
 import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
 import { OutboxService } from "../../core/outbox.service";
+import {
+  PHOTO_EXT,
+  PHOTO_MIME,
+  UnreadablePhotoError,
+  blurPhotoRegions,
+  enhancePhoto,
+  type EnhancedPhoto,
+} from "../../core/photo-enhancer";
 import { PrismaService } from "../../core/prisma.service";
-import { StorageService } from "../../core/storage.service";
+import { StorageService, type StoredObject } from "../../core/storage.service";
+import { TenantLogoService } from "../../core/tenant-logo.service";
 import { ListingsService } from "../collaboration/listings.service";
 import { refreshReadiness } from "./readiness.writer";
 
@@ -21,14 +31,45 @@ export interface MediaDto {
   altText?: string;
   sortOrder: number;
   url: string;
+  /** ‏מתי שופרה; `null` = הועלתה לפני הכלי, והמסך מציע „לשפר”. */
+  enhancedAt: string | null;
 }
 
 const MAX_IMAGES_PER_PROPERTY = 20;
 export const MAX_IMAGE_BYTES = 10 * 1024 * 1024; // 10MB
 
-/** נתיב הזרמת התמונה יחסית לבסיס ה-API — הלקוח מרכיב את ה-URL המלא */
-export function mediaRawPath(propertyId: string, mediaId: string): string {
-  return `/properties/${propertyId}/media/${mediaId}/raw`;
+/**
+ * נתיב הזרמת התמונה יחסית לבסיס ה-API — הלקוח מרכיב את ה-URL המלא.
+ *
+ * ‎`version` — חותמת השינוי האחרון של הקובץ. הנתיב נשמר במטמון
+ * הדפדפן לשעה, ותמונה שטושטשה או שופרה הייתה מוצגת עוד שעה כמו
+ * שהייתה; החותמת בכתובת הופכת כל שינוי לכתובת חדשה.
+ */
+export function mediaRawPath(propertyId: string, mediaId: string, version?: Date): string {
+  const path = `/properties/${propertyId}/media/${mediaId}/raw`;
+  return version === undefined ? path : `${path}?v=${version.getTime()}`;
+}
+
+/** ‏השורה כפי שהמסך רואה אותה. */
+function toDto(
+  propertyId: string,
+  row: {
+    id: string;
+    kind: string;
+    altText: string | null;
+    sortOrder: number;
+    enhancedAt: Date | null;
+    bytesUpdatedAt: Date;
+  },
+): MediaDto {
+  return {
+    id: row.id,
+    kind: row.kind,
+    altText: row.altText ?? undefined,
+    sortOrder: row.sortOrder,
+    url: mediaRawPath(propertyId, row.id, row.bytesUpdatedAt),
+    enhancedAt: row.enhancedAt === null ? null : row.enhancedAt.toISOString(),
+  };
 }
 
 /** זיהוי סוג תמונה לפי Magic Bytes — לא סומכים על ה-Content-Type של הלקוח. */
@@ -62,7 +103,58 @@ export class MediaService {
     private readonly outbox: OutboxService,
     // תמונה שהשתנתה משנה את המודעה ברשת — ראו `syncNetworkListing`
     private readonly listings: ListingsService,
+    private readonly logo: TenantLogoService,
   ) {}
+
+  /**
+   * ‏הלוגו להטבעה — רק כשהמשרד הדליק את ההגדרה **וגם** העלה לוגו.
+   *
+   * ‏חסר = בלי הטבעה, בשקט: תמונה של דירה אינה נדחית כי המשרד
+   * ‏עדיין לא העלה לוגו. הדגל נקרא מ-`tenant.settings` דרך הכלל
+   * ‏המשותף, כמו שאר הגדרות המשרד.
+   */
+  private async logoOverlay(tenantId: string): Promise<Buffer | null> {
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { settings: true },
+    });
+    if (!photoLogoOverlayOn((tenant?.settings ?? {}) as Record<string, unknown>)) return null;
+    return this.logo.bytesFor(tenantId);
+  }
+
+  /** ‏הקובץ מהאחסון כ-Buffer — לעיבוד, לא להזרמה. */
+  private async readObject(s3Key: string): Promise<Buffer> {
+    let obj: { body: NodeJS.ReadableStream };
+    try {
+      obj = await this.storage.getObject(s3Key);
+    } catch (error) {
+      if (StorageService.isMissingObjectError(error)) {
+        throw new NotFoundException("התמונה לא נמצאה באחסון");
+      }
+      throw error;
+    }
+    const chunks: Buffer[] = [];
+    for await (const chunk of obj.body as AsyncIterable<Buffer | string>) {
+      chunks.push(typeof chunk === "string" ? Buffer.from(chunk) : chunk);
+    }
+    return Buffer.concat(chunks);
+  }
+
+  /**
+   * ‏שיפור לפני השמירה — ומה שנכשל בו הוא 400 ולא 500.
+   *
+   * ‏הקובץ עבר את בדיקת ה-Magic Bytes, כלומר הוא **מתחיל** כמו
+   * ‏תמונה; קובץ קטוע או פגום מתגלה רק בפענוח. זה קלט לא תקין של
+   * ‏המשתמש, לא תקלה של השרת.
+   */
+  private async enhanceOrReject(file: Buffer, logo: Buffer | null): Promise<EnhancedPhoto> {
+    try {
+      return await enhancePhoto(file, { logo });
+    } catch (error) {
+      if (error instanceof UnreadablePhotoError) throw new BadRequestException(error.message);
+      throw error;
+    }
+  }
 
   /**
    * רענון המודעה ברשת אחרי שינוי בתמונות.
@@ -117,10 +209,15 @@ export class MediaService {
       throw new BadRequestException("פורמט לא נתמך — רק JPEG, PNG או WebP");
     }
 
+    /*
+     * ‏הסיומת היא WebP ולא של הקובץ שהגיע: מה שנשמר הוא התוצאה של
+     * ‏השיפור, והמקור — בכל פורמט שהיה — אינו נשמר (החלטת בעל
+     * ‏המערכת; ראו `photo-enhancer.ts`).
+     */
     const id = ulid();
-    const s3Key = `tenants/${tenantId}/properties/${propertyId}/${id}.${sniffed.ext}`;
+    const s3Key = `tenants/${tenantId}/properties/${propertyId}/${id}.${PHOTO_EXT}`;
 
-    // בדיקה מוקדמת (קיום + מכסה) — כישלון זול לפני כתיבה ל-S3.
+    // בדיקה מוקדמת (קיום + מכסה) — כישלון זול לפני העיבוד והכתיבה ל-S3.
     await this.prisma.withTenant(async (tx) => {
       const property = await tx.property.findFirst({
         where: { id: propertyId, tenantId, deletedAt: null },
@@ -133,8 +230,17 @@ export class MediaService {
       }
     });
 
+    /*
+     * ‏השיפור רץ **בבקשה עצמה** ולא בתור: המקור אינו נשמר, ולכן
+     * ‏אין מה להעלות לאחסון לפני שהתוצאה קיימת. תור היה מחייב
+     * ‏לשמור את המקור עד שהעובד מגיע — בדיוק מה שהוחלט לא לעשות.
+     * ‏העלות: כחצי שנייה לתמונת טלפון, פעם אחת.
+     */
+    const enhanced = await this.enhanceOrReject(file, await this.logoOverlay(tenantId));
+    const now = new Date();
+
     // ההעלאה ל-S3 לפני הרשומה — כשל S3 ⇒ אין רשומה שמצביעה לכלום.
-    await this.storage.put(s3Key, file, sniffed.mime, tenantId);
+    await this.storage.put(s3Key, enhanced.buffer, PHOTO_MIME, tenantId);
 
     let assignedOrder = 0;
     try {
@@ -161,6 +267,8 @@ export class MediaService {
             s3Key,
             altText: altText ?? null,
             sortOrder: assignedOrder,
+            enhancedAt: now,
+            bytesUpdatedAt: now,
           },
         });
         /*
@@ -196,13 +304,100 @@ export class MediaService {
 
     await this.syncNetworkListing(propertyId);
 
-    return {
+    return toDto(propertyId, {
       id,
       kind: "image",
-      altText,
+      altText: altText ?? null,
       sortOrder: assignedOrder,
-      url: mediaRawPath(propertyId, id),
-    };
+      enhancedAt: now,
+      bytesUpdatedAt: now,
+    });
+  }
+
+  /**
+   * ‏שכתוב הקובץ של תמונה קיימת — שיפור או טשטוש.
+   *
+   * ‏אותו מפתח באחסון, בתוכן חדש: כל מי שמצביע למפתח — צילום
+   * ‏המודעה ברשת, הצעה חיה אצל קונה, דף הנחיתה — רואה את הגרסה
+   * ‏החדשה מעצמו. זו הכוונה: פנים שטושטשו צריכים להיעלם **בכל
+   * ‏מקום**, לא רק בכרטיס. הסיומת במפתח (`.jpg` של תמונה ישנה)
+   * ‏נשארת; ה-Content-Type שנשמר לצד האובייקט הוא שקובע מה מוגש.
+   *
+   * ## ‏מה בתוך הטרנזקציה ומה מחוץ לה
+   *
+   * ‏ההורדה והעיבוד — שניות על תמונה גדולה עם כמה מלבנים — רצים
+   * ‏**מחוץ** לטרנזקציה: הטרנזקציה האינטראקטיבית פוקעת אחרי חמש
+   * ‏שניות, ואם היא פוקעת אחרי שהאחסון כבר נכתב נשארים בייטים
+   * ‏חדשים בלי חותמת, בלי יומן, ועם שגיאה למשתמש (ביקורת Codex).
+   *
+   * ‏בפנים נשארים רק הצעדים הקצרים, תחת נעילה מייעצת לכל תמונה:
+   * ‏בדיקה שהקובץ לא השתנה מאז שנקרא (`bytesUpdatedAt`), הכתיבה
+   * ‏לאחסון, ועדכון השורה. שני שכתובים במקביל (טשטוש משתי לשוניות)
+   * ‏מסודרים: השני מגלה שהחותמת זזה, קורא את מה שהראשון כתב,
+   * ‏ומעבד מחדש — פעם אחת; אם גם אז השתנה, 409.
+   */
+  private async rewriteBytes(
+    propertyId: string,
+    mediaId: string,
+    transform: (input: Buffer) => Promise<EnhancedPhoto>,
+    options: { markEnhanced: boolean; action: string },
+  ): Promise<MediaDto> {
+    const tenantId = TenantContext.current().tenantId;
+    const where = { id: mediaId, tenantId, propertyId };
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const row = await this.prisma.withTenant((tx) =>
+        tx.propertyMedia.findFirst({ where, select: { s3Key: true, bytesUpdatedAt: true } }),
+      );
+      if (!row) throw new NotFoundException("תמונה לא נמצאה");
+      const input = await this.readObject(row.s3Key);
+      let result: EnhancedPhoto;
+      try {
+        result = await transform(input);
+      } catch (error) {
+        if (error instanceof UnreadablePhotoError) throw new BadRequestException(error.message);
+        throw error;
+      }
+
+      const saved = await this.prisma.withTenant(async (tx) => {
+        const lockKey = `property-media-bytes:${tenantId}:${mediaId}`;
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`;
+        const current = await tx.propertyMedia.findFirst({ where, select: { bytesUpdatedAt: true } });
+        if (!current) throw new NotFoundException("תמונה לא נמצאה");
+        if (current.bytesUpdatedAt.getTime() !== row.bytesUpdatedAt.getTime()) return null;
+        await this.storage.put(row.s3Key, result.buffer, PHOTO_MIME, tenantId);
+        const now = new Date();
+        const updated = await tx.propertyMedia.update({
+          where: { id: mediaId },
+          data: { bytesUpdatedAt: now, ...(options.markEnhanced ? { enhancedAt: now } : {}) },
+        });
+        await this.audit.record(tx, {
+          action: options.action,
+          entityType: "property",
+          entityId: propertyId,
+          metadata: { mediaId },
+        });
+        return updated;
+      });
+      if (saved !== null) return toDto(propertyId, saved);
+    }
+    throw new ConflictException("התמונה השתנתה בינתיים — רעננו ונסו שוב");
+  }
+
+  /** ‏„לשפר” על תמונה שהועלתה לפני הכלי — אותו צינור של ההעלאה. */
+  async enhance(propertyId: string, mediaId: string): Promise<MediaDto> {
+    const logo = await this.logoOverlay(TenantContext.current().tenantId);
+    return this.rewriteBytes(propertyId, mediaId, (input) => enhancePhoto(input, { logo }), {
+      markEnhanced: true,
+      action: "property.media_enhance",
+    });
+  }
+
+  /** ‏טשטוש מלבנים — בלתי הפיך, כי אין מקור. */
+  async blur(propertyId: string, mediaId: string, rects: readonly PhotoBlurRect[]): Promise<MediaDto> {
+    return this.rewriteBytes(propertyId, mediaId, (input) => blurPhotoRegions(input, rects), {
+      markEnhanced: false,
+      action: "property.media_blur",
+    });
   }
 
   /**
@@ -210,10 +405,7 @@ export class MediaService {
    * (בפרודקשן MinIO חי על רשת פנימית של compose, בלי כתובת ציבורית;
    * URL חתום שנוצר מולו לא נגיש מהדפדפן — ביקורת Codex).
    */
-  async getRaw(
-    propertyId: string,
-    mediaId: string,
-  ): Promise<{ body: NodeJS.ReadableStream; contentType?: string; contentLength?: number }> {
+  async getRaw(propertyId: string, mediaId: string): Promise<StoredObject> {
     const tenantId = TenantContext.current().tenantId;
     const row = await this.prisma.withTenant((tx) =>
       tx.propertyMedia.findFirst({
@@ -247,13 +439,7 @@ export class MediaService {
         orderBy: { sortOrder: "asc" },
       });
     });
-    return rows.map((r) => ({
-      id: r.id,
-      kind: r.kind,
-      altText: r.altText ?? undefined,
-      sortOrder: r.sortOrder,
-      url: mediaRawPath(propertyId, r.id),
-    }));
+    return rows.map((r) => toDto(propertyId, r));
   }
 
   async remove(propertyId: string, mediaId: string): Promise<void> {
