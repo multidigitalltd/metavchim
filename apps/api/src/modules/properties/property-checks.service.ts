@@ -107,15 +107,28 @@ export class PropertyChecksService {
     return this.list(propertyId);
   }
 
-  /** בדיקה שטרם נעשתה ⟵ משימה על הנכס, פעם אחת. */
+  /**
+   * בדיקה שטרם נעשתה ⟵ משימה על הנכס, פעם אחת.
+   *
+   * ‎**הנעילה כאן, לא ב-`TasksService`.** הדדופ שם הוא „קרא ואז
+   * כתוב” תחת READ COMMITTED, ושני סוכנים שלוחצים באותה שנייה
+   * עוברים שניהם את הקריאה (ביקורת Codex). נעילת advisory על
+   * ‏(משרד, נכס, בדיקה) מסדרת אותם בתור: השני נכנס אחרי שהראשון
+   * כבר כתב, ורואה את המשימה הקיימת. הנעילה מוחזקת עד סוף
+   * הטרנזקציה החיצונית, כלומר גם לאורך הכתיבה הפנימית.
+   */
   async toTask(propertyId: string, key: PropertyCheckKey): Promise<TaskDto> {
     const tenantId = TenantContext.current().tenantId;
-    await this.prisma.withTenant((tx) => PropertyChecksService.assertProperty(tx, tenantId, propertyId));
-    return this.tasks.create({
-      title: propertyCheckTaskTitle(key),
-      entityType: "property",
-      entityId: propertyId,
-      sourceKey: propertyCheckTaskSourceKey(key),
+    return this.prisma.withTenant(async (tx) => {
+      await PropertyChecksService.assertProperty(tx, tenantId, propertyId);
+      const lockKey = `property-check-task:${tenantId}:${propertyId}:${key}`;
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`;
+      return this.tasks.create({
+        title: propertyCheckTaskTitle(key),
+        entityType: "property",
+        entityId: propertyId,
+        sourceKey: propertyCheckTaskSourceKey(key),
+      });
     });
   }
 

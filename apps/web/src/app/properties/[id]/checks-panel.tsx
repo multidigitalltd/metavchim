@@ -50,10 +50,13 @@ const STATUS_DOMAIN: Record<PropertyCheckStatus, string> = {
 export function ChecksPanel({
   propertyId,
   canEdit,
+  canTask,
   onProgress,
 }: {
   propertyId: string;
   canEdit: boolean;
+  /** ‎`calendar.manage` — „למשימה” יוצר משימה, ולכן דורש את יכולת המשימות */
+  canTask: boolean;
   /** מדווח לכרטיס על כל שינוי — המונה על הלשונית לא מתיישן */
   onProgress?: (progress: PropertyChecksProgress) => void;
 }) {
@@ -155,8 +158,9 @@ export function ChecksPanel({
             key={item.key}
             item={item}
             canEdit={canEdit}
+            canTask={canTask}
             busy={busyKey === item.key}
-            onStatus={(status) => void save(item.key, status, item.note)}
+            onStatus={(status, note) => void save(item.key, status, note)}
             onNote={(note) => void save(item.key, item.status, note)}
             onTask={() => void toTask(item.key, item.title)}
           />
@@ -169,6 +173,7 @@ export function ChecksPanel({
 function CheckRow({
   item,
   canEdit,
+  canTask,
   busy,
   onStatus,
   onNote,
@@ -176,8 +181,10 @@ function CheckRow({
 }: {
   item: PropertyCheckRow;
   canEdit: boolean;
+  canTask: boolean;
   busy: boolean;
-  onStatus: (status: PropertyCheckStatus) => void;
+  /** המצב **וההערה שבשדה** — לחיצה על מצב מיד אחרי הקלדה שומרת את שניהם */
+  onStatus: (status: PropertyCheckStatus, note: string) => void;
   onNote: (note: string) => void;
   onTask: () => void;
 }) {
@@ -217,20 +224,26 @@ function CheckRow({
 
       {canEdit ? (
         <div className="mt-3 flex flex-wrap items-center gap-3">
+          {/*
+            ‏כפתורי המצב **אינם מושבתים** בזמן שמירה: עזיבת שדה ההערה
+            ‏שומרת, ולחיצה על מצב באותו רגע הייתה נופלת על כפתור
+            ‏מושבת ונבלעת (ביקורת Codex). הכתיבה היא upsert — לחיצה
+            ‏כפולה כותבת פעמיים את אותו דבר, וזה לא נזק. המצב נשלח
+            ‏יחד עם ההערה שבשדה, ולכן הקלדה שטרם נשמרה אינה אובדת.
+          */}
           <div className="mv-seg mv-seg--wrap" role="group" aria-label={`מצב הבדיקה: ${item.title}`}>
             {PROPERTY_CHECK_STATUSES.map((status) => (
               <button
                 key={status}
                 type="button"
                 aria-pressed={item.status === status}
-                disabled={busy}
-                onClick={() => onStatus(status)}
+                onClick={() => onStatus(status, note.trim())}
               >
                 {PROPERTY_CHECK_STATUS_LABELS[status]}
               </button>
             ))}
           </div>
-          {item.status === "unchecked" ? (
+          {item.status === "unchecked" && canTask ? (
             <button type="button" className="mv-btn-soft" disabled={busy} onClick={onTask}>
               <IconList s={14} /> למשימה
             </button>

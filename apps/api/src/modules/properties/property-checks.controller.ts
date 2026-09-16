@@ -12,8 +12,11 @@ import type { TaskDto } from "../tasks/tasks.service";
 import { PropertyChecksService, type PropertyChecksDto } from "./property-checks.service";
 
 /**
- * תיק הבדיקות של הנכס — קריאה עם `properties.view`, סימון והפיכה
- * למשימה עם `properties.edit`. המפתח נבדק מול הרשימה הסגורה בשער.
+ * תיק הבדיקות של הנכס — קריאה עם `properties.view`, סימון עם
+ * ‎`properties.edit`, והפיכה למשימה עם **`calendar.manage`** — אותה
+ * יכולת שכל יצירת משימה ב-`/tasks` דורשת. `properties.edit` לבדה
+ * הייתה פותחת דלת צדדית למי שנחסם במפורש מניהול משימות (ביקורת
+ * Codex). המפתח נבדק מול הרשימה הסגורה בשער.
  */
 const IdParam = new ZodValidationPipe(IdSchema);
 const KeyParam = new ZodValidationPipe(PropertyCheckKeySchema);
@@ -39,7 +42,7 @@ export class PropertyChecksController {
   }
 
   @Post(":key/task")
-  @RequireCapability("properties.edit")
+  @RequireCapability("calendar.manage")
   toTask(
     @Param("id", IdParam) propertyId: string,
     @Param("key", KeyParam) key: PropertyCheckKey,

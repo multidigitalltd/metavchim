@@ -2532,6 +2532,7 @@ export default function PropertyDetailPage({
         <ChecksPanel
           propertyId={property.id}
           canEdit={canEditOwner}
+          canTask={can(user, "calendar.manage")}
           onProgress={(progress) => setOpenChecks(progress.remaining)}
         />
       </TabPanel>
