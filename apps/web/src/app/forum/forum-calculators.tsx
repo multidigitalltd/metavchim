@@ -225,9 +225,18 @@ function Area() {
   const [city, setCity] = useState("");
   const [neighborhood, setNeighborhood] = useState("");
   const [sale, setSale] = useState(true);
-  const [benchmarks, setBenchmarks] = useState<AreaBenchmarks | null>(null);
+  /*
+   * ‏התוצאה נשמרת **עם הסינון שביקש אותה**, ומוצגת רק כל עוד הוא לא
+   * ‏השתנה: „רמת גן, מכירה” שנשאר על המסך אחרי שהמשתמש הקליד „חיפה”
+   * ‏הוא ממוצע של עיר אחרת עם פער שמחושב מולה (ביקורת Codex). אותו
+   * ‏כלל מטפל גם בתשובה שמגיעה אחרי שהשדה כבר נערך — היא נשמרת עם
+   * ‏המפתח הישן, ולכן אינה מוצגת.
+   */
+  const [result, setResult] = useState<{ key: string; benchmarks: AreaBenchmarks } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const filterKey = `${city.trim()}|${neighborhood.trim()}|${sale ? "sale" : "rent"}`;
+  const benchmarks = result !== null && result.key === filterKey ? result.benchmarks : null;
 
   const priceAgorot = Math.round(num(price) * 100);
   const grossSqm = num(gross);
@@ -246,10 +255,12 @@ function Area() {
     }
     setBusy(true);
     setError(null);
+    const key = filterKey;
     try {
       const params = new URLSearchParams({ city: city.trim(), dealType: sale ? "sale" : "rent" });
       if (neighborhood.trim() !== "") params.set("neighborhood", neighborhood.trim());
-      setBenchmarks(await apiGet<AreaBenchmarks>(`/properties/benchmarks/per-sqm?${params.toString()}`));
+      const data = await apiGet<AreaBenchmarks>(`/properties/benchmarks/per-sqm?${params.toString()}`);
+      setResult({ key, benchmarks: data });
     } catch (err: unknown) {
       setError(err instanceof ApiError ? err.message : "ההשוואה נכשלה");
     } finally {
