@@ -167,6 +167,10 @@ const CLASSIFIED: Record<string, Entry> = {
     why: "שליחת הצעת נכס — הלקוח מגיע דרך כרטיס הקונה, שמסונן ב-ownershipFilter",
   },
   "modules/offers/offers.service.ts": { as: "entity", why: "הצעה לכרטיס" },
+  "modules/offers/comparison.service.ts": {
+    as: "entity",
+    why: "דף השוואה לקונה — הקונה דרך assertBuyerAccess/ownershipFilter; הדף עצמו תמונת מצב בלי PII",
+  },
   "modules/properties/open-house.service.ts": {
     as: "entity",
     why: "בית פתוח — שמות המבקרים רק למי שרואה את הליד (leadOwnershipFilter); המספרים לכולם",

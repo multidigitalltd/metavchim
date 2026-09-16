@@ -154,6 +154,14 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     });
   }
 
+  /** ‏דף השוואה ציבורי — אותו דפוס: הטוקן פותח את השורה היחידה שלו. */
+  async withPublicComparison<T>(token: string, fn: (tx: TenantTx) => Promise<T>): Promise<T> {
+    return this.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT set_config('app.comparison_token', ${token}, true)`;
+      return fn(tx);
+    });
+  }
+
   /**
    * ‎**הסרה מתזכורות ההפעלה — הטוקן שבתחתית התזכורת.**
    *

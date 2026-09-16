@@ -12,6 +12,7 @@ import { leadOwnershipFilter } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { loadEnv } from "../../config/env";
 import { AuditService } from "../../core/audit.service";
+import { OutboxService } from "../../core/outbox.service";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import { ContactsService } from "../contacts/contacts.service";
@@ -44,6 +45,13 @@ import { LandingService } from "./landing.service";
 const MARKETABLE = new Set(["draft", "active"]);
 const MASKED_NAME = "מבקר";
 const OPEN_HOUSE_SOURCE = "בית פתוח";
+/** ‏כמה מבקרים נטענים לרשימה של אירוע אחד; המונים תמיד מדויקים */
+const VISITORS_PER_EVENT = 300;
+
+/** ‏משבצת שעדיין אפשר להגיע אליה — לא הסתיימה */
+function slotStillOpen(slotAt: Date, slotMinutes: number, now: Date): boolean {
+  return slotAt.getTime() + slotMinutes * 60_000 > now.getTime();
+}
 
 export interface OpenHouseVisitorDto {
   appointmentId: string;
@@ -67,6 +75,8 @@ export interface OpenHouseDto {
   registered: number;
   arrived: number;
   visitors: OpenHouseVisitorDto[];
+  /** ‏יותר מ-300 מבקרים — הרשימה קטומה, המונים לא */
+  visitorsTruncated: boolean;
 }
 
 export interface OpenHousesDto {
@@ -103,6 +113,7 @@ export class OpenHouseService {
     private readonly plans: PlanCatalogService,
     private readonly webLeads: WebLeadService,
     private readonly landing: LandingService,
+    private readonly outbox: OutboxService,
   ) {}
 
   async list(propertyId: string): Promise<OpenHousesDto> {
@@ -172,16 +183,14 @@ export class OpenHouseService {
     input: { name: string; phone: string; slotAt?: string },
   ): Promise<OpenHousesDto> {
     const ctx = TenantContext.current();
-    const { property, event } = await this.prisma.withTenant(async (tx) => ({
-      property: await this.property(tx, propertyId),
-      event: await this.plannedEvent(tx, propertyId, openHouseId),
-    }));
-    const slotAt = input.slotAt === undefined ? OpenHouseService.currentSlot(event, new Date()) : new Date(input.slotAt);
-    if (!isOpenHouseSlot(slotAt, event.startsAt, event.endsAt, event.slotMinutes)) {
-      throw new BadRequestException("השעה אינה אחת ממשבצות האירוע");
-    }
-    const { leadId } = await this.ingest(ctx.tenantId, property, input);
     return this.prisma.withTenant(async (tx) => {
+      const property = await this.property(tx, propertyId);
+      const event = await this.plannedEvent(tx, propertyId, openHouseId);
+      const slotAt = input.slotAt === undefined ? OpenHouseService.currentSlot(event, new Date()) : new Date(input.slotAt);
+      if (!isOpenHouseSlot(slotAt, event.startsAt, event.endsAt, event.slotMinutes)) {
+        throw new BadRequestException("השעה אינה אחת ממשבצות האירוע");
+      }
+      const { leadId } = await this.webLeads.ingestIn(tx, ctx.tenantId, this.leadInput(property, input), OPEN_HOUSE_SOURCE);
       await this.upsertVisit(tx, { tenantId: ctx.tenantId, event, property, leadId, slotAt, status: "completed", createdBy: ctx.userId });
       return this.listIn(tx, property);
     });
@@ -214,7 +223,11 @@ export class OpenHouseService {
       if (property === null) return { event: null };
       const event = await this.nextEvent(tx, property.tenantId, property.id);
       if (event === null) return { event: null };
-      const slots = await this.slotsOf(tx, property.tenantId, event);
+      /* ‏רק משבצות שעוד לא הסתיימו — אירוע שכבר התחיל מציע את ההמשך שלו */
+      const now = new Date();
+      const slots = (await this.slotsOf(tx, property.tenantId, event)).filter((slot) =>
+        slotStillOpen(new Date(slot.startsAt), event.slotMinutes, now),
+      );
       return {
         event: { id: event.id, startsAt: event.startsAt.toISOString(), endsAt: event.endsAt.toISOString(), slotMinutes: event.slotMinutes, slots },
       };
@@ -222,49 +235,37 @@ export class OpenHouseService {
   }
 
   /**
-   * ‏הרשמה: ליד (אותה קליטה של טופס דף הנחיתה) + סיור במשבצת. הקיבולת
-   * ‏נבדקת תחת נעילת שורת האירוע — שני נרשמים למקום האחרון לא נכנסים
-   * ‏שניהם. הרשמה חוזרת של אותו טלפון מזיזה את המשבצת ואינה מכפילה.
+   * ‏הרשמה: ליד (אותה קליטה של טופס דף הנחיתה) + סיור במשבצת — **בטרנזקציה
+   * ‏אחת**, תחת נעילת שורת האירוע. שני נרשמים למקום האחרון לא נכנסים
+   * ‏שניהם, והמפסיד לא משאיר אחריו ליד והתראה על הרשמה שלא קרתה
+   * ‏(ביקורת Codex). הרשמה חוזרת של אותו טלפון מזיזה את המשבצת ואינה
+   * ‏נספרת מול עצמה — ואינה מכפילה.
    */
   async register(token: string, openHouseId: string, input: { name: string; phone: string; slotAt: string }): Promise<void> {
-    const resolved = await this.prisma.withPublicLanding(token, async (tx) => {
+    await this.prisma.withPublicLanding(token, async (tx) => {
       const property = await this.publicProperty(tx, token);
       if (property === null) throw new NotFoundException("הדף לא נמצא");
+      const tenantId = property.tenantId;
+      /* ‏הנעילה קודם לכל בדיקה — כל ההרשמות לאותו אירוע עוברות כאן בתור */
+      await tx.$queryRaw`SELECT id FROM open_houses WHERE id = ${openHouseId} AND tenant_id = ${tenantId} FOR UPDATE`;
+      const now = new Date();
       const event = await tx.openHouse.findFirst({
-        where: { id: openHouseId, tenantId: property.tenantId, propertyId: property.id, status: "planned", endsAt: { gt: new Date() } },
+        where: { id: openHouseId, tenantId, propertyId: property.id, status: "planned", endsAt: { gt: now } },
       });
       if (!event) throw new NotFoundException("האירוע כבר אינו פתוח להרשמה");
       const slotAt = new Date(input.slotAt);
       if (!isOpenHouseSlot(slotAt, event.startsAt, event.endsAt, event.slotMinutes)) {
         throw new BadRequestException("השעה אינה אחת ממשבצות האירוע");
       }
-      /*
-       * ‏הקיבולת נבדקת **לפני** קליטת הליד: משבצת מלאה מחזירה 409 בלי
-       * ‏להשאיר כרטיס ליד על הרשמה שלא קרתה. הבדיקה המחייבת חוזרת
-       * ‏תחת הנעילה למטה — כאן רק חוסכים את הכתיבה המיותרת.
-       */
+      if (!slotStillOpen(slotAt, event.slotMinutes, now)) throw new BadRequestException("השעה הזו כבר עברה — בחרו שעה מאוחרת יותר");
+      const { leadId } = await this.webLeads.ingestIn(tx, tenantId, this.leadInput(property, input), OPEN_HOUSE_SOURCE);
       if (event.slotCapacity !== null) {
         const taken = await tx.appointment.count({
-          where: { tenantId: property.tenantId, openHouseId: event.id, startsAt: slotAt, status: { not: "cancelled" } },
+          where: { tenantId, openHouseId: event.id, startsAt: slotAt, status: { not: "cancelled" }, leadId: { not: leadId } },
         });
         if (taken >= event.slotCapacity) throw new ConflictException("המשבצת הזו התמלאה — בחרו שעה אחרת");
       }
-      return { property, event, slotAt };
-    });
-    const { event, property, slotAt } = resolved;
-    const { leadId } = await this.ingest(property.tenantId, property, input);
-    await this.prisma.$transaction(async (tx) => {
-      await tx.$executeRaw`SELECT set_config('app.tenant_id', ${property.tenantId}, true)`;
-      await tx.$queryRaw`SELECT id FROM open_houses WHERE id = ${event.id} AND tenant_id = ${property.tenantId} FOR UPDATE`;
-      const live = await tx.openHouse.findFirst({ where: { id: event.id, status: "planned" }, select: { id: true } });
-      if (!live) throw new NotFoundException("האירוע כבר אינו פתוח להרשמה");
-      if (event.slotCapacity !== null) {
-        const taken = await tx.appointment.count({
-          where: { tenantId: property.tenantId, openHouseId: event.id, startsAt: slotAt, status: { not: "cancelled" }, leadId: { not: leadId } },
-        });
-        if (taken >= event.slotCapacity) throw new ConflictException("המשבצת הזו התמלאה — בחרו שעה אחרת");
-      }
-      await this.upsertVisit(tx, { tenantId: property.tenantId, event, property, leadId, slotAt, status: "scheduled", createdBy: null });
+      await this.upsertVisit(tx, { tenantId, event, property, leadId, slotAt, status: "scheduled", createdBy: null });
     });
   }
 
@@ -324,16 +325,11 @@ export class OpenHouseService {
     return started[started.length - 1] ?? slots[0] ?? event.startsAt;
   }
 
-  private ingest(
-    tenantId: string,
+  private leadInput(
     property: { id: string; marketingTitle: string | null; street: string | null; houseNumber: string | null; city: string | null },
     input: { name: string; phone: string },
-  ): Promise<{ leadId: string }> {
-    return this.webLeads.ingestForTenant(
-      tenantId,
-      { name: input.name, phone: input.phone, pageUrl: `בית פתוח — ${labelOf(property)}`, propertyId: property.id },
-      OPEN_HOUSE_SOURCE,
-    );
+  ): { name: string; phone: string; pageUrl: string; propertyId: string } {
+    return { name: input.name, phone: input.phone, pageUrl: `בית פתוח — ${labelOf(property)}`, propertyId: property.id };
   }
 
   /** ‏סיור אחד לכל ליד באירוע: הרשמה חוזרת מזיזה, ולא מכפילה. */
@@ -352,18 +348,43 @@ export class OpenHouseService {
     const endsAt = new Date(input.slotAt.getTime() + input.event.slotMinutes * 60_000);
     const existing = await tx.appointment.findFirst({
       where: { tenantId: input.tenantId, openHouseId: input.event.id, leadId: input.leadId },
-      select: { id: true, status: true },
+      select: { id: true, status: true, startsAt: true, rescheduleCount: true },
     });
+    const scheduled = {
+      appointmentId: "",
+      tenantId: input.tenantId,
+      startsAt: input.slotAt,
+      kind: "viewing",
+      endsAt,
+    };
     if (existing) {
+      const moved = existing.startsAt.getTime() !== input.slotAt.getTime();
       await tx.appointment.update({
         where: { id: existing.id },
-        data: { startsAt: input.slotAt, endsAt, status: existing.status === "completed" ? "completed" : input.status },
+        data: {
+          startsAt: input.slotAt,
+          endsAt,
+          status: existing.status === "completed" ? "completed" : input.status,
+          /* ‏דחייה כמו ב-`CalendarService.reschedule`: המועד הישן נשמר, והתזכורת והתשובה עליה מתאפסות */
+          ...(moved
+            ? {
+                rescheduledFrom: existing.startsAt,
+                rescheduleCount: existing.rescheduleCount + 1,
+                reminderSentAt: null,
+                reminderReply: null,
+                reminderReplyAt: null,
+                googleSyncedAt: null,
+              }
+            : {}),
+        },
       });
+      if (moved) await this.outbox.emitFor(tx, input.tenantId, "appointment.scheduled", { ...scheduled, appointmentId: existing.id });
       return;
     }
+    const id = ulid();
     await tx.appointment.create({
       data: {
-        id: ulid(),
+        id,
         tenantId: input.tenantId,
         kind: "viewing",
         title: "בית פתוח",
@@ -377,6 +398,8 @@ export class OpenHouseService {
         createdBy: input.createdBy,
       },
     });
+    /* ‏אותו אירוע כמו סיור שנקבע מהיומן — תזכורת השעה, פולו-אפ „איך היה?” ואוטומציות */
+    await this.outbox.emitFor(tx, input.tenantId, "appointment.scheduled", { ...scheduled, appointmentId: id });
   }
 
   private async listIn(
@@ -390,12 +413,31 @@ export class OpenHouseService {
       take: 20,
     });
     if (events.length === 0) return { registrationUrl: this.registrationUrl(property.landingToken), events: [] };
-    const visits = await tx.appointment.findMany({
-      where: { tenantId, openHouseId: { in: events.map((e) => e.id) }, status: { not: "cancelled" } },
-      select: { id: true, openHouseId: true, leadId: true, startsAt: true, status: true, feedbackPrice: true, feedbackCondition: true, feedbackFit: true },
-      orderBy: { startsAt: "asc" },
-      take: 1000,
-    });
+    /*
+     * ‏המונים מהמסד (groupBy) ולא מהרשימה: הרשימה קטומה לכל אירוע,
+     * ‏והמונים על הלשונית ובכותרת חייבים להיות נכונים גם כשיש יותר
+     * ‏מבקרים מזה (ביקורת Codex).
+     */
+    const live = { tenantId, openHouseId: { in: events.map((e) => e.id) }, status: { not: "cancelled" } };
+    const [byStatus, bySlot] = await Promise.all([
+      tx.appointment.groupBy({ by: ["openHouseId", "status"], where: live, _count: { _all: true } }),
+      tx.appointment.groupBy({ by: ["openHouseId", "startsAt"], where: live, _count: { _all: true } }),
+    ]);
+    const visits: {
+      id: string; openHouseId: string | null; leadId: string | null; startsAt: Date; status: string;
+      feedbackPrice: string | null; feedbackCondition: string | null; feedbackFit: string | null;
+    }[] = [];
+    const truncated = new Set<string>();
+    for (const event of events) {
+      const rows = await tx.appointment.findMany({
+        where: { tenantId, openHouseId: event.id, status: { not: "cancelled" } },
+        select: { id: true, openHouseId: true, leadId: true, startsAt: true, status: true, feedbackPrice: true, feedbackCondition: true, feedbackFit: true },
+        orderBy: { startsAt: "asc" },
+        take: VISITORS_PER_EVENT + 1,
+      });
+      if (rows.length > VISITORS_PER_EVENT) truncated.add(event.id);
+      visits.push(...rows.slice(0, VISITORS_PER_EVENT));
+    }
     const leadIds = [...new Set(visits.map((v) => v.leadId).filter((id): id is string => id !== null))];
     const visibleLeads = leadIds.length === 0
       ? []
@@ -409,7 +451,9 @@ export class OpenHouseService {
     const dto: OpenHouseDto[] = events.map((event) => {
       const mine = visits.filter((v) => v.openHouseId === event.id);
       const counts = new Map<string, number>();
-      for (const v of mine) counts.set(v.startsAt.toISOString(), (counts.get(v.startsAt.toISOString()) ?? 0) + 1);
+      for (const row of bySlot) if (row.openHouseId === event.id) counts.set(row.startsAt.toISOString(), row._count._all);
+      const registered = byStatus.filter((row) => row.openHouseId === event.id).reduce((sum, row) => sum + row._count._all, 0);
+      const arrived = byStatus.find((row) => row.openHouseId === event.id && row.status === "completed")?._count._all ?? 0;
       return {
         id: event.id,
         startsAt: event.startsAt.toISOString(),
@@ -418,8 +462,9 @@ export class OpenHouseService {
         slotCapacity: event.slotCapacity,
         status: event.status as OpenHouseStatus,
         slots: slotAvailability(openHouseSlots(event.startsAt, event.endsAt, event.slotMinutes), counts, event.slotCapacity),
-        registered: mine.length,
-        arrived: mine.filter((v) => v.status === "completed").length,
+        registered,
+        arrived,
+        visitorsTruncated: truncated.has(event.id),
         visitors: mine.map((v) => {
           const person = v.leadId === null ? undefined : personOf.get(v.leadId);
           return {

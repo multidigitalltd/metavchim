@@ -298,6 +298,7 @@ export class AccountDeletionService {
         await tx.voiceIntake.deleteMany({ where: { tenantId } });
         await tx.match.deleteMany({ where: { tenantId } });
         await tx.offer.deleteMany({ where: { tenantId } });
+        await tx.comparison.deleteMany({ where: { tenantId } });
         await tx.message.deleteMany({ where: { tenantId } });
         // שיחות הסוכן בוואטסאפ — ההצעות וההיסטוריה מכילות פרטי לקוחות
         await tx.whatsAppChat.deleteMany({ where: { tenantId } });

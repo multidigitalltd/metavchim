@@ -51,6 +51,7 @@ interface EventDto {
   registered: number;
   arrived: number;
   visitors: VisitorDto[];
+  visitorsTruncated: boolean;
 }
 
 export interface OpenHousesResponse {
@@ -337,6 +338,10 @@ function VisitorsList({
 }) {
   if (event.visitors.length === 0) return null;
   return (
+    <>
+    {event.visitorsTruncated ? (
+      <p className="mv-form-hint mt-3">מוצגים {event.visitors.length} המבקרים הראשונים; המונים למעלה כוללים את כולם.</p>
+    ) : null}
     <ol className="m-0 mt-3 flex list-none flex-col gap-2 p-0" aria-label={`המבקרים — ${openHouseWhen(new Date(event.startsAt), new Date(event.endsAt))}`}>
       {event.visitors.map((visitor) => (
         <li key={visitor.appointmentId} className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t pt-2" style={{ borderColor: "var(--color-border)" }}>
@@ -369,5 +374,6 @@ function VisitorsList({
         </li>
       ))}
     </ol>
+    </>
   );
 }
