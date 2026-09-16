@@ -129,13 +129,79 @@ describe("שיוך מרוכז לנציג", () => {
    * ‎**השער בשירות, לא במסך.** תפקיד `agent` מחזיק ב-`leads.edit`
    * ‏ואין לו `tasks.assign`; בקשה ישירה אינה עוברת דרך הסרגל כלל.
    */
-  it("נדחית בלי `tasks.assign` — ובלי לגעת בשום שיחה", async () => {
-    const service = serviceWith({});
-    const ensureLead = vi.spyOn(service, "ensureLead");
-    await expect(
-      TenantContext.run(CTX(["leads.edit"]), () => service.assignMany(["01A"], "01AGENT")),
-    ).rejects.toThrow();
-    expect(ensureLead).not.toHaveBeenCalled();
+  /*
+   * ‎**סוכן מוסר את מה שבידיו, בלחיצה אחת.**
+   *
+   * ‏הסרגל הזה מעביר **לידים**, וליד הוא היוצא מן הכלל: „בין
+   * ‏סוכנים ניתן להעביר לידים בלבד”. סוכן שיוצא לחופשה צריך למסור
+   * ‏את שלו במכה אחת ולא ליד-ליד (בקשת בעלת המוצר), ושער גורף של
+   * ‎`tasks.assign` חסם בדיוק את זה.
+   */
+  it("סוכן רגיל מוסר את הלידים שלו — בלי הרשאת מנהל", async () => {
+    const update = vi.fn(() => Promise.resolve({ count: 1 }));
+    const service = serviceWith({
+      tx: {
+        user: { findFirst: () => Promise.resolve({ id: "01AGENT", name: "דנה" }) },
+        lead: {
+          findFirst: () => Promise.resolve({ assignedToUserId: "01ME" }),
+          updateMany: update,
+        },
+      },
+    });
+    vi.spyOn(service, "ensureLead").mockResolvedValue({ leadId: "01L1", created: false });
+    const result = await TenantContext.run(CTX(["leads.edit"]), () =>
+      service.assignMany(["01A"], "01AGENT"),
+    );
+    expect(result).toEqual({ done: 1, already: 0, skipped: 0 });
+    expect(update).toHaveBeenCalledTimes(1);
+  });
+
+  /*
+   * ‎**ואינו לוקח את של עמיתו.** זו התכונה שהחריג עומד או נופל
+   * ‏עליה: „למסור” ו„לקחת” אינם אותו דבר.
+   *
+   * ‎**דילוג ולא חריגה:** `skipped` כבר מוצהר כ„נעלם, אין הרשאה, או
+   * ‏נכשל”, וחריגה כאן הייתה מפילה אצווה שלמה בגלל שורה אחת.
+   */
+  it("ואינו לוקח ליד של עמית — דילוג, ובלי כתיבה", async () => {
+    const update = vi.fn(() => Promise.resolve({ count: 1 }));
+    const record = vi.fn(() => Promise.resolve());
+    const service = serviceWith({
+      tx: {
+        user: { findFirst: () => Promise.resolve({ id: "01AGENT", name: "דנה" }) },
+        lead: {
+          findFirst: () => Promise.resolve({ assignedToUserId: "01OTHER" }),
+          updateMany: update,
+        },
+      },
+      audit: { record },
+    });
+    vi.spyOn(service, "ensureLead").mockResolvedValue({ leadId: "01L1", created: false });
+    const result = await TenantContext.run(CTX(["leads.edit"]), () =>
+      service.assignMany(["01A"], "01AGENT"),
+    );
+    expect(result).toEqual({ done: 0, already: 0, skipped: 1 });
+    expect(update).not.toHaveBeenCalled();
+    expect(record).not.toHaveBeenCalled();
+  });
+
+  /* ‏ומנהל ממשיך להעביר כל ליד שהוא רואה, כמו קודם. */
+  it("ומנהל מעביר גם ליד של סוכן אחר", async () => {
+    const update = vi.fn(() => Promise.resolve({ count: 1 }));
+    const service = serviceWith({
+      tx: {
+        user: { findFirst: () => Promise.resolve({ id: "01AGENT", name: "דנה" }) },
+        lead: {
+          findFirst: () => Promise.resolve({ assignedToUserId: "01OTHER" }),
+          updateMany: update,
+        },
+      },
+    });
+    vi.spyOn(service, "ensureLead").mockResolvedValue({ leadId: "01L1", created: false });
+    const result = await TenantContext.run(CTX(["leads.edit", "tasks.assign"]), () =>
+      service.assignMany(["01A"], "01AGENT"),
+    );
+    expect(result).toEqual({ done: 1, already: 0, skipped: 0 });
   });
 
   /*
