@@ -7,6 +7,9 @@ import {
   MAX_PLATFORM_FEE_PERCENT,
   PLATFORM_REFERRAL_FEE_PERCENT,
   referralPayout,
+  formatJerusalemDate,
+  formatJerusalemTime,
+  type ReplyChainResult,
 } from "@metavchim/shared";
 import { IconCard, IconChat, IconCoins, IconDoc, IconKey, IconLock, IconMail, IconPhone, IconPin } from "../icons";
 import { Notice } from "../notice";
@@ -18,6 +21,14 @@ import { Notice } from "../notice";
  */
 
 const inputStyle = { borderColor: "var(--color-input-border)", background: "var(--color-field)" } as const;
+
+/** ‏תוצאת `GET /platform/email-reply-chain` — ראו את הבקר להסבר מלא. */
+interface ReplyChainReport {
+  chain: ReplyChainResult;
+  secretSet: boolean;
+  outgoing: { tokensIssued: number; lastIssuedAt: string | null };
+  verdict: string;
+}
 
 /**
  * כתובת ה-Webhook המלאה להדבקה אצל הספק.
@@ -812,6 +823,27 @@ export function PlatformSettingsSection({
     }
   }
 
+  /*
+   * ‏תוצאת בדיקת שרשרת התשובה. `null` = טרם נבדקה — בדיקה אינה
+   * ‏רצה מעצמה בטעינת המסך: היא עונה על שאלה שנשאלת („למה זה הגיע
+   * ‏לתמיכה?”), ותשובה שמוצגת בלי ששאלו הופכת לעוד בלוק שמדלגים
+   * ‏עליו.
+   */
+  const [replyChain, setReplyChain] = useState<ReplyChainReport | null>(null);
+  const [chainBusy, setChainBusy] = useState(false);
+
+  async function checkChain() {
+    setError(null);
+    setChainBusy(true);
+    try {
+      setReplyChain(await apiGet<ReplyChainReport>("/platform/email-reply-chain"));
+    } catch (err: unknown) {
+      setError(err instanceof ApiError ? err.message : "הבדיקה נכשלה — נסו שוב");
+    } finally {
+      setChainBusy(false);
+    }
+  }
+
   async function sendTest() {
     setError(null);
     setMessage(null);
@@ -975,6 +1007,70 @@ export function PlatformSettingsSection({
           secret={officeInboundSecret}
           alreadySet={settings.postmark.inboundSecretSet}
         />
+
+        {/*
+          ‎**כפתור שבודק, ולא עוד שדה שאומר „מוגדר”.**
+
+          ‏שדות מלאים אינם מוכיחים שתשובה של לקוח תגיע לתיבת המשרד.
+          ‏כתובת קליטה שמכילה „+” בחלק שלפני ה-@ נראית תקינה לגמרי,
+          ‏עוברת את בניית ה-Reply-To, והספק מחזיר ממנה טוקן מעוות —
+          ‏ואז כל תשובה של כל לקוח נופלת לתמיכה בלי ששום שדה במסך
+          ‏ייראה שגוי. הבדיקה מריצה את הכתובת האמיתית דרך אותן
+          ‏פונקציות שרצות בשליחה ובקליטה.
+        */}
+        <div className="mt-3">
+          <Button type="button" variant="secondary" disabled={chainBusy} onClick={() => void checkChain()}>
+            {chainBusy ? "בודק…" : "בדיקת שרשרת התשובה"}
+          </Button>
+          {replyChain === null ? null : (
+            <div
+              className="mt-3 rounded-xl border p-4"
+              style={{
+                borderColor: replyChain.chain.ok ? "var(--color-success)" : "var(--color-danger)",
+                background: "var(--color-bg)",
+              }}
+            >
+              <p className="m-0 mb-3 font-bold">
+                {replyChain.chain.ok ? "✓ " : "✗ "}
+                {replyChain.verdict}
+              </p>
+              <ol className="m-0 flex list-none flex-col gap-2 p-0">
+                {replyChain.chain.steps.map((step) => (
+                  <li key={step.id}>
+                    <div className="flex flex-wrap items-baseline gap-2">
+                      <span aria-hidden="true" style={{ color: step.ok ? "var(--color-success)" : "var(--color-danger)" }}>
+                        {step.ok ? "✓" : "✗"}
+                      </span>
+                      <strong>{step.title}</strong>
+                      {/*
+                        ‏כתובת או טוקן ב-LTR — הם נשברים בתצוגת
+                        ‏ימין-לשמאל, ואז מי שבא להשוות מול הספק משווה
+                        ‏מחרוזת אחרת. פרט שנאמר בעברית („לא מוגדרים”)
+                        ‏נשאר RTL: כפייה אחידה הייתה שוברת את השני.
+                      */}
+                      <span
+                        dir={/[\u0590-\u05FF]/u.test(step.detail) ? "rtl" : "ltr"}
+                        style={{ color: "var(--color-text-muted)" }}
+                      >
+                        {step.detail}
+                      </span>
+                    </div>
+                    {step.fix === undefined ? null : (
+                      <p className="m-0 mt-1 text-sm" style={{ color: "var(--color-danger)" }}>
+                        {step.fix}
+                      </p>
+                    )}
+                  </li>
+                ))}
+              </ol>
+              <p className="m-0 mt-3 text-sm" style={{ color: "var(--color-text-muted)" }}>
+                {replyChain.outgoing.lastIssuedAt === null
+                  ? "לא הונפקה אף כתובת תשובה — כלומר שום מייל שיצא ללקוח לא נשא Reply-To."
+                  : `הונפקו ${replyChain.outgoing.tokensIssued} כתובות תשובה, האחרונה ב-${formatJerusalemDate(new Date(replyChain.outgoing.lastIssuedAt))} בשעה ${formatJerusalemTime(new Date(replyChain.outgoing.lastIssuedAt))}.`}
+              </p>
+            </div>
+          )}
+        </div>
         <p className="mt-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
           Account Token (Postmark ⟵ Account ⟵ API Tokens) מפעיל למשרדים חיבור
           דומיין משלהם לשליחה — {settings.postmark.officeDomains ? "מוגדר ופעיל." : "טרם הוגדר."}
