@@ -1,4 +1,4 @@
-import { ConflictException, GoneException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, GoneException, Injectable, NotFoundException } from "@nestjs/common";
 import { recordMentorWin } from "../../common/mentor-wins";
 import type { Property } from "@prisma/client";
 import { randomBytes } from "node:crypto";
@@ -6,7 +6,7 @@ import { ulid } from "ulid";
 import { OfferPresentationSchema, whatsappLink, type OfferPresentation } from "@metavchim/shared";
 import { assertMatchAccess, ownershipFilter } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
-import { AgreementsService } from "../agreements/agreements.service";
+import { AgreementFieldsMissingError, AgreementsService } from "../agreements/agreements.service";
 import { ExclusivityService } from "../exclusivity/exclusivity.service";
 import { loadEnv } from "../../config/env";
 import { AuditService } from "../../core/audit.service";
@@ -93,11 +93,28 @@ export class OffersService {
       if (await this.agreements.hasSigned(tx, tenantId, buyer.contactId, "brokerage", match.propertyId)) {
         return null;
       }
-      return this.agreements.create(tx, {
-        kind: "brokerage",
-        contactId: buyer.contactId,
-        propertyId: match.propertyId,
-      });
+      /*
+       * ‎**השגיאה מנוסחת סביב מה שהמשתמש לחץ.**
+       *
+       * ‏השער מפיק כאן הסכם שאיש לא ביקש במפורש, ולכן משרד חדש
+       * ‏שלחץ „שלח הצעה” קיבל „אי אפשר לשלוח הסכם לחתימה בלי פרטי
+       * ‏החובה” — הודעה על פעולה שאינה שלו, בלי לרמוז למה היא
+       * ‏קשורה להצעה (נמצא בבדיקת QA מול המערכת החיה). רשימת
+       * ‏השדות מגיעה מהשגיאה עצמה, כלומר הכלל נשאר במקום אחד.
+       */
+      try {
+        return await this.agreements.create(tx, {
+          kind: "brokerage",
+          contactId: buyer.contactId,
+          propertyId: match.propertyId,
+        });
+      } catch (error) {
+        if (!(error instanceof AgreementFieldsMissingError)) throw error;
+        throw new BadRequestException(
+          "כדי לשלוח הצעה צריך שהלקוח יחתום על הזמנה בכתב, ולהפקתה חסרים " +
+            `פרטי חובה: ${error.fields.join(", ")}. השלימו אותם בהגדרות המשרד ואז נסו שוב.`,
+        );
+      }
     });
   }
 

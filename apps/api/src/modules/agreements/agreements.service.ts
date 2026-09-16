@@ -82,6 +82,26 @@ export interface PublicAgreementView {
   bodyHash: string;
 }
 
+/**
+ * ‎**פרטי חובה חסרים בהסכם — שגיאה שנושאת את **מה** חסר.**
+ *
+ * ‏הנוסח היה קבוע כאן ודיבר על „שליחת הסכם לחתימה”, וזה נכון רק
+ * ‏למי שבאמת לחץ „שלח לחתימה”. שער ההצעות מפיק הסכם בעצמו, ולכן
+ * ‏משרד חדש שלחץ „שלח הצעה” קיבל הודעה על פעולה שלא ביקש — ובלי
+ * ‏שום רמז לקשר בין השתיים (נמצא בבדיקת QA מול המערכת החיה).
+ *
+ * ‏הכלל — **אילו** שדות חובה — נשאר כאן, במקום אחד. הניסוח עובר
+ * ‏לקורא, כי רק הוא יודע על מה המשתמש לחץ.
+ */
+export class AgreementFieldsMissingError extends BadRequestException {
+  constructor(readonly fields: readonly string[]) {
+    super(
+      `אי אפשר לשלוח הסכם לחתימה בלי פרטי החובה: ${fields.join(", ")}. ` +
+        "השלימו אותם בהגדרות המשרד או בטופס השליחה.",
+    );
+  }
+}
+
 @Injectable()
 export class AgreementsService {
   constructor(
@@ -358,11 +378,7 @@ export class AgreementsService {
         !SIGNER_PROVIDED_PLACEHOLDERS.includes(name as keyof AgreementValues),
     );
     if (blocking.length > 0) {
-      throw new BadRequestException(
-        `אי אפשר לשלוח הסכם לחתימה בלי פרטי החובה: ${blocking
-          .map((name) => name.replace(/_/gu, " "))
-          .join(", ")}. השלימו אותם בהגדרות המשרד או בטופס השליחה.`,
-      );
+      throw new AgreementFieldsMissingError(blocking.map((name) => name.replace(/_/gu, " ")));
     }
 
     const token = randomBytes(32).toString("base64url");
