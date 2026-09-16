@@ -58,6 +58,7 @@ import { NetworkShareSection } from "../../network-share-section";
 import { AgreementsPanel } from "../../agreements-panel";
 import { DocumentsPanel } from "../../documents-panel";
 import { EntityTasks, type TaskListResponse } from "../../entity-tasks";
+import { ChecksPanel, type PropertyChecksResponse } from "./checks-panel";
 import { PropertyOwner, type OwnerContact } from "../property-owner";
 import { OwnerActivity } from "./owner-activity";
 import { PartnerSuggestions } from "./partner-suggestions";
@@ -365,12 +366,23 @@ export default function PropertyDetailPage({
       "network",
       "owner",
       "exclusivity",
+      "checks",
       "agreements",
       "tasks",
     ],
     "overview",
   );
   const [openTasks, setOpenTasks] = useState<number | undefined>(undefined);
+  /*
+   * מונה הבדיקות שטרם נעשו — אותו נימוק כמו מונה המשימות: המספר על
+   * הלשונית לפני שנכנסים אליה, ואחרי הכניסה הפאנל מדווח על כל שינוי.
+   */
+  const [openChecks, setOpenChecks] = useState<number | undefined>(undefined);
+  useEffect(() => {
+    apiGet<PropertyChecksResponse>(`/properties/${id}/checks`)
+      .then((data) => setOpenChecks(data.progress.remaining))
+      .catch(() => setOpenChecks(undefined));
+  }, [id]);
   /*
    * מונה הנכסים התואמים, כמו מונה המשימות: נטען כאן כדי שהמספר יופיע על
    * הלשונית **לפני** שנכנסים אליה — פאנל שאינו פעיל אינו מרונדר
@@ -1375,6 +1387,8 @@ export default function PropertyDetailPage({
           { key: "network", label: "שיתופי פעולה" },
           { key: "owner", label: "בעל הנכס" },
           { key: "exclusivity", label: "בלעדיות" },
+          /* תיק הבדיקות לפני החתמה — המונה הוא מה שטרם נבדק */
+          { key: "checks", label: "בדיקות", count: openChecks },
           { key: "agreements", label: "מסמכים והסכמים" },
           { key: "tasks", label: "משימות", count: openTasks },
         ]}
@@ -2512,6 +2526,15 @@ export default function PropertyDetailPage({
             „סקירה”, וההסכמים ייפתחו כאן.
           </p>
         )}
+      </TabPanel>
+
+      <TabPanel tab="checks" active={tab}>
+        <ChecksPanel
+          propertyId={property.id}
+          canEdit={canEditOwner}
+          canTask={can(user, "calendar.manage")}
+          onProgress={(progress) => setOpenChecks(progress.remaining)}
+        />
       </TabPanel>
 
       <TabPanel tab="tasks" active={tab}>

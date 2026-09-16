@@ -663,6 +663,28 @@ model Property {
   @@map("properties")
 }
 
+/// תיק הבדיקות של הנכס — מצב של בדיקה אחת מהרשימה הסגורה
+/// (`PROPERTY_CHECKS`). שורה רק למה שסומן; ההנמקה במיגרציה
+/// `20260916100000_property_checks`.
+model PropertyCheck {
+  id              String    @id @db.Char(26)
+  tenantId        String    @map("tenant_id") @db.Char(26)
+  propertyId      String    @map("property_id") @db.Char(26)
+  /// PROPERTY_CHECK_KEYS
+  key             String    @db.VarChar(40)
+  /// unchecked | ok | issue | na
+  status          String    @default("unchecked") @db.VarChar(12)
+  note            String?   @db.VarChar(500)
+  /// מי סימן לאחרונה, ומתי
+  checkedByUserId String?   @map("checked_by_user_id") @db.Char(26)
+  checkedAt       DateTime? @map("checked_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  @@unique([tenantId, propertyId, key])
+  @@map("property_checks")
+}
+
 // „מלאו לי מה אתם מחפשים” — טופס שהלקוח ממלא בעצמו.
 //
 // הדרישות נאספות היום בשיחה, והמתווך מקליד תוך כדי. מה שנופל בין

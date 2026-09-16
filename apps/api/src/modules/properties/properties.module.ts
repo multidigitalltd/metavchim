@@ -5,6 +5,7 @@ import { ContactsModule } from "../contacts/contacts.module";
 import { LeadsModule } from "../leads/leads.module";
 import { MatchingModule } from "../matching/matching.module";
 import { MessagingModule } from "../messaging/messaging.module";
+import { TasksModule } from "../tasks/tasks.module";
 import { FeatureCatalogueModule } from "./feature-catalogue.module";
 import { LandingController } from "./landing.controller";
 import { LandingService } from "./landing.service";
@@ -14,6 +15,8 @@ import { PropertyPhotoService } from "./property-photo.service";
 import { PropertiesController } from "./properties.controller";
 import { PropertiesService } from "./properties.service";
 import { PropertyActivityService } from "./property-activity.service";
+import { PropertyChecksController } from "./property-checks.controller";
+import { PropertyChecksService } from "./property-checks.service";
 import { PropertyTwinsController } from "./property-twins.controller";
 import { PropertyTwinsService } from "./property-twins.service";
 
@@ -37,12 +40,18 @@ import { PropertyTwinsService } from "./property-twins.service";
      * ‏ראייה. מודול עלה בלי `imports` משלו — אין מעגל.
      */
     SearchModule,
+    /*
+     * ‎`TasksModule` — בדיקה שטרם נעשתה בתיק הבדיקות הופכת למשימה
+     * ‏דרך אותו שירות שהמסך והסוכן משתמשים בו, עם אותה אידמפוטנטיות.
+     */
+    TasksModule,
   ],
   controllers: [
     PropertiesController,
     PropertyTwinsController,
     MediaController,
     LandingController,
+    PropertyChecksController,
   ],
   providers: [
     PropertiesService,
@@ -51,6 +60,7 @@ import { PropertyTwinsService } from "./property-twins.service";
     MediaService,
     PropertyPhotoService,
     LandingService,
+    PropertyChecksService,
   ],
   exports: [PropertiesService, LandingService, PropertyPhotoService],
 })

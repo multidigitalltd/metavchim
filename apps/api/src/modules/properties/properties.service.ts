@@ -2312,6 +2312,14 @@ export class PropertiesService {
       await tx.task.deleteMany({
         where: { tenantId: ctx.tenantId, entityType: "property", entityId: id },
       });
+      /*
+       * תיק הבדיקות — לוויין בלי מפתח זר, כמו המשימות. בלי המחיקה
+       * כאן מצב הבדיקות, מי בדק והערותיו היו שורדים את הנכס לנצח
+       * (ביקורת Codex).
+       */
+      await tx.propertyCheck.deleteMany({
+        where: { tenantId: ctx.tenantId, propertyId: id },
+      });
 
       /*
        * תיק הבלעדיות של הנכס. הפעולות לפני התקופות — הן מצביעות
