@@ -1317,16 +1317,6 @@ export default function BuyerDetailPage({
                 נכסים ששוברים דרישת חובה אינם מופיעים
               </p>
 
-              <ComparisonPanel
-                buyerId={id}
-                canSend={can(user, "offers.send")}
-                selected={compareIds.map((pid) => {
-                  const match = (matches ?? []).find((m) => m.propertyId === pid);
-                  return { propertyId: pid, title: match?.property.title ?? match?.property.address ?? "נכס" };
-                })}
-                onClear={() => setCompareIds([])}
-              />
-
               {matchesFailed ? (
                 <LoadError
                   message="לא הצלחנו לטעון את ההתאמות"
@@ -1434,6 +1424,16 @@ export default function BuyerDetailPage({
                   );
                 })
               )}
+
+              <ComparisonPanel
+                buyerId={id}
+                canSend={can(user, "offers.send")}
+                selected={compareIds.map((pid) => {
+                  const match = (matches ?? []).find((m) => m.propertyId === pid);
+                  return { propertyId: pid, title: match?.property.title ?? match?.property.address ?? "נכס" };
+                })}
+                onClear={() => setCompareIds([])}
+              />
             </section>
 
             {/*
