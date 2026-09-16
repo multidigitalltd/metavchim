@@ -25,7 +25,7 @@ import {
   ownershipFilter,
   visibleContactIds,
 } from "../../common/ownership";
-import { actingUserId, TenantContext } from "../../common/tenant-context";
+import { actingUserId, officeContext, TenantContext } from "../../common/tenant-context";
 import { loadEnv } from "../../config/env";
 import { AuditService } from "../../core/audit.service";
 import { EmailService, emailSendOutcome } from "../../core/email.service";
@@ -301,6 +301,35 @@ export class EmailInboxService {
       return;
     }
 
+    /*
+     * ‎**הוובהוק מגיע בלי הקשר דייר — והוא נקבע כאן, מהטוקן.**
+     *
+     * ‏`withExplicitTenant` קובעת את הדייר ל-RLS בלבד; שכבת הנתונים
+     * ‏שואלת גם את `TenantContext`, ובלעדיו `ContactsService.getById`
+     * ‏זרקה — כלומר **כל תשובת לקוח במייל החזירה 500 ואבדה**,
+     * ‏והספק חזר ונכשל שוב. נמצא בבדיקת QA מול המערכת החיה.
+     *
+     * ‏המשרד נגזר מהטוקן שהונפק אצלנו, לא מגוף הבקשה, ולכן זהו ערך
+     * ‏שרת לכל דבר — אותו דפוס כמו טופס ההשלמה הציבורי.
+     */
+    await TenantContext.run(officeContext(mapping.tenantId), () =>
+      this.storeInboundReply(mapping, payload),
+    );
+  }
+
+  /**
+   * ‏המשך הקליטה — בתוך הקשר הדייר ש-`processInbound` קבעה.
+   */
+  private async storeInboundReply(
+    mapping: {
+      tenantId: string;
+      contactId: string;
+      sentByUserId: string | null;
+      cardKind: string | null;
+      cardId: string | null;
+    },
+    payload: InboundEmailPayload,
+  ): Promise<void> {
     /*
      * קבצים מצורפים — סינון מוקדם, לפני כל כתיבה: רק סוגים מהרשימה
      * הסגורה, עד הגבולות. הודעה יכולה להיות קובץ בלבד ("שלחתי לך
