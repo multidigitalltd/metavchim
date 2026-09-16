@@ -370,3 +370,43 @@ describe("ownerActivityEmail", () => {
     expect(mail.footnote).toContain("אינו כולל שמות");
   });
 });
+
+describe("„מה אמרו הקונים” בדוח למוכר", () => {
+  const entries = buildOwnerActivity({
+    appointments: [{ kind: "viewing", startsAt: new Date("2026-09-10T10:00:00Z"), status: "completed", outcome: "liked" }],
+    calls: [],
+  });
+  const feedbackSentences = ["2 מתוך 3 אמרו שהמחיר גבוה", "אחד ציין שהנכס דורש שיפוץ"];
+  it("ההודעה נושאת את המשפטים כרשימה לפני הפירוט", () => {
+    const text = ownerActivityText({ propertyLabel: "דיזנגוף 10", officeName: "המשרד", periodLabel: "כל התקופה", entries, feedbackSentences, now: new Date("2026-09-16T00:00:00Z") });
+    expect(text).toContain("מה אמרו הקונים שביקרו:");
+    expect(text).toContain("• 2 מתוך 3 אמרו שהמחיר גבוה");
+  });
+  it("המייל נושא אותם בפסקה אחת, ובלי משוב — אין פסקה", () => {
+    const withFeedback = ownerActivityEmail({ propertyLabel: "דיזנגוף 10", officeName: "המשרד", periodLabel: "כל התקופה", entries, feedbackSentences, now: new Date("2026-09-16T00:00:00Z") });
+    expect(withFeedback.paragraphs.some((p) => p.startsWith("מה אמרו הקונים שביקרו:"))).toBe(true);
+    const without = ownerActivityEmail({ propertyLabel: "דיזנגוף 10", officeName: "המשרד", periodLabel: "כל התקופה", entries, now: new Date("2026-09-16T00:00:00Z") });
+    expect(without.paragraphs.some((p) => p.includes("מה אמרו הקונים"))).toBe(false);
+  });
+});
+
+describe("מזהה הפגישה עובר לרשומה", () => {
+  it("שני סיורים באותה שעה נשארים שתי רשומות עם שני מזהים", () => {
+    const at = new Date("2026-09-10T10:00:00Z");
+    const entries = buildOwnerActivity({
+      appointments: [
+        { id: "A", kind: "viewing", startsAt: at, status: "completed", outcome: null },
+        { id: "B", kind: "viewing", startsAt: at, status: "completed", outcome: null },
+      ],
+      calls: [],
+    });
+    expect(entries.map((e) => e.appointmentId).sort()).toEqual(["A", "B"]);
+  });
+  it("בלי מזהה בקלט — אין שדה מזהה ברשומה", () => {
+    const entries = buildOwnerActivity({
+      appointments: [{ kind: "viewing", startsAt: new Date(), status: "scheduled", outcome: null }],
+      calls: [],
+    });
+    expect("appointmentId" in entries[0]!).toBe(false);
+  });
+});

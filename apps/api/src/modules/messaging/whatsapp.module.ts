@@ -8,6 +8,7 @@ import { ContactsModule } from "../contacts/contacts.module";
 import { ImportModule } from "../import/import.module";
 import { ForumModule } from "../forum/forum.module";
 import { MentorModule } from "../mentor/mentor.module";
+import { ViewingFeedbackService } from "../calendar/viewing-feedback.service";
 import { ViewingReplyService } from "../calendar/viewing-reply.service";
 import { VoiceIntakeModule } from "../voice-intake/voice-intake.module";
 import { MessagingModule } from "./messaging.module";
@@ -92,6 +93,8 @@ import { WhatsAppWebhookController } from "./whatsapp-webhook.controller";
     WhatsAppAssistantService,
     WhatsappImportService,
     ViewingReplyService,
+    // המשוב מהביקור מכפתורי „איך היה?” — אותו נימוק, אותו מקום
+    ViewingFeedbackService,
     WhatsAppConnectionService,
     WhatsAppBotService,
     /*

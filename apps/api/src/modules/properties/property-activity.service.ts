@@ -5,6 +5,10 @@ import {
   ownerActivityEmail,
   ownerActivityFileName,
   ownerActivityText,
+  summarizeViewingFeedback,
+  viewingFeedbackSentences,
+  type ViewingFeedbackRow,
+  type ViewingFeedbackSummary,
   summarizeOwnerActivity,
   type OwnerActivityKind,
   type OwnerActivityResult,
@@ -67,6 +71,13 @@ export interface OwnerActivityEntryDto {
   kind: OwnerActivityKind;
   result: OwnerActivityResult;
   durationMinutes?: number;
+  /**
+   * ‎**רק לסיור שהתקיים**: מזהה הפגישה והמשוב שנאסף — כדי שהמסך
+   * ‏יאפשר לרשום משוב מהכרטיס. מזהה אינו זהות; הטיפוס הסלר-פייסינג
+   * ‏(`ViewingFeedbackRow`) נושא רק את שלושת הערכים הסגורים.
+   */
+  appointmentId?: string;
+  feedback?: ViewingFeedbackRow;
 }
 
 export interface OwnerActivityReportDto {
@@ -80,6 +91,8 @@ export interface OwnerActivityReportDto {
   };
   /** נחתכו שורות מעבר לתקרה — המסך אומר זאת במפורש. */
   truncated: boolean;
+  /** „מה אמרו הקונים” — הסיכום המספרי והמשפטים שיוצאים למוכר. */
+  feedback: { summary: ViewingFeedbackSummary; sentences: string[] };
   /**
    * ‎**במה אפשר לשלוח לבעל הנכס בפועל.**
    *
@@ -132,16 +145,28 @@ export class PropertyActivityService {
     const { appointments, calls, truncated } = await this.collect(propertyId, range);
     const entries = buildOwnerActivity({ appointments, calls });
     const summary = summarizeOwnerActivity(entries, new Date());
+    const feedbackSummary = summarizeViewingFeedback(PropertyActivityService.heldViewings(appointments));
+    /*
+     * ‏הרשומה ⟵ הפגישה שלה **לפי מזהה**, שעובר דרך `buildOwnerActivity`.
+     * ‏מועד אינו מפתח: שני סיורים באותה שעה הם שני קונים (ביקורת Codex).
+     */
+    const byId = new Map(appointments.map((row) => [row.id, row]));
 
     return {
-      entries: entries.map((entry) => ({
-        at: entry.at.toISOString(),
-        kind: entry.kind,
-        result: entry.result,
-        ...(entry.durationMinutes === undefined
-          ? {}
-          : { durationMinutes: entry.durationMinutes }),
-      })),
+      entries: entries.map((entry) => {
+        const source = entry.kind === "viewing" && entry.appointmentId !== undefined ? byId.get(entry.appointmentId) : undefined;
+        return {
+          at: entry.at.toISOString(),
+          kind: entry.kind,
+          result: entry.result,
+          ...(entry.durationMinutes === undefined
+            ? {}
+            : { durationMinutes: entry.durationMinutes }),
+          ...(source !== undefined && source.status === "completed"
+            ? { appointmentId: source.id, feedback: { price: source.feedbackPrice, condition: source.feedbackCondition, fit: source.feedbackFit } }
+            : {}),
+        };
+      }),
       summary: {
         total: summary.total,
         held: summary.held,
@@ -150,8 +175,18 @@ export class PropertyActivityService {
         ...(summary.lastAt ? { lastAt: summary.lastAt.toISOString() } : {}),
       },
       truncated,
+      feedback: { summary: feedbackSummary, sentences: viewingFeedbackSentences(feedbackSummary) },
       owner: await this.ownerChannels(propertyId),
     };
+  }
+
+  /** הסיורים שהתקיימו — המקור היחיד ל„מה אמרו הקונים”. */
+  private static heldViewings(
+    appointments: readonly { kind: string; status: string; feedbackPrice: string | null; feedbackCondition: string | null; feedbackFit: string | null }[],
+  ): ViewingFeedbackRow[] {
+    return appointments
+      .filter((row) => row.kind === "viewing" && row.status === "completed")
+      .map((row) => ({ price: row.feedbackPrice, condition: row.feedbackCondition, fit: row.feedbackFit }));
   }
 
   /**
@@ -289,6 +324,9 @@ export class PropertyActivityService {
     const tenantId = TenantContext.current().tenantId;
     const { appointments, calls, truncated } = await this.collect(propertyId, range);
     const entries = buildOwnerActivity({ appointments, calls });
+    const feedbackSentences = viewingFeedbackSentences(
+      summarizeViewingFeedback(PropertyActivityService.heldViewings(appointments)),
+    );
 
     const context = await this.prisma.withTenant(async (tx) => {
       const property = await tx.property.findFirst({
@@ -369,6 +407,7 @@ export class PropertyActivityService {
               periodLabel: input.periodLabel,
               entries,
               ...(truncated ? { truncated: true } : {}),
+              feedbackSentences,
               now: new Date(),
             }),
           })
@@ -381,6 +420,7 @@ export class PropertyActivityService {
             ...(ownerName === undefined ? {} : { ownerName }),
             entries,
             truncated,
+            feedbackSentences,
           });
 
     await this.prisma.withTenant((tx) =>
@@ -450,6 +490,7 @@ export class PropertyActivityService {
     ownerName?: string;
     entries: ReturnType<typeof buildOwnerActivity>;
     truncated: boolean;
+    feedbackSentences: readonly string[];
   }): Promise<string> {
     if (input.to === undefined) {
       throw new BadRequestException("אין אימייל בכרטיס בעל הנכס — אפשר להוסיף אותו ולשלוח שוב");
@@ -462,6 +503,7 @@ export class PropertyActivityService {
       entries: input.entries,
       ...(input.truncated ? { truncated: true } : {}),
       now: new Date(),
+      feedbackSentences: input.feedbackSentences,
     });
     await this.email.send(
       input.to,
@@ -503,7 +545,16 @@ export class PropertyActivityService {
     propertyId: string,
     range: OwnerActivityRange,
   ): Promise<{
-    appointments: { kind: string; startsAt: Date; status: string; outcome: string | null }[];
+    appointments: {
+      id: string;
+      kind: string;
+      startsAt: Date;
+      status: string;
+      outcome: string | null;
+      feedbackPrice: string | null;
+      feedbackCondition: string | null;
+      feedbackFit: string | null;
+    }[];
     calls: {
       direction: string;
       occurredAt: Date;
@@ -528,7 +579,16 @@ export class PropertyActivityService {
 
       const appointmentRows = await tx.appointment.findMany({
         where: { tenantId, propertyId, ...(hasWindow ? { startsAt: window } : {}) },
-        select: { id: true, kind: true, startsAt: true, status: true, outcome: true },
+        select: {
+          id: true,
+          kind: true,
+          startsAt: true,
+          status: true,
+          outcome: true,
+          feedbackPrice: true,
+          feedbackCondition: true,
+          feedbackFit: true,
+        },
         orderBy: { startsAt: "desc" },
         take: MAX_ROWS + 1,
       });
@@ -572,10 +632,14 @@ export class PropertyActivityService {
 
       return {
         appointments: appointments.map((row) => ({
+          id: row.id,
           kind: row.kind,
           startsAt: row.startsAt,
           status: row.status,
           outcome: row.outcome,
+          feedbackPrice: row.feedbackPrice,
+          feedbackCondition: row.feedbackCondition,
+          feedbackFit: row.feedbackFit,
         })),
         calls: callRows.slice(0, MAX_ROWS),
         truncated: appointmentsTruncated || callRows.length > MAX_ROWS,

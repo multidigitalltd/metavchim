@@ -44,6 +44,13 @@ import {
   ForumReplyInputSchema,
   parseAnonymousPrefix,
   parseForumCommand,
+  parseViewingFeedbackCommand,
+  VIEWING_CONDITION_FEEDBACK,
+  VIEWING_CONDITION_LABELS,
+  VIEWING_FIT_FEEDBACK,
+  VIEWING_FIT_LABELS,
+  viewingFeedbackCommand,
+  type ViewingFeedbackField,
 } from "@metavchim/shared";
 import { TenantContext, type RequestContext } from "../../common/tenant-context";
 import { loadEnv } from "../../config/env";
@@ -127,6 +134,7 @@ import {
   forumUnfollowed,
 } from "./assistant-forum";
 import { ForumService } from "../forum/forum.service";
+import { ViewingFeedbackService } from "../calendar/viewing-feedback.service";
 import { MentorService } from "../mentor/mentor.service";
 import {
   MentorPracticeService,
@@ -438,6 +446,7 @@ export class WhatsAppAssistantService {
      */
     private readonly imports: WhatsappImportService,
     private readonly forum: ForumService,
+    private readonly viewingFeedback: ViewingFeedbackService,
   ) {}
 
   /**
@@ -1154,6 +1163,47 @@ export class WhatsAppAssistantService {
     return mentorPlanSaved(plan);
   }
 
+
+  /* ==================== המשוב אחרי הסיור (docs/03) ==================== */
+
+  /**
+   * תשובה אחת מכפתור ⟵ נכתבת, והשאלה הבאה חוזרת עם הכפתורים שלה.
+   * בלי מצב שיחה: הכפתור נושא את הסיור, השדה והתשובה, ולכן לחיצה
+   * על הודעה של אתמול כותבת על הסיור של אתמול.
+   */
+  private async viewingFeedbackReply(command: {
+    appointmentId: string;
+    field: ViewingFeedbackField;
+    value: string;
+  }): Promise<AgentReply> {
+    const result = await this.viewingFeedback.record(command.appointmentId, command.field, command.value);
+    if (result === null) {
+      const text = "לא מצאתי את הסיור הזה — אולי ההודעה ישנה. אפשר לרשום את המשוב מכרטיס הנכס, בלשונית „בעל הנכס”.";
+      return { text, speak: text };
+    }
+    const cmd = (field: ViewingFeedbackField, value: string): string =>
+      viewingFeedbackCommand(command.appointmentId, field, value);
+    if (result.next === "condition") {
+      const body = `נרשם. ומה אמר הקונה על מצב הנכס ב„${result.label}”?`;
+      return {
+        text: `${body}\n\nלהשיב: המצב טוב / דורש שיפוץ.`,
+        buttonBody: body,
+        speak: body,
+        buttons: VIEWING_CONDITION_FEEDBACK.map((value) => ({ action: "cmd", arg: cmd("condition", value), title: VIEWING_CONDITION_LABELS[value] })),
+      };
+    }
+    if (result.next === "fit") {
+      const body = `ואיך הנכס התאים לו?`;
+      return {
+        text: `${body}\n\nלהשיב: מתאים לו / המיקום לא מתאים / הגודל לא מתאים / התכנון לא מתאים.`,
+        buttonBody: body,
+        speak: body,
+        list: { label: "בחירה", rows: VIEWING_FIT_FEEDBACK.map((value) => ({ action: "cmd", arg: cmd("fit", value), title: VIEWING_FIT_LABELS[value] })) },
+      };
+    }
+    const text = `תודה — המשוב על „${result.label}” נרשם. הוא ייכנס ל„מה אמרו הקונים” בדוח למוכר, בלי שמות.`;
+    return { text, speak: text };
+  }
 
   /* ==================== הפורום בשיחה (docs/16) ==================== */
 
@@ -2004,6 +2054,11 @@ export class WhatsAppAssistantService {
         verdict.ideaKey,
       );
       return withHeard({ text: reply, speak: reply }, heard);
+    }
+    // „משוב סיור: המחיר גבוה [מזהה:price:high]” — מכפתורי „איך היה?” (docs/03)
+    const feedbackCommand = parseViewingFeedbackCommand(text);
+    if (feedbackCommand !== null) {
+      return withHeard(await this.viewingFeedbackReply(feedbackCommand), heard);
     }
     // „להשיב בפורום [מזהה]” / „להפסיק לעקוב [מזהה]” — מכפתורי ההתראה (docs/16)
     const forumCommand = parseForumCommand(text);
