@@ -983,6 +983,119 @@ export class ListingsService {
     );
   }
 
+  /**
+   * ‎**נכסים מהרשת שמתאימים לקונה אחד — הצד החסר בלשונית ההתאמות.**
+   *
+   * ‏כרטיס הקונה הראה עד כה שני דברים: התאמות מהמאגר הפנימי, והצעות
+   * ‏ש**משרד אחר שלח** על הקונה הזה. שניהם תלויים במישהו אחר שיפעל —
+   * ‏ובינתיים מאות נכסים שמתאימים לקונה יושבים ברשת ואיש אינו רואה
+   * ‏אותם מהמקום שבו שואלים „מה יש בשביל הקונה הזה” (בקשת המשתמש).
+   *
+   * ‏זו בדיוק המראה של `networkMatchesForProperty`: אותו מנוע, אותו
+   * ‏סף, אותה תקרה של עשר תוצאות. ההבדל היחיד הוא איזה צד מגיע מהרשת
+   * ‏ואיזה מהמאגר שלי.
+   *
+   * ‎**אינה מותנית בפרסום הקונה לרשת.** הפיד הוא קטלוג פתוח לכל מי
+   * ‏שרשאי להציע בו, ולראות מה יש בו אינו חושף דבר על הקונה שלי —
+   * ‏שום בקשה אינה יוצאת החוצה עד שהסוכן לוחץ „מעוניין”. הצגת „אין
+   * ‏כלום” למי שלא פרסם הייתה מסתירה בדיוק את מה שהיה משכנע אותו
+   * ‏לפרסם.
+   *
+   * ‎`ownBuyersWhere` ולא `tenantId` בלבד: סוכן עם `buyers.view_own`
+   * ‏אינו רואה קונה של עמית בשום מסך, ואין סיבה שנתיב שמקבל מזהה
+   * ‏בכתובת יהיה החריג.
+   */
+  async matchesForBuyer(buyerId: string): Promise<SharedListingDto[]> {
+    const tenantId = TenantContext.current().tenantId;
+    const buyer = await this.prisma.withTenant((tx) =>
+      tx.buyer.findFirst({
+        where: { id: buyerId, ...this.ownBuyersWhere(tenantId) },
+      }),
+    );
+    if (!buyer) throw new NotFoundException("קונה לא נמצא");
+
+    /*
+     * ‎`tenantId: { not: tenantId }` — הנכסים שלי כבר יושבים בעמודה
+     * ‏הפנימית של אותו כרטיס, ולהראות אותם פעמיים זו ספירה כפולה של
+     * ‏אותו נכס. אותו סינון בדיוק שבכיוון ההפוך.
+     */
+    const listings = await this.prisma.withNetworkRead((tx) =>
+      tx.sharedListing.findMany({
+        where: { status: "active", tenantId: { not: tenantId } },
+        orderBy: { createdAt: "desc" },
+        take: 100,
+      }),
+    );
+    if (listings.length === 0) return [];
+
+    /*
+     * ‏בלי משקלי המשרד, כמו בכל ניקוד שחוצה את גבול הדייר: משקלים
+     * ‏מקומיים הופכים „82%” למספר שאין לו משמעות משותפת.
+     */
+    const requirements = BuyerRequirementsSchema.parse(buyer.requirements);
+    const scored = listings
+      .map((row) => ({
+        row,
+        result: scoreMatch(this.listingToFields(row), requirements),
+      }))
+      .filter(
+        ({ result }) =>
+          !result.excluded && result.score >= NETWORK_MATCH_MIN_SCORE,
+      )
+      .sort((a, b) => b.result.score - a.result.score)
+      .slice(0, 10);
+    if (scored.length === 0) return [];
+
+    const buyerName =
+      (await this.prisma.withTenant((tx) =>
+        this.contacts.getByIds(tx, [buyer.contactId]),
+      )).get(buyer.contactId)?.name ?? "קונה";
+
+    /*
+     * ‏שאילתה אחת לכל הרשימה ולא אחת לשורה — אותו N+1 שכבר תוקן
+     * ‏שלוש פעמים במודול הזה.
+     */
+    const ids = scored.map(({ row }) => row.id);
+    const [offices, followed, sent] = await Promise.all([
+      officeBadges(
+        this.prisma,
+        scored.map(({ row }) => row.tenantId),
+      ),
+      this.followedListingIds(ids),
+      /*
+       * ‎**מצומצם לקונה הזה, ולא לכל קוני המשרד.** המפתח הייחודי הוא
+       * ‏`(listingId, buyerId)`, כלומר אפשר להציע את הנכס הזה לקונה
+       * ‏אחר גם אחרי שהוצע לזה. תשובה ברמת המשרד הייתה מכבה כפתור
+       * ‏שהשרת דווקא היה מקבל.
+       */
+      this.prisma.withTenant((tx) =>
+        tx.coopInterest.findMany({
+          where: { fromTenantId: tenantId, buyerId, listingId: { in: ids } },
+          select: { listingId: true },
+        }),
+      ),
+    ]);
+    const alreadySent = new Set(sent.map((row) => row.listingId));
+
+    return scored.map(({ row, result }) => ({
+      ...this.toDto(row, tenantId, offices.get(row.tenantId)),
+      /*
+       * ‏רשומה אחת, והיא הקונה שנשאל עליו. אותו שדה שהפיד משתמש בו,
+       * ‏כדי שהמסך יציג ניקוד והסבר באותה דרך בשני המקומות.
+       */
+      myMatches: [
+        {
+          buyerId,
+          name: buyerName,
+          score: result.score,
+          explanation: result.explanation,
+        },
+      ],
+      interestSent: alreadySent.has(row.id),
+      following: followed.has(row.id),
+    }));
+  }
+
   /* ======================================================================
    * ‏מעקב אחרי נכס שפורסם לרשת — **הכיוון השני של `DemandFollow`**
    *

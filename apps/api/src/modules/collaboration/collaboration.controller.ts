@@ -355,6 +355,22 @@ export class CollaborationController {
    * מסך שמציע לפרסם נכס שכבר מפורסם מקבל שגיאה על פעולה שהוא עצמו
    * הציע.
    */
+  /**
+   * ‏נכסים ברשת שמתאימים לקונה אחד — לשונית ההתאמות בכרטיס הקונה.
+   *
+   * ‎`collaboration.offer` כמו הפיד עצמו, ולא `.share`: זו קריאה
+   * ‏מהקטלוג הפתוח, ולא תוצאה של פרסום הקונה שלי. מי שרשאי להציע
+   * ‏ברשת רשאי לראות מה יש בה, וזו בדיוק ההרשאה שהכפתור „מעוניין”
+   * ‏בשורה דורש.
+   */
+  @Get("listings/buyer/:buyerId")
+  @RequireCapability("collaboration.offer")
+  async listingMatchesForBuyer(
+    @Param("buyerId", new ZodValidationPipe(IdSchema)) buyerId: string,
+  ): Promise<SharedListingDto[]> {
+    return this.listings.matchesForBuyer(buyerId);
+  }
+
   @Get("listings/property/:propertyId")
   @RequireCapability("collaboration.share")
   async propertyListing(
