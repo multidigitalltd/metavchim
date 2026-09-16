@@ -425,4 +425,13 @@ describe("הצעות מחיר בדוח למוכר", () => {
     /* ‏בלי הצעות — בלי כותרת ריקה */
     expect(ownerActivityText({ propertyLabel: "x", officeName: "y", periodLabel: "z", entries, now: new Date() })).not.toContain("הצעות מחיר");
   });
+
+  it("הצעות מחיר נאמרות גם בתקופה בלי פעילות — בטקסט ובמייל", () => {
+    const base = { propertyLabel: "ויטל 41", officeName: "משרד", periodLabel: "החודש", entries: [], bidSentences: ["הצעה אחת על השולחן, הגבוהה 2,000,000 ₪."], now: new Date("2026-09-16T10:00:00Z") };
+    const text = ownerActivityText(base);
+    expect(text).toContain("לא נרשמה פעילות בתקופה זו.");
+    expect(text).toContain("הצעות מחיר:\n• הצעה אחת על השולחן, הגבוהה 2,000,000 ₪.");
+    const mail = ownerActivityEmail(base);
+    expect(mail.paragraphs).toContain("הצעות מחיר: הצעה אחת על השולחן, הגבוהה 2,000,000 ₪.");
+  });
 });

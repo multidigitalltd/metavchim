@@ -356,8 +356,13 @@ export function ownerActivityText(input: {
     "",
   ];
 
+  /* ‏המו״מ אינו „פעילות בתקופה” — הצעה על השולחן נאמרת גם כשלא היה סיור */
+  const bids = input.bidSentences ?? [];
+  const bidLines = bids.length > 0 ? ["הצעות מחיר:", ...bids.map((sentence) => `• ${sentence}`)] : [];
+
   if (input.entries.length === 0) {
     lines.push("לא נרשמה פעילות בתקופה זו.");
+    if (bidLines.length > 0) lines.push("", ...bidLines);
     return lines.join("\n");
   }
 
@@ -367,12 +372,7 @@ export function ownerActivityText(input: {
     for (const sentence of feedback) lines.push(`• ${sentence}`);
     lines.push("");
   }
-  const bids = input.bidSentences ?? [];
-  if (bids.length > 0) {
-    lines.push("הצעות מחיר:");
-    for (const sentence of bids) lines.push(`• ${sentence}`);
-    lines.push("");
-  }
+  if (bidLines.length > 0) lines.push(...bidLines, "");
 
   const headline = [
     summary.held > 0 ? `${summary.held} מפגשים התקיימו` : null,
@@ -434,14 +434,15 @@ export function ownerActivityEmail(input: {
   const summary = summarizeOwnerActivity(input.entries, input.now);
   const paragraphs: string[] = [`${input.periodLabel} · ${input.officeName}`];
 
+  const bids = input.bidSentences ?? [];
   if (input.entries.length === 0) {
     paragraphs.push("לא נרשמה פעילות בתקופה זו.");
+    if (bids.length > 0) paragraphs.push(`הצעות מחיר: ${bids.join(" ")}`);
   } else {
     const feedback = input.feedbackSentences ?? [];
     if (feedback.length > 0) {
       paragraphs.push(`מה אמרו הקונים שביקרו: ${feedback.join(" · ")}.`);
     }
-    const bids = input.bidSentences ?? [];
     if (bids.length > 0) {
       paragraphs.push(`הצעות מחיר: ${bids.join(" ")}`);
     }

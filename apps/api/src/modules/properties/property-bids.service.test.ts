@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { NotFoundException } from "@nestjs/common";
+import { ForbiddenException, NotFoundException } from "@nestjs/common";
 import type { Capability } from "@metavchim/shared";
 import { TenantContext } from "../../common/tenant-context";
 import { PropertyBidsService } from "./property-bids.service";
@@ -77,6 +77,18 @@ describe("הצעות מחיר — מי רואה שם ומי רואה מסכה", 
     expect(dto.buyerOptions).toEqual([{ id: MINE, name: "משה כהן" }]);
     /* ‏המשפטים למוכר — מספרים בלבד, ולכן זהים לכל קורא */
     expect(dto.summary).toMatchObject({ bidders: 2, openThreads: 2, highestOpenAgorot: 210_000_000 });
+  });
+
+  it("מודול הקונים חסום: הסכומים נשארים, כל השמות במסכה, ואין רישום", async () => {
+    const recorded: { buyerId: string; side: string }[] = [];
+    const dto = await asUser(["properties.view"], () => service(recorded).list(PROPERTY));
+    expect(dto.threads.map((t) => t.buyer.visible)).toEqual([false, false]);
+    expect(dto.buyerOptions).toEqual([]);
+    expect(dto.summary.bidders).toBe(2);
+    await expect(
+      asUser(["properties.edit"], () => service(recorded).create(PROPERTY, { buyerId: MINE, side: "buyer", amountAgorot: 100 })),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(recorded).toEqual([]);
   });
 
   it("בעל המשרד רואה את כולם בשם", async () => {

@@ -1,4 +1,4 @@
-import { ConflictException, Injectable, NotFoundException } from "@nestjs/common";
+import { ConflictException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
 import {
   bidSummarySentences,
   bidsSummary,
@@ -77,6 +77,17 @@ function toEvent(row: {
 
 const MASKED_NAME = "קונה של סוכן אחר";
 
+/**
+ * ‏מי רשאי לראות קונים בכלל. `ownershipFilter` מבחין רק ב-`view_all`;
+ * ‏מי שמודול הקונים חסום לו (בלי `view_own`) היה עדיין „רואה” את
+ * ‏הקונים שבבעלותו — ומפענח את שמותיהם (ביקורת Codex). `null` = אף קונה.
+ */
+function visibleBuyerFilter(): Record<string, string> | null {
+  const caps = TenantContext.current().capabilities;
+  if (!caps.has("buyers.view_own") && !caps.has("buyers.view_all")) return null;
+  return ownershipFilter("buyers.view_all", "ownerUserId");
+}
+
 @Injectable()
 export class PropertyBidsService {
   constructor(
@@ -99,8 +110,16 @@ export class PropertyBidsService {
       await this.assertProperty(tx, propertyId);
       await lockProperty(tx, tenantId, propertyId);
       /* ‏רושמים הצעה רק לקונה שרואים — אותו כלל כמו בבורר שבטופס */
+      const filter = visibleBuyerFilter();
+      if (filter === null) throw new ForbiddenException("מודול הקונים חסום עבורך, פנו למנהל המשרד");
+      /*
+       * ‏נעילת שורת הקונה לפני הבדיקה: מחיקה לצמיתות של הקונה נועלת
+       * ‏אותה שורה ומוחקת את הצעותיו, וההצעה החדשה חייבת לראות את
+       * ‏המחיקה ולא להיכתב אחריה בשקט (ביקורת Codex).
+       */
+      await tx.$queryRaw`SELECT id FROM buyers WHERE id = ${input.buyerId} AND tenant_id = ${tenantId} FOR UPDATE`;
       const buyer = await tx.buyer.findFirst({
-        where: { id: input.buyerId, tenantId, deletedAt: null, ...ownershipFilter("buyers.view_all", "ownerUserId") },
+        where: { id: input.buyerId, tenantId, deletedAt: null, ...filter },
         select: { id: true },
       });
       if (!buyer) throw new NotFoundException("קונה לא נמצא");
@@ -203,10 +222,11 @@ export class PropertyBidsService {
     for (const row of matched) relatedIds.add(row.buyerId);
     /* ‏רק מי שרלוונטי — בשרשור או נגע בנכס — ורק מי שרשאים לראות */
     const wanted = [...new Set([...threads.map((t) => t.buyerId), ...relatedIds])];
-    const visible = wanted.length === 0
+    const filter = visibleBuyerFilter();
+    const visible = wanted.length === 0 || filter === null
       ? []
       : await tx.buyer.findMany({
-          where: { tenantId, deletedAt: null, id: { in: wanted }, ...ownershipFilter("buyers.view_all", "ownerUserId") },
+          where: { tenantId, deletedAt: null, id: { in: wanted }, ...filter },
           select: { id: true, contactId: true },
         });
     const contactsById = await this.contacts.getByIds(tx, visible.map((b) => b.contactId));
