@@ -803,8 +803,12 @@ export function AppShell({ children }: { children: ReactNode }) {
         {seesReports && hasFeature("analytics")
           ? navLink("/reports", "דוחות", ICONS.reports)
           : null}
-        {/* הפורום המקצועי — קהילה בין משרדים, בשם או בעילום שם (docs/16) */}
-        {navLink("/forum", "פורום", ICONS.forum)}
+        {/*
+          הפורום המקצועי — קהילה בין משרדים, בשם או בעילום שם (docs/16).
+          התג „בטא” אומר: פתוח ועובד, ועדיין מתעצב לפי מה שהמתווכים
+          יבקשו — לא „בקרוב” (עוד לא קיים) ולא בלי תג (גמור).
+        */}
+        {navLink("/forum", "פורום", ICONS.forum, <span className="mv-nav-beta">בטא</span>)}
         {/*
           המנטור האישי — עמוד "בקרוב" עד ההשקה (בקשת המשתמש).
           התג AI מסמן שזה פיצ'ר של בינה מלאכותית ולא עוד מסך נתונים.
