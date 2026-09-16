@@ -15,6 +15,7 @@ import { join } from "node:path";
 const SENDERS = [
   { what: "‏הצעת נכס ודף השוואה", file: join(import.meta.dirname, "offers.service.ts") },
   { what: "‏שליחת הצעת נכס לקונים", file: join(import.meta.dirname, "..", "property-pitch", "property-pitch.service.ts") },
+  { what: "‏דף הנחיתה של הנכס", file: join(import.meta.dirname, "..", "properties", "landing.service.ts") },
 ];
 
 describe.each(SENDERS)("$what", ({ file }) => {
