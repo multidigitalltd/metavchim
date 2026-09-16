@@ -46,6 +46,7 @@ import { LoadError } from "../../load-error";
 import { AgentPicker } from "../../agent-picker";
 import { Notice } from "../../notice";
 import { PropertyPitchDialog } from "../../property-pitch-dialog";
+import { ComparisonPanel } from "./comparison-panel";
 
 /**
  * כרטיס הקונה.
@@ -273,6 +274,8 @@ export default function BuyerDetailPage({
     ["overview", "matches", "tasks", "timeline", "agreements", "network"],
     "overview",
   );
+  /* ‏נכסים שסומנו „להשוואה” ברשימת ההתאמות — עד שלושה */
+  const [compareIds, setCompareIds] = useState<string[]>([]);
 
   /*
    * ‎**תיקון השם — במקום שבו הוא מוצג.**
@@ -1314,6 +1317,16 @@ export default function BuyerDetailPage({
                 נכסים ששוברים דרישת חובה אינם מופיעים
               </p>
 
+              <ComparisonPanel
+                buyerId={id}
+                canSend={can(user, "offers.send")}
+                selected={compareIds.map((pid) => {
+                  const match = (matches ?? []).find((m) => m.propertyId === pid);
+                  return { propertyId: pid, title: match?.property.title ?? match?.property.address ?? "נכס" };
+                })}
+                onClear={() => setCompareIds([])}
+              />
+
               {matchesFailed ? (
                 <LoadError
                   message="לא הצלחנו לטעון את ההתאמות"
@@ -1339,6 +1352,19 @@ export default function BuyerDetailPage({
                         borderBottom: "1px solid var(--color-row-border)",
                       }}
                     >
+                      <input
+                        type="checkbox"
+                        className="mt-0.5"
+                        aria-label={`להשוואה: ${m.property.title ?? m.property.address}`}
+                        title="להשוואה"
+                        checked={compareIds.includes(m.propertyId)}
+                        disabled={!compareIds.includes(m.propertyId) && compareIds.length >= 3}
+                        onChange={(e) =>
+                          setCompareIds((prev) =>
+                            e.target.checked ? [...prev, m.propertyId] : prev.filter((pid) => pid !== m.propertyId),
+                          )
+                        }
+                      />
                       <span
                         className="mv-score-ring mv-score-ring--lg"
                         style={{

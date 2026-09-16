@@ -1792,6 +1792,7 @@ export class BuyersService {
        */
       await tx.$queryRaw`SELECT id FROM buyers WHERE id = ${id} AND tenant_id = ${ctx.tenantId} FOR UPDATE`;
       await tx.propertyBid.deleteMany({ where: { tenantId: ctx.tenantId, buyerId: id } });
+      await tx.comparison.deleteMany({ where: { tenantId: ctx.tenantId, buyerId: id } });
       await tx.appointment.updateMany({
         where: { tenantId: ctx.tenantId, buyerId: id },
         data: { buyerId: null },

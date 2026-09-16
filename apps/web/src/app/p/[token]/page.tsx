@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, use, type FormEvent } from "react";
+import { formatJerusalemTime, openHouseWhen, type SlotAvailability } from "@metavchim/shared";
 import { API_BASE, apiGet, apiPost, ApiError } from "@/lib/api";
 import { formatPrice, PROPERTY_TYPE_LABELS } from "@/lib/format";
 import { LogoMark } from "../../icons";
@@ -30,9 +31,14 @@ interface LandingView {
   logoUrl: string | null;
 }
 
+interface PublicOpenHouse {
+  event: { id: string; startsAt: string; endsAt: string; slotMinutes: number; slots: SlotAvailability[] } | null;
+}
+
 export default function LandingPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = use(params);
   const [view, setView] = useState<LandingView | null>(null);
+  const [openHouse, setOpenHouse] = useState<PublicOpenHouse["event"]>(null);
   const [error, setError] = useState<string | null>(null);
   const [sent, setSent] = useState(false);
   const [sending, setSending] = useState(false);
@@ -42,6 +48,10 @@ export default function LandingPage({ params }: { params: Promise<{ token: strin
     apiGet<LandingView>(`/public/landing/${token}`)
       .then(setView)
       .catch(() => setError("הדף לא נמצא או שהקישור כבר אינו פעיל."));
+    /* ‏בית פתוח — בקשה נפרדת: הדף עולה גם כשאין אירוע, ובלי לחכות לו */
+    apiGet<PublicOpenHouse>(`/public/landing/${token}/open-house`)
+      .then((res) => setOpenHouse(res.event))
+      .catch(() => setOpenHouse(null));
   }, [token]);
 
   async function onSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
@@ -168,6 +178,11 @@ export default function LandingPage({ params }: { params: Promise<{ token: strin
         </section>
       ) : null}
 
+      {/* בית פתוח — הרשמה למשבצת */}
+      {openHouse !== null ? (
+        <OpenHouseSignup token={token} event={openHouse} officeName={view.officeName} onRegistered={() => setOpenHouse(null)} />
+      ) : null}
+
       {/* תיאור */}
       {view.description ? (
         <section className="mb-8" aria-label="תיאור">
@@ -257,5 +272,106 @@ export default function LandingPage({ params }: { params: Promise<{ token: strin
         </a>
       </p>
     </div>
+  );
+}
+
+/**
+ * ‏הרשמה לבית פתוח — בוחרים שעה, שם וטלפון. הפרטים נכנסים ללידים
+ * ‏של המשרד (אותה קליטה של טופס הפנייה) והמבקר מקבל מקום במשבצת.
+ */
+function OpenHouseSignup({
+  token,
+  event,
+  officeName,
+  onRegistered,
+}: {
+  token: string;
+  event: NonNullable<PublicOpenHouse["event"]>;
+  officeName: string;
+  onRegistered: () => void;
+}) {
+  const [slotAt, setSlotAt] = useState<string>(event.slots.find((s) => s.remaining !== 0)?.startsAt ?? "");
+  const [sending, setSending] = useState(false);
+  const [done, setDone] = useState<string | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
+
+  async function onSubmit(e: FormEvent<HTMLFormElement>): Promise<void> {
+    e.preventDefault();
+    if (slotAt === "") {
+      setFormError("בחרו שעה");
+      return;
+    }
+    setSending(true);
+    setFormError(null);
+    const form = new FormData(e.currentTarget);
+    try {
+      await apiPost(`/public/landing/${token}/open-house/${event.id}/register`, {
+        name: String(form.get("name")).trim(),
+        phone: String(form.get("phone")).trim(),
+        slotAt,
+        website: String(form.get("website") ?? ""),
+      });
+      setDone(slotAt);
+    } catch (err: unknown) {
+      setFormError(err instanceof ApiError && err.status === 409 ? "השעה הזו התמלאה — בחרו שעה אחרת" : "ההרשמה נכשלה — בדקו את השם והטלפון ונסו שוב");
+    } finally {
+      setSending(false);
+    }
+  }
+
+  const startsAt = new Date(event.startsAt);
+  const endsAt = new Date(event.endsAt);
+  return (
+    <section className="mv-list-card mb-6 p-6" aria-labelledby="open-house-heading">
+      <h2 id="open-house-heading" className="m-0 mb-1" style={{ fontSize: "var(--type-metric)", fontWeight: 800 }}>
+        🏠 בית פתוח — {openHouseWhen(startsAt, endsAt)}
+      </h2>
+      {done !== null ? (
+        <p className="m-0 mt-2 font-bold" role="status" style={{ color: "var(--color-primary)" }}>
+          ✓ נרשמתם לשעה {formatJerusalemTime(new Date(done))}. נתראה — {officeName}
+          <button type="button" className="mv-btn-plain mr-2" onClick={onRegistered}>סגור</button>
+        </p>
+      ) : (
+        <>
+          <p className="m-0 mb-3 text-sm" style={{ color: "var(--color-text-muted)" }}>
+            בוחרים שעה ומשאירים פרטים — בלי תור ובלי המתנה.
+          </p>
+          <form onSubmit={(e) => void onSubmit(e)} className="grid gap-3 sm:grid-cols-2">
+            <div className="sm:col-span-2 flex flex-wrap gap-2" role="radiogroup" aria-label="שעה">
+              {event.slots.map((slot) => (
+                <button
+                  key={slot.startsAt}
+                  type="button"
+                  role="radio"
+                  aria-checked={slotAt === slot.startsAt}
+                  disabled={slot.remaining === 0}
+                  onClick={() => setSlotAt(slot.startsAt)}
+                  className={slotAt === slot.startsAt ? "mv-btn-action" : "mv-btn-soft"}
+                  style={{ minHeight: 44 }}
+                >
+                  {formatJerusalemTime(new Date(slot.startsAt))}
+                  {slot.remaining === 0 ? " · מלא" : ""}
+                </button>
+              ))}
+            </div>
+            <label>
+              <span className="mb-1 block text-sm font-semibold">שם מלא</span>
+              <input name="name" required minLength={2} className="mv-search-input" style={{ minHeight: 44 }} />
+            </label>
+            <label>
+              <span className="mb-1 block text-sm font-semibold">טלפון</span>
+              <input name="phone" required dir="ltr" inputMode="tel" className="mv-search-input" style={{ minHeight: 44 }} />
+            </label>
+            <input name="website" tabIndex={-1} autoComplete="off" aria-hidden="true" className="mv-visually-hidden" />
+            {formError ? <Notice tone="danger">{formError}</Notice> : null}
+            <div className="sm:col-span-2">
+              <button type="submit" disabled={sending} className="mv-btn-action w-full" style={{ padding: "12px 0", fontSize: "var(--type-button)" }}>
+                {sending ? "רושם…" : "להירשם לבית הפתוח"}
+              </button>
+            </div>
+          </form>
+        </>
+      )}
+    </section>
   );
 }

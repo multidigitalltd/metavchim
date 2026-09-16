@@ -10,6 +10,8 @@ import { FeatureCatalogueModule } from "./feature-catalogue.module";
 import { LandingController } from "./landing.controller";
 import { LandingService } from "./landing.service";
 import { MediaController } from "./media.controller";
+import { OpenHouseController } from "./open-house.controller";
+import { OpenHouseService } from "./open-house.service";
 import { MediaService } from "./media.service";
 import { PropertyPhotoService } from "./property-photo.service";
 import { PropertiesController } from "./properties.controller";
@@ -58,6 +60,7 @@ import { PropertyTwinsService } from "./property-twins.service";
     PropertyChecksController,
     PropertyReofferController,
     PropertyBidsController,
+    OpenHouseController,
   ],
   providers: [
     PropertiesService,
@@ -69,6 +72,7 @@ import { PropertyTwinsService } from "./property-twins.service";
     PropertyChecksService,
     PropertyReofferService,
     PropertyBidsService,
+    OpenHouseService,
   ],
   exports: [PropertiesService, LandingService, PropertyPhotoService],
 })

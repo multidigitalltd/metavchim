@@ -298,6 +298,7 @@ export class AccountDeletionService {
         await tx.voiceIntake.deleteMany({ where: { tenantId } });
         await tx.match.deleteMany({ where: { tenantId } });
         await tx.offer.deleteMany({ where: { tenantId } });
+        await tx.comparison.deleteMany({ where: { tenantId } });
         await tx.message.deleteMany({ where: { tenantId } });
         // שיחות הסוכן בוואטסאפ — ההצעות וההיסטוריה מכילות פרטי לקוחות
         await tx.whatsAppChat.deleteMany({ where: { tenantId } });
@@ -472,6 +473,7 @@ export class AccountDeletionService {
         /* ‏תיק הבדיקות של הנכסים — לוויין בלי מפתח זר, כמו המשימות */
         await tx.propertyCheck.deleteMany({ where: { tenantId } });
         await tx.propertyBid.deleteMany({ where: { tenantId } });
+        await tx.openHouse.deleteMany({ where: { tenantId } });
         /*
          * ‏נכסים לגיוס. **לפני `property`** — שורה שגויסה נושאת
          * ‎`convertedPropertyId`, ומחיקת הנכס לפניה הייתה משאירה

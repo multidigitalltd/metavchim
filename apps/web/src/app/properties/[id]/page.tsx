@@ -61,6 +61,7 @@ import { DocumentsPanel } from "../../documents-panel";
 import { EntityTasks, type TaskListResponse } from "../../entity-tasks";
 import { ChecksPanel, type PropertyChecksResponse } from "./checks-panel";
 import { BidsPanel, type PropertyBidsResponse } from "./bids-panel";
+import { OpenHousePanel, upcomingRegistered, type OpenHousesResponse } from "./open-house-panel";
 import { PropertyOwner, type OwnerContact } from "../property-owner";
 import { OwnerActivity } from "./owner-activity";
 import { PartnerSuggestions } from "./partner-suggestions";
@@ -373,6 +374,7 @@ export default function PropertyDetailPage({
       "owner",
       "exclusivity",
       "bids",
+      "openhouse",
       "checks",
       "agreements",
       "tasks",
@@ -389,6 +391,13 @@ export default function PropertyDetailPage({
     apiGet<PropertyChecksResponse>(`/properties/${id}/checks`)
       .then((data) => setOpenChecks(data.progress.remaining))
       .catch(() => setOpenChecks(undefined));
+  }, [id]);
+  /* ‏מונה הנרשמים לבית הפתוח הקרוב — אותו נימוק */
+  const [openHouseCount, setOpenHouseCount] = useState<number | undefined>(undefined);
+  useEffect(() => {
+    apiGet<OpenHousesResponse>(`/properties/${id}/open-houses`)
+      .then((data) => setOpenHouseCount(upcomingRegistered(data) || undefined))
+      .catch(() => setOpenHouseCount(undefined));
   }, [id]);
   /* ‏מונה ההצעות הפתוחות — שרשורים שממתינים לתשובה, כמו מונה הבדיקות */
   const [openBids, setOpenBids] = useState<number | undefined>(undefined);
@@ -1407,6 +1416,8 @@ export default function PropertyDetailPage({
           { key: "exclusivity", label: "בלעדיות" },
           /* משא ומתן — המונה הוא שרשורים שממתינים לתשובה */
           { key: "bids", label: "הצעות מחיר", count: openBids },
+          /* בית פתוח — המונה הוא הנרשמים לאירוע הקרוב */
+          { key: "openhouse", label: "בית פתוח", count: openHouseCount },
           /* תיק הבדיקות לפני החתמה — המונה הוא מה שטרם נבדק */
           { key: "checks", label: "בדיקות", count: openChecks },
           { key: "agreements", label: "מסמכים והסכמים" },
@@ -2565,6 +2576,17 @@ export default function PropertyDetailPage({
           propertyId={property.id}
           canEdit={canEditOwner}
           onSummary={(summary) => setOpenBids(summary.openThreads)}
+        />
+      </TabPanel>
+
+      <TabPanel tab="openhouse" active={tab}>
+        <OpenHousePanel
+          propertyId={property.id}
+          propertyLabel={property.marketingTitle || address || "הנכס"}
+          priceAgorot={property.priceAgorot ?? null}
+          officeName={user?.tenantName ?? "משרד התיווך"}
+          canEdit={canEditOwner}
+          onLoaded={(data) => setOpenHouseCount(upcomingRegistered(data) || undefined)}
         />
       </TabPanel>
 
