@@ -20,6 +20,14 @@ import { formatIsraeliNumber } from "./israel-time.js";
 export interface PitchProperty {
   /** ‏כותרת שיווקית, או תיאור נגזר כשאין. */
   title: string;
+  /**
+   * ‎**הכותרת נגזרה מהשדות** — ולכן היא כבר אומרת חדרים ועיר.
+   *
+   * ‏עובדה שמי שבנה את השם יודע (`clientTitleIsDerived`), ולא ניחוש
+   * ‏מהמחרוזת: השוואת הכלה מחקה „הדר” מפני ש„נהדרת” מכילה אותו,
+   * ‏כלומר שכונה אמיתית נעלמה מהמייל בשקט (ביקורת Codex).
+   */
+  derivedTitle?: boolean;
   city?: string;
   neighborhood?: string;
   rooms?: number;
@@ -45,14 +53,34 @@ export interface PropertyPitchInput {
  * ‏שדה הופך ל„3 חדרים · רעננה”, ולא לשורה עם מפרידים ריקים.
  */
 export function pitchPropertyLine(property: PitchProperty): string {
+  /*
+   * ‎**מה שהכותרת כבר אומרת אינו נאמר שוב.**
+   *
+   * ‏השורה נכתבה כשהכותרת הייתה תמיד שם שיווקי או ערך גולמי, ולכן
+   * ‏הרשימה שאחריה לא יכלה לחזור עליה. מרגע שנכס בלי כותרת מקבל
+   * ‏שם נגזר („דירת 4 חדרים בחולון”), הצירוף קרא „דירת 4 חדרים
+   * ‏בחולון — 4 חדרים · חולון” (ביקורת Codex).
+   *
+   * ‏הדילוג נשען על מה ש**ידוע** — שהשם נגזר, ולכן החדרים והעיר
+   * ‏כבר בתוכו — ולא על חיפוש מחרוזת בכותרת. חיפוש כזה מוחק גם
+   * ‏שכונה שהכותרת רק נראית כאילו היא מכילה („הדר” בתוך „נהדרת”),
+   * ‏וזו מחיקה שקטה של מידע אמיתי. כותרת שכתב המשרד נשארת כלשונה,
+   * ‏והפרטים אחריה נשארים שלמים — חזרה קוסמטית עדיפה על אובדן.
+   */
+  const derived = property.derivedTitle === true;
+  const location = [property.neighborhood, derived ? undefined : property.city]
+    .filter((part): part is string => typeof part === "string" && part !== "")
+    .join(", ");
   const parts = [
-    property.rooms === undefined ? null : `${formatIsraeliNumber(property.rooms)} חדרים`,
+    derived || property.rooms === undefined
+      ? null
+      : `${formatIsraeliNumber(property.rooms)} חדרים`,
     property.areaSqm === undefined ? null : `${formatIsraeliNumber(property.areaSqm)} מ״ר`,
-    [property.neighborhood, property.city].filter(Boolean).join(", ") || null,
+    location === "" ? null : location,
     property.priceAgorot === undefined
       ? null
       : `${formatIsraeliNumber(Math.round(property.priceAgorot / 100))} ₪`,
-  ].filter((part): part is string => part !== null && part !== "");
+  ].filter((part): part is string => part !== null);
   return parts.length === 0 ? property.title : `${property.title} — ${parts.join(" · ")}`;
 }
 

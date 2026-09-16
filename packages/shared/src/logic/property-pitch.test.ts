@@ -26,6 +26,63 @@ describe("‏שורת הנכס — רק מה שידוע", () => {
     expect(line).toContain("לב הפארק, רעננה");
   });
 
+  /*
+   * ‎**מה שהכותרת כבר אומרת אינו נאמר שוב.**
+   *
+   * ‏נכס בלי כותרת שיווקית מקבל שם נגזר, ובו כבר יש חדרים ועיר;
+   * ‏הצירוף קרא „דירת 4 חדרים בחולון — 4 חדרים · חולון”
+   * ‏(ביקורת Codex). מה שאין בשם — שטח, מחיר, שכונה — נשאר.
+   */
+  it("‏שם נגזר: החדרים והעיר אינם חוזרים", () => {
+    const line = pitchPropertyLine({
+      title: "דירת 4 חדרים בחולון",
+      derivedTitle: true,
+      city: "חולון",
+      rooms: 4,
+      areaSqm: 95,
+      priceAgorot: 215_000_000,
+      landingUrl: "https://app.example/p/tok124",
+    });
+    expect(line).toBe("דירת 4 חדרים בחולון — 95 מ״ר · 2,150,000 ₪");
+  });
+
+  it("‏שם נגזר: השכונה כן נשארת", () => {
+    const line = pitchPropertyLine({
+      title: "דירת 4 חדרים בחולון",
+      derivedTitle: true,
+      neighborhood: "קריית שרת",
+      city: "חולון",
+      rooms: 4,
+      landingUrl: "https://app.example/p/tok126",
+    });
+    expect(line).toBe("דירת 4 חדרים בחולון — קריית שרת");
+  });
+
+  /*
+   * ‎**וכותרת שכתב המשרד אינה נחתכת.** הניסוח הקודם חיפש הכלה
+   * ‏במחרוזת, ולכן „הדר” נמחק מפני ש„נהדרת” מכיל אותו — שכונה
+   * ‏אמיתית נעלמה מהמייל בשקט (ביקורת Codex). חזרה קוסמטית על
+   * ‏מה שהמשרד כתב עדיפה על אובדן מידע.
+   */
+  it("‏כותרת שיווקית: שום פרט אינו נמחק", () => {
+    expect(
+      pitchPropertyLine({
+        title: "דירה נהדרת",
+        neighborhood: "הדר",
+        city: "חיפה",
+        landingUrl: "https://app.example/p/tok127",
+      }),
+    ).toBe("דירה נהדרת — הדר, חיפה");
+    expect(
+      pitchPropertyLine({
+        title: "דירה מהממת בחולון",
+        city: "חולון",
+        rooms: 3,
+        landingUrl: "https://app.example/p/tok125",
+      }),
+    ).toBe("דירה מהממת בחולון — 3 חדרים · חולון");
+  });
+
   /* ‏המחיר באגורות במאגר, ובמייל בשקלים — לקוח אינו קורא אגורות */
   it("‏המחיר מוצג בשקלים ולא באגורות", () => {
     expect(pitchPropertyLine(PROPERTY)).toContain("2,850,000 ₪");

@@ -3,7 +3,7 @@ import { recordMentorWin } from "../../common/mentor-wins";
 import type { Property } from "@prisma/client";
 import { randomBytes } from "node:crypto";
 import { ulid } from "ulid";
-import { OfferPresentationSchema, whatsappLink, type OfferPresentation } from "@metavchim/shared";
+import { OfferPresentationSchema, clientPropertyTitle, whatsappLink, type OfferPresentation } from "@metavchim/shared";
 import { assertMatchAccess, ownershipFilter } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { AgreementFieldsMissingError, AgreementsService } from "../agreements/agreements.service";
@@ -169,11 +169,12 @@ export class OffersService {
     ].filter((f): f is string => f !== null);
 
     return OfferPresentationSchema.parse({
-      title:
-        property.marketingTitle ??
-        [property.rooms ? `דירת ${Number(property.rooms)} חדרים` : "נכס", property.city]
-          .filter(Boolean)
-          .join(" ב"),
+      title: clientPropertyTitle({
+        marketingTitle: property.marketingTitle,
+        propertyType: property.propertyType,
+        rooms: property.rooms === null ? null : Number(property.rooms),
+        city: property.city,
+      }),
       city: property.city ?? undefined,
       neighborhood: property.neighborhood ?? undefined,
       rooms: property.rooms === null ? undefined : Number(property.rooms),

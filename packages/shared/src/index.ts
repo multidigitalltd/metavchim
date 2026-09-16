@@ -64,6 +64,7 @@ export * from "./logic/csv-import.js";
 export * from "./logic/import-encoding.js";
 export * from "./logic/csv-import-buyers.js";
 export * from "./logic/csv-export.js";
+export * from "./logic/property-title.js";
 export * from "./logic/buyer-status.js";
 export * from "./logic/call-conversion.js";
 export * from "./logic/neighborhood.js";

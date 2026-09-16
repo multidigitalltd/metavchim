@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
+import { clientPropertyTitle } from "@metavchim/shared";
 import { randomBytes } from "node:crypto";
 import { loadEnv } from "../../config/env";
 import { TenantContext } from "../../common/tenant-context";
@@ -152,9 +153,14 @@ export class LandingService {
 
       return {
         status: "ok",
-        title:
-          p.marketingTitle ??
-          ([p.neighborhood, p.city].filter(Boolean).join(", ") || "נכס למכירה"),
+        /* ‏אותו שם שהלקוח ראה בקישור שהביא אותו לכאן; השכונה והעיר
+         * ‏מופיעות ממילא בשורה שמתחת לכותרת. */
+        title: clientPropertyTitle({
+          marketingTitle: p.marketingTitle,
+          propertyType: p.propertyType,
+          rooms: p.rooms === null ? null : Number(p.rooms),
+          city: p.city,
+        }),
         description: p.marketingDescription ?? undefined,
         city: p.city ?? undefined,
         neighborhood: p.neighborhood ?? undefined,
