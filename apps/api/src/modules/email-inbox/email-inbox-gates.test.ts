@@ -36,6 +36,19 @@ function method(source: string, signature: string): string {
 }
 
 /**
+ * ‎**מסלול הקליטה — שתי המתודות שהוא מפוצל אליהן.**
+ *
+ * ‏`processInbound` מזהה את הטוקן וקובעת את הקשר הדייר (בלעדיו כל
+ * ‏תשובת לקוח החזירה 500 — ראו `inbound-context.test.ts`), ו-
+ * ‏`storeInboundReply` עושה את העבודה בתוכו. השערים כאן הם על
+ * ‏**המסלול**, ולכן הם קוראים את שתיהן ולא נשברים מפיצול נוסף.
+ */
+const INBOUND_PATH = [
+  method(SERVICE, "  async processInbound("),
+  method(SERVICE, "  private async storeInboundReply("),
+].join("\n");
+
+/**
  * ‎**השורה קודמת להעלאה, ואין מסלול הרסני.**
  *
  * הסדר ההפוך יצר אובייקט בלי שורה — בלתי נראה למחיקת לקוח ולמחיקת
@@ -50,8 +63,10 @@ function method(source: string, signature: string): string {
  */
 describe("סדר הכתיבה של קובץ מצורף", () => {
   it("השורה נכתבת לפני ההעלאה בשני המסלולים", () => {
-    for (const fn of ["  async processInbound(", "  private async storeOutgoingCopies("]) {
-      const scope = method(SERVICE, fn);
+    for (const [fn, scope] of [
+      ["מסלול הקליטה", INBOUND_PATH],
+      ["storeOutgoingCopies", method(SERVICE, "  private async storeOutgoingCopies(")],
+    ] as const) {
       const row = scope.indexOf("emailAttachment.createMany(");
       const put = scope.indexOf("this.storage.put(");
       const mark = scope.indexOf("this.markUploaded(");
@@ -82,13 +97,13 @@ describe("סדר הכתיבה של קובץ מצורף", () => {
     const loops = SERVICE.slice(SERVICE.indexOf("for (const [ordinal, attachment]"));
     expect(loops).not.toContain("written.count === 0");
     expect(SERVICE).not.toContain("ATTACHMENT_CLAIM_LEASE_MS");
-    expect(method(SERVICE, "  async processInbound(")).toContain(
+    expect(INBOUND_PATH).toContain(
       "if (completed.has(ordinal)) continue;",
     );
   });
 
   it("הדילוג הוא על מה שהושלם בלבד", () => {
-    const inbound = method(SERVICE, "  async processInbound(");
+    const inbound = INBOUND_PATH;
     expect(inbound).toMatch(/uploadedAt: \{ not: null \}/u);
     expect(inbound).toContain("const completed = new Set<number>();");
   });
@@ -283,7 +298,7 @@ describe("האזהרה ששורדת את פתיחת השיחה", () => {
  * ההתראה והציר לא נכתבים שוב: הם כבר נכתבו במסירה הראשונה.
  */
 describe("קליטה חוזרת שמשלימה קבצים", () => {
-  const inbound = method(SERVICE, "  async processInbound(");
+  const inbound = INBOUND_PATH;
 
   it("הכפילות מחזירה את מזהה ההודעה הקיימת ולא null בלבד", () => {
     expect(inbound).toContain("tenantId_providerMessageId");
@@ -439,7 +454,7 @@ describe("‏עוגן ההרשאה של ההתראות בתיבה", () => {
  * ‏הנכנס יורשת מהטוקן, ושאין בקובץ שום מסלול שגוזר כרטיס אחרת.
  */
 describe("‏תג הכרטיס בתיבה", () => {
-  const INBOUND = method(SERVICE, "async processInbound(");
+  const INBOUND = INBOUND_PATH;
 
   it("‏הטוקן נקרא עם עמודות הכרטיס", () => {
     expect(INBOUND).toContain("cardKind: true");

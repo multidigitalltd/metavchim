@@ -31,6 +31,25 @@ export interface RequestContext {
 
 const storage = new AsyncLocalStorage<RequestContext>();
 
+/**
+ * ‎**ההקשר של המשרד עצמו — לכניסה שאין מאחוריה אדם.**
+ *
+ * ‏טופס ציבורי, וובהוק של ספק דואר, סבב רקע: כולם יודעים על איזה
+ * ‏משרד מדובר — מהשורה שנמצאה, לא מקלט — אבל אין להם משתמש מחובר,
+ * ‏ולכן אין להם הקשר. בלעדיו כל קריאה לשכבת הנתונים שנשענת על
+ * ‏`TenantContext.current()` מתפוצצת באמצע העבודה.
+ *
+ * ‎`userId` ריק במתכוון: „מי עשה” הוא **אף אחד**, וזה מה שנרשם.
+ */
+export function officeContext(tenantId: string, userId = ""): RequestContext {
+  return {
+    tenantId,
+    userId,
+    capabilities: new Set<Capability>(["buyers.view_all"]),
+    billingOnly: false,
+  };
+}
+
 export const TenantContext = {
   run<T>(ctx: RequestContext, fn: () => T): T {
     return storage.run(ctx, fn);

@@ -8,7 +8,6 @@ import {
 import { randomBytes } from "node:crypto";
 import { ulid } from "ulid";
 import type { Prisma } from "@prisma/client";
-import type { Capability } from "@metavchim/shared";
 import {
   applyIntakeAnswers,
   BuyerRequirementsSchema,
@@ -39,7 +38,7 @@ import {
 import { loadEnv } from "../../config/env";
 import { lockContact, lockIntakeRequest } from "../../common/locks";
 import { leadOwnershipFilter, ownershipFilter } from "../../common/ownership";
-import { actingUserId, TenantContext } from "../../common/tenant-context";
+import { actingUserId, officeContext, TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
 import { EmailRejectedError, EmailService, emailSendOutcome } from "../../core/email.service";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
@@ -2314,23 +2313,6 @@ function clearedSellerFields(
 function sideOf(side: string, submittedAt: Date | null): IntakeSide | null {
   if (submittedAt === null) return null;
   return isIntakeSide(side) ? side : "buyer";
-}
-
-function officeContext(
-  tenantId: string,
-  userId = "",
-): {
-  tenantId: string;
-  userId: string;
-  capabilities: ReadonlySet<Capability>;
-  billingOnly: boolean;
-} {
-  return {
-    tenantId,
-    userId,
-    capabilities: new Set<Capability>(["buyers.view_all"]),
-    billingOnly: false,
-  };
 }
 
 /**
