@@ -9,6 +9,7 @@ import { randomBytes } from "node:crypto";
 import { ulid } from "ulid";
 import {
   buildPropertyPitchEmail,
+  clientPropertyTitle,
   pitchRecipientState,
   type PitchProperty,
   type PitchRecipientState,
@@ -382,7 +383,12 @@ export class PropertyPitchService {
       const { url } = await this.landing.ensure(row.id);
       out.push({
         propertyId: row.id,
-        title: row.marketingTitle ?? row.propertyType ?? "נכס",
+        title: clientPropertyTitle({
+          marketingTitle: row.marketingTitle,
+          propertyType: row.propertyType,
+          rooms: row.rooms === null ? null : Number(row.rooms),
+          city: row.city,
+        }),
         ...(row.city === null ? {} : { city: row.city }),
         ...(row.neighborhood === null ? {} : { neighborhood: row.neighborhood }),
         ...(row.rooms === null ? {} : { rooms: Number(row.rooms) }),
