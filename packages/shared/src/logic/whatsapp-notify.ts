@@ -100,6 +100,8 @@ const TYPE_CATEGORY: Record<string, WhatsAppNotifyCategory> = {
   buyer: "matches",
   property: "matches",
   property_delisted: "matches",
+  /* ‏המחיר ירד — קונים שאמרו „גבוה” חזרו למשחק */
+  price_drop_reoffer: "matches",
   matches_refreshed: "matches",
   match_weights_calibrated: "matches",
   /*
@@ -373,6 +375,7 @@ const TYPE_ICON: Record<string, string> = {
   shared_lead_sold: "💰",
   appointment_scheduled: "📅",
   property_delisted: "🚫",
+  price_drop_reoffer: "💸",
   matches_refreshed: "🎯",
   coop_deal: "🤝",
   coop_offer: "💼",

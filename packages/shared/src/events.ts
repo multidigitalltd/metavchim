@@ -85,6 +85,17 @@ export const DomainEvents = {
       })
       .optional(),
   }),
+  /**
+   * ‏המחיר ירד — הרגע לפנות שוב לקונים שביקרו ואמרו „גבוה” או שדחו
+   * ‏בגלל המחיר. ‎`changedAt` הוא גם עוגן הדדופ של המשימה.
+   */
+  "property.price_dropped": z.object({
+    propertyId: IdSchema,
+    tenantId: IdSchema,
+    fromAgorot: z.number().int(),
+    toAgorot: z.number().int(),
+    changedAt: z.string(),
+  }),
   "offer.sent": z.object({ offerId: IdSchema, tenantId: IdSchema }),
   "offer.opened": z.object({ offerId: IdSchema, tenantId: IdSchema, openCount: z.number().int() }),
   "offer.interested": z.object({ offerId: IdSchema, tenantId: IdSchema }),

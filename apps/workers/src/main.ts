@@ -119,6 +119,7 @@ import {
   pricePerSqmAgorot,
   normalizeLocationName,
   neighborhoodSame,
+  shekelsLabel,
   viewingFeedbackSentences,
 } from "@metavchim/shared";
 
@@ -357,6 +358,90 @@ const ALTERNATIVE_TITLE = "הנכס ירד מהשיווק — הציעו חלו�
  * בלי נכס — לכל אחד כזה נוצרת משימת חלופה לסוכן, התראה, ורשומה בציר
  * הקונה. אידמפוטנטי פר קונה (נעילה + בדיקת משימה פתוחה, כמו בפולו-אפ).
  */
+const PriceDropJobSchema = z.object({
+  tenantId: z.string(),
+  propertyId: z.string(),
+  fromAgorot: z.number().int(),
+  toAgorot: z.number().int(),
+  changedAt: z.string(),
+});
+
+/**
+ * ‏המחיר ירד — משימה אחת לסוכן של הנכס: כמה קונים ביקרו ואמרו „גבוה”,
+ * ‏כמה דחו בגלל המחיר, ואיפה ההודעה המוכנה (כרטיס הנכס). בלי שמות
+ * ‏במשימה: הם בכרטיס, מאחורי יכולת הקונים.
+ *
+ * ‏דדופ לפי הנכס ומועד השינוי: ניסיון חוזר של אותו אירוע אינו מכפיל,
+ * ‏וירידה נוספת בחודש הבא פותחת משימה חדשה.
+ */
+async function processPriceDropReoffer(job: Job): Promise<void> {
+  const { tenantId, propertyId, fromAgorot, toAgorot, changedAt } = PriceDropJobSchema.parse(job.data);
+  const since = new Date(changedAt);
+  await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
+    await tx.$executeRaw`SELECT id FROM properties WHERE id = ${propertyId} AND tenant_id = ${tenantId} FOR UPDATE`;
+    const property = await tx.property.findFirst({
+      where: { id: propertyId, tenantId, deletedAt: null },
+      select: { agentUserId: true, marketingTitle: true, street: true, houseNumber: true, city: true },
+    });
+    if (!property) return;
+    const [viewings, dismissed] = await Promise.all([
+      tx.appointment.findMany({
+        where: { tenantId, propertyId, kind: "viewing", status: "completed", feedbackPrice: "high", buyerId: { not: null } },
+        select: { buyerId: true },
+        take: 200,
+      }),
+      tx.match.findMany({ where: { tenantId, propertyId, dismissReason: "price" }, select: { buyerId: true }, take: 200 }),
+    ]);
+    const saidHigh = new Set(viewings.map((v) => v.buyerId!));
+    const declined = new Set(dismissed.map((m) => m.buyerId));
+    const ids = [...new Set([...saidHigh, ...declined])];
+    if (ids.length === 0) return;
+    const alive = await tx.buyer.count({ where: { tenantId, id: { in: ids }, deletedAt: null } });
+    if (alive === 0) return;
+
+    const sourceKey = `price-drop:${propertyId}`;
+    const existing = await tx.task.findFirst({ where: { tenantId, sourceKey, createdAt: { gte: since } }, select: { id: true } });
+    if (existing) return;
+
+    const agentActive =
+      property.agentUserId !== null &&
+      (await tx.user.findFirst({ where: { id: property.agentUserId, tenantId, isActive: true }, select: { id: true } })) !== null;
+    const owners = agentActive
+      ? []
+      : await tx.user.findMany({ where: { tenantId, role: "owner", isActive: true }, orderBy: { createdAt: "asc" }, select: { id: true } });
+    const assignee = agentActive ? property.agentUserId! : owners[0]?.id;
+    if (assignee === undefined) return;
+    const notifyUserIds = agentActive ? [assignee] : owners.map((o) => o.id);
+
+    const address = [[property.street, property.houseNumber].filter(Boolean).join(" "), property.city].filter((p) => p).join(", ");
+    const label = property.marketingTitle || address || "הנכס";
+    const money = (agorot: number): string => shekelsLabel(agorot / 100);
+    const parts = [
+      saidHigh.size > 0 ? `${saidHigh.size === 1 ? "קונה אחד ביקר ואמר" : `${saidHigh.size} קונים ביקרו ואמרו`} שהמחיר גבוה` : null,
+      declined.size > 0 ? `${declined.size === 1 ? "אחד דחה" : `${declined.size} דחו`} בגלל המחיר` : null,
+    ].filter((part): part is string => part !== null);
+    await tx.task.create({
+      data: {
+        id: ulid(), tenantId, assignedToUserId: assignee,
+        title: `💸 המחיר ירד — ${alive === 1 ? "קונה אחד" : `${alive} קונים`} שכדאי להציע להם שוב: ${label}`.slice(0, 200),
+        notes: `המחיר ירד מ-${money(fromAgorot)} ל-${money(toAgorot)}. ${parts.join(", ")}.\nבכרטיס הנכס: „ירד המחיר — להציע שוב”, עם הודעת וואטסאפ מוכנה לכל אחד.`.slice(0, 2000),
+        dueAt: new Date(), entityType: "property", entityId: propertyId, sourceKey,
+      },
+    });
+    for (const userId of notifyUserIds) {
+      await tx.notification.create({
+        data: {
+          id: ulid(), tenantId, userId, type: "price_drop_reoffer",
+          title: `💸 המחיר ירד — ${alive === 1 ? "קונה אחד" : `${alive} קונים`} להציע להם שוב`,
+          body: `${label}: ${parts.join(", ")}. ההודעה מוכנה בכרטיס הנכס.`.slice(0, 500),
+          entityType: "property", entityId: propertyId,
+        },
+      });
+    }
+  });
+}
+
 async function processPropertyDelisted(job: Job): Promise<void> {
   const { tenantId, propertyId } = DelistedJobSchema.parse(job.data);
   if (!(await automationOn(tenantId, "property_delisted"))) return;
@@ -4423,6 +4508,7 @@ async function processLow(job: Job): Promise<void> {
   if (job.name === "delete-object") return processCleanup(job);
   if (job.name === "offer-followup") return processOfferFollowup(job);
   if (job.name === "property-delisted") return processPropertyDelisted(job);
+  if (job.name === "price-drop-reoffer") return processPriceDropReoffer(job);
   if (job.name === "viewing-followup") return processViewingFollowup(job);
   if (job.name === "lead-sla") return processLeadSla(job);
   if (job.name === "lead-sla-sweep") return processLeadSlaSweep();

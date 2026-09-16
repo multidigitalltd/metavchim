@@ -167,6 +167,10 @@ const CLASSIFIED: Record<string, Entry> = {
     why: "שליחת הצעת נכס — הלקוח מגיע דרך כרטיס הקונה, שמסונן ב-ownershipFilter",
   },
   "modules/offers/offers.service.ts": { as: "entity", why: "הצעה לכרטיס" },
+  "modules/properties/property-reoffer.service.ts": {
+    as: "entity",
+    why: "הצעה חוזרת אחרי הורדת מחיר — הקונה מגיע דרך כרטיס הקונה, שמסונן ב-ownershipFilter",
+  },
   /*
    * ‏היה מוצהר עם `gate: /scopeFilter/` — סינון שורות המשימה בלבד.
    * ‏זה לא הספיק: הקישור `entityType`/`entityId` הגיע מהמסך, ולכן

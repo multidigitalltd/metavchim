@@ -1450,6 +1450,26 @@ export class PropertiesService {
           readinessScore: readiness.score,
         });
       }
+      /*
+       * ‏המחיר הקודם ומועד השינוי — לכרטיס („ירד מ-X ל-Y”) ולהצעה
+       * ‏החוזרת. נשמר בכל שינוי; האירוע נפלט רק בירידה.
+       */
+      if (priceBefore !== null && priceAfter !== undefined && priceAfter !== priceBefore) {
+        const changedAt = new Date();
+        await tx.property.update({
+          where: { id },
+          data: { previousPriceAgorot: BigInt(priceBefore), priceChangedAt: changedAt },
+        });
+        if (priceAfter < priceBefore) {
+          await this.outbox.emit(tx, "property.price_dropped", {
+            propertyId: id,
+            tenantId,
+            fromAgorot: priceBefore,
+            toAgorot: priceAfter,
+            changedAt: changedAt.toISOString(),
+          });
+        }
+      }
       await this.outbox.emit(tx, "property.updated", {
         propertyId: id,
         tenantId,
@@ -1600,6 +1620,9 @@ export class PropertiesService {
           : { leaseEndsAt: row.leaseEndsAt.toISOString().slice(0, 10) }),
         ...(row.noticePeriodDays === null ? {} : { noticePeriodDays: row.noticePeriodDays }),
         archived: row.deletedAt !== null,
+        /* ‏המחיר הקודם ומועד השינוי — „ירד המחיר” בכרטיס; ‎null = לא השתנה מעולם */
+        previousPriceAgorot: row.previousPriceAgorot ? Number(row.previousPriceAgorot) : null,
+        priceChangedAt: row.priceChangedAt ? row.priceChangedAt.toISOString() : null,
         createdAt: row.createdAt,
         updatedAt: row.updatedAt,
       };
@@ -1992,6 +2015,8 @@ export class PropertiesService {
           ...(row.agentUserId === null ? {} : { agentUserId: row.agentUserId }),
           ...(agentName === undefined ? {} : { agentName }),
           archived: row.deletedAt !== null,
+          previousPriceAgorot: row.previousPriceAgorot ? Number(row.previousPriceAgorot) : null,
+          priceChangedAt: row.priceChangedAt ? row.priceChangedAt.toISOString() : null,
           createdAt: row.createdAt,
           updatedAt: row.updatedAt,
         } satisfies PropertyDto & {

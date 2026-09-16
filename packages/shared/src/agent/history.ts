@@ -120,6 +120,7 @@ const NOTIFY_MEMORY: Record<string, string> = {
   offer_followup: "עדכנתי אותך על מעקב אחרי הצעה",
   property: "עדכנתי אותך על נכס חדש",
   property_delisted: "עדכנתי אותך על נכס שירד מהשוק",
+  price_drop_reoffer: "עדכנתי אותך על קונים שכדאי להציע להם שוב אחרי הורדת מחיר",
   buyer: "עדכנתי אותך על קונה חדש",
   coop_offer: "עדכנתי אותך על הצעה מהרשת",
   coop_deal: "עדכנתי אותך על עסקה משותפת",
