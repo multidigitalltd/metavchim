@@ -7,7 +7,11 @@ import { PrismaService } from "../../core/prisma.service";
 import { EmailService } from "../../core/email.service";
 import { AuthService, type ValidatedUser } from "../auth/auth.service";
 import { CouponService } from "./coupon.service";
-import { SignupVerificationService, type VerifiedSignup } from "./signup-verification.service";
+import {
+  providerVerifiedSignup,
+  SignupVerificationService,
+  type VerifiedSignup,
+} from "./signup-verification.service";
 
 /**
  * הרשמה עצמית של משרד תיווך.
@@ -61,6 +65,100 @@ export class SignupService {
     return (await this.plans.publicPlans()).filter(
       (plan) => plan.trialDays > 0 || isFreePlan(plan),
     );
+  }
+
+  /**
+   * ‎**המסלול החינמי שנפתח אוטומטית לכניסה עם Google.**
+   *
+   * ‏נבחר מתוך `offeredPlans` ולא לפי קוד קבוע: „מסלול השת״פ” הוא
+   * ‏שורה בטבלה שבעל הפלטפורמה עורך, וקוד צרוב כאן היה נשבר בשקט
+   * ‏ביום שהוא משנה אותו — כלומר כניסה עם Google הייתה מפסיקה
+   * ‏לעבוד בלי ששום דבר יצעק.
+   *
+   * ‎`sortOrder` מכריע בין כמה חינמיים, כי זה הסדר שבו הם מוצגים
+   * ‏בדף התמחור — הראשון שם הוא זה שהמשרד היה בוחר בעצמו.
+   *
+   * ‎`null` = אין מסלול חינמי ציבורי. אז לא נפתח חשבון, והכניסה
+   * ‏נופלת להודעה הרגילה; המצאת מסלול הייתה פותחת משרד בתנאים
+   * ‏שאיש לא קבע.
+   */
+  async freeSelfServePlan(): Promise<PlanDefinition | null> {
+    const free = (await this.offeredPlans()).filter((plan) => isFreePlan(plan));
+    return [...free].sort((a, b) => a.sortOrder - b.sortOrder)[0] ?? null;
+  }
+
+  /**
+   * ‎**כניסה עם Google לכתובת שאין לה חשבון — נפתח משרד חינמי.**
+   *
+   * ‏עד כה המסך אמר „החשבון לא קיים במערכת — פנו למנהל המשרד”, וזה
+   * ‏נכון למי שהוזמן למשרד קיים ולא נכון בכלל למי שרק רוצה להתחיל.
+   * ‏הוא נעצר בדלת בלי שום דרך להמשיך (בקשת המשתמש).
+   *
+   * ‎**בלי קוד אימות, ובכוונה.** שני השלבים של ההרשמה קיימים כדי
+   * ‏להוכיח בעלות על הכתובת; ‎`email_verified` של Google הוא אותה
+   * ‏הוכחה בדיוק, והבקר דוחה זהות בלעדיו. שליחת קוד לכתובת
+   * ‏ש-Google הרגע אימתה היא חיכוך בלי רווח.
+   *
+   * ‎`null` — הכתובת כבר תפוסה (משתמש מושבת, למשל), או שאין מסלול
+   * ‏חינמי ציבורי. הקורא חוזר להודעה הרגילה: לא נפתח חשבון, ולא
+   * ‏נאמר משהו שאינו נכון.
+   *
+   * ‎`source` — מקור הבקשה, לתקרת הפתיחות. ראו `chargeTenantOpening`.
+   */
+  async createFromVerifiedIdentity(
+    identity: { email: string; name?: string },
+    source: string | undefined,
+  ): Promise<ValidatedUser | null> {
+    const email = identity.email.toLowerCase().trim();
+    const plan = await this.freeSelfServePlan();
+    if (plan === null) return null;
+
+    /*
+     * ‏הכתובת נבדקת כאן ולא נשענת על כך שההתחברות נכשלה:
+     * ‏`loginWithVerifiedEmail` זורק את אותה שגיאה גם על משתמש
+     * ‏**מושבת**, ופתיחת משרד חדש לכתובת של מי שהושבת הייתה עוקפת
+     * ‏בדיוק את ההשבתה.
+     */
+    const taken = await this.prisma.user.findUnique({ where: { email }, select: { id: true } });
+    if (taken !== null) return null;
+
+    /*
+     * ‏שם המשרד הוא שמו של הנרשם עד שיחליף אותו בהגדרות. השם
+     * ‏מ-Google אינו מובטח, ולכן החלק שלפני ה-@ הוא הגיבוי — שם
+     * ‏ריק היה מייצר משרד בלי שם בכל מסך.
+     */
+    const personName = identity.name?.trim() || email.split("@")[0] || "בעל המשרד";
+
+    /*
+     * ‎**התקרה כאן ולא בבקר.** זו הפונקציה שפותחת את הדייר, וכל כלל
+     * ‏שיושב אצל הקורא הוא כלל שהקורא הבא שוכח.
+     *
+     * ‎**ואחרי כל מה שיכול לחזור בלי לפתוח כלום.** התחברות רגילה של
+     * ‏סוכן קיים אינה מגיעה לכאן בכלל, וגם „הכתובת תפוסה” — כלומר מי
+     * ‏שהמשרד שלו השבית אותו — כבר חזר למעלה. אילו הגבייה ישבה
+     * ‏בכניסה, משתמש מושבת שמנסה שוב ושוב היה שורף את מכסת הפתיחות
+     * ‏של כל מי שיושב מאחורי אותה כתובת NAT. מה שנספר כאן הוא ניסיון
+     * ‏פתיחה של דייר חדש ותו לא.
+     *
+     * ‏עדיין **לפני** `create`, ולא אחריו: „בדוק ואז כתוב” בלי
+     * ‏להזמין מקום מראש מאפשר לבקשות מקבילות לחמוק בין הבדיקות, ומה
+     * ‏שחומק כאן הוא דייר.
+     */
+    await this.verification.chargeTenantOpening(source);
+
+    const { user } = await this.create(
+      providerVerifiedSignup({
+        agencyName: personName,
+        ownerName: personName,
+        email,
+        phone: null,
+        // אין סיסמה כלל — לא סיסמה אקראית. ראו `PendingSignup`.
+        passwordHash: null,
+        plan: plan.code,
+        coupon: null,
+      }),
+    );
+    return user;
   }
 
   /**

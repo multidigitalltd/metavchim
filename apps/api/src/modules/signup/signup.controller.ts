@@ -20,7 +20,11 @@ import { AuthService } from "../auth/auth.service";
 import { SESSION_COOKIE } from "../auth/auth.controller";
 import { SignupService } from "./signup.service";
 import { CouponService } from "./coupon.service";
-import { SignupVerificationService } from "./signup-verification.service";
+import {
+  MAX_TENANTS_PER_SOURCE,
+  SignupVerificationService,
+  TENANT_SOURCE_WINDOW_SECONDS,
+} from "./signup-verification.service";
 
 /**
  * הרשמה עצמית — הנתיב הציבורי היחיד שיוצר דייר חדש.
@@ -148,7 +152,13 @@ export class SignupController {
    * הקליד, ולכן אין כאן חשיפה של דבר.
    */
   @Public()
-  @Throttle({ default: { limit: 3, ttl: 3_600_000 } })
+  /*
+   * ‎**התקרה משותפת עם הנתיב השני שפותח דייר** — הכניסה עם Google.
+   * ‏המונים נפרדים, המספר אחד; ראו `MAX_TENANTS_PER_SOURCE`.
+   */
+  @Throttle({
+    default: { limit: MAX_TENANTS_PER_SOURCE, ttl: TENANT_SOURCE_WINDOW_SECONDS * 1_000 },
+  })
   @Post()
   @HttpCode(200)
   async register(
