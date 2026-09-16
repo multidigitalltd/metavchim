@@ -37,7 +37,7 @@ import {
   type OwnerActivityReportDto,
   type OwnerReportSentDto,
 } from "./property-activity.service";
-import { PropertiesService } from "./properties.service";
+import { PropertiesService, type PerSqmBenchmarksDto } from "./properties.service";
 import type { PropertyDto } from "./property.mapper";
 
 /*
@@ -278,6 +278,15 @@ const BulkPreviewSchema = z
   .object({ ids: z.array(IdSchema).min(1).max(500) })
   .strict();
 
+const PerSqmBenchmarkQuerySchema = z
+  .object({
+    city: z.string().trim().min(1).max(120),
+    neighborhood: z.string().trim().max(120).optional(),
+    dealType: z.enum(["sale", "rent"]).default("sale"),
+  })
+  .strict();
+type PerSqmBenchmarkQuery = z.infer<typeof PerSqmBenchmarkQuerySchema>;
+
 @Controller("properties")
 export class PropertiesController {
   constructor(
@@ -385,6 +394,18 @@ export class PropertiesController {
    * ‏השאילתה עצמה יושבת ב-`common/office-members` ונקראת משני
    * ‏הנתיבים; עותק שני היה נפרד ביום שמישהו יוסיף לה תנאי.
    */
+  /**
+   * ‏הממוצע למ״ר בעיר ובשכונה, בלי נכס — למחשבון השטח בפורום.
+   * ‏אותו מלאי ואותה יכולת כמו `:id/price-benchmark`.
+   */
+  @Get("benchmarks/per-sqm")
+  @RequireCapability("properties.view")
+  perSqmBenchmarks(
+    @Query(new ZodValidationPipe(PerSqmBenchmarkQuerySchema)) query: PerSqmBenchmarkQuery,
+  ): Promise<PerSqmBenchmarksDto> {
+    return this.properties.perSqmBenchmarksFor(query);
+  }
+
   @Get("office-agents")
   @RequireCapability("properties.edit")
   officeAgents(): Promise<{ id: string; name: string }[]> {

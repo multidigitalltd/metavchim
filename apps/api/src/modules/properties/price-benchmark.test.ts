@@ -32,7 +32,9 @@ describe("אמת המידה של המחיר למ״ר", () => {
   });
 
   it("ואינה סופרת את הנכס עצמו", () => {
-    expect(benchmark).toContain("id: { not: subject.id }");
+    /* ‏הנכס עצמו יוצא מהמדגם דרך החישוב המשותף — הכרטיס מעביר את המזהה, המחשבון מעביר null */
+    expect(benchmark).toContain("excludeId: subject.id");
+    expect(benchmark).toContain("id: { not: input.excludeId }");
   });
 
   /*

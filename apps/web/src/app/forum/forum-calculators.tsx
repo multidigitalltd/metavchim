@@ -5,6 +5,9 @@ import {
   commissionBreakdown,
   DEFAULT_VAT_PERCENT,
   monthlyPayment,
+  perSqmGapPercent,
+  pricePerSqmAgorot,
+  type PerSqmBenchmark,
   PURCHASE_TAX_ADDITIONAL_HOME,
   PURCHASE_TAX_SINGLE_HOME,
   PURCHASE_TAX_YEAR,
@@ -13,7 +16,10 @@ import {
   shekelsLabel,
   type TaxBracket,
 } from "@metavchim/shared";
-import { IconBank, IconBanknote, IconCoins, IconKey } from "../icons";
+import { apiGet, ApiError } from "@/lib/api";
+import { formatNumber } from "@/lib/format";
+import { IconBank, IconBanknote, IconCoins, IconKey, IconRuler } from "../icons";
+import { Notice } from "../notice";
 
 /**
  * מחשבוני המקצוע — רצים במסך, בלי שרת (docs/16).
@@ -69,6 +75,7 @@ export function Calculators() {
       <Mortgage />
       <Yield />
       <PurchaseTax />
+      <Area />
     </div>
   );
 }
@@ -186,6 +193,143 @@ function PurchaseTax() {
           ))}
         </ul>
       ) : null}
+    </Calc>
+  );
+}
+
+/** ‏מ״ר בעברית, עם מפריד אלפים — „85 מ״ר”. */
+function sqmLabel(value: number): string {
+  return `${formatNumber(Math.round(value))} מ״ר`;
+}
+
+interface AreaBenchmarks {
+  neighborhood: (PerSqmBenchmark & { label: string }) | null;
+  city: (PerSqmBenchmark & { label: string }) | null;
+}
+
+/**
+ * ‏שטח ומחיר למ״ר — החישוב שנעשה בכל שיחה, ובדרך כלל בראש.
+ *
+ * ‏ברוטו ונטו: המודעה אומרת 110, הטאבו אומר 92, והלקוח שואל „אז
+ * ‏כמה למטר?”. שני המספרים מוצגים זה לצד זה, כי הוויכוח בין קונה
+ * ‏למוכר הוא בדיוק על איזה מהם.
+ *
+ * ‏ההשוואה לשכונה נשענת על **המלאי של המשרד** — אותו ממוצע שכרטיס
+ * ‏הנכס מציג, על אותו כלל (לפחות שלושה נכסים באותו סוג עסקה).
+ * ‏זה נאמר במסך: מדד של משרד עם שני נכסים בשכונה אינו מדד.
+ */
+function Area() {
+  const [price, setPrice] = useState("2200000");
+  const [gross, setGross] = useState("110");
+  const [net, setNet] = useState("92");
+  const [city, setCity] = useState("");
+  const [neighborhood, setNeighborhood] = useState("");
+  const [sale, setSale] = useState(true);
+  /*
+   * ‏התוצאה נשמרת **עם הסינון שביקש אותה**, ומוצגת רק כל עוד הוא לא
+   * ‏השתנה: „רמת גן, מכירה” שנשאר על המסך אחרי שהמשתמש הקליד „חיפה”
+   * ‏הוא ממוצע של עיר אחרת עם פער שמחושב מולה (ביקורת Codex). אותו
+   * ‏כלל מטפל גם בתשובה שמגיעה אחרי שהשדה כבר נערך — היא נשמרת עם
+   * ‏המפתח הישן, ולכן אינה מוצגת.
+   */
+  const [result, setResult] = useState<{ key: string; benchmarks: AreaBenchmarks } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const filterKey = `${city.trim()}|${neighborhood.trim()}|${sale ? "sale" : "rent"}`;
+  const benchmarks = result !== null && result.key === filterKey ? result.benchmarks : null;
+
+  const priceAgorot = Math.round(num(price) * 100);
+  const grossSqm = num(gross);
+  const netSqm = num(net);
+  const perGross = pricePerSqmAgorot(priceAgorot, grossSqm);
+  const perNet = pricePerSqmAgorot(priceAgorot, netSqm);
+  const ratio = grossSqm > 0 && netSqm > 0 ? Math.round((netSqm / grossSqm) * 100) : null;
+  /* ‏ההשוואה לפי הברוטו — כך רשומים רוב הנכסים במלאי, וכך המודעות */
+  const gapNeighborhood = perSqmGapPercent(perGross, benchmarks?.neighborhood ?? null);
+  const gapCity = perSqmGapPercent(perGross, benchmarks?.city ?? null);
+
+  async function compare(): Promise<void> {
+    if (city.trim() === "") {
+      setError("צריך עיר כדי להשוות");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    const key = filterKey;
+    try {
+      const params = new URLSearchParams({ city: city.trim(), dealType: sale ? "sale" : "rent" });
+      if (neighborhood.trim() !== "") params.set("neighborhood", neighborhood.trim());
+      const data = await apiGet<AreaBenchmarks>(`/properties/benchmarks/per-sqm?${params.toString()}`);
+      setResult({ key, benchmarks: data });
+    } catch (err: unknown) {
+      setError(err instanceof ApiError ? err.message : "ההשוואה נכשלה");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const gapText = (gap: number | null): string =>
+    gap === null ? "" : gap === 0 ? " — כמו הממוצע" : gap > 0 ? ` — ${gap}% מעל הממוצע` : ` — ${Math.abs(gap)}% מתחת לממוצע`;
+
+  return (
+    <Calc title="שטח ומחיר למ״ר" icon={<IconRuler s={19} />} domain="mv-domain-peach">
+      <div className="grid gap-3 sm:grid-cols-3">
+        <Field label="מחיר" value={price} onChange={setPrice} suffix="₪" />
+        <Field label="שטח ברוטו" value={gross} onChange={setGross} suffix="מ״ר" />
+        <Field label="שטח נטו" value={net} onChange={setNet} suffix="מ״ר" />
+      </div>
+      <div className="mt-3 grid gap-2 sm:grid-cols-3">
+        <Result label="למ״ר ברוטו" value={perGross === null ? "—" : shekelsLabel(perGross / 100)} />
+        <Result label="למ״ר נטו" value={perNet === null ? "—" : shekelsLabel(perNet / 100)} />
+        <Result label="נטו מתוך ברוטו" value={ratio === null ? "—" : `${ratio}%`} />
+      </div>
+
+      {/*
+        ‏הכפתור יושב מתחת לבורר סוג העסקה ולא מתחת לשדה טקסט: כפתור
+        ‏ההכתבה הצף נפתח מתחת לשדה טקסט ממוקד, וכפתור שממוקם שם נלחץ
+        ‏דרכו — המשתמש מקליד עיר ולוחץ „להשוות”, ומקבל הכתבה.
+      */}
+      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        <label className="flex flex-col gap-1 text-[length:var(--type-caption)] font-semibold">
+          עיר
+          <input className="mv-control" value={city} onChange={(e) => setCity(e.target.value)} placeholder="למשל: רמת גן" />
+        </label>
+        <div className="flex flex-col gap-1 text-[length:var(--type-caption)] font-semibold">
+          סוג עסקה
+          <div className="mv-seg" role="group" aria-label="סוג עסקה להשוואה">
+            <button type="button" aria-pressed={sale} onClick={() => setSale(true)}>מכירה</button>
+            <button type="button" aria-pressed={!sale} onClick={() => setSale(false)}>השכרה</button>
+          </div>
+        </div>
+        <label className="flex flex-col gap-1 text-[length:var(--type-caption)] font-semibold">
+          שכונה (לא חובה)
+          <input className="mv-control" value={neighborhood} onChange={(e) => setNeighborhood(e.target.value)} placeholder="למשל: מרום נווה" />
+        </label>
+        <div className="flex flex-col justify-end">
+          <button type="button" className="mv-btn-soft" disabled={busy} onClick={() => void compare()}>
+            {busy ? "משווה…" : "להשוות למלאי המשרד"}
+          </button>
+        </div>
+      </div>
+      <p className="mv-form-hint mt-2">
+        הממוצע מחושב מנכסי המשרד באותה עיר ובאותו סוג עסקה — לפחות שלושה נכסים.
+      </p>
+      {error !== null ? <div className="mt-2"><Notice tone="danger">{error}</Notice></div> : null}
+      {benchmarks !== null ? (
+        <div className="mt-3 grid gap-2 sm:grid-cols-2">
+          <Result
+            label={benchmarks.neighborhood === null ? "בשכונה" : `בשכונה (${benchmarks.neighborhood.count} נכסים)`}
+            value={benchmarks.neighborhood === null ? "אין מספיק נכסים" : `${shekelsLabel(benchmarks.neighborhood.avgPerSqmAgorot / 100)}${gapText(gapNeighborhood)}`}
+          />
+          <Result
+            label={benchmarks.city === null ? "בעיר" : `בעיר (${benchmarks.city.count} נכסים)`}
+            value={benchmarks.city === null ? "אין מספיק נכסים" : `${shekelsLabel(benchmarks.city.avgPerSqmAgorot / 100)}${gapText(gapCity)}`}
+          />
+        </div>
+      ) : null}
+      <p className="mv-form-hint mt-2">
+        ברוטו כולל חלק יחסי ברכוש המשותף; נטו הוא השטח בתוך הקירות. ההשוואה לפי הברוטו — כך רשומים הנכסים במלאי ובמודעות. {sqmLabel(grossSqm)} ברוטו הם {sqmLabel(netSqm)} נטו כאן.
+      </p>
     </Calc>
   );
 }
