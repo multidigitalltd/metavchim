@@ -8,6 +8,9 @@ import { PropertyReofferService, type ReofferDto } from "./property-reoffer.serv
  * ‏„ירד המחיר — להציע שוב”: הרשימה נקראת עם יכולת קונים (היא מציגה
  * ‏שמות וטלפונים; הסינון לפי בעלות בשירות), והסימון „פניתי” עם
  * ‎`offers.send` — אותה יכולת של שליחת הצעה לקונה.
+ *
+ * ‏שתי הדלתות דורשות **גם** `properties.view` וגם יכולת קונים — זה
+ * ‏נבדק בשירות, כי הדקורטור מאחד ב„או”.
  */
 const IdParam = new ZodValidationPipe(IdSchema);
 
