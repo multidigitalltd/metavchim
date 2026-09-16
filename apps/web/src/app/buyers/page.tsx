@@ -173,7 +173,19 @@ export default function BuyersPage() {
    */
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
-  const [bulkNote, setBulkNote] = useState<string | null>(null);
+  /*
+   * ‎**תוצאת פעולה מרוכזת — ותמיד מעל הרשימה, לא במקומה.**
+   *
+   * ‏`error` ברמת המסך מחליף את כל התוכן ב-`Notice` (ראו הרינדור
+   * ‏למטה), ולכן הוא הודעה על **כשל טעינה** בלבד. הודעה כמו „הסימון
+   * ‏יצא מהסינון” שנשלחת דרכו מסתירה את הבורר ואת „נקה סינון” —
+   * ‏כלומר בדיוק את מה שהיא מבקשת מהמשתמש לעשות (ביקורת Codex).
+   *
+   * ‏הגוון נשמר עם הטקסט: אזהרה אינה ירוקה.
+   */
+  const [bulkNote, setBulkNote] = useState<
+    { tone: "success" | "warning"; text: string } | null
+  >(null);
 
   // קישורי הפילוח מהדשבורד: /buyers?maturity=hot וכדומה
   useFilterFromUrl({
@@ -313,7 +325,10 @@ export default function BuyersPage() {
     const ids = selectedVisible.map((b) => b.id);
     /* ‏אותה יציאה שקטה בדיוק, ראו `shareSelected`. */
     if (ids.length === 0) {
-      setError("הקונים שסומנו אינם ברשימה המסוננת — נקו את הסינון או בחרו מחדש");
+      setBulkNote({
+        tone: "warning",
+        text: "הקונים שסומנו אינם ברשימה המסוננת — נקו את הסינון או בחרו מחדש",
+      });
       return;
     }
     /*
@@ -357,11 +372,13 @@ export default function BuyersPage() {
         ids,
         permanent,
       });
-      setBulkNote(
-        res.skipped === 0
-          ? `${res.removed} כרטיסים ${permanent ? "נמחקו" : "הועברו לארכיון"}`
-          : `${res.removed} ${permanent ? "נמחקו" : "הועברו לארכיון"}, ${res.skipped} דולגו — כרטיס של סוכן אחר, או כזה שכבר נמחק`,
-      );
+      setBulkNote({
+        tone: res.skipped === 0 ? "success" : "warning",
+        text:
+          res.skipped === 0
+            ? `${res.removed} כרטיסים ${permanent ? "נמחקו" : "הועברו לארכיון"}`
+            : `${res.removed} ${permanent ? "נמחקו" : "הועברו לארכיון"}, ${res.skipped} דולגו — כרטיס של סוכן אחר, או כזה שכבר נמחק`,
+      });
       setSelected(new Set());
     } catch {
       setError("המחיקה נכשלה — נסו שוב");
@@ -411,7 +428,10 @@ export default function BuyersPage() {
      * ‏לא עשתה דבר ולא אמרה דבר.
      */
     if (ids.length === 0) {
-      setError("הקונים שסומנו אינם ברשימה המסוננת — נקו את הסינון או בחרו מחדש");
+      setBulkNote({
+        tone: "warning",
+        text: "הקונים שסומנו אינם ברשימה המסוננת — נקו את הסינון או בחרו מחדש",
+      });
       return;
     }
     if (!window.confirm(`לפרסם ${ids.length} קונים לרשת השיתופים? יפורסמו בלי שם ובלי טלפון, בחלוקת עמלה 50/50.`)) return;
@@ -426,11 +446,13 @@ export default function BuyersPage() {
       );
       const failed = res.results.filter((r) => !r.ok);
       const reasons = [...new Set(failed.map((r) => r.error ?? "השיתוף נכשל"))];
-      setBulkNote(
-        failed.length === 0
-          ? `${res.results.length} קונים פורסמו לרשת`
-          : `${res.results.length - failed.length} פורסמו, ${failed.length} לא — ${reasons.join(" · ")}`,
-      );
+      setBulkNote({
+        tone: failed.length === 0 ? "success" : "warning",
+        text:
+          failed.length === 0
+            ? `${res.results.length} קונים פורסמו לרשת`
+            : `${res.results.length - failed.length} פורסמו, ${failed.length} לא — ${reasons.join(" · ")}`,
+      });
       setSelected(new Set());
     } catch {
       setError("הפרסום לרשת נכשל — נסו שוב");
@@ -695,7 +717,7 @@ export default function BuyersPage() {
                 </div>
               ) : null}
 
-              {bulkNote ? <Notice tone="success">{bulkNote}</Notice> : null}
+              {bulkNote ? <Notice tone={bulkNote.tone}>{bulkNote.text}</Notice> : null}
 
               {/* מובייל: כרטיסים במקום טבלה בת 6 עמודות (docs/06 §1.5) */}
               <ul className="flex flex-col gap-3 sm:hidden">
