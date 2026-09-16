@@ -1,187 +1,128 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { Button } from "@metavchim/ui";
-import { apiGet, apiPost } from "@/lib/api";
+import { useEffect, useState } from "react";
+import { apiGet } from "@/lib/api";
 import { useRequireAuth } from "@/lib/use-auth";
-import { IconSparkle, IconUsers } from "../icons";
-import { Notice } from "../notice";
+import { useFeature } from "@/lib/use-features";
+import { EntityTabs, TabPanel, useEntityTab } from "../entity-tabs";
+import { IconBell, IconChat, IconCheck, IconEye, IconSparkle, IconStar, IconUsers, IconGear } from "../icons";
+import { Calculators } from "./forum-calculators";
+import { FollowingPanel } from "./forum-following";
+import { ListingDirectory } from "./forum-listings";
+import { ThreadList } from "./forum-threads";
 
 /**
- * הפורום המקצועי — עמוד "בקרוב" עד ההשקה.
+ * הפורום המקצועי — המסך שמאחורי ההבטחה שהייתה כאן כ„בקרוב” (docs/16).
  *
- * ## מה הפורום פותר
- *
- * מתווך שנתקל בשאלה — סעיף בהסכם, התנהלות מול לקוח, תמחור שאינו
- * ברור — לא תמיד יכול לשאול אותה בשמו. שאלה מקצועית בפורום פתוח
- * נקראת גם בידי הלקוח, גם בידי המתחרה ממול, ולעיתים גם בידי מי
- * שהשאלה נוגעת בו. התוצאה היא שהשאלות החשובות פשוט לא נשאלות.
- *
- * **האנונימיות היא הפיצ'ר, לא תוספת לו.** זה מה שהופך את הפורום
- * למקום שאפשר להתייעץ בו באמת, ולכן הוא הדבר הראשון שהעמוד אומר.
- *
- * ## למה כפתור שנרשם באמת
- *
- * „הרשמו וקבלו עדכון” שאינו רושם דבר הוא הבטחה שאין למי לקיים
- * ביום ההשקה. הלחיצה נשמרת בשרת (`/feature-signups/forum`),
- * והמסך מציג את המצב האמיתי — כולל למי שכבר נרשם וחוזר לעמוד.
+ * חמש לשוניות: השאלות והדיונים, השאלות האנונימיות בנפרד (כי זה
+ * הפיצ'ר), הכלים, בעלי המקצוע, ומה שאני עוקב/ת אחריו. הלשונית
+ * נשמרת בכתובת, כדי שקישור „לפורום, לכלים” יוביל לכלים.
  */
 
-/** מזהה הפיצ'ר בשרת. רשימה סגורה — ראו `SIGNUP_FEATURES`. */
-const FEATURE = "forum";
+const TABS = [
+  { key: "threads", label: "שאלות ודיונים" },
+  { key: "anonymous", label: "בעילום שם" },
+  { key: "tools", label: "כלים" },
+  { key: "pros", label: "בעלי מקצוע" },
+  { key: "following", label: "עוקב/ת" },
+] as const;
+const TAB_KEYS = TABS.map((t) => t.key);
 
-export default function ForumComingSoonPage() {
-  const { loading: authLoading } = useRequireAuth();
-  /** `null` = טרם ידוע. המסך אינו מנחש „לא נרשמת” בזמן הטעינה. */
-  const [signed, setSigned] = useState<boolean | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+interface Summary {
+  threads: number;
+  answered: number;
+  repliesThisWeek: number;
+  following: number;
+}
+
+export default function ForumPage() {
+  const { loading } = useRequireAuth();
+  const hasWhatsapp = useFeature("voice_intake");
+  const [tab, setTab] = useEntityTab([...TAB_KEYS], "threads");
+  const [summary, setSummary] = useState<Summary | null>(null);
 
   useEffect(() => {
-    if (authLoading) return;
-    apiGet<{ signed: boolean }>(`/feature-signups/${FEATURE}`)
-      /*
-       * תשובה שאיחרה אינה דורסת מה שכבר הוכרע.
-       *
-       * הבדיקה הראשונית והלחיצה יכולות לחפוף: `signed: false` יוצא
-       * לדרך, המשתמש לוחץ, ההרשמה **נשמרת** — ואז התשובה הישנה
-       * מגיעה ומחזירה את המסך ל„טרם נרשמת”, עם כפתור שמזמין אותו
-       * להירשם שוב למה שכבר נרשם. `null` בלבד נחשב „טרם ידוע”,
-       * וכל הכרעה מאוחרת יותר גוברת עליה.
-       */
-      .then((res) => setSigned((prev) => (prev === null ? res.signed : prev)))
-      /*
-       * כשל קריאה משאיר `null` — „לא ידוע”. הכפתור נשאר זמין,
-       * והשרת אידמפוטנטי, ולכן לחיצה נוספת אינה מזיקה. להציג
-       * „לא נרשמת” על סמך כשל רשת היה שקר.
-       */
-      .catch(() => undefined);
-  }, [authLoading]);
+    if (loading) return;
+    apiGet<Summary>("/forum/summary").then(setSummary).catch(() => undefined);
+  }, [loading, tab]);
 
-  const join = useCallback(async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      await apiPost<{ signed: true }>(`/feature-signups/${FEATURE}`, {});
-      setSigned(true);
-    } catch {
-      setError("ההרשמה לא נשמרה — נסו שוב בעוד רגע.");
-    } finally {
-      setBusy(false);
-    }
-  }, []);
-
-  if (authLoading) return null;
+  if (loading) return null;
 
   return (
     // div ולא main — העטיפה של AppShell היא ה-main landmark היחיד
-    <div className="mv-page">
-      <section
-        className="mx-auto mt-8 max-w-2xl rounded-2xl border p-8"
-        style={{
-          borderColor: "var(--color-primary-accent)",
-          background:
-            "linear-gradient(180deg, var(--color-primary-soft), var(--color-surface) 78%)",
-          boxShadow:
-            "0 10px 28px color-mix(in srgb, var(--color-primary) 10%, transparent)",
-        }}
-        aria-labelledby="forum-heading"
-      >
-        <header className="text-center">
-          <span
-            className="mx-auto mb-3 inline-flex h-14 w-14 items-center justify-center rounded-full"
-            style={{
-              background: "var(--color-primary-soft)",
-              color: "var(--color-primary)",
-            }}
-            aria-hidden="true"
-          >
-            <IconUsers s={28} />
-          </span>
-          <h1 id="forum-heading" className="m-0 text-2xl font-extrabold">
-            פורום המתווכים
+    <div className="mv-page py-6">
+      <header className="mv-hero">
+        <span className="mv-hero-icon" aria-hidden="true"><IconUsers s={26} /></span>
+        <div className="min-w-0 flex-1">
+          <h1 className="m-0 text-2xl font-extrabold">
+            הפורום המקצועי
+            <span
+              className="mx-2 inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 align-middle text-[length:var(--type-body-sm)] font-extrabold"
+              style={{ background: "var(--color-primary-soft)", color: "var(--color-primary)" }}
+            >
+              <IconEye s={14} /> גם בעילום שם
+            </span>
           </h1>
-          <p
-            className="m-0 mt-1 inline-flex items-center gap-2 rounded-full px-4 py-1.5 text-[length:var(--type-body-sm)] font-bold"
-            style={{
-              background: "var(--color-primary-soft)",
-              color: "var(--color-primary)",
-            }}
-          >
-            <IconSparkle s={16} /> בקרוב
-          </p>
-        </header>
-
-        <p className="m-0 mt-6 text-[length:var(--type-screen-title)] font-bold leading-relaxed">
-          בקרוב ייפתח כאן פורום מקצועי למתווכים — מקום להעלות שאלות,
-          להתייעץ עם עמיתים ולקבל תשובות ממי שכבר עבר את זה.
-        </p>
-
-        {/*
-          האנונימיות ראשונה ובמסגרת משלה: היא הסיבה שהפורום הזה שונה
-          מכל קבוצה מקצועית אחרת, ומי שסורק את העמוד צריך לפגוש אותה
-          לפני כל דבר אחר.
-        */}
-        <div
-          className="mt-5 rounded-xl border p-5"
-          style={{
-            borderColor: "var(--color-primary-accent)",
-            background: "var(--color-surface)",
-          }}
-        >
-          <h2 className="m-0 text-[length:calc(17/16*1rem)] font-extrabold">
-            והיתרון הגדול — אפשר לשאול בעילום שם
-          </h2>
-          <p className="m-0 mt-2 text-[length:var(--type-button)] leading-relaxed">
-            לא מעט שאלות מקצועיות פשוט אינן נשאלות, כי אי אפשר לשאול
-            אותן בשם מלא: סעיף בהסכם שלא ברור, התנהלות מול לקוח,
-            מקרה שנתקעתם בו, או פשוט שאלה שמעדיפים לשאול בלי שאיש
-            יידע מי שאל. בפורום הזה תוכלו לפרסם שאלה{" "}
-            <b>באנונימיות מלאה</b> — ולקבל תשובה מקצועית בדיוק כמו כל
-            שאלה אחרת.
+          <p className="m-0 mt-1" style={{ color: "var(--color-text-muted)" }}>
+            מתווכים מכל הארץ, במקום אחד — שאלות שלא שואלים בקבוצה, תשובות שנשארות.
           </p>
         </div>
+      </header>
 
-        <ul className="m-0 mt-5 list-none space-y-2.5 p-0 text-[length:var(--type-button)] leading-relaxed">
-          <li>• שאלות והתייעצויות מקצועיות — בשם או בעילום שם, לבחירתכם.</li>
-          <li>• דיונים בין מתווכים מכל הארץ, במקום אחד ולא בעשר קבוצות.</li>
-          <li>• תשובות שנשמרות וניתנות לחיפוש — לא נעלמות בגלילה.</li>
-        </ul>
+      <dl className="mt-5 grid gap-3 sm:grid-cols-4">
+        <Kpi domain="mv-domain-blue" icon={<IconChat s={16} />} label="שרשורים" value={summary?.threads} />
+        <Kpi domain="mv-domain-green" icon={<IconCheck s={16} />} label="שאלות שנענו" value={summary?.answered} />
+        <Kpi domain="mv-domain-amber" icon={<IconSparkle s={16} />} label="תגובות השבוע" value={summary?.repliesThisWeek} />
+        <Kpi domain="mv-domain-violet" icon={<IconBell s={16} />} label="שיחות במעקב שלי" value={summary?.following} />
+      </dl>
 
-        {/* ------------------------------------------------------------
-            ההרשמה לעדכון
-            ------------------------------------------------------------ */}
-        <div
-          className="mt-6 rounded-xl border p-5 text-center"
-          style={{
-            borderColor: "var(--color-border)",
-            background: "var(--color-surface)",
-          }}
-        >
-          {signed === true ? (
-            <p className="m-0 text-[length:calc(16.5/16*1rem)] font-bold" role="status">
-              ✓ נרשמתם — נעדכן אתכם במייל ברגע שהפורום יעלה.
-            </p>
-          ) : (
-            <>
-              <p className="m-0 mb-3 text-[length:calc(16.5/16*1rem)] font-bold">
-                רוצים לדעת ברגע שהפורום נפתח?
-              </p>
-              <Button onClick={() => void join()} disabled={busy}>
-                {busy ? "רושם…" : "הרשמו וקבלו עדכון כשהפורום עולה"}
-              </Button>
-              <p
-                className="m-0 mt-2 text-sm"
-                style={{ color: "var(--color-text-muted)" }}
-              >
-                הודעה אחת, ביום ההשקה. בלי דיוור ובלי פרטים נוספים —
-                אתם כבר מחוברים.
-              </p>
-            </>
-          )}
-          {error !== null ? <Notice tone="danger">{error}</Notice> : null}
-        </div>
-      </section>
+      <div className="mt-5">
+        <EntityTabs tabs={TABS.map((t) => ({ key: t.key, label: t.label }))} active={tab} onSelect={setTab} label="לשוניות הפורום" />
+      </div>
+
+      <div className="mt-4">
+        <TabPanel tab="threads" active={tab}>
+          <ThreadList />
+        </TabPanel>
+        <TabPanel tab="anonymous" active={tab}>
+          <ThreadList anonymousOnly />
+        </TabPanel>
+        <TabPanel tab="tools" active={tab}>
+          <section aria-labelledby="calc-heading" className="mb-6">
+            <div className="mv-card-head mb-3">
+              <span className="mv-tile mv-domain-green" aria-hidden="true"><IconGear s={19} /></span>
+              <h2 id="calc-heading" className="mv-card-head__title m-0">מחשבוני המקצוע</h2>
+            </div>
+            <Calculators />
+          </section>
+          <section aria-labelledby="tools-heading">
+            <div className="mv-card-head mb-3">
+              <span className="mv-tile mv-domain-blue" aria-hidden="true"><IconStar s={19} /></span>
+              <h2 id="tools-heading" className="mv-card-head__title m-0">כלים שהקהילה ממליצה עליהם</h2>
+            </div>
+            <ListingDirectory kind="tool" />
+          </section>
+        </TabPanel>
+        <TabPanel tab="pros" active={tab}>
+          <ListingDirectory kind="pro" />
+        </TabPanel>
+        <TabPanel tab="following" active={tab}>
+          <FollowingPanel hasWhatsapp={hasWhatsapp} />
+        </TabPanel>
+      </div>
+    </div>
+  );
+}
+
+function Kpi({ domain, icon, label, value }: { domain: string; icon: React.ReactNode; label: string; value: number | undefined }) {
+  const zero = value === undefined || value === 0;
+  return (
+    <div className={`mv-kpi mv-kpi--static mv-kpi--compact ${zero ? "mv-domain-neutral" : domain}`}>
+      <dt className="mv-kpi__head">
+        <span className="mv-kpi__label">{label}</span>
+        <span className="mv-tile" aria-hidden="true">{icon}</span>
+      </dt>
+      <dd className="mv-kpi__value mv-ltr m-0">{value === undefined ? "…" : value}</dd>
     </div>
   );
 }
