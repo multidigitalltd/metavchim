@@ -15,7 +15,7 @@ import { loadEnv } from "../../config/env";
 import { AuditService } from "../../core/audit.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import { StorageService, type StoredObject } from "../../core/storage.service";
-import { AgreementsService } from "../agreements/agreements.service";
+import { AgreementFieldsMissingError, AgreementsService } from "../agreements/agreements.service";
 import { ContactsService } from "../contacts/contacts.service";
 import { MessagingService } from "../messaging/messaging.service";
 import { OffersService } from "./offers.service";
@@ -86,7 +86,17 @@ export class ComparisonService {
        */
       for (const property of properties as NonNullable<(typeof properties)[number]>[]) {
         if (await this.agreements.hasSigned(tx, tenantId, buyer.contactId, "brokerage", property.id)) continue;
-        const gate = await this.agreements.create(tx, { kind: "brokerage", contactId: buyer.contactId, propertyId: property.id });
+        /*
+         * ‏ההסכם מופק כאן כשער, ולא כי מישהו ביקש לשלוח הסכם — ולכן
+         * ‏משרד שהגדרותיו עדיין ריקות מקבל את החוסר בניסוח של דף
+         * ‏ההשוואה. רשימת השדות באה מהשגיאה, כלומר הכלל נשאר אחד.
+         */
+        const gate = await this.agreements
+          .create(tx, { kind: "brokerage", contactId: buyer.contactId, propertyId: property.id })
+          .catch((error: unknown) => {
+            if (!(error instanceof AgreementFieldsMissingError)) throw error;
+            throw error.forAction("כדי להכין דף השוואה");
+          });
         throw new ConflictException({
           message: "הלקוח טרם חתם על הזמנה בכתב לנכס הזה — שלחו לו קודם את ההסכם לחתימה",
           code: "signature_required",
