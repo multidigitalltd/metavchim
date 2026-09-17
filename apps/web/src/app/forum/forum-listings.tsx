@@ -13,7 +13,7 @@ import {
 import { ApiError, apiGet, apiList, apiPost } from "@/lib/api";
 import { timeAgo } from "@/lib/format";
 import { ConfirmDialog } from "../confirm-dialog";
-import { IconEye, IconGlobe, IconMap, IconPhone, IconPlus, IconStar, IconWarning } from "../icons";
+import { IconGlobe, IconMap, IconPhone, IconPlus, IconStar, IconUser, IconWarning } from "../icons";
 import { FilterChips, SearchField } from "../list-controls";
 import { LoadError } from "../load-error";
 import { Notice } from "../notice";
@@ -24,8 +24,12 @@ import { AuthorBadge, ReportDialog, StarInput, Stars, type ListingDto, type Rati
  * המדריך — כלים ובעלי מקצוע, אותו מסך עם `kind` שונה (docs/16).
  *
  * הדירוג הוא הלב: „מניסיון אישי” ולא „מה שמעתם”. כל אחד מדרג פעם
- * אחת (דירוג חוזר מחליף), אפשר בעילום שם, והממוצע מוצג בכוכבים עם
- * מספר המדרגים — ממוצע של אחד אינו ממוצע.
+ * אחת (דירוג חוזר מחליף), והממוצע מוצג בכוכבים עם מספר המדרגים —
+ * ממוצע של אחד אינו ממוצע.
+ *
+ * ‎**ודירוג הוא תמיד בשם**, בניגוד לשרשור ולתגובה. שאלה בעילום שם
+ * פוגעת לכל היותר בשואל; חוות דעת בעילום שם היא אמירה על **העסק של
+ * מישהו אחר** שאין מולה עם מי לדבר.
  */
 
 const COPY: Record<ForumListingKind, { add: string; empty: string; intro: string; nameLabel: string; ratePrompt: string }> = {
@@ -188,20 +192,18 @@ function Ratings({ listingId, onReport }: { listingId: string; onReport: (id: st
 function RateDialog({ listing, prompt, onClose, onRated }: { listing: ListingDto | null; prompt: string; onClose: () => void; onRated: () => void }) {
   const [score, setScore] = useState(0);
   const [comment, setComment] = useState("");
-  const [anonymous, setAnonymous] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     setScore(listing?.myRating?.score ?? 0);
     setComment(listing?.myRating?.comment ?? "");
-    setAnonymous(listing?.myRating?.anonymous ?? false);
     setError(null);
   }, [listing]);
 
   async function send(): Promise<void> {
     if (listing === null) return;
-    const parsed = ForumRatingInputSchema.safeParse({ score, anonymous, ...(comment.trim() === "" ? {} : { comment: comment.trim() }) });
+    const parsed = ForumRatingInputSchema.safeParse({ score, ...(comment.trim() === "" ? {} : { comment: comment.trim() }) });
     if (!parsed.success) {
       setError("בחרו כוכבים — אחד עד חמישה.");
       return;
@@ -227,13 +229,20 @@ function RateDialog({ listing, prompt, onClose, onRated }: { listing: ListingDto
           משפט על החוויה (רשות)
           <textarea className="mv-field" rows={3} maxLength={500} value={comment} onChange={(e) => setComment(e.target.value)} />
         </label>
-        <label className="mv-forum-anon">
-          <input type="checkbox" checked={anonymous} onChange={(e) => setAnonymous(e.target.checked)} />
+        {/*
+          ‎**אמירה, לא תיבה.** כאן הייתה „לדרג בעילום שם”. חוות דעת על
+          העסק של מישהו אחר אינה שאלה מביכה — היא אמירה שצריך לעמוד
+          מאחוריה, והשקיפות הזו היא מה שנותן למדריך את ערכו.
+        */}
+        <p className="mv-forum-anon m-0">
           <span>
-            <span className="inline-flex items-center gap-1.5 font-bold"><IconEye s={15} /> לדרג בעילום שם</span>
-            <span className="mv-forum-anon__hint">השם לא יופיע ליד הדירוג ולא יישמר.</span>
+            <span className="inline-flex items-center gap-1.5 font-bold"><IconUser s={15} /> הדירוג מופיע בשמכם</span>
+            <span className="mv-forum-anon__hint">
+              השם שלכם ושם המשרד יוצגו ליד חוות הדעת. בפורום עצמו אפשר לשאול ולהשיב
+              בעילום שם — כאן לא.
+            </span>
           </span>
-        </label>
+        </p>
         {error ? <Notice tone="danger">{error}</Notice> : null}
       </div>
     </ConfirmDialog>

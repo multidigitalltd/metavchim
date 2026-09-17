@@ -121,7 +121,7 @@ export interface ForumListingDto {
   area: string | null;
   ratingAverage: number | null;
   ratingCount: number;
-  myRating: { score: number; comment: string | null; anonymous: boolean } | null;
+  myRating: { score: number; comment: string | null } | null;
   mine: boolean;
   createdAt: Date;
 }
@@ -679,7 +679,7 @@ export class ForumService {
       },
       orderBy: [{ ratingCount: "desc" }, { ratingSum: "desc" }, { createdAt: "desc" }],
       take: 200,
-      include: { ratings: { where: { raterKey: key }, select: { score: true, comment: true, anonymous: true } } },
+      include: { ratings: { where: { raterKey: key }, select: { score: true, comment: true } } },
     });
     return {
       items: rows.map((row) => ({
@@ -723,7 +723,7 @@ export class ForumService {
 
   /** דירוג — אחד לכל מדרג; דירוג חוזר מחליף את הקודם ומתקן את המונים. */
   async rate(listingId: string, input: ForumRatingInput): Promise<{ ratingAverage: number | null; ratingCount: number }> {
-    const { userId, key } = this.me();
+    const { userId, tenantId, key } = this.me();
     const listing = await this.prisma.forumListing.findFirst({ where: { id: listingId, hiddenAt: null }, select: { id: true } });
     if (listing === null) throw new NotFoundException("הרשומה לא נמצאה");
     const updated = await this.prisma.$transaction(async (tx) => {
@@ -731,12 +731,12 @@ export class ForumService {
         where: { listingId_raterKey: { listingId, raterKey: key } },
         select: { id: true, score: true },
       });
-      const data = {
-        score: input.score,
-        comment: input.comment ?? null,
-        anonymous: input.anonymous,
-        userId: input.anonymous ? null : userId,
-      };
+      /*
+       * ‎**השם והמשרד נכתבים תמיד.** אין כאן ענף אנונימי ואין עמודה
+       * כזו: מי שמדרג עסק של אחר עומד מאחורי מה שכתב. `tenantId`
+       * נשמר בנפרד כדי שמחיקת משתמש לא תמחק גם את המשרד.
+       */
+      const data = { score: input.score, comment: input.comment ?? null, userId, raterTenantId: tenantId };
       if (previous === null) {
         await tx.forumRating.create({ data: { id: ulid(), listingId, raterKey: key, ...data } });
       } else {
@@ -759,16 +759,23 @@ export class ForumService {
       where: { listingId },
       orderBy: { createdAt: "desc" },
       take: 100,
-      include: { user: { select: { name: true } } },
+      include: { user: { select: { name: true } }, raterTenant: { select: { name: true } } },
     });
     return {
       items: rows.map((row) => ({
         id: row.id,
         score: row.score,
         comment: row.comment,
-        author: row.anonymous
-          ? { label: FORUM_ANON_LABEL, office: null, anonymous: true }
-          : { label: row.user?.name ?? DELETED_USER, office: null, anonymous: false },
+        /*
+         * ‎**שם ומשרד, תמיד.** אין ענף אנונימי — ראו `ForumRating`
+         * בסכימה. משתמש שנמחק משאיר „משתמש שנמחק”, אבל המשרד נשאר
+         * בשורה, כך שלחוות הדעת יש מולה עדיין עם מי לדבר.
+         */
+        author: {
+          label: row.user?.name ?? DELETED_USER,
+          office: row.raterTenant?.name ?? null,
+          anonymous: false,
+        },
         createdAt: row.createdAt,
       })),
     };

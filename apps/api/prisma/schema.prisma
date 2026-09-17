@@ -76,6 +76,7 @@ model Tenant {
   forumThreads               ForumThread[]
   forumPosts                 ForumPost[]
   forumListings              ForumListing[]
+  forumRatings               ForumRating[]
   blockedModules             String[]         @default([]) @map("blocked_modules")
   /// פיצ'רים שהפלטפורמה פתחה למשרד הזה מעבר למסלול שלו.
   ///
@@ -3927,20 +3928,27 @@ model ForumListing {
   @@map("forum_listings")
 }
 
-/// דירוג מניסיון אישי — אחד לכל מדרג (`raterKey`); שם רק בהזדהות.
+/// דירוג מניסיון אישי — אחד לכל מדרג (`raterKey`), **תמיד בשם**.
+///
+/// ‏זו נקודת היציאה היחידה מהאנונימיות של הפורום, והיא מכוונת: שאלה
+/// ‏בעילום שם פוגעת לכל היותר בשואל, ואילו דירוג בעילום שם הוא אמירה
+/// ‏על **עסק של מישהו אחר** שאי אפשר לעמוד מולה. לכן אין כאן עמודת
+/// ‏`anonymous`, והשם והמשרד נשמרים בשורה — `rater_tenant_id` בנפרד,
+/// ‏כדי שמחיקת משתמש לא תמחק גם את המשרד (כמו ב-`forum_threads`).
 model ForumRating {
-  id        String   @id @db.Char(26)
-  listingId String   @map("listing_id") @db.Char(26)
-  raterKey  String   @map("rater_key") @db.Char(64)
-  userId    String?  @map("user_id") @db.Char(26)
-  score     Int      @db.SmallInt
-  comment   String?  @db.VarChar(500)
-  anonymous Boolean  @default(false)
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  id            String   @id @db.Char(26)
+  listingId     String   @map("listing_id") @db.Char(26)
+  raterKey      String   @map("rater_key") @db.Char(64)
+  userId        String?  @map("user_id") @db.Char(26)
+  raterTenantId String?  @map("rater_tenant_id") @db.Char(26)
+  score         Int      @db.SmallInt
+  comment       String?  @db.VarChar(500)
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
 
-  listing ForumListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
-  user    User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+  listing     ForumListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  user        User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+  raterTenant Tenant?      @relation(fields: [raterTenantId], references: [id], onDelete: SetNull)
 
   @@unique([listingId, raterKey], map: "forum_ratings_listing_rater_key")
   @@map("forum_ratings")
