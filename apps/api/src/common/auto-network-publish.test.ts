@@ -32,12 +32,18 @@ interface Written {
  * ‎`notifyOnce` כותבת ב-SQL גולמי, ולכן מה שנלכד כאן הוא הפרמטרים
  * שהתבנית מקבלת — בדיוק בסדר של `INSERT` שבעוזר.
  */
-function fakePrisma(settings: Record<string, unknown>): {
+function fakePrisma(
+  settings: Record<string, unknown>,
+  /** ‏כמה שורות פרסום פעילות יש לכרטיס — מה ש-`published` שואלת. */
+  live = 0,
+): {
   prisma: PrismaService;
   written: Written[];
 } {
   const written: Written[] = [];
   const tx = {
+    sharedListing: { count: () => Promise.resolve(live) },
+    sharedDemand: { count: () => Promise.resolve(live) },
     $executeRaw: (
       _strings: TemplateStringsArray,
       _id: string,
@@ -137,6 +143,74 @@ describe("פרסום אוטומטי לרשת", () => {
     expect(written).toHaveLength(1);
     expect(written[0]!.body).not.toContain("0501234567");
     expect(written[0]!.body).toContain("שגיאה זמנית");
+  });
+
+  /*
+   * ‎**כשל אחרי שהשמירה עברה אינו כשל.** שני מסלולי הפרסום מסיימים
+   * את הטרנזקציה ורק אחריה שולפים את ה-DTO; שאילתה שנופלת שם מגיעה
+   * לכאן כשגיאה, בזמן שהמודעה כבר חיה ברשת. התראה כזו הייתה שולחת
+   * את הסוכן לפרסם ידנית כרטיס שכבר מפורסם — ושם הוא מקבל „כבר
+   * מפורסם ברשת” ומאבד אמון בשתי ההודעות (ביקורת Codex).
+   */
+  it("הפרסום נשמר והשליפה שאחריו נפלה — אין התראת כשל", async () => {
+    const { prisma, written } = fakePrisma({ autoShareProperties: true }, 1);
+    await asAgent(() =>
+      autoNetworkPublish({ prisma, logger }, "property", "01PROPAAAAAAAAAAAAAAAAAAAA", () =>
+        Promise.reject(new Error("read-back failed")),
+      ),
+    );
+    expect(written).toHaveLength(0);
+  });
+
+  /* ‏והכיוון השני: אין שורה, כלומר הפרסום באמת לא עבר. */
+  it("הפרסום לא נשמר — ההתראה יוצאת", async () => {
+    const { prisma, written } = fakePrisma({ autoShareProperties: true }, 0);
+    await asAgent(() =>
+      autoNetworkPublish({ prisma, logger }, "property", "01PROPAAAAAAAAAAAAAAAAAAAA", () =>
+        Promise.reject(new BadRequestException("הנכס כבר מפורסם ברשת")),
+      ),
+    );
+    expect(written).toHaveLength(1);
+  });
+
+  /*
+   * ‎**ובדיקה שנפלה אינה משתיקה.** אותו מסד שנפל הרגע יכול להפיל גם
+   * אותה, וההתנהגות הזהירה היא לדווח: „לא פורסם” שגוי הוא הטרדה,
+   * „פורסם” שגוי הוא מודעה חיה שאיש אינו יודע עליה.
+   */
+  it("גם הבדיקה נפלה — מדווחים על כשל", async () => {
+    const written: Written[] = [];
+    let call = 0;
+    const prisma = {
+      tenant: { findUnique: () => Promise.resolve({ settings: { autoShareBuyers: true } }) },
+      withTenant: (fn: (t: unknown) => Promise<unknown>) => {
+        call += 1;
+        if (call === 1) return Promise.reject(new Error("db down"));
+        return fn({
+          $executeRaw: (
+            _s: TemplateStringsArray,
+            _id: string,
+            _t: string,
+            userId: string | null,
+            type: string,
+            title: string,
+            body: string | null,
+            entityType: string | null,
+            entityId: string | null,
+            dedupeKey: string,
+          ) => {
+            written.push({ userId, type, title, body, entityType, entityId, dedupeKey });
+            return Promise.resolve(1);
+          },
+        });
+      },
+    } as unknown as PrismaService;
+    await asAgent(() =>
+      autoNetworkPublish({ prisma, logger }, "buyer", "01BUYERAAAAAAAAAAAAAAAAAAA", () =>
+        Promise.reject(new BadRequestException("לא ניתן לפרסם קונה בלי אזור חיפוש")),
+      ),
+    );
+    expect(written).toHaveLength(1);
   });
 
   /* התראה שנפלה אינה מפילה את היצירה — הכרטיס כבר נשמר. */

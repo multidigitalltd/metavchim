@@ -1,6 +1,6 @@
 import { HttpException } from "@nestjs/common";
 import type { Logger } from "@nestjs/common";
-import type { PrismaService } from "../core/prisma.service";
+import type { PrismaService, TenantTx } from "../core/prisma.service";
 import { notifyOnce } from "./notify-once";
 import { TenantContext } from "./tenant-context";
 
@@ -53,6 +53,20 @@ interface KindSpec {
   /** הישות שההתראה מצביעה עליה — הכרטיס שממנו מפרסמים ידנית. */
   entityType: string;
   title: string;
+  /**
+   * ‎**האם הכרטיס מפורסם בפועל** — נשאל רק אחרי כשל.
+   *
+   * ‏שני מסלולי הפרסום מסיימים את הטרנזקציה ורק אחריה שולפים את
+   * ‏ה-DTO (`getListing`/`getDemand`). כלומר שאילתה שנופלת **אחרי**
+   * ‏השמירה מגיעה לכאן כ„כשל”, בזמן שהמודעה כבר חיה ברשת —
+   * ‏וההתראה הייתה שולחת את הסוכן לפרסם ידנית כרטיס שכבר מפורסם,
+   * ‏שם הוא מקבל „כבר מפורסם ברשת” ומאבד אמון בשתי ההודעות
+   * ‏(ביקורת Codex).
+   *
+   * ‏הבדיקה היא על המצב עצמו ולא על סוג השגיאה: היא נכונה גם
+   * ‏לכשלים שטרם ראינו.
+   */
+  published: (tx: TenantTx, tenantId: string, entityId: string) => Promise<number>;
 }
 
 const SPECS: Record<AutoNetworkKind, KindSpec> = {
@@ -60,11 +74,19 @@ const SPECS: Record<AutoNetworkKind, KindSpec> = {
     setting: "autoShareProperties",
     entityType: "property",
     title: "הנכס לא פורסם אוטומטית לרשת",
+    published: (tx, tenantId, entityId) =>
+      tx.sharedListing.count({
+        where: { tenantId, originPropertyId: entityId, status: "active" },
+      }),
   },
   buyer: {
     setting: "autoShareBuyers",
     entityType: "buyer",
     title: "הקונה לא פורסם אוטומטית לרשת",
+    published: (tx, tenantId, entityId) =>
+      tx.sharedDemand.count({
+        where: { tenantId, originBuyerId: entityId, status: "active" },
+      }),
   },
 };
 
@@ -115,6 +137,27 @@ export async function autoNetworkPublish(
     deps.logger.warn(
       `auto network publish failed for ${kind} ${entityId}: ${String(error)}`,
     );
+    /*
+     * ‎**השמירה אולי כן עברה** — ראו `published` למעלה. גם הבדיקה
+     * ‏הזו עלולה ליפול (אותו מסד שנפל הרגע), ואז נשארת ההתנהגות
+     * ‏הזהירה: מדווחים על כשל. „לא פורסם” שגוי הוא הטרדה; „פורסם”
+     * ‏שגוי הוא מודעה חיה שאיש אינו יודע עליה.
+     */
+    try {
+      const live = await deps.prisma.withTenant((tx) =>
+        spec.published(tx, tenantId, entityId),
+      );
+      if (live > 0) {
+        deps.logger.warn(
+          `auto network publish for ${kind} ${entityId} committed; only the read-back failed`,
+        );
+        return;
+      }
+    } catch (probeError: unknown) {
+      deps.logger.warn(
+        `auto network publish probe failed for ${kind} ${entityId}: ${String(probeError)}`,
+      );
+    }
     /*
      * ‎**ההתראה עצמה היא best-effort.** הכרטיס כבר נשמר, והכשלת
      * היצירה בגלל שורת התראה הייתה הופכת תקלה בדיווח לתקלה בנתונים.
