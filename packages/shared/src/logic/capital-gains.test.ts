@@ -21,11 +21,22 @@ describe("מס שבח — הערכה", () => {
     expect(r.tax).toBe(225_000);
   });
 
-  it("המדד מוריד את השבח הריאלי", () => {
+  it("המדד מוריד את השבח הריאלי — על מחיר הרכישה בלבד, לא על ההוצאות", () => {
     const r = capitalGains({ ...base, cpiPercent: 10 });
-    expect(r.inflationary).toBe(160_000);
-    expect(r.realGain).toBe(740_000);
-    expect(r.tax).toBe(185_000);
+    expect(r.inflationary).toBe(150_000);
+    expect(r.inflationaryTaxable).toBe(0);
+    expect(r.realGain).toBe(750_000);
+    expect(r.tax).toBe(187_500);
+  });
+
+  it("רכישה לפני 1994: החלק האינפלציוני שעד סוף 1993 חייב ב-10%", () => {
+    /* ‏1.1.1984 ⟵ 1.1.2024: רבע מהתקופה לפני 1994; הכול לפני 2014 בחצי מהתקופה... */
+    const r = capitalGains({ ...base, purchaseDate: "1984-01-01", saleDate: "2024-01-01", purchasePriceShekels: 100_000, salePriceShekels: 2_100_000, expensesShekels: 0, cpiPercent: 400 });
+    expect(r.inflationary).toBe(400_000);
+    expect(r.inflationaryTaxable).toBeCloseTo(100_000, -3);
+    /* ‏שבח ריאלי 1,600,000 × (1 − 0.75 ליניארי) × 25% + 100,000 × 10% */
+    expect(r.tax).toBeCloseTo(110_000, -3);
+    expect(r.notes.some((n) => n.includes("31.12.1993"))).toBe(true);
   });
 
   it("חישוב ליניארי מוטב: חצי מהתקופה לפני 2014 — חצי פטור", () => {

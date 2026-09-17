@@ -324,7 +324,7 @@ function CapitalGains() {
           <input type="date" className="mv-control" value={saleDate} onChange={(e) => setSaleDate(e.target.value)} />
         </label>
         <Field label="הוצאות מוכרות (עו״ד, תיווך, מס רכישה, שיפוץ)" value={expenses} onChange={setExpenses} suffix="₪" />
-        <Field label="עליית המדד בין התאריכים" value={cpi} onChange={setCpi} suffix="%" />
+        <Field label="עליית המדד בין התאריכים (חל על מחיר הרכישה)" value={cpi} onChange={setCpi} suffix="%" />
         <div className="flex flex-col gap-1 text-[length:var(--type-caption)] font-semibold sm:col-span-2">
           הדירה הנמכרת
           <div className="mv-seg" role="group" aria-label="הדירה הנמכרת">
