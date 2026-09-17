@@ -315,14 +315,26 @@ export interface RenderedAgreement {
 /**
  * מילוי הנוסח. שדה בלי ערך *לא* נמחק אלא מסומן — הסכם שנשלח עם
  * "מחיר: " ריק הוא פגם, ועדיף שהמתווך יראה את זה לפני הלקוח.
+ *
+ * ‎`keep` משאיר שדות מסוימים כשורטקוד, למילוי בהרצה שנייה.
+ *
+ * ‏זה מה שמאפשר קישור החתמה **פתוח**: הנוסח מוקפא ברגע יצירת
+ * ‏הקישור עם פרטי המשרד בלבד, שדות החותם נשארים בו כשורטקוד,
+ * ‏וברגע החתימה אותו נוסח קפוא מורץ שוב עם מה שהחותם מילא. שינוי
+ * ‏מאוחר בנוסח המשרד אינו נוגע בו — בדיוק כמו בהסכם רגיל.
+ *
+ * ‏שדה ב-`keep` **אינו** נספר כחסר: הוא אינו חסר, הוא פשוט עדיין
+ * ‏לא נשאל.
  */
 export function renderAgreement(
   template: string,
   values: Partial<AgreementValues>,
+  options: { keep?: readonly (keyof AgreementValues)[] } = {},
 ): RenderedAgreement {
   const unfilled: string[] = [];
-  const text = template.replace(PLACEHOLDER_PATTERN, (_match, rawName: string) => {
+  const text = template.replace(PLACEHOLDER_PATTERN, (match, rawName: string) => {
     const name = rawName as keyof AgreementValues;
+    if (options.keep?.includes(name) === true) return match;
     const value = values[name];
     if (value === undefined || value.trim() === "") {
       if (!unfilled.includes(name)) unfilled.push(name);
@@ -370,6 +382,75 @@ export function fillSignerId(body: string, idNumber: string): string {
   const at = body.indexOf(SIGNER_BLANK);
   if (at === -1) return body;
   return body.slice(0, at) + value + body.slice(at + SIGNER_BLANK.length);
+}
+
+/**
+ * ‎**קישור החתמה פתוח — מה שהחותם ממלא בעצמו.**
+ *
+ * ‏קישור רגיל נוצר על לקוח ועל נכס, ולכן שם הלקוח, הטלפון והנכס
+ * ‏כבר ידועים בשליחה. קישור פתוח נוצר **בלי לדעת למי הוא הולך**:
+ * ‏המתווך על הקו עם לקוח, או עומד מולו בדלת פתוחה, ורוצה קישור
+ * ‏עכשיו — בלי לעצור, לפתוח כרטיס, להקליד שם וטלפון, ורק אז
+ * ‏להחתים.
+ *
+ * ‏שבעת השדות האלה הם בדיוק מה שרק הלקוח יודע ברגע הזה, וחמישה
+ * ‏מהם הם פרטי חובה בתקנות. `כתובת_הלקוח` אינו מהם, והוא כאן כי
+ * ‏הוא מופיע בנוסחי ברירת המחדל ואין לו מקור אחר בכל המערכת. לכן הם אינם „חסרים” בשליחה — הם
+ * ‏נשארים בנוסח כשורטקוד עד שהחותם ממלא אותם.
+ *
+ * ‎`תעודת_זהות_הלקוח` מופיע גם ב-`SIGNER_PROVIDED_PLACEHOLDERS`,
+ * ‏ואין כאן כפילות: שם הוא הפרט היחיד שגם בהסכם **רגיל** ממולא
+ * ‏בידי החותם, וכאן הוא אחד מששה. שתי הרשימות עונות על שתי שאלות
+ * ‏שונות, ולכן נגזרת אחת מהשנייה הייתה קושרת אותן בלי סיבה.
+ */
+export const OPEN_SIGNER_PLACEHOLDERS: (keyof AgreementValues)[] = [
+  "שם_הלקוח",
+  "תעודת_זהות_הלקוח",
+  "כתובת_הלקוח",
+  "טלפון_הלקוח",
+  "סוג_העסקה",
+  "תיאור_הנכס",
+  "מחיר_משוער",
+];
+
+/**
+ * הנוסח כפי שהחותם רואה אותו לפני שמילא — שורה למילוי בכל שדה שלו.
+ *
+ * ‎`SIGNER_BLANK` ולא מחרוזת ריקה: מחרוזת ריקה הייתה נספרת כחסר
+ * ‏ומודפסת `[חסר: …]` בגוף מסמך משפטי.
+ */
+export function openSignerBlanks(): Partial<AgreementValues> {
+  const values: Partial<AgreementValues> = {};
+  for (const name of OPEN_SIGNER_PLACEHOLDERS) values[name] = SIGNER_BLANK;
+  return values;
+}
+
+/**
+ * ‎**קישור פתוח קיים להזמנה בכתב בלבד.**
+ *
+ * ‏בלעדיות נִתנת על חלקה מסוימת של המשרד (ראו
+ * ‏`AGREEMENT_KINDS_ON_PROPERTY`), ולכן „בלעדיות בלי נכס שהמשרד
+ * ‏מכיר” אינה קישור נוח אלא מסמך על נכס שאיש לא בדק. הזמנה בכתב
+ * ‏היא התקשרות עם אדם, ואת הנכס שבו מדובר הלקוח מתאר בעצמו.
+ *
+ * ‏נגזר מאותה רשימה ולא מרשימה שנייה — סוג שיתווסף אליה יֵצא מכאן
+ * ‏מאליו.
+ */
+export function agreementAllowsOpenLink(kind: AgreementKind): boolean {
+  return !agreementRequiresProperty(kind);
+}
+
+/**
+ * סוג העסקה כפי שהוא נכתב במסמך.
+ *
+ * ‏כלל אחד לשני הקוראים — הנכס שנקרא מהשורה, והבחירה של החותם
+ * ‏בקישור הפתוח. שני ניסוחים היו מייצרים שני מסמכים שאומרים דבר
+ * ‏שונה על אותה עסקה.
+ */
+export function agreementDealLabel(dealType: string | null | undefined): string {
+  if (dealType === "sale") return "מכר";
+  if (dealType === "rent") return "שכירות";
+  return "";
 }
 
 /** פרטי חובה מהתקנות שהנוסח המותאם השמיט. ריק = תקין. */

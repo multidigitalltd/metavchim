@@ -410,7 +410,18 @@ export function AgreementsPanel({
           <p className="mb-1 text-sm" style={{ color: "var(--color-text-muted)" }}>
             או העתיקו את הקישור:
           </p>
-          <a href={link} target="_blank" rel="noopener noreferrer" className="underline" dir="ltr">
+          {/*
+            ‎`break-all`: הקישור הוא מילה אחת ארוכה בלי רווחים (הטוקן
+            הוא 43 תווים), ובלי שבירה הוא מותח את הכרטיס מעבר לרוחב
+            המסך — ואז **כל העמוד** נגלל לרוחב בנייד (דיווח מהשטח).
+            אותו צירוף בדיוק שמשמש כל מקום אחר שמציג קישור גולמי.
+          */}
+          <a
+            href={link}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mv-ltr block break-all underline"
+          >
             {link}
           </a>
           {unfilled.length > 0 ? (

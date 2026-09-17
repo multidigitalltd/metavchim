@@ -239,7 +239,23 @@ for (const type of onlyWeb) {
  * נוסף.
  */
 const stringConstants = new Map();
-for (const file of tsFilesIn(join(root, "packages/shared/src"))) {
+/*
+ * ‎**וגם הקבועים של ה-API והעובדים, ולא רק של החבילה המשותפת**
+ * ‏(ביקורת Codex).
+ *
+ * ‏סוג שנכתב דרך קבוע **מקומי** — `AUTO_NETWORK_FAILED_TYPE` ב-
+ * ‏`apps/api/src/common` — לא נפתר, ולכן `typeValues` החזירה עליו
+ * ‏רשימה ריקה והוא **לא נבדק כלל**. כלומר בדיוק הכתיבה שבגללה
+ * ‏הסריקה הורחבה ל-`notifyOnce` המשיכה לחמוק ממנה, ושער שירוק על
+ * ‏מה שהוא אמור לבדוק ירוק תמיד — המשפט הזה נכתב כאן בפעם השלישית.
+ *
+ * ‏נבדק במוטציה: הסרת `network_autopublish_failed` מ-`TYPE_CATEGORY`
+ * ‏עברה בשקט לפני התיקון, ונופלת אחריו.
+ */
+for (const file of [
+  ...tsFilesIn(join(root, "packages/shared/src")),
+  ...sources.flatMap((dir) => tsFilesIn(dir)),
+]) {
   for (const match of readFileSync(file, "utf8").matchAll(
     /export const ([A-Z][A-Z0-9_]*)\s*(?::\s*[\w<>[\].| ]+)?=\s*"([a-z_]+)"/gu,
   )) {

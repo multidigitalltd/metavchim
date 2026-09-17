@@ -11,7 +11,7 @@ import {
 } from "@nestjs/common";
 import type { Request } from "express";
 import { z } from "zod";
-import { AGREEMENT_KINDS, IdSchema, isSignatureDataUrl } from "@metavchim/shared";
+import { AGREEMENT_KINDS, IdSchema, isSignatureDataUrl, PhoneInputSchema } from "@metavchim/shared";
 import { Throttle } from "@nestjs/throttler";
 import { Public, RequireCapability } from "../../common/auth.decorators";
 import { assertContactAccess } from "../../common/ownership";
@@ -36,6 +36,15 @@ const CreateSchema = z
 
 const SendSchema = z.object({ channel: z.enum(["whatsapp", "email"]) }).strict();
 
+/**
+ * ‎**קישור פתוח — בלי לקוח ובלי נכס.**
+ *
+ * ‏אין כאן `contactId` ואין `propertyId` ובכוונה: זה כל העניין.
+ * ‏`kind` נשאר, כי הקטלוג עשוי לגדול; השירות דוחה סוג שאינו נִתן
+ * ‏בקישור פתוח.
+ */
+const CreateOpenSchema = z.object({ kind: z.enum(AGREEMENT_KINDS) }).strict();
+
 /*
  * "מספר זיהוי" בתקנות אינו בהכרח תעודת זהות ישראלית — רוכשים תושבי
  * חוץ נפוצים בשוק, והמספר שלהם הוא דרכון עם אותיות. ולידציה של
@@ -56,6 +65,36 @@ const SignSchema = z
       .string()
       .refine(isSignatureDataUrl, "החתימה אינה תקינה — נסו לחתום שוב")
       .optional(),
+    /*
+     * ‎**רק בקישור פתוח** — ולכן `optional` כאן, וחובה בשירות.
+     *
+     * ‏בהסכם רגיל כל השדות האלה כבר בנוסח מרגע השליחה, ושליחה
+     * ‏שלהם הייתה ניסיון לדרוס אותם. בקישור פתוח אף אחד מהם אינו
+     * ‏ידוע, והחותם הוא המקור היחיד. השירות הוא שמכריע מה נדרש,
+     * ‏כי רק לו יש את השורה.
+     */
+    open: z
+      .object({
+        address: z.string().min(2).max(200),
+        /*
+         * ‎**`PhoneInputSchema` ולא מחרוזת** (ביקורת Codex, P1).
+         *
+         * ‏המספר הזה אינו רק טקסט למסמך — הוא מה שמזהה לקוח קיים.
+         * ‏`findOrCreateByPhone` מגבבת את מה שהיא מקבלת **כמות
+         * ‏שהוא**, וכל שאר המערכת שומרת `+972…` (זה בדיוק מה
+         * ‏ש-`PhoneInputSchema` עושה, ולכן היא קיימת). חותם שהקליד
+         * ‏`050-1234567` היה מייצר גיבוב שאינו תואם לשום כרטיס,
+         * ‏מקבל כרטיס כפול, וההסכם היה נוחת עליו — כלומר בדיוק
+         * ‏ההפך מ„אם זה לקוח קיים שההסכם ייכנס לו לכרטיס”, שהיא
+         * ‏הבקשה שהולידה את התכונה.
+         */
+        phone: PhoneInputSchema,
+        dealType: z.enum(["sale", "rent"]),
+        propertyText: z.string().min(4).max(300),
+        priceText: z.string().min(1).max(60),
+      })
+      .strict()
+      .optional(),
   })
   .strict();
 
@@ -72,6 +111,26 @@ export class AgreementsController {
     @Body(new ZodValidationPipe(CreateSchema)) body: z.infer<typeof CreateSchema>,
   ): Promise<{ id: string; url: string; unfilled: string[]; reused: boolean }> {
     return this.prisma.withTenant((tx) => this.agreements.create(tx, body));
+  }
+
+  /**
+   * ‎**קישור החתמה בלי לקוח.**
+   *
+   * ‏אותה יכולת `offers.send` של `POST /agreements`: מי שרשאי
+   * ‏להפיק קישור חתימה על הזמנה בכתב רשאי להפיק גם אחד פתוח.
+   * ‏יכולת נפרדת הייתה מתג שאיש אינו יודע מתי להדליק.
+   *
+   * ‏כל קריאה יוצרת קישור חדש, ובכוונה: שני לקוחות שנפגשו באותו
+   * ‏יום צריכים שני קישורים. החזרת אותו קישור לשניהם הייתה
+   * ‏מכניסה את השני להסכם של הראשון.
+   */
+  @Post("agreements/open")
+  @RequireCapability("offers.send")
+  @HttpCode(200)
+  async createOpen(
+    @Body(new ZodValidationPipe(CreateOpenSchema)) body: z.infer<typeof CreateOpenSchema>,
+  ): Promise<{ id: string; url: string }> {
+    return this.prisma.withTenant((tx) => this.agreements.createOpen(tx, body));
   }
 
   /**
@@ -186,6 +245,7 @@ export class AgreementsController {
     return this.agreements.sign(token, {
       signerName: body.signerName,
       signerIdNumber: body.signerIdNumber,
+      ...(body.open !== undefined ? { open: body.open } : {}),
       ...(body.signatureImage !== undefined ? { signatureImage: body.signatureImage } : {}),
       ip: req.ip,
       userAgent: req.headers["user-agent"],
