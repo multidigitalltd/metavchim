@@ -471,6 +471,8 @@ const UpdateSettingsSchema = z
       .optional(),
     /** התבנית נרשמה עם כפתור בכתובת דינמית — ראו את התיעוד בהגדרות */
     whatsappNotifyTemplateButton: z.boolean().optional(),
+    /** התבנית נרשמה עם שורה לכל עדכון ולא עם פירוט אחד */
+    whatsappNotifyTemplateLines: z.boolean().optional(),
     /*
      * תבנית ההזמנה למילוי טופס הדרישות. אותה צורה בדיוק, ובכוונה
      * תבנית נפרדת: זו נשלחת ל**לקוח** שהתקשר ולא נענה, ולא לסוכן.
@@ -2127,6 +2129,8 @@ export class PlatformController {
         notifyTemplateLang: string;
         /** התבנית נרשמה עם כפתור בכתובת דינמית — ראו את ההגדרה */
         notifyTemplateButton: boolean;
+        /** התבנית נושאת שורה לכל עדכון; חסר/false = פירוט אחד */
+        notifyTemplateLines: boolean;
         intakeTemplate: string;
         intakeTemplateLang: string;
         intakeTemplateButton: boolean;
@@ -2436,6 +2440,13 @@ export class PlatformController {
            */
           notifyTemplateButton:
             (await this.platformSettings.get("whatsappNotifyTemplateButton")) === "true",
+          /*
+           * ‎**ברירת המחדל היא הפירוט האחד**: זה מה שנרשם עד היום,
+           * ומעבר שקט לשורות היה שולח חמישה שמות לתבנית שיש בה
+           * שניים — כלומר שקט מוחלט בהתראות.
+           */
+          notifyTemplateLines:
+            (await this.platformSettings.get("whatsappNotifyTemplateLines")) === "true",
           /*
            * ריק = הקישור לטופס הדרישות אינו נשלח אוטומטית, וההודעה
            * המוכנה חוזרת בגוף ההתראה לסוכן. מצב, לא שגיאה.

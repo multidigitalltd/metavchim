@@ -179,6 +179,8 @@ interface PlatformSettings {
       notifyTemplateLang?: string;
       /** התבנית נרשמה עם כפתור בכתובת דינמית; חסר = בלי כפתור */
       notifyTemplateButton?: boolean;
+      /** התבנית נושאת שורה לכל עדכון; חסר = פירוט אחד */
+      notifyTemplateLines?: boolean;
       intakeTemplate?: string;
       intakeTemplateLang?: string;
       intakeTemplateButton?: boolean;
@@ -436,6 +438,7 @@ export function PlatformSettingsSection({
       const intakeTemplateLang = String(f.get("whatsappIntakeTemplateLang") ?? "").trim();
       // תיבת סימון שאינה מסומנת אינה מופיעה ב-FormData כלל — היעדר הוא "כבוי"
       const notifyTemplateButton = f.get("whatsappNotifyTemplateButton") !== null;
+      const notifyTemplateLines = f.get("whatsappNotifyTemplateLines") !== null;
       const intakeTemplateButton = f.get("whatsappIntakeTemplateButton") !== null;
       const reminderTemplateFields = f.get("whatsappViewingReminderTemplateFields") !== null;
       const reminderTemplateButtons = f.get("whatsappViewingReminderTemplateButtons") !== null;
@@ -489,6 +492,7 @@ export function PlatformSettingsSection({
         whatsappNotifyTemplate: notifyTemplate,
         whatsappNotifyTemplateLang: notifyTemplateLang,
         whatsappNotifyTemplateButton: notifyTemplateButton,
+        whatsappNotifyTemplateLines: notifyTemplateLines,
         whatsappIntakeTemplate: intakeTemplate,
         whatsappIntakeTemplateLang: intakeTemplateLang,
         whatsappIntakeTemplateButton: intakeTemplateButton,
@@ -2203,6 +2207,42 @@ export function PlatformSettingsSection({
                 <span className="font-normal">
                   (כתובת הבסיס של המערכת ואחריה ‎{"{{1}}"}‎ — הלחיצה נוחתת על
                   הכרטיס עצמו ולא על דף הבית)
+                </span>
+              </span>
+            </label>
+            {/*
+              ‎**ירידות שורה — ולמה זו תבנית אחרת ולא תיקון בקוד.**
+
+              ‎Meta אינה מתירה ירידת שורה ב**ערך** של תבנית ודוחה את
+              ההודעה כולה, ולכן הפירוט משוטח ל-„·” ותקציר המנטור מגיע
+              כשרשרת אחת ארוכה. שורות אמיתיות יכולות לשבת רק בגוף
+              התבנית, כלומר משתנה לכל שורה — תבנית שצריך לרשום.
+
+              ברירת המחדל היא הישנה: חמישה שמות לתבנית שיש בה שניים
+              נדחים, וההתראות נעלמות בלי סימן.
+            */}
+            <label className="mt-2 flex items-start gap-2">
+              <input
+                id="whatsappNotifyTemplateLines"
+                name="whatsappNotifyTemplateLines"
+                type="checkbox"
+                className="mt-1"
+                key={`nlines-${String(settings.whatsapp.assistant.notifyTemplateLines)}`}
+                defaultChecked={settings.whatsapp.assistant.notifyTemplateLines ?? false}
+              />
+              <span>
+                לתבנית יש <b>שורה לכל עדכון</b> ולא פירוט אחד{" "}
+                <span className="font-normal">
+                  (‎{"{{update_title}}"}‎, ‎{"{{line_1}}"}‎ … ‎{"{{line_4}}"}‎ —
+                  כשכל ‎{"{{line_n}}"}‎ נמצא בגוף התבנית בשורה משלו. זו הדרך
+                  היחידה לקבל ירידות שורה: ערך של תבנית אינו יכול להכיל אותן,
+                  ו-Meta דוחה הודעה שמנסה.)
+                </span>
+                <br />
+                <span className="font-normal">
+                  לא מסומן = ‎{"{{update_title}}"}‎ ו-‎{"{{update_details}}"}‎ —
+                  הצורה שנרשמה עד היום, והפירוט מגיע בשורה אחת עם „·” בין
+                  הנושאים.
                 </span>
               </span>
             </label>

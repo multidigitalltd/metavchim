@@ -99,6 +99,7 @@ import {
   sessionWindowOpen,
   shouldNotifyByWhatsApp,
   templateParams,
+  templateLineParams,
   notificationUrl,
   whatsappDeepLinkSuffix,
   whatsappTemplateButton,
@@ -3338,6 +3339,17 @@ interface WhatsAppConfig {
    * כפתור שלא קיבלה את ערכו — ולכן זו הגדרה מפורשת ולא ניחוש.
    */
   buttonUrl: boolean;
+  /**
+   * ‎**האם התבנית נרשמה עם שורה לכל עדכון** (`line_1`…`line_4`),
+   * ולא עם `update_details` אחד.
+   *
+   * ‏ערך של תבנית אינו יכול להכיל ירידת שורה, ולכן הפירוט משוטח
+   * ‏ל-`·` והתקציר מגיע כשרשרת אחת ארוכה. שורות אמיתיות אפשריות
+   * ‏רק בגוף התבנית, כלומר בתבנית אחרת — ולקוד אין דרך לדעת מה
+   * ‏נרשם. ברירת המחדל היא **הישנה**: שליחת חמישה שמות לתבנית
+   * ‏שיש בה שניים נדחית, וההתראה נעלמת בלי סימן.
+   */
+  templateLines: boolean;
 }
 
 let waConfigCache: { config: WhatsAppConfig | null; until: number } | null = null;
@@ -3381,6 +3393,7 @@ async function whatsappConfig(): Promise<WhatsAppConfig | null> {
           "whatsappNotifyTemplate",
           "whatsappNotifyTemplateLang",
           "whatsappNotifyTemplateButton",
+          "whatsappNotifyTemplateLines",
         ],
       },
     },
@@ -3402,6 +3415,7 @@ async function whatsappConfig(): Promise<WhatsAppConfig | null> {
           template: template !== null && template.trim() !== "" ? template.trim() : null,
           templateLang: stored.get("whatsappNotifyTemplateLang")?.trim() || "he",
           buttonUrl: stored.get("whatsappNotifyTemplateButton")?.trim() === "true",
+          templateLines: stored.get("whatsappNotifyTemplateLines")?.trim() === "true",
         }
       : null;
   waConfigCache = { config, until: now + WA_CONFIG_TTL_MS };
@@ -4436,8 +4450,17 @@ async function processWhatsAppNotifySweep(): Promise<void> {
             components: [
               {
                 type: "body",
-                // שמות המשתנים, ולא מיקומים — תבנית של Meta בעלת שמות דוחה משלוח מיקומי
-                parameters: whatsappTemplateParams("notify", templateParams(items)),
+                /*
+                 * שמות המשתנים, ולא מיקומים — תבנית של Meta בעלת
+                 * שמות דוחה משלוח מיקומי.
+                 *
+                 * ‎**והצורה נקבעת מההגדרה, לא מהגרסה.** תבנית
+                 * שנרשמה עם שני משתנים ומקבלת חמישה נדחית, וההתראה
+                 * נעלמת בלי סימן — ולכן ברירת המחדל היא הישנה.
+                 */
+                parameters: config.templateLines
+                  ? whatsappTemplateParams("notifyLines", templateLineParams(items))
+                  : whatsappTemplateParams("notify", templateParams(items)),
               },
               ...(button === null ? [] : [button]),
             ],
