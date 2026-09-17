@@ -1,10 +1,12 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { I18nManager, StyleSheet } from "react-native";
 import { Stack, useRouter, useSegments } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import * as SplashScreen from "expo-splash-screen";
+import * as Notifications from "expo-notifications";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import { AuthProvider, useAuth } from "@/lib/auth";
+import { routeForPushUrl } from "@/lib/push";
 import { ErrorState } from "@/components";
 import { colors } from "@/theme";
 
@@ -50,6 +52,21 @@ function Gate() {
       router.replace("/(tabs)/today");
     }
   }, [user, offline, inLogin, inChangePassword, router]);
+
+  /*
+   * ‏לחיצה על התראה — גם כשהאפליקציה הייתה סגורה (הפעלה קרה). הניווט
+   * ‏ממתין לזהות: לפני שידוע שיש Session, המסך היה נפתח ומיד מוחלף
+   * ‏במסך ההתחברות. כל תגובה מטופלת פעם אחת.
+   */
+  const response = Notifications.useLastNotificationResponse();
+  const handled = useRef<string | null>(null);
+  useEffect(() => {
+    if (!response || !user || user.mustChangePassword) return;
+    const id = response.notification.request.identifier;
+    if (handled.current === id) return;
+    handled.current = id;
+    router.push(routeForPushUrl(response.notification.request.content.data?.["url"]));
+  }, [response, user, router]);
 
   // ‏טוקן שמור והשרת לא ענה — לא מסך התחברות, אלא ניסיון חוזר
   if (user === undefined && offline) {

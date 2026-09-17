@@ -36,7 +36,7 @@ const KIND_LABELS: Record<string, string> = {
  * ‏מוצג כ„אין פגישות היום”.
  */
 export default function TodayScreen() {
-  const { user } = useAuth();
+  const { user, pushStatus, enablePush } = useAuth();
   const router = useRouter();
   const canLeads = can(user, "leads.view_own");
   const canCalendar = can(user, "calendar.manage");
@@ -157,6 +157,16 @@ export default function TodayScreen() {
         <ErrorState message={query.error} onRetry={query.reload} />
       ) : null}
       {data === null && query.loading ? <Text variant="muted">טוען את היום…</Text> : null}
+
+      {pushStatus === "undetermined" ? (
+        <Card>
+          <Text variant="title">לקבל התראה כשנכנס ליד?</Text>
+          <Text variant="muted">
+            ליד חדש, פגישה קרובה ומשימה שהגיע זמנה — גם כשהאפליקציה סגורה.
+          </Text>
+          <Button title="הפעלת התראות" kind="secondary" onPress={() => void enablePush()} />
+        </Card>
+      ) : null}
 
       {data ? (
         <>

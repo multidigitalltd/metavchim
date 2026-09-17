@@ -2750,6 +2750,29 @@ model PushSubscription {
   @@map("push_subscriptions")
 }
 
+/**
+ * טוקן פוש של האפליקציה לנייד (Expo Push) — צמד (משתמש, מכשיר).
+ * טבלה נפרדת ממנויי הדפדפן: ערוץ אחר, מחזור חיים אחר
+ * (ראו המיגרציה device_push_tokens).
+ */
+model DevicePushToken {
+  id            String    @id @db.Char(26)
+  tenantId      String    @map("tenant_id") @db.Char(26)
+  userId        String    @map("user_id") @db.Char(26)
+  /** `ExponentPushToken[...]` — ייחודי גלובלית */
+  token         String    @unique @db.VarChar(200)
+  /** ios | android */
+  platform      String    @db.VarChar(10)
+  deviceName    String?   @map("device_name") @db.VarChar(120)
+  createdAt     DateTime  @default(now()) @map("created_at")
+  lastSuccessAt DateTime? @map("last_success_at")
+  /** כישלונות רצופים; מתאפס בהצלחה. חציית התקרה מוחקת את הטוקן. */
+  failureCount  Int       @default(0) @map("failure_count")
+
+  @@index([tenantId, userId])
+  @@map("device_push_tokens")
+}
+
 // דפוס Outbox — אירוע נכתב באותה טרנזקציה עם השינוי; Worker מפיץ (docs/02 §5).
 model OutboxEvent {
   id          String    @id @db.Char(26)

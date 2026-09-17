@@ -318,6 +318,7 @@ export class AccountDeletionService {
         await tx.taskRecurrence.deleteMany({ where: { tenantId } });
         await tx.notification.deleteMany({ where: { tenantId } });
         await tx.pushSubscription.deleteMany({ where: { tenantId } });
+        await tx.devicePushToken.deleteMany({ where: { tenantId } });
         await tx.agreement.deleteMany({ where: { tenantId } });
         await tx.agreementTemplate.deleteMany({ where: { tenantId } });
         // הקבצים שמאחוריהן נאספו למעלה ונמחקים דרך storage.cleanup_object

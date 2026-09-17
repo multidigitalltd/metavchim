@@ -2,6 +2,12 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import type { PropsWithChildren } from "react";
 import type { Capability } from "@metavchim/shared";
 import { ApiError, apiGet, apiPost, setUnauthorizedListener } from "./api";
+import {
+  readPushStatus,
+  registerDevicePush,
+  unregisterDevicePush,
+  type PushStatus,
+} from "./push";
 import { clearSessionToken, readSessionToken, writeSessionToken } from "./session-store";
 
 /** ‏אותו DTO כמו `AuthUser` ב-web — התשובה של `GET /auth/me`. */
@@ -47,6 +53,10 @@ interface AuthState {
    * ‏מקומית ומתחברים מחדש עם הסיסמה החדשה, כמו ב-web.
    */
   changePassword(currentPassword: string, newPassword: string): Promise<void>;
+  /** ‏מצב התראות הפוש של המכשיר הזה; `null` עד שנבדק. */
+  pushStatus: PushStatus | null;
+  /** ‏הפעלה מתוך לחיצה — כאן מותר לבקש את ההרשאה מהמשתמש. */
+  enablePush(): Promise<PushStatus>;
 }
 
 const AuthContext = createContext<AuthState | null>(null);
@@ -59,6 +69,7 @@ interface LoginResponse {
 export function AuthProvider({ children }: PropsWithChildren) {
   const [user, setUser] = useState<AuthUser | null | undefined>(undefined);
   const [offline, setOffline] = useState(false);
+  const [pushStatus, setPushStatus] = useState<PushStatus | null>(null);
 
   const refresh = useCallback(async () => {
     const token = await readSessionToken();
@@ -90,6 +101,34 @@ export function AuthProvider({ children }: PropsWithChildren) {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  /*
+   * ‏רישום שקט אחרי התחברות: אם ההרשאה כבר ניתנה — הטוקן נרשם מחדש
+   * ‏בשרת (הוא יכול להתחלף בין התקנות). לא שואלים כאן: השאלה באה
+   * ‏מכפתור, כשהמשתמש מבין למה.
+   */
+  const ready = user !== null && user !== undefined && !user.mustChangePassword;
+  useEffect(() => {
+    if (!ready) {
+      setPushStatus(null);
+      return;
+    }
+    let cancelled = false;
+    registerDevicePush({ prompt: false })
+      .catch(() => readPushStatus())
+      .then((status) => {
+        if (!cancelled) setPushStatus(status);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [ready]);
+
+  const enablePush = useCallback(async (): Promise<PushStatus> => {
+    const status = await registerDevicePush({ prompt: true });
+    setPushStatus(status);
+    return status;
+  }, []);
 
   useEffect(() => {
     setUnauthorizedListener(() => {
@@ -141,6 +180,9 @@ export function AuthProvider({ children }: PropsWithChildren) {
   );
 
   const logout = useCallback(async () => {
+    // המכשיר יוצא מרשימת הפוש לפני שה-Session נסגר — אחרת ההסרה
+    // כבר אינה מורשית, והמכשיר ממשיך לקבל התראות של חשבון שהתנתק
+    await unregisterDevicePush();
     // הניתוק בשרת הוא הדבר החשוב: טוקן שנמחק רק מהמכשיר ממשיך לחיות
     // עד התפוגה. אם השרת לא נגיש — המכשיר נמחק בכל מקרה.
     await apiPost("/auth/logout", {}).catch(() => undefined);
@@ -150,13 +192,24 @@ export function AuthProvider({ children }: PropsWithChildren) {
 
   const changePassword = useCallback(async (currentPassword: string, newPassword: string) => {
     await apiPost("/auth/change-password", { currentPassword, newPassword });
+    await unregisterDevicePush();
     await clearSessionToken();
     setUser(null);
   }, []);
 
   const value = useMemo<AuthState>(
-    () => ({ user, offline, login, verifyOtp, logout, refresh, changePassword }),
-    [user, offline, login, verifyOtp, logout, refresh, changePassword],
+    () => ({
+      user,
+      offline,
+      login,
+      verifyOtp,
+      logout,
+      refresh,
+      changePassword,
+      pushStatus,
+      enablePush,
+    }),
+    [user, offline, login, verifyOtp, logout, refresh, changePassword, pushStatus, enablePush],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

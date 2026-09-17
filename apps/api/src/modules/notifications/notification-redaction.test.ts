@@ -616,10 +616,17 @@ describe("‏שער: אין דחיפה בלי צנזורה", () => {
     expect(call, "המפה המקורית נמסרה לניסוח").not.toContain("byNotificationId: notifyDetails");
   });
 
-  it("‏והדחיפה לדפדפן בונה את המטען מתוך שורה מצונזרת", () => {
+  /*
+   * ‏המטען משותף לשני ערוצי הדחיפה — הדפדפן (`JSON.stringify`) והנייד
+   * ‏(`expoPushMessage`) — ולכן הטענה היא על **הבנייה** מהשורה
+   * ‏המצונזרת, לא על הצורה שבה כל ערוץ אורז אותה.
+   */
+  it("‏והדחיפה לדפדפן ולנייד בונה את המטען מתוך שורה מצונזרת", () => {
     expect(WORKERS).toMatch(/const notification = redactNotification\(raw,/u);
-    const payload = WORKERS.indexOf("JSON.stringify(pushPayload(notification))");
+    const payload = WORKERS.indexOf("pushPayload(notification)");
     expect(payload, "מטען הדחיפה נעלם").toBeGreaterThan(0);
+    /* ‏והנייד מקבל את אותו מטען, לא בנייה משלו מהשורה הגולמית */
+    expect(WORKERS).toMatch(/expoPushMessage\(device\.token, message\)/u);
     expect(
       WORKERS.search(/const notification = redactNotification\(raw,/u),
       "המטען נבנה לפני הצנזורה",
