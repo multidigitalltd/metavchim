@@ -284,13 +284,13 @@ describe("הקצאת המקום — נספרת, ניתנת להעברה, ומו�
    * של מחיר שאינו נגבה, על סכום שהעורך מאפשר במפורש.
    */
   it("מחיר עם אגורות אינו מעוגל כלפי מעלה", () => {
-    const text = whatsappSeatOfferText(whatsappSeatOffer(19_950));
+    const text = whatsappSeatOfferText(whatsappSeatOffer(19_950, true));
     expect(text).toContain("199.5");
     expect(text).not.toContain("200");
   });
 
   it("מחיר עגול מוצג בלי אגורות מיותרות", () => {
-    const text = whatsappSeatOfferText(whatsappSeatOffer(20_000));
+    const text = whatsappSeatOfferText(whatsappSeatOffer(20_000, true));
     expect(text).toContain("200 ₪");
     expect(text).not.toContain("200.00");
   });
@@ -300,7 +300,7 @@ describe("הקצאת המקום — נספרת, ניתנת להעברה, ומו�
    * הצגת מחיר כלשהי שם הייתה מבטיחה רכישה שאין לה מחיר.
    */
   it("מסלול שאינו מוכר מקומות מפנה לפנייה אנושית, בלי מספר", () => {
-    const text = whatsappSeatOfferText(whatsappSeatOffer(null));
+    const text = whatsappSeatOfferText(whatsappSeatOffer(null, true));
     expect(text).toContain("פנו אלינו");
     expect(text).not.toMatch(/\d/u);
   });
@@ -352,5 +352,39 @@ describe("whatsappSeatsFullText", () => {
         expect(whatsappSeatsFullText({ seats, offer })).not.toContain("כבו");
       }
     }
+  });
+});
+
+/**
+ * ‎**מחיר בלי סליקה אינו הצעה** (ביקורת Codex).
+ *
+ * ‏שני התנאים נקבעים במקומות שונים לגמרי — המחיר בקטלוג המסלולים,
+ * ‏הסליקה בהגדרות הפלטפורמה — ולכן קל להם להיפרד. כשהם נפרדו, המסך
+ * ‏הציע „הוסיפו מקום כאן” בזמן שהפאנל שמתחתיו הודיע „התשלום המקוון
+ * ‏טרם הופעל”: שתי אמירות סותרות על אותו מסך.
+ */
+describe("whatsappSeatOffer — סליקה", () => {
+  it("מחיר קיים אך הסליקה לא הופעלה — פנייה אנושית, ולא כפתור קנייה", () => {
+    expect(whatsappSeatOffer(19_950, false)).toEqual({ kind: "contact" });
+    expect(whatsappSeatOfferText(whatsappSeatOffer(19_950, false))).not.toMatch(/\d/u);
+  });
+
+  it("מחיר וסליקה יחד — ורק אז אפשר לקנות", () => {
+    expect(whatsappSeatOffer(19_950, true)).toEqual({ kind: "purchase", monthlyAgorot: 19_950 });
+  });
+
+  it("בלי מחיר — גם סליקה פעילה אינה הופכת את זה להצעה", () => {
+    expect(whatsappSeatOffer(null, true)).toEqual({ kind: "contact" });
+  });
+
+  /*
+   * ‏וההודעה שחוסמת נגזרת מאותה הצעה, ולכן היא אינה יכולה להציע
+   * ‏רכישה שאין לה לאן ללכת — זו הייתה התלונה השנייה של אותה
+   * ‏ביקורת.
+   */
+  it("ההודעה שחוסמת אינה מפנה „לכאן” כשאין לאן", () => {
+    const text = whatsappSeatsFullText({ seats: 1, offer: whatsappSeatOffer(19_950, false) });
+    expect(text).toContain("פנו אלינו");
+    expect(text).not.toContain("כאן:");
   });
 });

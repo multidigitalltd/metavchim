@@ -2,6 +2,7 @@ import { Global, Module } from "@nestjs/common";
 import { ActivationNudgeService } from "./activation-nudge.service";
 import { AuditService } from "./audit.service";
 import { AutomationQuotaService } from "./automation-quota.service";
+import { CardcomService } from "./cardcom.service";
 import { CryptoService } from "./crypto.service";
 import { EmailDomainProviderService } from "./email-domain-provider.service";
 import { EmailDomainRecheckService } from "./email-domain-recheck.service";
@@ -36,7 +37,14 @@ import { VatService } from "./vat.service";
     AuditService,
     OutboxService,
     OutboxDispatcherService,
+    /*
+     * ‎`CardcomService` הוא עטיפה חסרת מצב מעל הגדרות הפלטפורמה,
+     * ‏ו„האם הסליקה מוגדרת” היא שאלה שנשאלת גם מחוץ למודול החיוב:
+     * ‏הגדרות המשרד והצוות מציעים רכישת מקום, ואסור שיציעו אותה
+     * ‏כשאין לאן לשלוח (ביקורת Codex).
+     */
     PlatformSettingsService,
+    CardcomService,
     TaxTablesService,
     PlatformAdminNotifierService,
     Pbx015NumbersService,
@@ -62,6 +70,7 @@ import { VatService } from "./vat.service";
     AuditService,
     OutboxService,
     PlatformSettingsService,
+    CardcomService,
     TaxTablesService,
     PlatformAdminNotifierService,
     Pbx015NumbersService,

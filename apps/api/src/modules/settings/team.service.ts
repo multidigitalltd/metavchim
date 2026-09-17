@@ -11,6 +11,7 @@ import {
   whatsappSeatsFullText,
 } from "@metavchim/shared";
 import { AuditService } from "../../core/audit.service";
+import { CardcomService } from "../../core/cardcom.service";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import { TenantContext } from "../../common/tenant-context";
@@ -92,6 +93,8 @@ export class TeamService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly plans: PlanCatalogService,
+    /* ‏„האם יש לאן לשלוח לתשלום” — ההודעה שחוסמת מציעה רכישה */
+    private readonly cardcom: CardcomService,
     private readonly loginThrottle: LoginThrottleService,
   ) {}
 
@@ -291,7 +294,10 @@ export class TeamService {
       throw new BadRequestException(
         whatsappSeatsFullText({
           seats,
-          offer: whatsappSeatOffer(plan?.whatsappSeatMonthlyAgorot ?? null),
+          offer: whatsappSeatOffer(
+            plan?.whatsappSeatMonthlyAgorot ?? null,
+            await this.cardcom.isConfigured(),
+          ),
         }),
       );
     }

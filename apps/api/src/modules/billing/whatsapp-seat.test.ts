@@ -51,7 +51,7 @@ describe("מקום נוסף לסוכן הוואטסאפ — מנוי חודשי"
    * השורה — סכום שמגיע מהלקוח הוא הנחה שהלקוח קובע לעצמו.
    */
   it("המחיר נקרא מהמסלול ולא מגוף הבקשה", () => {
-    expect(SERVICE).toContain("whatsappSeatOffer(plan?.whatsappSeatMonthlyAgorot ?? null)");
+    expect(SERVICE).toContain("whatsappSeatOffer(plan?.whatsappSeatMonthlyAgorot ?? null,");
     expect(SERVICE).toContain("monthlyAgorot: offer.monthlyAgorot");
     // גוף הבקשה של הרכישה ריק — אין מה לשלוח, ולכן אין מה לזייף
     expect(read("./whatsapp-seat.controller.ts")).toMatch(/async checkout\(\): Promise</u);

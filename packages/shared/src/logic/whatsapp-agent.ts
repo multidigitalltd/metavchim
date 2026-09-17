@@ -140,8 +140,21 @@ export type WhatsappSeatOffer =
 
 export function whatsappSeatOffer(
   planSeatMonthlyAgorot: number | null,
+  /**
+   * ‎**האם יש בכלל לאן לשלוח לתשלום** (ביקורת Codex, P2).
+   *
+   * ‏מחיר במסלול וסליקה מוגדרת הם שני תנאים נפרדים לגמרי: המחיר
+   * ‏נקבע בקטלוג המסלולים, והסליקה בהגדרות הפלטפורמה. כשהמחיר
+   * ‏קיים והסליקה לא, המסך הראה כפתור „הוספת מקום” בעוד הפאנל
+   * ‏עצמו מודיע „התשלום המקוון טרם הופעל” — שתי אמירות סותרות על
+   * ‏אותו מסך.
+   *
+   * ‏הפרמטר **חובה** ולא ברירת מחדל: קורא שישכח אותו הוא בדיוק
+   * ‏הבאג הזה, והמהדר הוא מי שצריך לתפוס אותו.
+   */
+  checkoutAvailable: boolean,
 ): WhatsappSeatOffer {
-  return planSeatMonthlyAgorot !== null && planSeatMonthlyAgorot > 0
+  return planSeatMonthlyAgorot !== null && planSeatMonthlyAgorot > 0 && checkoutAvailable
     ? { kind: "purchase", monthlyAgorot: planSeatMonthlyAgorot }
     : { kind: "contact" };
 }
