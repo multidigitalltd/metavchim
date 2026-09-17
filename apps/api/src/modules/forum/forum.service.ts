@@ -121,7 +121,7 @@ export interface ForumListingDto {
   area: string | null;
   ratingAverage: number | null;
   ratingCount: number;
-  myRating: { score: number; comment: string | null } | null;
+  myRating: { score: number; comment: string | null; anonymous: boolean } | null;
   mine: boolean;
   createdAt: Date;
 }
@@ -679,7 +679,7 @@ export class ForumService {
       },
       orderBy: [{ ratingCount: "desc" }, { ratingSum: "desc" }, { createdAt: "desc" }],
       take: 200,
-      include: { ratings: { where: { raterKey: key }, select: { score: true, comment: true } } },
+      include: { ratings: { where: { raterKey: key }, select: { score: true, comment: true, anonymous: true } } },
     });
     return {
       items: rows.map((row) => ({
@@ -732,11 +732,23 @@ export class ForumService {
         select: { id: true, score: true },
       });
       /*
-       * ‎**השם והמשרד נכתבים תמיד.** אין כאן ענף אנונימי ואין עמודה
-       * כזו: מי שמדרג עסק של אחר עומד מאחורי מה שכתב. `tenantId`
-       * נשמר בנפרד כדי שמחיקת משתמש לא תמחק גם את המשרד.
+       * ‎**שני המצבים כותבים את אותם שדות, ובדיוק הפוך** — ולכן הם
+       * ‏יושבים בביטוי אחד ולא בשני ענפים. החלפה מכיוון לכיוון מנקה
+       * ‏את מה שאינו שייך: מי שדירג בשמו וחזר לעילום שם היה משאיר
+       * ‏את `userId` בשורה, כלומר „אנונימי” שהזהות שלו עדיין שם.
+       *
+       * ‎`raterRef` הוא `tenantId:userId` מוצפן — כמו `authorRef`
+       * ‏בשרשור, ומאותה סיבה: עילום שם אינו אמור להיות גם היעדר
+       * ‏אחריות. אף מסלול תצוגה אינו קורא אותו.
        */
-      const data = { score: input.score, comment: input.comment ?? null, userId, raterTenantId: tenantId };
+      const data = {
+        score: input.score,
+        comment: input.comment ?? null,
+        anonymous: input.anonymous,
+        userId: input.anonymous ? null : userId,
+        raterTenantId: input.anonymous ? null : tenantId,
+        raterRef: input.anonymous ? this.authorRef(tenantId, userId) : null,
+      };
       if (previous === null) {
         await tx.forumRating.create({ data: { id: ulid(), listingId, raterKey: key, ...data } });
       } else {
@@ -767,15 +779,19 @@ export class ForumService {
         score: row.score,
         comment: row.comment,
         /*
-         * ‎**שם ומשרד, תמיד.** אין ענף אנונימי — ראו `ForumRating`
-         * בסכימה. משתמש שנמחק משאיר „משתמש שנמחק”, אבל המשרד נשאר
-         * בשורה, כך שלחוות הדעת יש מולה עדיין עם מי לדבר.
+         * ‎**אנונימי — ואין מה לחשוף.** השורה עצמה אינה נושאת
+         * ‏`userId` ואינה נושאת `raterTenantId`, ולכן זו אינה
+         * ‏הסתרה בתצוגה אלא היעדר נתון. מזוהה: השם והמשרד; משתמש
+         * ‏שנמחק משאיר „משתמש שנמחק” **עם** המשרד, כך שלחוות הדעת
+         * ‏יש מולה עדיין עם מי לדבר.
          */
-        author: {
-          label: row.user?.name ?? DELETED_USER,
-          office: row.raterTenant?.name ?? null,
-          anonymous: false,
-        },
+        author: row.anonymous
+          ? { label: FORUM_ANON_LABEL, office: null, anonymous: true }
+          : {
+              label: row.user?.name ?? DELETED_USER,
+              office: row.raterTenant?.name ?? null,
+              anonymous: false,
+            },
         createdAt: row.createdAt,
       })),
     };
