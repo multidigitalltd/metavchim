@@ -39,6 +39,7 @@ import {
   ListFilters,
   type ListFilterValues,
 } from "../list-filters";
+import { PublishToNetworkDialog } from "./publish-to-network-dialog";
 import { formatDate } from "@/lib/format";
 import {
   IconCheck,
@@ -785,6 +786,15 @@ export default function CollaborationPage() {
    * `filtersToQuery` מחזיר מחרוזת שמתחילה ב-"&" כדי להיצמד לפרמטר
    * קיים; לנתיבים האלה אין פרמטר אחר, ולכן ה-"&" הופך ל-"?".
    */
+  /*
+   * ‎**„העלה לרשת” — מאזור הרשת עצמו** (בקשת המשתמש).
+   *
+   * ‏עד כה הפרסום היה רק בכרטיס בודד או כפעולה מרוכזת ברשימות,
+   * ‏כלומר יציאה מהמסך וחזרה. `null` = החלון סגור; הערך אומר איזה
+   * ‏כיוון נפתח, ולכן אין כאן שני דגלים שיכולים להיפתח יחד.
+   */
+  const [publishKind, setPublishKind] = useState<"buyer" | "property" | null>(null);
+
   const netQuery = filtersToQuery(netFilters).replace(/^&/u, "?");
 
   const load = useCallback(() => {
@@ -2148,6 +2158,35 @@ export default function CollaborationPage() {
             </div>
 
             {/*
+              ‎**הכפתור שמעלה לרשת — בראש הכיוון שהוא מעלה אליו.**
+
+              ‏„מה יש לי להעלות” היא שאלה שנשאלת כשמסתכלים על הרשת,
+              ‏ולכן התשובה צריכה להיות כאן ולא ברשימת הכרטיסים
+              ‏(בקשת המשתמש). „הפניות ברשת” אינו כיוון שמעלים אליו
+              ‏כרטיס, ולכן אין לו כפתור.
+            */}
+            {coopTab === "market" ? null : (
+              <div className="mt-3.5 flex flex-wrap items-center gap-2.5">
+                <button
+                  type="button"
+                  className="mv-btn-primary"
+                  onClick={() => setPublishKind(coopTab === "demands" ? "buyer" : "property")}
+                >
+                  <IconUpload s={16} />{" "}
+                  {coopTab === "demands" ? "העלה קונה לרשת" : "העלה נכס לרשת"}
+                </button>
+                <span
+                  className="text-[length:var(--type-caption-lg)]"
+                  style={{ color: "var(--color-text-muted)" }}
+                >
+                  {coopTab === "demands"
+                    ? "בוחרים קונים מהמאגר — הם מתפרסמים כביקוש אנונימי."
+                    : "בוחרים נכסים מהמאגר — בלי כתובת מדויקת ובלי בעלים."}
+                </span>
+              </div>
+            )}
+
+            {/*
               אותו סרגל סינון של מסכי הרשימה, ובכוונה אותו רכיב: מתווך
               שלמד לסנן נכסים לא צריך ללמוד מסנן שני. הניסוח מתחלף לפי
               הכיוון — לקונה יש **תקציב** ולנכס יש **מחיר**.
@@ -3133,6 +3172,19 @@ export default function CollaborationPage() {
 
         </div>
       ) : null}
+
+      {/*
+        ‏החלון יושב מחוץ ללשוניות ולא בתוכן: הוא נפתח מהכיוון הנוכחי,
+        ‏אבל סגירתו אינה תלויה בו — ומעבר לשונית בזמן שהוא פתוח לא
+        ‏אמור להשאיר חלון יתום.
+      */}
+      <PublishToNetworkDialog
+        kind={publishKind ?? "buyer"}
+        open={publishKind !== null}
+        onClose={() => setPublishKind(null)}
+        /* ‏מה שהועלה אמור להופיע בפיד מיד, ולא בטעינה הבאה */
+        onPublished={load}
+      />
     </>
   );
 }
