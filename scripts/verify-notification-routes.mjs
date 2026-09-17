@@ -525,6 +525,50 @@ for (const [url, sources] of anchored) {
   }
 }
 
+/* ============ 5. הקישור שהבוט שולח מגיע למסך שקיים ============ */
+
+/**
+ * ‎**„העמוד לא נמצא” על כל קישור שהסוכן מביא בוואטסאפ.**
+ *
+ * ‏כל תוצאה מ-`ExecuteService` יכולה לשאת `href`, והוא נשלח
+ * ‏כשורת „👈 ‎<WEB_ORIGIN><href>”. אלה **מחרוזות**: שום טיפוס
+ * ‏ושום בדיקת יחידה אינם יודעים אם יש מסך בצד השני, בדיוק כמו
+ * ‏ב-`ENTITY_ROUTES` למעלה — ולכן בדיוק אותו כשל קרה שוב, בערוץ
+ * ‏אחר:
+ *
+ * ‏* ‎`/analytics` — מסך הניתוח הוא `/reports`. „ביצועי הסוכנים”
+ * ‏  הסתיים ב-404, בשתי התשובות.
+ * ‏* ‎`/exclusivity` — „מעקב בלעדיות” הוא רצועה בראש `/properties`,
+ * ‏  ולא מסך. „כמה בלעדיות נגמרות” הסתיים ב-404.
+ *
+ * ‏השער כאן ולא בקובץ נפרד: עץ הנתיבים כבר נקרא למעלה, וזה אותו
+ * ‏כלל בדיוק — קישור שהמערכת מוסרת לאדם חייב לנחות על מסך קיים.
+ *
+ * ‏תבנית (`/${'{'}kind{'}'}s/…`) מדולגת: המחרוזת לבדה אינה אומרת מה
+ * ‏הערכים, וניחוש שלהם היה שער שנופל על קוד תקין.
+ */
+const AGENT_HREF_SOURCES = [
+  join(root, "apps/api/src/modules/agent/execute.service.ts"),
+];
+let hrefsChecked = 0;
+for (const file of AGENT_HREF_SOURCES) {
+  const text = stripComments(readFileSync(file, "utf8"));
+  for (const match of text.matchAll(/href:\s*[^,\n]*?[`"](\/[^`"]*)[`"]/gu)) {
+    const href = match[1];
+    if (href.includes("${")) continue;
+    hrefsChecked += 1;
+    const path = href.split(/[?#]/u)[0];
+    if (!resolves(path)) {
+      errors.push(
+        `‏הסוכן שולח קישור ל-${href} (${file.slice(root.length + 1)}) — אין מסך כזה ב-apps/web/src/app`,
+      );
+    }
+  }
+}
+if (hrefsChecked === 0) {
+  errors.push("‏לא נמצא אף `href` בקטלוג הפעולות — הביטוי שסורק אותם כנראה התיישן");
+}
+
 /* ==================== התוצאה ==================== */
 
 if (errors.length > 0) {
@@ -533,5 +577,6 @@ if (errors.length > 0) {
   process.exit(1);
 }
 console.log(
-  `✓ ${entityTypes.length} ישויות בטבלה נוחתות על מסכים קיימים, ${written.size} סוגי התראות מכוסים, ושתי מפות הניתוב מסכימות`,
+  `✓ ${entityTypes.length} ישויות בטבלה נוחתות על מסכים קיימים, ${written.size} סוגי התראות מכוסים, ` +
+    `${hrefsChecked} קישורים של הסוכן נוחתים על מסכים קיימים, ושתי מפות הניתוב מסכימות`,
 );
