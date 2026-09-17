@@ -52,12 +52,18 @@
     ],
     "extra": {
       "supportsRTL": true,
-      "router": {}
+      "router": {},
+      "eas": {
+        "projectId": ""
+      }
     },
     "notification": {
       "icon": "./assets/notification-icon.png",
       "color": "#0c6e34",
       "iosDisplayInForeground": true
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
     }
   }
 }

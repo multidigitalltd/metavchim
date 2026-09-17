@@ -21,11 +21,11 @@ export const colors = {
   successSoft: "#e5fcea",
   warning: "#8f4200",
   warningBg: "#fef3c7",
-  amberFg: "#8a6414",
+  amberFg: "#79541a",
   border: "#e3e7de",
   inputBorder: "#808a82",
   rowBorder: "#e7eae3",
-  chipNeutralFg: "#3c443e",
+  chipNeutralFg: "#616a63",
   chipNeutralBg: "#eef1ec",
   tabActive: "#0b0e0c",
 } as const;

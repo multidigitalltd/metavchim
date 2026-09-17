@@ -9,7 +9,8 @@
     "ios": "expo run:ios",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint app src",
-    "doctor": "expo-doctor"
+    "doctor": "expo-doctor",
+    "verify:theme": "node scripts/verify-theme.mjs"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.1.1",

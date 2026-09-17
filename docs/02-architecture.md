@@ -122,7 +122,7 @@ flowchart TB
 | **Voice Agent** | ניהול שיחה קולית בזמן אמת: מכונת מצבים לשיחה, גישה לנתוני נכסים דרך API פנימי, כללי אסקלציה לאדם |
 | **Billing & Quotas** | מנויים, מסלולים, קרדיטים, מכסות (דקות/הודעות), Feature Flags לפי מסלול |
 | **Audit & Analytics** | לוג ביקורת בלתי-ניתן-לשינוי, אירועי שימוש, דוחות |
-| **Notifications** | התראות למתווך: In-App (WebSocket), WhatsApp, Push, Email — לפי העדפות |
+| **Notifications** | התראות למתווך: In-App, WhatsApp, Push (דפדפן ונייד דרך Expo), Email — לפי העדפות |
 
 ## 5. תקשורת בין מודולים
 
