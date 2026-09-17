@@ -67,8 +67,13 @@ export function DocsBrowser({
       </label>
 
       <p className="mb-8 text-sm" aria-live="polite" style={{ color: "var(--color-text-muted)" }}>
+        {/*
+          ‎**בלי חיפוש — בלי שורה** (בקשת המשתמש). מניין הנושאים
+          ‏אינו עונה על שאלה שמישהו שאל; השורה קיימת בשביל תוצאות
+          ‏החיפוש, והיא מופיעה כשמחפשים.
+        */}
         {needle === ""
-          ? `${items.length} נושאים, מסודרים לפי מתי צריך אותם.`
+          ? null
           : found.length === 0
             ? "אין נושא שמתאים לחיפוש הזה. נסו מילה אחרת, או כתבו לתמיכה."
             : `${found.length} נושאים תואמים`}
