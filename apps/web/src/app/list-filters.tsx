@@ -213,6 +213,7 @@ export function ListFilters({
   view,
   children,
   childrenActive = false,
+  mobileToggle = false,
 }: {
   values: ListFilterValues;
   onApply: (next: ListFilterValues) => void;
@@ -260,6 +261,27 @@ export function ListFilters({
    * בלי הסבר.
    */
   childrenActive?: boolean;
+  /**
+   * ‎**במובייל: אייקון סינון במקום שורת כפתורים** (בקשת המשתמש).
+   *
+   * ## מה זה פותר
+   *
+   * ‏בטלפון שורת החיפוש נשברה לשלוש שורות — כותרת הכרטיס, השדה
+   * ‏עם „חפש”, ו„עוד סינון” שנדחק לשורה משלו — לפני הנכס הראשון.
+   * ‏במסך שכל תפקידו הרשימה, זה שליש מהקיפול על פקדים.
+   *
+   * ‏עכשיו במובייל נשארת שורה אחת: השדה, ולידו **אייקון סינון**
+   * ‏שפותח את אותה מגירה בדיוק. „חפש”, „עוד סינון” ו„נקה” עוברים
+   * ‏לתוך המגירה, כך ששום פעולה אינה נעלמת — היא רק זזה לאן
+   * ‏שפותחים אותה.
+   *
+   * ‎**בדסקטופ לא משתנה דבר** (בקשה מפורשת): כל הכפתורים
+   * ‏במקומם, והמעבר הוא ב-CSS בלבד — `sm:` ולא בדיקת רוחב
+   * ‏ב-JavaScript, שהייתה מרנדרת במובייל דבר אחד ובשרת אחר.
+   *
+   * ‏אופציונלי, כי נכון לעכשיו זו בקשה על מסך הנכסים בלבד.
+   */
+  mobileToggle?: boolean;
 }): React.JSX.Element {
   const [draft, setDraft] = useState(values);
   const [open, setOpen] = useState(hasActiveFilters(values) || childrenActive);
@@ -397,14 +419,14 @@ export function ListFilters({
         </div>
         <button
           type="submit"
-          className="mv-btn-action"
+          className={`mv-btn-action ${mobileToggle ? "mv-filter-desktop" : ""}`}
           style={{ minHeight: 38 }}
         >
           <IconSearch s={15} /> חפש
         </button>
         <button
           type="button"
-          className="mv-btn-plain"
+          className={`mv-btn-plain ${mobileToggle ? "mv-filter-desktop" : ""}`}
           style={{ minHeight: 38, fontSize: "var(--type-caption)", paddingInline: 14 }}
           aria-expanded={open}
           onClick={() => setOpen(!open)}
@@ -414,11 +436,59 @@ export function ListFilters({
         {hasActiveFilters(draft) ? (
           <button
             type="button"
-            className="mv-btn-plain"
+            className={`mv-btn-plain ${mobileToggle ? "mv-filter-desktop" : ""}`}
             style={{ minHeight: 38, fontSize: "var(--type-caption)", paddingInline: 14 }}
             onClick={clear}
           >
             <IconX s={14} /> נקה
+          </button>
+        ) : null}
+        {/*
+          ‎**האייקון — מובייל בלבד.** אותו `open` בדיוק, ולכן אין
+          ‏כאן מצב שני שיכול להיפרד מזה של הדסקטופ. הנקודה מסמנת
+          ‏שיש סינון פעיל מתחת למגירה הסגורה — סינון שלא רואים הוא
+          ‏רשימה חסרה בלי הסבר.
+
+          ‎**44×44 — ולכן בלי `width`/`height` משלו** (ביקורת Codex).
+          ‏שאר הפקדים בשורה הם 38 גובה, ולכן נתתי לו את אותה מידה;
+          ‏אבל במובייל **זו הדרך היחידה** לפתוח את הסינונים, והרצפה
+          ‏המתועדת לאזור מגע היא 44 (docs/06 §נגישות). `mv-btn-icon`
+          ‏כבר נותן בדיוק את זה, והדריסה רק גרעה ממנו.
+        */}
+        {mobileToggle ? (
+          <button
+            type="button"
+            className="mv-btn-plain mv-btn-icon mv-filter-mobile relative"
+            aria-expanded={open}
+            aria-label={open ? "סגירת הסינונים" : "סינונים"}
+            onClick={() => setOpen(!open)}
+          >
+            <IconFilter s={17} />
+            {/*
+              ‎**הנקודה נגזרת מ-`values` ולא מ-`draft`** (ביקורת
+              ‏Codex).
+
+              ‏`draft` הוא מה שהוקלד וטרם נשלח, ו-`values` הוא מה
+              ‏שהרשימה באמת מסוננת לפיו — הטופס מחיל ערכים מוקלדים
+              ‏רק בשליחה, במכוון. עם `draft` הנקודה שיקרה לשני
+              ‏הכיוונים: מי שניקה שדה וסגר את המגירה איבד את הנקודה
+              ‏בזמן שהרשימה עדיין מסוננת, ומי שהקליד וסגר קיבל נקודה
+              ‏על סינון שלא הוחל. סימון שמתאר את מה שמוצג — זה כל
+              ‏תפקידו.
+            */}
+            {hasActiveFilters(values) || childrenActive ? (
+              <span
+                aria-hidden="true"
+                className="absolute rounded-full"
+                style={{
+                  insetBlockStart: 6,
+                  insetInlineEnd: 6,
+                  width: 7,
+                  height: 7,
+                  background: "var(--color-primary)",
+                }}
+              />
+            ) : null}
           </button>
         ) : null}
       </div>
@@ -491,6 +561,32 @@ export function ListFilters({
               onApply(merged);
             }}
           />
+        </div>
+      ) : null}
+
+      {/*
+        ‎**„חפש” ו„נקה” — במובייל, בתוך המגירה שהאייקון פתח.**
+
+        ‏הם ירדו משורת החיפוש כדי לפנות לה מקום, ולכן הם חייבים
+        ‏להופיע כאן: שדה מספרי שאין לצדו „החל” הוא שדה שהמתווך ממלא
+        ‏ולא קורה דבר. (‏Enter בשדה שולח את הטופס ממילא — זה הכפתור
+        ‏שאומר זאת.)
+      */}
+      {open && mobileToggle ? (
+        <div className="mt-3 flex gap-2 sm:hidden">
+          <button type="submit" className="mv-btn-action flex-1" style={{ minHeight: 40 }}>
+            <IconSearch s={15} /> חפש
+          </button>
+          {hasActiveFilters(draft) ? (
+            <button
+              type="button"
+              className="mv-btn-plain"
+              style={{ minHeight: 40, paddingInline: 16 }}
+              onClick={clear}
+            >
+              <IconX s={14} /> נקה
+            </button>
+          ) : null}
         </div>
       ) : null}
     </form>
