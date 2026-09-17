@@ -14,7 +14,9 @@
   "dependencies": {
     "@expo/vector-icons": "^15.1.1",
     "@metavchim/shared": "workspace:*",
+    "@react-native-async-storage/async-storage": "^3.1.1",
     "expo": "~57.0.23",
+    "expo-audio": "~57.0.5",
     "expo-constants": "~57.0.18",
     "expo-device": "~57.0.2",
     "expo-linking": "~57.0.10",

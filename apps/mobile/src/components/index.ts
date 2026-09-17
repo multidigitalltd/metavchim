@@ -8,3 +8,4 @@ export { Loading, ErrorState, EmptyState } from "./States";
 export { Row } from "./Row";
 export { Chips, type ChipOption } from "./Chips";
 export { ContactActions } from "./ContactActions";
+export { ProposalCard } from "./ProposalCard";

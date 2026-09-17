@@ -80,6 +80,45 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   return body as T;
 }
 
+/**
+ * ‏העלאת קובץ (multipart). בלי `Content-Type` מפורש — הרשת קובעת את
+ * ‏גבול החלקים בעצמה, וכותרת ידנית הייתה שוברת אותו. אותו טוקן,
+ * ‏אותו טיפול בשגיאות, ומגבלת זמן ארוכה יותר: תמלול של דקה אורך יותר
+ * ‏מבקשת JSON.
+ */
+export async function apiUpload<T>(path: string, form: FormData, timeoutMs = 90_000): Promise<T> {
+  const token = await readSessionToken();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}${path}`, {
+      method: "POST",
+      body: form,
+      signal: controller.signal,
+      headers: {
+        Accept: "application/json",
+        ...(token === null ? {} : { Authorization: `Bearer ${token}` }),
+      },
+    });
+  } catch (error) {
+    const aborted = error instanceof Error && error.name === "AbortError";
+    throw new ApiError(0, aborted ? "השרת לא ענה בזמן — נסו שוב" : "אין חיבור לשרת — בדקו את הרשת");
+  } finally {
+    clearTimeout(timer);
+  }
+  const body: unknown = await res.json().catch(() => null);
+  if (res.status === 401 && token !== null) onUnauthorized?.();
+  if (!res.ok) {
+    const record = (body ?? {}) as { message?: string | string[] };
+    const message = Array.isArray(record.message)
+      ? record.message.join(", ")
+      : (record.message ?? "שגיאה לא צפויה");
+    throw new ApiError(res.status, message, [], (body ?? {}) as Record<string, unknown>);
+  }
+  return body as T;
+}
+
 export const apiGet = <T>(path: string) => api<T>(path);
 export const apiPost = <T>(path: string, data: unknown) =>
   api<T>(path, { method: "POST", body: JSON.stringify(data) });

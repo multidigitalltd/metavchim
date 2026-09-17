@@ -5,16 +5,18 @@ import { Text } from "./Text";
 interface FieldProps extends TextInputProps {
   label: string;
   error?: string | null;
+  /** ‏השדה תופס את הרוחב הפנוי בשורה (לצד כפתור). */
+  grow?: boolean;
 }
 
 /** ‏שדה קלט עם תווית — מסגרת בניגודיות 3:1 לפחות, ימין-לשמאל. */
-export function Field({ label, error, style, ...input }: FieldProps) {
+export function Field({ label, error, grow = false, style, ...input }: FieldProps) {
   return (
-    <View style={styles.wrap}>
-      <Text variant="label">{label}</Text>
+    <View style={[styles.wrap, grow && styles.grow]}>
+      {label ? <Text variant="label">{label}</Text> : null}
       <TextInput
         {...input}
-        accessibilityLabel={label}
+        accessibilityLabel={label || input.placeholder}
         placeholderTextColor={colors.textMuted}
         style={[styles.input, error ? styles.inputError : null, style]}
       />
@@ -29,6 +31,7 @@ export function Field({ label, error, style, ...input }: FieldProps) {
 
 const styles = StyleSheet.create({
   wrap: { gap: space.xs },
+  grow: { flex: 1 },
   input: {
     minHeight: TOUCH + 4,
     borderWidth: 1.5,

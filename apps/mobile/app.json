@@ -42,6 +42,12 @@
           "color": "#0c6e34",
           "defaultChannel": "default"
         }
+      ],
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "האפליקציה מקליטה כדי לתמלל מה שאמרת ולהפוך אותו לפעולה במערכת."
+        }
       ]
     ],
     "extra": {

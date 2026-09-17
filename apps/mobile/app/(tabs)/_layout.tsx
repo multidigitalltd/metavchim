@@ -27,6 +27,7 @@ export default function TabsLayout() {
     >
       <Tabs.Screen name="today" options={{ title: "היום", tabBarIcon: icon("sunny-outline") }} />
       <Tabs.Screen name="leads" options={{ title: "לידים", tabBarIcon: icon("call-outline") }} />
+      <Tabs.Screen name="voice" options={{ title: "קול", tabBarIcon: icon("mic-outline") }} />
       <Tabs.Screen
         name="properties"
         options={{ title: "נכסים", tabBarIcon: icon("home-outline") }}
