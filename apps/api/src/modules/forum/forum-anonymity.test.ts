@@ -156,6 +156,7 @@ function ratingHarness() {
       findMany: async () => [
         {
           id: "01RATINGAAAAAAAAAAAAAAAAAA",
+          anonymous: false,
           score: 5,
           comment: "ליווה עסקה מורכבת, זמין בכל שעה",
           createdAt: new Date(1),
@@ -165,6 +166,7 @@ function ratingHarness() {
         {
           /* משתמש שנמחק — המשרד נשאר, כי הוא בעמודה משלו */
           id: "01RATINGBBBBBBBBBBBBBBBBBB",
+          anonymous: false,
           score: 2,
           comment: "לא חזר אליי",
           createdAt: new Date(2),
@@ -186,7 +188,11 @@ function ratingHarness() {
         forumListing: { update: async () => ({ ratingSum: 5, ratingCount: 1 }) },
       }),
   } as unknown as PrismaService;
-  const crypto = { forumAuthorKey: key } as unknown as CryptoService;
+  const crypto = {
+    forumAuthorKey: key,
+    /* ‏`rater_ref` בדירוג אנונימי — אותו מסלול כמו `author_ref` בשרשור */
+    encrypt: (value: string) => `enc(${value})`,
+  } as unknown as CryptoService;
   const audit = { record: async () => undefined } as unknown as AuditService;
   const notify = {} as unknown as ForumNotifyService;
   const svc = new ForumService(prisma, crypto, audit, notify);
@@ -198,14 +204,45 @@ function ratingHarness() {
   return { svc, run, created };
 }
 
-describe("דירוג במדריך — תמיד בשם", () => {
-  it("השורה נכתבת עם המשתמש ועם המשרד, בלי ענף אנונימי", async () => {
+/**
+ * ‎**דירוג במדריך — בשם או בעילום שם** (docs/16 §2א).
+ *
+ * הכלל „תמיד בשם” היה כאן, והתהפך: מתווך שעבד עם ספק שמופיע גם אצל
+ * הקולגה ממול פשוט אינו כותב את חוות הדעת השלילית, ומדריך שיש בו רק
+ * חמישה כוכבים אינו מדריך.
+ *
+ * מה שנבדק כאן הוא ש„אנונימי” פירושו **שאין מה לחשוף** — לא הסתרה
+ * בתצוגה מעל שורה שעדיין נושאת זהות.
+ */
+describe("דירוג במדריך — בשם או בעילום שם", () => {
+  it("בשם: השורה נושאת את המשתמש ואת המשרד, ובלי `raterRef`", async () => {
     const { svc, run, created } = ratingHarness();
-    await run(() => svc.rate("01LISTINGAAAAAAAAAAAAAAAAA", { score: 5 }));
+    await run(() => svc.rate("01LISTINGAAAAAAAAAAAAAAAAA", { score: 5, anonymous: false }));
 
     expect(created).toHaveLength(1);
-    expect(created[0]).toMatchObject({ userId: ME, raterTenantId: TENANT, score: 5 });
-    expect(Object.hasOwn(created[0] ?? {}, "anonymous")).toBe(false);
+    expect(created[0]).toMatchObject({
+      userId: ME,
+      raterTenantId: TENANT,
+      score: 5,
+      anonymous: false,
+      raterRef: null,
+    });
+  });
+
+  /*
+   * ‎**הלב.** שורה אנונימית שעדיין נושאת `userId` היא „אנונימית”
+   * במסך בלבד — כלומר הבטחה שאינה נכונה ברגע שמישהו קורא את הטבלה.
+   */
+  it("בעילום שם: אין משתמש ואין משרד, ויש `raterRef` מוצפן", async () => {
+    const { svc, run, created } = ratingHarness();
+    await run(() => svc.rate("01LISTINGAAAAAAAAAAAAAAAAA", { score: 2, anonymous: true }));
+
+    expect(created[0]).toMatchObject({
+      userId: null,
+      raterTenantId: null,
+      anonymous: true,
+      raterRef: `enc(${TENANT}:${ME})`,
+    });
   });
 
   it("ה-DTO נושא שם ומשרד; משתמש שנמחק — המשרד נשאר", async () => {
@@ -214,7 +251,5 @@ describe("דירוג במדריך — תמיד בשם", () => {
 
     expect(items[0]?.author).toEqual({ label: "דנה לוי", office: 'לוי נדל"ן', anonymous: false });
     expect(items[1]?.author).toEqual({ label: "משתמש שנמחק", office: "כהן נכסים", anonymous: false });
-    // ‏אין כאן „מתווך/ת אנונימי/ת”, בשום מצב
-    expect(items.every((item) => !item.author.anonymous)).toBe(true);
   });
 });

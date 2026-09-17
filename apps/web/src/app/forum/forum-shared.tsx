@@ -79,8 +79,8 @@ export interface ListingDto {
   area: string | null;
   ratingAverage: number | null;
   ratingCount: number;
-  /** ‏דירוג הוא תמיד בשם — ראו `ForumRatingInputSchema` */
-  myRating: { score: number; comment: string | null } | null;
+  /** ‏הדירוג שלי על הרשומה — כולל הבחירה בעילום שם, כדי שהטופס ייפתח כפי שנשמר */
+  myRating: { score: number; comment: string | null; anonymous: boolean } | null;
   mine: boolean;
   createdAt: string;
 }

@@ -8,12 +8,13 @@ import {
   FORUM_TOOL_CATEGORY_LABELS,
   ForumListingInputSchema,
   ForumRatingInputSchema,
+  forumProWhatsappLink,
   type ForumListingKind,
 } from "@metavchim/shared";
 import { ApiError, apiGet, apiList, apiPost } from "@/lib/api";
 import { timeAgo } from "@/lib/format";
 import { ConfirmDialog } from "../confirm-dialog";
-import { IconGlobe, IconMap, IconPhone, IconPlus, IconStar, IconUser, IconWarning } from "../icons";
+import { IconChat, IconGlobe, IconMap, IconPhone, IconPlus, IconStar, IconUser, IconWarning } from "../icons";
 import { FilterChips, SearchField } from "../list-controls";
 import { LoadError } from "../load-error";
 import { Notice } from "../notice";
@@ -27,9 +28,10 @@ import { AuthorBadge, ReportDialog, StarInput, Stars, type ListingDto, type Rati
  * אחת (דירוג חוזר מחליף), והממוצע מוצג בכוכבים עם מספר המדרגים —
  * ממוצע של אחד אינו ממוצע.
  *
- * ‎**ודירוג הוא תמיד בשם**, בניגוד לשרשור ולתגובה. שאלה בעילום שם
- * פוגעת לכל היותר בשואל; חוות דעת בעילום שם היא אמירה על **העסק של
- * מישהו אחר** שאין מולה עם מי לדבר.
+ * ‎**ואפשר לדרג גם בעילום שם.** הכלל ההפוך היה כאן, ונימוקו נשאר
+ * נכון — חוות דעת היא אמירה על **העסק של מישהו אחר**. אבל מתווך
+ * שעבד עם ספק שמופיע גם אצל הקולגה ממול פשוט אינו כותב את חוות
+ * הדעת השלילית, ומדריך שיש בו רק חמישה כוכבים אינו מדריך.
  */
 
 const COPY: Record<ForumListingKind, { add: string; empty: string; intro: string; nameLabel: string; ratePrompt: string }> = {
@@ -131,6 +133,23 @@ export function ListingDirectory({ kind }: { kind: ForumListingKind }) {
                 ) : null}
               </div>
               <div className="mt-auto flex flex-wrap items-center gap-2 pt-3">
+                {/*
+                  ‎**„הודעה בוואטסאפ” — ורק כשיש למי.** `forumProWhatsappLink`
+                  מחזירה `null` על מייל, על קו נייח ועל שדה מעורב, ואז אין
+                  כפתור: כפתור שנפתח על מספר שאינו נמען שולח הודעה שאיש אינו
+                  מקבל. ההודעה נפתחת כבר כתובה — „הי, הגעתי דרך מערכת מתווכים”
+                  — כי מספר לא מוכר בוואטסאפ הוא מספר שלא עונים לו.
+                */}
+                {forumProWhatsappLink(item.contact) !== null ? (
+                  <a
+                    href={forumProWhatsappLink(item.contact) ?? "#"}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="mv-btn-soft"
+                  >
+                    <IconChat s={15} /> הודעה בוואטסאפ
+                  </a>
+                ) : null}
                 <button type="button" className="mv-btn-soft" onClick={() => setRating(item)}>
                   <IconStar s={15} /> {item.myRating === null ? "לדרג מניסיון" : `הדירוג שלי: ${item.myRating.score}`}
                 </button>
@@ -192,18 +211,21 @@ function Ratings({ listingId, onReport }: { listingId: string; onReport: (id: st
 function RateDialog({ listing, prompt, onClose, onRated }: { listing: ListingDto | null; prompt: string; onClose: () => void; onRated: () => void }) {
   const [score, setScore] = useState(0);
   const [comment, setComment] = useState("");
+  const [anonymous, setAnonymous] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     setScore(listing?.myRating?.score ?? 0);
     setComment(listing?.myRating?.comment ?? "");
+    /* דירוג קיים נפתח כפי שנשמר — כולל הבחירה בעילום שם */
+    setAnonymous(listing?.myRating?.anonymous ?? false);
     setError(null);
   }, [listing]);
 
   async function send(): Promise<void> {
     if (listing === null) return;
-    const parsed = ForumRatingInputSchema.safeParse({ score, ...(comment.trim() === "" ? {} : { comment: comment.trim() }) });
+    const parsed = ForumRatingInputSchema.safeParse({ score, anonymous, ...(comment.trim() === "" ? {} : { comment: comment.trim() }) });
     if (!parsed.success) {
       setError("בחרו כוכבים — אחד עד חמישה.");
       return;
@@ -230,19 +252,27 @@ function RateDialog({ listing, prompt, onClose, onRated }: { listing: ListingDto
           <textarea className="mv-field" rows={3} maxLength={500} value={comment} onChange={(e) => setComment(e.target.value)} />
         </label>
         {/*
-          ‎**אמירה, לא תיבה.** כאן הייתה „לדרג בעילום שם”. חוות דעת על
-          העסק של מישהו אחר אינה שאלה מביכה — היא אמירה שצריך לעמוד
-          מאחוריה, והשקיפות הזו היא מה שנותן למדריך את ערכו.
+          ‎**תיבה, ולא אמירה.** כאן הייתה „הדירוג מופיע בשמכם”, בלי
+          בחירה. מתווך שעבד עם ספק שמופיע גם אצל הקולגה ממול פשוט לא
+          כתב את חוות הדעת השלילית — ומדריך שיש בו רק חמישה כוכבים
+          אינו מדריך.
         */}
-        <p className="mv-forum-anon m-0">
+        <label className="mv-forum-anon m-0 flex items-start gap-2">
+          <input
+            type="checkbox"
+            checked={anonymous}
+            onChange={(e) => setAnonymous(e.target.checked)}
+            className="mt-0.5"
+          />
           <span>
-            <span className="inline-flex items-center gap-1.5 font-bold"><IconUser s={15} /> הדירוג מופיע בשמכם</span>
+            <span className="inline-flex items-center gap-1.5 font-bold"><IconUser s={15} /> לדרג בעילום שם</span>
             <span className="mv-forum-anon__hint">
-              השם שלכם ושם המשרד יוצגו ליד חוות הדעת. בפורום עצמו אפשר לשאול ולהשיב
-              בעילום שם — כאן לא.
+              {anonymous
+                ? "השם שלכם ושם המשרד לא יישמרו כלל על חוות הדעת, ולא יוצגו לאיש."
+                : "בלי סימון — השם שלכם ושם המשרד יוצגו ליד חוות הדעת."}
             </span>
           </span>
-        </p>
+        </label>
         {error ? <Notice tone="danger">{error}</Notice> : null}
       </div>
     </ConfirmDialog>

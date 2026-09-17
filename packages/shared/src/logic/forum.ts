@@ -1,5 +1,6 @@
 import type { EmailContent } from "./email-template.js";
 import { formatIsraeliNumber } from "./israel-time.js";
+import { canReceiveWhatsapp, whatsappLink } from "./whatsapp-link.js";
 
 /**
  * הפורום המקצועי — הליבה המשותפת (docs/16).
@@ -79,7 +80,13 @@ export const FORUM_PRO_CATEGORY_LABELS: Record<ForumProCategory, string> = {
   mortgage_advisor: "יועץ/ת משכנתאות",
   photographer: "צלם/ת נדל\"ן",
   inspector: "בדק בית",
-  home_stager: "הום סטיילינג",
+  /*
+   * ‎**„אדריכלות ועיצוב פנים” ולא „הום סטיילינג”** (בקשת המשתמש).
+   *
+   * ‏המפתח `home_stager` נשאר: הוא שמור בשורות קיימות במאגר, ושינוי
+   * ‏שלו היה מותיר אותן בקטגוריה שאינה בקטלוג. התווית היא מה שרואים.
+   */
+  home_stager: "אדריכלות ועיצוב פנים",
   mover: "הובלות",
   notary: "נוטריון",
   contractor: "שיפוצים",
@@ -145,6 +152,49 @@ export const FORUM_REPORT_NOTE_MAX = 500;
 export const FORUM_SEARCH_MAX = 120;
 /** כמה שרשורים בעמוד — לרשימה מהירה שנטענת בבת אחת. */
 export const FORUM_PAGE_SIZE = 30;
+
+/* ==================== פנייה לבעל מקצוע ==================== */
+
+/**
+ * ‎**פתיחת השורה הראשונה — „מי אתה ואיך הגעת אליי”.**
+ *
+ * ‏בעל המקצוע במדריך אינו מכיר את מי שכותב לו, ומספר לא מוכר
+ * ‏בוואטסאפ הוא מספר שלא עונים לו. המשפט הזה עונה על השאלה עוד
+ * ‏לפני שהיא נשאלת, והוא גם מה שהופך את המדריך למשהו ששווה
+ * ‏להיות רשום בו: בעל המקצוע לומד מאיפה מגיעות הפניות.
+ *
+ * ‏קבוע אחד ולא טקסט שכל מסך מרכיב — הוא יופיע גם בוואטסאפ של
+ * ‏הסוכן וגם בכפתור שבמסך, וניסוח שחי בשני מקומות מתפצל.
+ */
+export const FORUM_PRO_INTRO = "הי, הגעתי דרך מערכת מתווכים";
+
+/** ספרות וסימני ניקוד של מספר בלבד — ראו `forumProWhatsappLink`. */
+const PHONE_ONLY = /^[\d+()\-\u2013\u2014.\s]+$/u;
+
+/**
+ * קישור וואטסאפ לבעל מקצוע, או `null` כשאי אפשר.
+ *
+ * ‎`contact` במדריך הוא שדה חופשי: יש בו טלפון, יש בו מייל, ויש
+ * ‏בו „050-1234567 / office@…”. ‏`canReceiveWhatsapp` הוא מה
+ * ‏שמכריע — הוא דורש נייד ישראלי מלא אחרי נרמול, ולכן מייל, קו
+ * ‏נייח או מחרוזת מעורבת נופלים בו. כפתור שנפתח על מספר שאינו
+ * ‏נמען גרוע מכפתור שאינו מוצג: ההודעה „נשלחת” ואיש אינו מקבל
+ * ‏אותה (אותו נימוק שכתוב ב-`canReceiveWhatsapp` עצמה).
+ */
+export function forumProWhatsappLink(contact: string | null | undefined): string | null {
+  const value = (contact ?? "").trim();
+  /*
+   * ‎**קודם „זה בכלל מספר”, ורק אז „זה נייד ישראלי”.**
+   *
+   * ‏`canReceiveWhatsapp` מסירה כל תו שאינו ספרה, ולכן
+   * ‏„050-1234567 / office@example.com” היה עובר אצלה בהצלחה —
+   * ‏האותיות נעלמות והספרות נשארות. הכפתור היה נפתח על המספר
+   * ‏הנכון במקרה הזה, ועל ספרות מצורפות במקרה הבא. שדה חופשי
+   * ‏שיש בו יותר ממספר אינו מספר.
+   */
+  if (!PHONE_ONLY.test(value) || !canReceiveWhatsapp(value)) return null;
+  return whatsappLink(value, FORUM_PRO_INTRO);
+}
 
 /* ==================== אנונימיות ==================== */
 

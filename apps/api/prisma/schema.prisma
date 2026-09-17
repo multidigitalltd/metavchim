@@ -3928,19 +3928,29 @@ model ForumListing {
   @@map("forum_listings")
 }
 
-/// דירוג מניסיון אישי — אחד לכל מדרג (`raterKey`), **תמיד בשם**.
+/// דירוג מניסיון אישי — אחד לכל מדרג (`raterKey`), בשם או בעילום שם.
 ///
-/// ‏זו נקודת היציאה היחידה מהאנונימיות של הפורום, והיא מכוונת: שאלה
-/// ‏בעילום שם פוגעת לכל היותר בשואל, ואילו דירוג בעילום שם הוא אמירה
-/// ‏על **עסק של מישהו אחר** שאי אפשר לעמוד מולה. לכן אין כאן עמודת
-/// ‏`anonymous`, והשם והמשרד נשמרים בשורה — `rater_tenant_id` בנפרד,
-/// ‏כדי שמחיקת משתמש לא תמחק גם את המשרד (כמו ב-`forum_threads`).
+/// ‏הכלל „תמיד בשם” היה כאן, ונימוקו נשאר נכון: חוות דעת היא אמירה
+/// ‏על **עסק של מישהו אחר**. מה שהתברר הוא שהמחיר של הכלל גבוה
+/// ‏יותר — חוות דעת שלילית על ספק שעובדים איתו גם ממול פשוט אינה
+/// ‏נכתבת, ומדריך שיש בו רק חמישה כוכבים אינו מדריך.
+///
+/// ‏שורה אנונימית אינה נושאת `userId` ואינה נושאת `raterTenantId`,
+/// ‏בדיוק כמו שרשור אנונימי: „מוסתר” כאן פירושו שאין מה לחשוף.
+/// ‏`raterRef` הוא `tenantId:userId` מוצפן במפתח הנתונים — לטיפול
+/// ‏בהתעללות בלבד, ואינו נקרא באף מסלול תצוגה.
+///
+/// ‏בדירוג מזוהה `raterTenantId` נשמר בנפרד מ-`userId`, כדי שמחיקת
+/// ‏משתמש לא תמחק גם את המשרד (כמו ב-`forum_threads`).
 model ForumRating {
   id            String   @id @db.Char(26)
   listingId     String   @map("listing_id") @db.Char(26)
   raterKey      String   @map("rater_key") @db.Char(64)
+  anonymous     Boolean  @default(false)
   userId        String?  @map("user_id") @db.Char(26)
   raterTenantId String?  @map("rater_tenant_id") @db.Char(26)
+  /// מדרג אנונימי: `tenantId:userId` מוצפן במפתח הנתונים — לניהול בלבד
+  raterRef      String?  @map("rater_ref") @db.VarChar(255)
   score         Int      @db.SmallInt
   comment       String?  @db.VarChar(500)
   createdAt     DateTime @default(now()) @map("created_at")
