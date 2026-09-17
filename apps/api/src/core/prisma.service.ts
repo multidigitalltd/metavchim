@@ -1,6 +1,6 @@
 import { Injectable, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
 import { Prisma, PrismaClient } from "@prisma/client";
-import { TenantContext } from "../common/tenant-context";
+import { officeContext, TenantContext } from "../common/tenant-context";
 
 export type TenantTx = Prisma.TransactionClient;
 
@@ -62,10 +62,28 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
    * לא מקלט משתמש.
    */
   async withExplicitTenant<T>(tenantId: string, fn: (tx: TenantTx) => Promise<T>): Promise<T> {
-    return this.$transaction(async (tx) => {
-      await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
-      return fn(tx);
-    });
+    const inTransaction = async (): Promise<T> =>
+      this.$transaction(async (tx) => {
+        await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
+        return fn(tx);
+      });
+    /*
+     * ‎**וגם הקשר הדייר — כשאין אחד.**
+     *
+     * ‏ה-`set_config` קובע את הדייר ל-RLS בלבד. שכבת הנתונים שואלת
+     * ‏גם את `TenantContext`, ולכן קורא בלי בקשה — וובהוק, סבב רקע —
+     * ‏קיבל שגיאה באמצע העבודה: כך אבדה **כל תשובת לקוח במייל**, עד
+     * ‏שהנתיב ההוא קבע את ההקשר בעצמו. כאן זה נסגר לכל הקוראים, כי
+     * ‏הדייר כבר ידוע בדיוק בנקודה הזו.
+     *
+     * ‎**רק כשאין**, ולעולם לא דריסה: קורא שכבר יש לו הקשר מבצע
+     * ‏פעולה של אדם מסוים, ולכן „מי עשה”, היכולות והרישום ביומן
+     * ‏חייבים להישאר שלו. זה גם מה שמונע שינוי התנהגות במסלולים
+     * ‏הקיימים — הם פשוט ממשיכים כשהיו.
+     */
+    return TenantContext.maybeCurrent() === undefined
+      ? TenantContext.run(officeContext(tenantId), inTransaction)
+      : inTransaction();
   }
 
   /**
