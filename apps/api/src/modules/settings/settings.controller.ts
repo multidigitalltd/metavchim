@@ -82,6 +82,7 @@ import {
 import { TenantContext } from "../../common/tenant-context";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { AuditService } from "../../core/audit.service";
+import { CardcomService } from "../../core/cardcom.service";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PlatformSettingsService } from "../../core/platform-settings.service";
 import { EmailDomainProviderService } from "../../core/email-domain-provider.service";
@@ -289,6 +290,8 @@ export class SettingsController {
     private readonly auth: AuthService,
     private readonly tenantLogo: TenantLogoService,
     private readonly plans: PlanCatalogService,
+    /* ‏„האם יש לאן לשלוח לתשלום” — ההצעה שחוזרת למסך נשענת על זה */
+    private readonly cardcom: CardcomService,
     private readonly team: TeamService,
     private readonly officeSettings: OfficeSettingsService,
     private readonly accountDeletion: AccountDeletionService,
@@ -1753,7 +1756,10 @@ export class SettingsController {
     return {
       ...status,
       denial,
-      offer: whatsappSeatOffer(plan?.whatsappSeatMonthlyAgorot ?? null),
+      offer: whatsappSeatOffer(
+        plan?.whatsappSeatMonthlyAgorot ?? null,
+        await this.cardcom.isConfigured(),
+      ),
     };
   }
 

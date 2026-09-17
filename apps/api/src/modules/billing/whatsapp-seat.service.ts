@@ -77,6 +77,7 @@ export class WhatsappSeatService {
     checkoutAvailable: boolean;
     rows: SeatRow[];
   }> {
+    const checkoutAvailable = await this.cardcom.isConfigured();
     const [plan, granted, paid, used, rows] = await Promise.all([
       this.plans.forTenant(tenantId),
       this.prisma.tenant
@@ -99,8 +100,8 @@ export class WhatsappSeatService {
         paid,
       }),
       used,
-      offer: whatsappSeatOffer(plan?.whatsappSeatMonthlyAgorot ?? null),
-      checkoutAvailable: await this.cardcom.isConfigured(),
+      offer: whatsappSeatOffer(plan?.whatsappSeatMonthlyAgorot ?? null, checkoutAvailable),
+      checkoutAvailable,
       rows: rows.map((row) => ({
         id: row.id,
         monthlyAgorot: row.monthlyAgorot,
@@ -128,7 +129,21 @@ export class WhatsappSeatService {
       throw new BadRequestException("הסוכן החכם אינו כלול במסלול של המשרד.");
     }
     const plan = await this.plans.forTenant(input.tenantId);
-    const offer = whatsappSeatOffer(plan?.whatsappSeatMonthlyAgorot ?? null);
+    /*
+     * ‏שתי הבדיקות נשארו נפרדות **כאן ובכוונה**, אף שההצעה כבר
+     * ‏מאחדת אותן: המשתמש שמגיע לנקודה הזו צריך לדעת **איזו**
+     * ‏משתיהן עצרה אותו — „המסלול אינו מוכר” ו„הסליקה לא הופעלה”
+     * ‏מובילות לשתי פעולות שונות לגמרי.
+     */
+    /*
+     * ‎`true` במפורש, ושתי הבדיקות נשארות נפרדות **כאן ובכוונה**.
+     *
+     * ‏ההצעה שחוזרת למסך מאחדת „אין מחיר” ו„אין סליקה” לתשובה אחת,
+     * ‏כי למסך יש רק שתי אפשרויות להציג. מי שהגיע עד לכאן צריך את
+     * ‏ההפך: לדעת **איזו** משתיהן עצרה אותו, כי „המסלול אינו מוכר”
+     * ‏ו„הסליקה לא הופעלה” מובילות לשתי פעולות שונות לגמרי.
+     */
+    const offer = whatsappSeatOffer(plan?.whatsappSeatMonthlyAgorot ?? null, true);
     if (offer.kind !== "purchase") {
       throw new BadRequestException(
         "המסלול הנוכחי אינו כולל מקומות נוספים לרכישה — פנו אלינו ונתאים.",

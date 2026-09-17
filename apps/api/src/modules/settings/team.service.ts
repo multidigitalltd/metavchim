@@ -7,8 +7,11 @@ import {
   limitState,
   WHATSAPP_AGENT_DENIAL_TEXT,
   whatsappAgentSeats,
+  whatsappSeatOffer,
+  whatsappSeatsFullText,
 } from "@metavchim/shared";
 import { AuditService } from "../../core/audit.service";
+import { CardcomService } from "../../core/cardcom.service";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import { TenantContext } from "../../common/tenant-context";
@@ -90,6 +93,8 @@ export class TeamService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly plans: PlanCatalogService,
+    /* ‏„האם יש לאן לשלוח לתשלום” — ההודעה שחוסמת מציעה רכישה */
+    private readonly cardcom: CardcomService,
     private readonly loginThrottle: LoginThrottleService,
   ) {}
 
@@ -278,10 +283,22 @@ export class TeamService {
       where: { tenantId, isActive: true, whatsappAccess: true },
     });
     if (used >= seats) {
+      /*
+       * ‎**ההודעה אומרת מה לעשות, ומה שהיא אומרת קיים על המסך.**
+       *
+       * ‏שני הנוסחים הקודמים היו מקובעים כאן: „כבו” (פקד שאינו
+       * ‏קיים בשם הזה) ו„פנו אלינו” (גם כשיש דף תשלום). שניהם
+       * ‏נגזרים עכשיו מההצעה, במקום אחד — ראו `whatsappSeatsFullText`.
+       */
+      const plan = await this.plans.forTenant(tenantId, tx);
       throw new BadRequestException(
-        seats === 1
-          ? "הסוכן בוואטסאפ כלול לסוכן אחד במשרד. כדי להעביר אותו — כבו אותו אצל מי שמחזיק בו כרגע, או פנו אלינו להוספת מקום."
-          : `המשרד מחזיק ${seats} מקומות לסוכן בוואטסאפ, וכולם תפוסים. כבו אצל אחד המחזיקים, או פנו אלינו להוספת מקום.`,
+        whatsappSeatsFullText({
+          seats,
+          offer: whatsappSeatOffer(
+            plan?.whatsappSeatMonthlyAgorot ?? null,
+            await this.cardcom.isConfigured(),
+          ),
+        }),
       );
     }
   }

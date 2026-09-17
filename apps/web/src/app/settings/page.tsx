@@ -251,6 +251,75 @@ const TABS: [key: string, label: string][] = [
   ["support", "פניות לתמיכה"],
 ];
 
+/**
+ * ‎**המקום של הסוכן בוואטסאפ — מצב ופעולה בפקד אחד.**
+ *
+ * ## למה התווית אומרת גם מה הלחיצה עושה
+ *
+ * ‏„מחזיק בסוכן” תיאר **מצב**, והלחיצה עליו שחררה את המקום — בלי
+ * ‏ששום דבר אמר זאת. בעל משרד שנחסם בהקצאה קרא „כבו אצל מי
+ * ‏שמחזיק” וחיפש פקד בשם „כבה” שאינו קיים (דיווח מהשטח). עכשיו
+ * ‏התווית נושאת את שניהם: המצב, ואחריו הפעולה בכתב עמום.
+ *
+ * ‎„כלול תמיד” ירד בשעתו מאותה סיבה: בעל המשרד מחזיק במקום
+ * ‏כברירת מחדל ורשאי להעביר אותו, ולכן התווית אומרת מה המצב
+ * ‏**בפועל** ולא מה התפקיד.
+ *
+ * ## ולמה רכיב, ולא שני עותקים
+ *
+ * ‏אותו פקד הופיע פעמיים באותו עמוד — ליד טלפון שניתן לעריכה
+ * ‏וליד טלפון שאינו — בשני עותקים זהים בני 35 שורות. תיקון בתווית
+ * ‏היה נכתב פעמיים, וזה בדיוק המקום שבו שניים נפרדים.
+ *
+ * ‎`editable` הוא `billing.manage` ולא ניהול צוות: זו רכישה,
+ * ‏והשרת אוכף את אותו כלל (ביקורת Codex).
+ */
+function SeatPill({
+  holds,
+  editable,
+  name,
+  onToggle,
+}: {
+  holds: boolean;
+  editable: boolean;
+  /** שם הסוכן — ל-`aria-label`, כי „לשחרור” לבדו אינו אומר של מי */
+  name: string;
+  onToggle: () => void;
+}): React.JSX.Element {
+  const tone = {
+    fontSize: "var(--type-caption)",
+    color: holds ? "var(--color-primary)" : "var(--color-text-muted)",
+    background: holds ? "var(--color-primary-soft)" : "var(--color-hover-soft)",
+  };
+  if (!editable) {
+    return (
+      <span className="mv-pill" style={tone}>
+        {holds ? "מחזיק בסוכן" : "כבוי"}
+      </span>
+    );
+  }
+  return (
+    <button
+      type="button"
+      className="mv-pill"
+      style={{ ...tone, cursor: "pointer", border: "none" }}
+      aria-pressed={holds}
+      aria-label={holds ? `שחרור המקום של ${name}` : `הקצאת הסוכן ל${name}`}
+      title={holds ? "לחיצה משחררת את המקום" : "לחיצה מקצה את הסוכן"}
+      onClick={onToggle}
+    >
+      {holds ? (
+        <>
+          מחזיק בסוכן{" "}
+          <span style={{ color: "var(--color-text-muted)", fontWeight: 400 }}>· לשחרור</span>
+        </>
+      ) : (
+        "הקצה"
+      )}
+    </button>
+  );
+}
+
 export default function SettingsPage() {
   const { user, loading: authLoading } = useRequireAuth();
   const [tab, setTab] = useState("team");
@@ -622,8 +691,20 @@ export default function SettingsPage() {
                     : `מוקצה ל${whatsappHolders.join(", ")}.`}{" "}
                   {tenant.whatsappAgentSeatsUsed} מתוך {tenant.whatsappAgentSeats}{" "}
                   {tenant.whatsappAgentSeats === 1 ? "מקום" : "מקומות"} בשימוש
+                  {/*
+                    ‎**„כבו” ירד: אין פקד בשם הזה.** מי שנחסם חיפש
+                    ‏כפתור „כבה” ולא מצא — הפקד הוא התווית „מחזיק
+                    ‏בסוכן”, ולחיצה עליה משחררת. אותו נוסח בדיוק
+                    ‏נאמר בהודעת החסימה מהשרת (`whatsappSeatsFullText`).
+
+                    ‎**ו„הוסיפו מקום למטה” ירד גם הוא** (ביקורת
+                    ‏Codex): המשפט הזה אינו יודע אם יש מה להוסיף,
+                    ‏ובמסלול בלי מחיר — או בלי סליקה מוגדרת —
+                    ‏הפאנל שמתחתיו אומר בדיוק ההפך. הפאנל מדבר
+                    ‏בעצמו, והשורה הזו אינה צריכה לדבר בשמו.
+                  */}
                   {tenant.whatsappAgentSeatsUsed >= tenant.whatsappAgentSeats
-                    ? " — כדי להקצות לסוכן אחר, כבו קודם אצל מי שמחזיק."
+                    ? " — כדי להקצות לסוכן אחר, לחצו „מחזיק בסוכן” ליד מי שמחזיק."
                     : "."}
                 </p>
               )}
@@ -861,95 +942,24 @@ export default function SettingsPage() {
                                     void savePhone(member, event.target.value)
                                   }
                                 />
-                                {/*
-                                  המתג רק למי שמחזיק billing.manage:
-                                  זו רכישה, לא ניהול צוות — והשרת
-                                  אוכף את אותו כלל (ביקורת Codex).
-                                */}
-                                {seatEditable ? (
-                                  <button
-                                    type="button"
-                                    className="mv-pill"
-                                    style={{
-                                      fontSize: "var(--type-caption)",
-                                      cursor: "pointer",
-                                      border: "none",
-                                      color: member.whatsappAccess
-                                        ? "var(--color-primary)"
-                                        : "var(--color-text-muted)",
-                                      background: member.whatsappAccess
-                                        ? "var(--color-primary-soft)"
-                                        : "var(--color-hover-soft)",
-                                    }}
-                                    aria-pressed={member.whatsappAccess}
-                                    onClick={() => void toggleWhatsapp(member)}
-                                  >
-                                    {member.whatsappAccess ? "מחזיק בסוכן" : "הקצה"}
-                                  </button>
-                                ) : (
-                                  <span
-                                    className="mv-pill"
-                                    style={{
-                                      fontSize: "var(--type-caption)",
-                                      color: member.whatsappAccess
-                                        ? "var(--color-primary)"
-                                        : "var(--color-text-muted)",
-                                      background: member.whatsappAccess
-                                        ? "var(--color-primary-soft)"
-                                        : "var(--color-hover-soft)",
-                                    }}
-                                  >
-                                    {member.whatsappAccess ? "מחזיק בסוכן" : "כבוי"}
-                                  </span>
-                                )}
+                                <SeatPill
+                                  holds={member.whatsappAccess}
+                                  editable={seatEditable}
+                                  name={member.name}
+                                  onToggle={() => void toggleWhatsapp(member)}
+                                />
                               </>
                             ) : (
                               <>
                                 <span className="text-sm" dir="ltr">
                                   {member.phone ?? "—"}
                                 </span>
-                                {/*
-                                  ‎„כלול תמיד” ירד: בעל המשרד מחזיק
-                                  במקום כברירת מחדל ורשאי להעביר
-                                  אותו, ולכן התווית חייבת לומר מה
-                                  המצב **בפועל** ולא מה התפקיד.
-                                */}
-                                {seatEditable ? (
-                                  <button
-                                    type="button"
-                                    className="mv-pill"
-                                    style={{
-                                      fontSize: "var(--type-caption)",
-                                      cursor: "pointer",
-                                      border: "none",
-                                      color: member.whatsappAccess
-                                        ? "var(--color-primary)"
-                                        : "var(--color-text-muted)",
-                                      background: member.whatsappAccess
-                                        ? "var(--color-primary-soft)"
-                                        : "var(--color-hover-soft)",
-                                    }}
-                                    aria-pressed={member.whatsappAccess}
-                                    onClick={() => void toggleWhatsapp(member)}
-                                  >
-                                    {member.whatsappAccess ? "מחזיק בסוכן" : "הקצה"}
-                                  </button>
-                                ) : (
-                                  <span
-                                    className="mv-pill"
-                                    style={{
-                                      fontSize: "var(--type-caption)",
-                                      color: member.whatsappAccess
-                                        ? "var(--color-primary)"
-                                        : "var(--color-text-muted)",
-                                      background: member.whatsappAccess
-                                        ? "var(--color-primary-soft)"
-                                        : "var(--color-hover-soft)",
-                                    }}
-                                  >
-                                    {member.whatsappAccess ? "מחזיק בסוכן" : "כבוי"}
-                                  </span>
-                                )}
+                                <SeatPill
+                                  holds={member.whatsappAccess}
+                                  editable={seatEditable}
+                                  name={member.name}
+                                  onToggle={() => void toggleWhatsapp(member)}
+                                />
                               </>
                             )}
                           </span>
