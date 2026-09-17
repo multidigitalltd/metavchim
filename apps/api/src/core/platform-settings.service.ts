@@ -12,6 +12,12 @@ import { PrismaService } from "./prisma.service";
  */
 
 export type PlatformSettingKey =
+  /**
+   * ‏טבלאות המס שמתעדכנות מדי ינואר (מדרגות מס רכישה, תקרת הפטור
+   * ‏במס שבח) — JSON לפי `TaxTablesSchema`. ריק = הערכים שבקוד.
+   * ‏רק מנהל הפלטפורמה מעדכן; כל משתמש קורא.
+   */
+  | "taxTables"
   | "postmarkServerToken"
   /**
    * טוקן ה-Account של Postmark — נפרד מטוקן השרת ובעל הרשאות

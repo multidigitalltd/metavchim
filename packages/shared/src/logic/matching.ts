@@ -980,6 +980,48 @@ export function propertyEvaluableCriteria(
   return new Set(probe.breakdown.map((p) => p.criterion));
 }
 
+/**
+ * ‎**אילו קריטריונים הקונה הזה מסוגל להיבחן בהם** — הצד השני של
+ * ‎`propertyEvaluableCriteria`. נכס-בוחן שיש בו כל שדה מול הדרישות
+ * ‏כפי שהן: מה שלא נבחן חסר **בקונה**, ואת זה המתווך יכול להשלים.
+ *
+ * ‏העיר והאזור נלקחים מהקונה עצמו, כדי שמסלול המיקום שהוא סיפק
+ * ‏הוא שייבחן: קונה עם ערים בלבד נבחן בעיר, קונה שסימן על המפה
+ * ‏נבחן ברדיוס. קונה בלי שניהם — המיקום חסר, וזה בדיוק מה שנאמר.
+ */
+export function buyerEvaluableCriteria(
+  buyer: BuyerRequirements,
+  now: Date = new Date(),
+): Set<MatchCriterion> {
+  const area = (buyer.searchAreas ?? [])[0];
+  const probe: PropertyFields = {
+    ...(buyer.cities[0] === undefined ? {} : { city: buyer.cities[0] }),
+    ...(buyer.neighborhoods[0] === undefined ? {} : { neighborhood: buyer.neighborhoods[0] }),
+    ...(area === undefined ? {} : { latitude: area.lat, longitude: area.lon }),
+    ...(buyer.dealType === undefined ? {} : { dealType: buyer.dealType }),
+    propertyType: buyer.propertyTypes[0] ?? "apartment",
+    rooms: 3,
+    areaSqm: 80,
+    floor: 2,
+    totalFloors: 5,
+    hasElevator: true,
+    hasParking: true,
+    hasBalcony: true,
+    hasSafeRoom: true,
+    hasStorage: true,
+    priceAgorot: 1,
+    entryType: "immediate",
+  };
+  const result = scoreMatch(probe, buyer, DEFAULT_MATCH_WEIGHTS, now);
+  return new Set(result.breakdown.map((p) => p.criterion));
+}
+
+/** ‏מה חסר בכרטיס הקונה כדי שתהיה התאמה בכלל — תוויות לתצוגה. */
+export function buyerGateMissing(buyer: BuyerRequirements, now: Date = new Date()): string[] {
+  const evaluable = buyerEvaluableCriteria(buyer, now);
+  return MANDATORY_MATCH_CRITERIA.filter((c) => !evaluable.has(c)).map((c) => MATCH_CRITERION_LABELS[c]);
+}
+
 function buildExplanation(
   parts: ScoreComponent[],
   excluded: boolean,

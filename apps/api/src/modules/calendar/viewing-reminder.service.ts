@@ -188,6 +188,7 @@ export class ViewingReminderService implements OnModuleInit, OnModuleDestroy {
           status: true,
           kind: true,
           buyerId: true,
+          leadId: true,
           propertyId: true,
           createdBy: true,
           ownerUserId: true,
@@ -228,6 +229,7 @@ export class ViewingReminderService implements OnModuleInit, OnModuleDestroy {
       status: string;
       kind: string;
       buyerId: string | null;
+      leadId: string | null;
       propertyId: string | null;
       createdBy: string | null;
       ownerUserId: string | null;
@@ -337,7 +339,7 @@ export class ViewingReminderService implements OnModuleInit, OnModuleDestroy {
   /** שני הנמענים וכתובת הנכס — כל מה שההודעה צריכה. */
   private async audience(
     tenantId: string,
-    appointment: { buyerId: string | null; propertyId: string | null },
+    appointment: { buyerId: string | null; leadId: string | null; propertyId: string | null },
   ): Promise<{ address: string; recipients: Recipient[] }> {
     return this.prisma.withExplicitTenant(tenantId, async (tx) => {
       const wanted: { audience: ViewingReminderAudience; contactId: string }[] = [];
@@ -378,6 +380,18 @@ export class ViewingReminderService implements OnModuleInit, OnModuleDestroy {
           select: { contactId: true },
         });
         if (buyer !== null) wanted.push({ audience: "buyer", contactId: buyer.contactId });
+      } else if (appointment.leadId !== null) {
+        /*
+         * ‏סיור שנקבע לליד — מי שנרשם לבית פתוח מדף הנחיתה, או ליד
+         * ‏שעוד לא הפך לקונה. בתזכורת הוא „הקונה”: אותו נוסח, אותה
+         * ‏שעה, אותה דלת. בלעדיו כל מבקר בבית פתוח היה נשאר בלי
+         * ‏התזכורת שכל סיור אחר מקבל.
+         */
+        const lead = await tx.lead.findFirst({
+          where: { id: appointment.leadId, tenantId },
+          select: { contactId: true },
+        });
+        if (lead !== null) wanted.push({ audience: "buyer", contactId: lead.contactId });
       }
 
       /*

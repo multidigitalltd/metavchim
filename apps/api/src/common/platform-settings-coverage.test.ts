@@ -53,7 +53,16 @@ const CONTROLLER = join(
  * המקרה שבשבילו הרשימה קיימת; מי שמוסיף כזו מנמק אותה כאן, בדיוק
  * כמו ב-`RLS_EXEMPT`, במקום למחוק את הבדיקה.
  */
-const WRITE_EXEMPT: Record<string, string> = {};
+const WRITE_EXEMPT: Record<string, string> = {
+  /*
+   * טבלאות המס (מדרגות מס רכישה, תקרת הפטור במס שבח) נכתבות דרך
+   * `PATCH platform/tax-tables` — נתיב ייעודי עם סכמה משלו
+   * (`TaxTablesSchema`), כי זה JSON מובנה ולא שדה טקסט. מנהל
+   * הפלטפורמה עורך אותן במקום, מתוך המחשבונים בפורום, ליד המספר
+   * שהוא מתקן — ולא בשדה גולמי במסך הפלטפורמה.
+   */
+  taxTables: "נכתב דרך PATCH platform/tax-tables מתוך המחשבונים (מנהל הפלטפורמה בלבד)",
+};
 
 const WEB_PLATFORM_DIR = join(
   import.meta.dirname,
@@ -74,7 +83,9 @@ const WEB_PLATFORM_DIR = join(
  * ריק, וזה המצב הנכון: כל הגדרה כאן היא ערך שמפעיל הפלטפורמה קובע,
  * ומסך הפלטפורמה הוא המקום היחיד שבו הוא קובע אותו.
  */
-const SCREEN_EXEMPT: Record<string, string> = {};
+const SCREEN_EXEMPT: Record<string, string> = {
+  taxTables: "נערך במקום, במחשבוני הפורום, על ידי מנהל הפלטפורמה — ראו WRITE_EXEMPT",
+};
 
 function parse(file: string): ts.SourceFile {
   return ts.createSourceFile(

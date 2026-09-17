@@ -23,7 +23,9 @@ import {
   type ForumThreadInput,
   type ForumThreadList,
 } from "@metavchim/shared";
+import type { TaxTables } from "@metavchim/shared";
 import { AnyAuthenticated, PlatformAdmin } from "../../common/auth.decorators";
+import { TaxTablesService } from "../../core/tax-tables.service";
 import { PlatformAdminGuard } from "../../common/platform-admin.guard";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import {
@@ -53,7 +55,16 @@ const FollowSchema = z.object({ following: z.boolean() }).strict();
 
 @Controller("forum")
 export class ForumController {
-  constructor(private readonly forum: ForumService) {}
+  constructor(private readonly forum: ForumService,
+    private readonly taxTables: TaxTablesService,
+  ) {}
+
+  /** ‏טבלאות המס למחשבונים — לכל מי שמחובר; העדכון במסך הפלטפורמה בלבד. */
+  @Get("tax-tables")
+  @AnyAuthenticated()
+  taxTablesNow(): Promise<TaxTables> {
+    return this.taxTables.current();
+  }
 
   @Get("summary")
   @AnyAuthenticated()

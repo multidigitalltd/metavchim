@@ -17,6 +17,7 @@ import { OnboardingOutreachService } from "./onboarding-outreach.service";
 import { Pbx015NumbersService } from "./pbx015-numbers.service";
 import { PlatformAdminNotifierService } from "./platform-admin-notifier.service";
 import { PlatformSettingsService } from "./platform-settings.service";
+import { TaxTablesService } from "./tax-tables.service";
 import { OutboxService } from "./outbox.service";
 import { PrismaService } from "./prisma.service";
 import { StorageService } from "./storage.service";
@@ -36,6 +37,7 @@ import { VatService } from "./vat.service";
     OutboxService,
     OutboxDispatcherService,
     PlatformSettingsService,
+    TaxTablesService,
     PlatformAdminNotifierService,
     Pbx015NumbersService,
     GeocodingService,
@@ -60,6 +62,7 @@ import { VatService } from "./vat.service";
     AuditService,
     OutboxService,
     PlatformSettingsService,
+    TaxTablesService,
     PlatformAdminNotifierService,
     Pbx015NumbersService,
     /*

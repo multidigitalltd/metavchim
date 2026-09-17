@@ -7,7 +7,7 @@ import {
   describeEntryNeed,
   priceInWordsWithCurrency,  labelOf } from "@metavchim/shared";
 import type { BuyerRequirements, FloorPreference } from "@metavchim/shared";
-import { floorPreferenceText } from "@metavchim/shared";
+import { buyerGateMissing, floorPreferenceText } from "@metavchim/shared";
 import { activeOfficeStatuses, officeStatusById } from "@metavchim/shared";
 import { apiGet, apiPatch, apiPost } from "@/lib/api";
 import {
@@ -481,6 +481,7 @@ export default function BuyerDetailPage({
   const profile = buyerProfileCompleteness(
     buyer.requirements as unknown as BuyerRequirements,
   );
+  const gateMissing = buyerGateMissing(buyer.requirements as unknown as BuyerRequirements);
 
   return (
     <>
@@ -1329,7 +1330,14 @@ export default function BuyerDetailPage({
                   className="m-0 py-2"
                   style={{ color: "var(--color-text-muted)" }}
                 >
-                  אין עדיין נכסים מתאימים במאגר.
+                  {/*
+                    ‏מיקום וסוג נכס הם תנאי להתאמה: קונה בלי אחד מהם אינו
+                    ‏מקבל שום התאמה — ו„אין עדיין נכסים מתאימים” היה מסתיר
+                    ‏שהסיבה בכרטיס הזה, לא במאגר.
+                  */}
+                  {gateMissing.length > 0
+                    ? `אין התאמות כי חסר בכרטיס הקונה: ${gateMissing.join(", ")}. השלימו בעריכת הדרישות — ההתאמות יחושבו בסבב הבא.`
+                    : "אין עדיין נכסים מתאימים במאגר."}
                 </p>
               ) : (
                 matches.map((m) => {
