@@ -6,9 +6,9 @@ import {
   GUIDE_AREAS,
   type DocTopic,
 } from "@/lib/guide-content";
-import { APP_URL, LEGAL } from "@/lib/legal";
+import { APP_URL } from "@/lib/legal";
 import { CopyMarkdown } from "../copy-markdown";
-import { DocHeader, DocPassages, DocSection, inlineCode } from "./doc-ui";
+import { DocHeader, DocPassages, DocSection } from "./doc-ui";
 import { DocsBrowser, type DocsBrowserItem } from "./docs-browser";
 import { SupportCard } from "./support-card";
 
@@ -113,19 +113,15 @@ export default function DocsPage() {
       <DocHeader
         current="product"
         title="תיעוד המערכת"
-        lead="כל מה שהמערכת יודעת לעשות, לפי נושא — פתוח לקריאה בלי חשבון. זה גם המקום שאליו מפנה „הדרכות” מתוך המערכת."
       />
 
+      {/*
+        ‎**„מי המפעילה” ירד מכאן** (בקשת המשתמש): הוא אינו חלק
+        מהתשובה „מה זו המערכת”. פרטי המפעילה וכתובת הפרטיות
+        ממשיכים להופיע ב-`/terms` וב-`/privacy`, שם מקומם.
+      */}
       <DocSection id={about.id} title={about.title}>
         <DocPassages passages={about.passages} />
-        <p style={{ color: "var(--color-text-muted)" }}>
-          המפעילה: {LEGAL.operator}, ח.פ. {LEGAL.companyId}. שאלות בענייני פרטיות
-          ומימוש זכות עיון —{" "}
-          <code style={inlineCode} dir="ltr" lang="en">
-            {LEGAL.privacyEmail}
-          </code>
-          .
-        </p>
       </DocSection>
 
       <DocsBrowser areas={GUIDE_AREAS} items={ITEMS} />

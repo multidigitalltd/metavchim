@@ -179,7 +179,8 @@ export function DocHeader({
   current,
 }: {
   title: string;
-  lead: string;
+  /** משפט פתיחה מתחת לכותרת. חסר = כותרת בלבד, בלי פסקה ריקה. */
+  lead?: string;
   /*
    * ‎**אין כאן „whatsapp”, ובכוונה.**
    *
@@ -214,9 +215,11 @@ export function DocHeader({
         </a>
       </nav>
       <h1 className="mb-2 text-2xl font-bold">{title}</h1>
-      <p className="m-0 text-sm" style={{ color: "var(--color-text-muted)" }}>
-        {lead}
-      </p>
+      {lead === undefined ? null : (
+        <p className="m-0 text-sm" style={{ color: "var(--color-text-muted)" }}>
+          {lead}
+        </p>
+      )}
     </header>
   );
 }
