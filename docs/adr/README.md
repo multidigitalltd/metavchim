@@ -11,6 +11,7 @@
 | [ADR-004](ADR-004-whatsapp.md) | WhatsApp Cloud API רשמי בלבד | מאושר | 🟡 חלקי — קליטה נכנסת והסוכן האישי מהשרת; הצעות ללקוח נפתחות אצל הסוכן ולא נשלחות מהשרת (ראו [05 §1](../05-integrations.md)) |
 | [ADR-005](ADR-005-voice-agent.md) | Voice-AI מנוהל תחילה, עם הפשטה למעבר עצמי | מוצע | ⬜ טרם נבנה — קיימים תמלול, סיכום וסוכן קולי במסך; מענה קולי לשיחות נכנסות בתכנון |
 | [ADR-006](ADR-006-tech-provider-coexistence.md) | מספרי המתווכים: Tech Provider + Embedded Signup + Coexistence | מוצע | 🟡 מיושם בקוד — חיבור מהמסך, הד של תשובות ידניות, בוט; מול Meta: רישום Tech Provider ו-App Review בתהליך (ראו [12](../12-whatsapp-coexistence.md)) |
+| [ADR-007](ADR-007-native-mobile-app.md) | אפליקציה נייטיב לנייד: Expo (React Native) על אותו API, Session בכותרת Bearer | מוצע | 🟡 שלב ראשון — `apps/mobile`: התחברות, היום, לידים, נכסים, לקוחות, התראות. Push נייטיב, קליטה בקול ועריכה — בתכנון |
 
 ## איך כותבים ADR חדש
 
