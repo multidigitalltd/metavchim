@@ -2,6 +2,7 @@ import { StyleSheet, View } from "react-native";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { PROPERTY_READINESS_LABELS, propertyAddressOr } from "@metavchim/shared";
 import { apiGet, apiList } from "@/lib/api";
+import { can, useAuth } from "@/lib/auth";
 import type { MatchRow, PropertyDetail } from "@/lib/dtos";
 import { formatPrice, roomsLabel } from "@/lib/format";
 import {
@@ -14,6 +15,7 @@ import {
 } from "@/lib/labels";
 import { useQuery } from "@/lib/use-query";
 import {
+  Button,
   Card,
   ContactActions,
   ErrorState,
@@ -41,6 +43,8 @@ function readinessLabel(field: string): string {
 export default function PropertyScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
+  const { user } = useAuth();
+  const canTasks = can(user, "calendar.manage");
   const query = useQuery(async () => {
     const property = await apiGet<PropertyDetail>(`/properties/${id}`);
     // ההתאמות נטענות בנפרד: כישלון שלהן אינו מסתיר את הנכס
@@ -97,6 +101,18 @@ export default function PropertyScreen() {
         <Text variant="title">{formatPrice(p.priceAgorot) || "מחיר לא צוין"}</Text>
         {p.marketingTitle ? <Text>{p.marketingTitle}</Text> : null}
         {p.agentName ? <Text variant="small">מטפל: {p.agentName}</Text> : null}
+        {canTasks ? (
+          <Button
+            title="משימה על הנכס"
+            kind="ghost"
+            onPress={() =>
+              router.push({
+                pathname: "/tasks/new",
+                params: { entityType: "property", entityId: p.id, label: address },
+              })
+            }
+          />
+        ) : null}
       </Card>
 
       <Card>

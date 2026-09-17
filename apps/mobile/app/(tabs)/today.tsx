@@ -181,6 +181,9 @@ export default function TodayScreen() {
           {canLeads ? (
             <>
               <SectionTitle count={data.waitingLeads.length}>ממתינים לך</SectionTitle>
+              {can(user, "leads.edit") ? (
+                <Button title="+ ליד חדש" kind="ghost" onPress={() => router.push("/leads/new")} />
+              ) : null}
               {data.waitingLeads.length === 0 && !data.failed.includes("לידים") ? (
                 <Card>
                   <Text variant="muted">אין ליד שממתין למענה. יפה.</Text>
@@ -234,6 +237,7 @@ export default function TodayScreen() {
               ))}
 
               <SectionTitle count={data.tasks.length}>המשימות שלי</SectionTitle>
+              <Button title="+ משימה" kind="ghost" onPress={() => router.push("/tasks/new")} />
               {data.tasks.length === 0 && !data.failed.includes("משימות") ? (
                 <Card>
                   <Text variant="muted">אין משימות פתוחות.</Text>

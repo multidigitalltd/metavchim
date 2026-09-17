@@ -3,10 +3,11 @@ import { FlatList, StyleSheet, View } from "react-native";
 import { useRouter } from "expo-router";
 import { compareLeadsByUrgency, leadWaiting } from "@metavchim/shared";
 import { apiGet, apiList } from "@/lib/api";
+import { can, useAuth } from "@/lib/auth";
 import type { LeadRow } from "@/lib/dtos";
 import { leadIntentLabel, leadSourceLabel, leadStatusLabel, leadStatusTone } from "@/lib/labels";
 import { useQuery } from "@/lib/use-query";
-import { Chips, EmptyState, ErrorState, Field, Loading, Pill, Row, Screen } from "@/components";
+import { Button, Chips, EmptyState, ErrorState, Field, Loading, Pill, Row, Screen } from "@/components";
 import { colors, space } from "@/theme";
 
 type Filter = "open" | "new" | "in_progress" | "waiting_customer" | "converted" | "closed" | "all";
@@ -32,6 +33,7 @@ function leadMatches(lead: LeadRow, needle: string): boolean {
 /** ‏מסך הלידים — מי ממתין הכי הרבה זמן למעלה, כמו ב-web. */
 export default function LeadsScreen() {
   const router = useRouter();
+  const { user } = useAuth();
   const [filter, setFilter] = useState<Filter>("open");
   const [search, setSearch] = useState("");
   /*
@@ -59,7 +61,15 @@ export default function LeadsScreen() {
   }, [query.data, search]);
 
   return (
-    <Screen title="לידים" scroll={false}>
+    <Screen
+      title="לידים"
+      scroll={false}
+      trailing={
+        can(user, "leads.edit") ? (
+          <Button title="+ ליד" kind="secondary" onPress={() => router.push("/leads/new")} />
+        ) : undefined
+      }
+    >
       <View style={styles.tools}>
         <Field
           label="חיפוש"

@@ -1,6 +1,7 @@
 import { StyleSheet, View } from "react-native";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { apiGet, apiList } from "@/lib/api";
+import { can, useAuth } from "@/lib/auth";
 import type { BuyerDetail, MatchRow } from "@/lib/dtos";
 import { formatBudget, formatPrice } from "@/lib/format";
 import {
@@ -13,6 +14,7 @@ import {
 } from "@/lib/labels";
 import { useQuery } from "@/lib/use-query";
 import {
+  Button,
   Card,
   ContactActions,
   ErrorState,
@@ -37,6 +39,8 @@ const FEATURE_LABELS: Record<string, string> = {
 export default function BuyerScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
+  const { user } = useAuth();
+  const canTasks = can(user, "calendar.manage");
   const query = useQuery(async () => {
     const buyer = await apiGet<BuyerDetail>(`/buyers/${id}`);
     const matches = await apiGet<MatchRow[]>(`/buyers/${id}/matches`)
@@ -96,6 +100,18 @@ export default function BuyerScreen() {
             .join(" · ")}
         </Text>
         <ContactActions phone={b.contact.phone} name={b.contact.name} />
+        {canTasks ? (
+          <Button
+            title="משימה על הלקוח"
+            kind="ghost"
+            onPress={() =>
+              router.push({
+                pathname: "/tasks/new",
+                params: { entityType: "buyer", entityId: b.id, label: b.contact.name },
+              })
+            }
+          />
+        ) : null}
       </Card>
 
       <SectionTitle>מה מחפשים</SectionTitle>

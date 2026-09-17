@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Alert, StyleSheet, View } from "react-native";
-import { Stack, useLocalSearchParams } from "expo-router";
+import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { LEAD_STATUS_LABELS, leadWaiting, type LeadStatus } from "@metavchim/shared";
 import { apiGet, apiPatch, apiPost, errorMessage } from "@/lib/api";
 import { can, useAuth } from "@/lib/auth";
@@ -43,8 +43,10 @@ const KIND_LABELS: Record<string, string> = {
  */
 export default function LeadScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const router = useRouter();
   const { user } = useAuth();
   const canEdit = can(user, "leads.edit");
+  const canTasks = can(user, "calendar.manage");
   const query = useQuery(
     () => apiGet<{ lead: LeadDetail; timeline: TimelineItem[] }>(`/leads/${id}`),
     [id],
@@ -113,6 +115,18 @@ export default function LeadScreen() {
           <Text style={styles.reason}>{lead.requiresHumanReason}</Text>
         ) : null}
         <ContactActions phone={lead.contact.phone} name={lead.contact.name} />
+        {canTasks ? (
+          <Button
+            title="משימה על הליד"
+            kind="ghost"
+            onPress={() =>
+              router.push({
+                pathname: "/tasks/new",
+                params: { entityType: "lead", entityId: lead.id, label: lead.contact.name },
+              })
+            }
+          />
+        ) : null}
       </Card>
 
       {lead.summary ? (
