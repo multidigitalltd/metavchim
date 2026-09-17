@@ -42,6 +42,7 @@ export default function BuyerScreen() {
   const router = useRouter();
   const { user } = useAuth();
   const canTasks = can(user, "calendar.manage");
+  const canEdit = can(user, "buyers.edit");
   const query = useQuery(async () => {
     const buyer = await apiGet<BuyerDetail>(`/buyers/${id}`);
     const matches = await apiGet<MatchRow[]>(`/buyers/${id}/matches`)
@@ -102,6 +103,13 @@ export default function BuyerScreen() {
             .join(" · ")}
         </Text>
         <ContactActions phone={b.contact.phone} name={b.contact.name} />
+        {canEdit ? (
+          <Button
+            title="עריכת הלקוח"
+            kind="secondary"
+            onPress={() => router.push(`/buyers/edit/${b.id}`)}
+          />
+        ) : null}
         {canTasks ? (
           <Button
             title="משימה על הלקוח"

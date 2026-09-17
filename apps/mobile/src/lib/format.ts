@@ -42,3 +42,24 @@ export function roomsLabel(rooms: number | undefined): string {
   if (rooms === undefined) return "";
   return `${formatIsraeliNumber(rooms)} חד׳`;
 }
+
+/** ‏שקלים (כפי שמקלידים) → אגורות (כפי שנשמר). `undefined` על שדה ריק או לא-מספר. */
+export function shekelsInputToAgorot(text: string): number | undefined {
+  const digits = text.replace(/[^\d.]/gu, "");
+  if (digits === "") return undefined;
+  const value = Number(digits);
+  return Number.isFinite(value) ? Math.round(value * 100) : undefined;
+}
+
+/** ‏אגורות → טקסט שקלים לשדה קלט, בלי מפרידי אלפים. */
+export function agorotToShekelsInput(agorot: number | undefined): string {
+  return agorot === undefined ? "" : String(Math.round(agorot / 100));
+}
+
+/** ‏טקסט → מספר, `undefined` כשריק או לא מספר. */
+export function numberInput(text: string): number | undefined {
+  const trimmed = text.trim();
+  if (trimmed === "") return undefined;
+  const value = Number(trimmed);
+  return Number.isFinite(value) ? value : undefined;
+}

@@ -28,8 +28,7 @@
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#0c6e34"
-      },
-      "edgeToEdgeEnabled": true
+      }
     },
     "plugins": [
       "expo-router",

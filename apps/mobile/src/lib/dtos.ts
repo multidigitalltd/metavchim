@@ -56,6 +56,11 @@ export interface PropertyDetail extends PropertyRow {
   hasParking?: boolean;
   hasBalcony?: boolean;
   hasSafeRoom?: boolean;
+  hasStorage?: boolean;
+  sharedTabu?: boolean;
+  condition?: string;
+  facing?: string;
+  entryType?: string;
   entryNote?: string;
   internalNotes?: string;
   marketingTitle?: string;
@@ -87,10 +92,12 @@ export interface BuyerDetail extends BuyerRow {
     neighborhoods: string[];
     propertyTypes: string[];
     areaSqmMin?: number;
+    entryType?: string;
     flexibilityNotes?: string;
     features: Record<string, "must" | "nice">;
   };
   financing: string;
+  agentNotes?: string;
 }
 
 export interface MatchRow {

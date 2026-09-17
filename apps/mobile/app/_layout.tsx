@@ -97,6 +97,8 @@ function Gate() {
       <Stack.Screen name="notifications" options={{ title: "התראות" }} />
       <Stack.Screen name="leads/new" options={{ title: "ליד חדש" }} />
       <Stack.Screen name="tasks/new" options={{ title: "משימה חדשה" }} />
+      <Stack.Screen name="properties/edit/[id]" options={{ title: "עריכת נכס" }} />
+      <Stack.Screen name="buyers/edit/[id]" options={{ title: "עריכת לקוח" }} />
       <Stack.Screen name="leads/[id]" options={{ title: "ליד" }} />
       <Stack.Screen name="properties/[id]" options={{ title: "נכס" }} />
       <Stack.Screen name="buyers/[id]" options={{ title: "לקוח" }} />

@@ -46,6 +46,7 @@ export default function PropertyScreen() {
   const router = useRouter();
   const { user } = useAuth();
   const canTasks = can(user, "calendar.manage");
+  const canEdit = can(user, "properties.edit");
   const query = useQuery(async () => {
     const property = await apiGet<PropertyDetail>(`/properties/${id}`);
     // ההתאמות נטענות בנפרד: כישלון שלהן אינו מסתיר את הנכס
@@ -103,6 +104,13 @@ export default function PropertyScreen() {
         <Text variant="title">{formatPrice(p.priceAgorot) || "מחיר לא צוין"}</Text>
         {p.marketingTitle ? <Text>{p.marketingTitle}</Text> : null}
         {p.agentName ? <Text variant="small">מטפל: {p.agentName}</Text> : null}
+        {canEdit ? (
+          <Button
+            title="עריכת הנכס"
+            kind="secondary"
+            onPress={() => router.push(`/properties/edit/${p.id}`)}
+          />
+        ) : null}
         {canTasks ? (
           <Button
             title="משימה על הנכס"
