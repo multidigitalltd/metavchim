@@ -43,7 +43,7 @@ Development Build (`eas build --profile development`).
 
 שתי דרכים לקבל קובץ שמתקינים ישירות על מכשיר אנדרואיד:
 
-1. **GitHub Actions** — בלשונית Actions, ה-workflow „Mobile APK”, „Run workflow”,
+1. **GitHub Actions** — (זמין אחרי שה-workflow קיים בענף הראשי) בלשונית Actions, „Mobile APK”, „Run workflow”,
    כתובת ה-API (ברירת המחדל: הייצור). בסיום, ה-APK ב-Artifacts של הריצה.
    מורידים למכשיר, מאשרים „התקנה ממקורות לא ידועים”, מתקינים.
 2. **מקומית**, עם Android SDK ו-Java 17 מותקנים:
@@ -52,8 +52,11 @@ Development Build (`eas build --profile development`).
    pnpm --filter @metavchim/shared build
    cd apps/mobile && npx expo prebuild --platform android --no-install
    cd android && EXPO_PUBLIC_API_URL=https://app.metavchim.co.il \
-     ./gradlew assembleRelease -PreactNativeArchitectures=arm64-v8a
-   # → android/app/build/outputs/apk/release/app-release.apk (‎~40MB; בלי הדגל: כל הארכיטקטורות, ‎~110MB)
+     ./gradlew assembleRelease -PreactNativeArchitectures=arm64-v8a \
+       -Pandroid.enableMinifyInReleaseBuilds=true \
+       -Pandroid.enableShrinkResourcesInReleaseBuilds=true \
+       -Pexpo.useLegacyPackaging=true
+   # → android/app/build/outputs/apk/release/app-release.apk (‎~22MB; בלי הדגלים: ‎~110MB)
    ```
 
 ה-APK חתום במפתח הדיבאג של התבנית — מתאים לבדיקות, לא לחנות. **כתובת השרת
