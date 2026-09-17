@@ -2240,6 +2240,13 @@ export function PlatformSettingsSection({
                 </span>
                 <br />
                 <span className="font-normal">
+                  <b>חשוב ברישום:</b> גוף התבנית חייב להתחיל ולהסתיים ב<b>טקסט
+                  קבוע</b> — ‎Meta דוחה גוף שמתחיל או מסתיים במשתנה, וגם גוף
+                  שכולו משתנים. הנוסח המלא לרישום נמצא ב-
+                  <code>docs/05-integrations.md</code>.
+                </span>
+                <br />
+                <span className="font-normal">
                   לא מסומן = ‎{"{{update_title}}"}‎ ו-‎{"{{update_details}}"}‎ —
                   הצורה שנרשמה עד היום, והפירוט מגיע בשורה אחת עם „·” בין
                   הנושאים.
