@@ -39,6 +39,31 @@ pnpm --filter @metavchim/mobile start          # Expo Go בטלפון, או i / 
 **ב-Expo Go אין פוש מרוחק** (מגבלה של Expo מ-SDK 53) — לבדיקת התראות צריך
 Development Build (`eas build --profile development`).
 
+## APK לבדיקות ידניות (לפני החנויות)
+
+שתי דרכים לקבל קובץ שמתקינים ישירות על מכשיר אנדרואיד:
+
+1. **GitHub Actions** — בלשונית Actions, ה-workflow „Mobile APK”, „Run workflow”,
+   כתובת ה-API (ברירת המחדל: הייצור). בסיום, ה-APK ב-Artifacts של הריצה.
+   מורידים למכשיר, מאשרים „התקנה ממקורות לא ידועים”, מתקינים.
+2. **מקומית**, עם Android SDK ו-Java 17 מותקנים:
+
+   ```bash
+   pnpm --filter @metavchim/shared build
+   cd apps/mobile && npx expo prebuild --platform android --no-install
+   cd android && EXPO_PUBLIC_API_URL=https://app.metavchim.co.il ./gradlew assembleRelease
+   # → android/app/build/outputs/apk/release/app-release.apk
+   ```
+
+ה-APK חתום במפתח הדיבאג של התבנית — מתאים לבדיקות, לא לחנות. **כתובת השרת
+ניתנת לשינוי מהאפליקציה**: „הגדרות מתקדמות” במסך ההתחברות, ריק חוזר לכתובת
+הצרובה. פוש נייטיב דורש מזהה פרויקט EAS (ראו למטה); בלעדיו האפליקציה מדווחת
+„לא זמין בסביבה הזו”, וכל השאר עובד.
+
+מה לבדוק ידנית: התחברות (כולל סיסמה זמנית), „היום”, ליד חדש ← חיוג/וואטסאפ
+← סטטוס והערה, נכס ← עריכה, לקוח ← עריכה, משימה מכרטיס, „קול” (הקלטה
+ותמלול דורשים שירות תמלול פעיל בשרת), התראות, מצב טיסה (המטמון), התנתקות.
+
 ## בנייה לחנויות (EAS)
 
 חד-פעמי, בחשבון Expo של הארגון:

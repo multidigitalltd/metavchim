@@ -1,0 +1,62 @@
+# ‏APK לבדיקות ידניות — בלחיצה, בלי חשבון Expo.
+#
+# ‏`expo prebuild` מייצר את פרויקט האנדרואיד מ-app.json, ו-Gradle בונה
+# ‏APK חתום במפתח הדיבאג של התבנית — מתקין על כל מכשיר עם „מקורות לא
+# ‏ידועים”, ואינו מתאים לחנות (שם החתימה מגיעה מ-EAS). כתובת השרת
+# ‏נצרבת מהקלט, ואפשר לשנות אותה גם באפליקציה („הגדרות מתקדמות”
+# ‏במסך ההתחברות).
+#
+# ‏פוש נייטיב דורש מזהה פרויקט EAS ב-app.json; בלעדיו האפליקציה
+# ‏מדווחת „לא זמין בסביבה הזו” וכל השאר עובד.
+name: Mobile APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      api_url:
+        description: "כתובת ה-API שתיצרב (למשל https://app.metavchim.co.il)"
+        required: true
+        default: "https://app.metavchim.co.il"
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # ‏Metro טוען את dist/ של החבילה המשותפת — כמו ב-web
+      - name: Build shared package
+        run: pnpm --filter @metavchim/shared build
+
+      - name: Generate the Android project
+        working-directory: apps/mobile
+        run: npx expo prebuild --platform android --no-install
+
+      - name: Build release APK
+        working-directory: apps/mobile/android
+        env:
+          EXPO_PUBLIC_API_URL: ${{ inputs.api_url }}
+        run: ./gradlew assembleRelease --no-daemon
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: metavchim-${{ github.sha }}
+          path: apps/mobile/android/app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
+          retention-days: 14

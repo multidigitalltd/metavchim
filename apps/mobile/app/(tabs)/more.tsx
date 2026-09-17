@@ -4,7 +4,7 @@ import { useRouter } from "expo-router";
 import Constants from "expo-constants";
 import { ROLE_LABELS, type UserRole } from "@metavchim/shared";
 import { useAuth } from "@/lib/auth";
-import { API_ORIGIN } from "@/lib/config";
+import { apiOrigin } from "@/lib/config";
 import type { PushStatus } from "@/lib/push";
 import { Button, Card, Row, Screen, Text } from "@/components";
 import { space } from "@/theme";
@@ -78,7 +78,7 @@ export default function MoreScreen() {
       <Button title="התנתקות" kind="danger" onPress={confirmLogout} style={styles.logout} />
 
       <Text variant="small" style={styles.meta}>
-        גרסה {Constants.expoConfig?.version ?? "?"} · שרת {API_ORIGIN || "לא הוגדר"}
+        גרסה {Constants.expoConfig?.version ?? "?"} · שרת {apiOrigin() || "לא הוגדר"}
       </Text>
     </Screen>
   );

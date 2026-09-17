@@ -1,4 +1,4 @@
-import { API_BASE } from "./config";
+import { apiBase } from "./config";
 import { readSessionToken } from "./session-store";
 
 /**
@@ -43,7 +43,7 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
   let res: Response;
   try {
-    res = await fetch(`${API_BASE}${path}`, {
+    res = await fetch(`${apiBase()}${path}`, {
       ...init,
       signal: controller.signal,
       headers: {
@@ -92,7 +92,7 @@ export async function apiUpload<T>(path: string, form: FormData, timeoutMs = 90_
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   let res: Response;
   try {
-    res = await fetch(`${API_BASE}${path}`, {
+    res = await fetch(`${apiBase()}${path}`, {
       method: "POST",
       body: form,
       signal: controller.signal,

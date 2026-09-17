@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { KeyboardAvoidingView, Platform, StyleSheet, View } from "react-native";
-import { API_CONFIGURED, API_ORIGIN } from "@/lib/config";
+import { apiConfigured, apiOrigin, isValidApiOrigin, setApiOrigin, BUILT_IN_API_ORIGIN } from "@/lib/config";
 import { useAuth } from "@/lib/auth";
 import { errorMessage } from "@/lib/api";
 import { Button, Card, Field, Screen, Text } from "@/components";
@@ -18,6 +18,20 @@ export default function LoginScreen() {
   const [code, setCode] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [advanced, setAdvanced] = useState(false);
+  const [server, setServer] = useState(apiOrigin());
+  const [serverNote, setServerNote] = useState<string | null>(null);
+
+  async function saveServer() {
+    const value = server.trim();
+    if (value !== "" && !isValidApiOrigin(value)) {
+      setServerNote("כתובת בצורה http(s)://host[:port] — בלי נתיב");
+      return;
+    }
+    const applied = await setApiOrigin(value);
+    setServer(applied);
+    setServerNote(applied === "" ? "אין כתובת שרת" : `השרת: ${applied}`);
+  }
 
   async function submit() {
     setError(null);
@@ -68,10 +82,11 @@ export default function LoginScreen() {
           </Text>
         </View>
 
-        {!API_CONFIGURED ? (
+        {!apiConfigured() ? (
           <Card style={styles.warn}>
             <Text style={styles.warnText}>
-              כתובת השרת אינה מוגדרת. יש להגדיר EXPO_PUBLIC_API_URL (ראו ‎.env.example).
+              כתובת השרת אינה מוגדרת — פתחו „הגדרות מתקדמות” וכתבו אותה, או הגדירו
+              EXPO_PUBLIC_API_URL בבנייה.
             </Text>
           </Card>
         ) : null}
@@ -130,9 +145,34 @@ export default function LoginScreen() {
           )}
         </Card>
 
-        <Text variant="small" style={styles.center}>
-          {API_CONFIGURED ? `שרת: ${API_ORIGIN}` : ""}
-        </Text>
+        <Button
+          title={advanced ? "סגירת הגדרות מתקדמות" : "הגדרות מתקדמות"}
+          kind="ghost"
+          onPress={() => setAdvanced((v) => !v)}
+        />
+        {advanced ? (
+          <Card>
+            <Text variant="muted">
+              כתובת השרת שהאפליקציה מדברת איתו. ריק = הכתובת הצרובה בבנייה
+              {BUILT_IN_API_ORIGIN ? ` (${BUILT_IN_API_ORIGIN})` : ""}.
+            </Text>
+            <Field
+              label="כתובת שרת"
+              value={server}
+              onChangeText={setServer}
+              autoCapitalize="none"
+              autoCorrect={false}
+              keyboardType="url"
+              placeholder="http://192.168.1.10:3001"
+              error={serverNote}
+            />
+            <Button title="שמירת הכתובת" kind="secondary" onPress={() => void saveServer()} />
+          </Card>
+        ) : (
+          <Text variant="small" style={styles.center}>
+            {apiConfigured() ? `שרת: ${apiOrigin()}` : ""}
+          </Text>
+        )}
       </KeyboardAvoidingView>
     </Screen>
   );

@@ -3,6 +3,7 @@ import type { PropsWithChildren } from "react";
 import type { Capability } from "@metavchim/shared";
 import { ApiError, apiGet, apiPost, setUnauthorizedListener } from "./api";
 import { clearCacheScope, setCacheScope } from "./cache";
+import { loadApiOrigin } from "./config";
 import {
   readPushStatus,
   registerDevicePush,
@@ -78,6 +79,8 @@ export function AuthProvider({ children }: PropsWithChildren) {
   }, [user?.id]);
 
   const refresh = useCallback(async () => {
+    // כתובת השרת שנשמרה במכשיר — לפני הבקשה הראשונה
+    await loadApiOrigin();
     const token = await readSessionToken();
     if (token === null) {
       setOffline(false);
