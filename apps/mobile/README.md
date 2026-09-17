@@ -51,8 +51,9 @@ Development Build (`eas build --profile development`).
    ```bash
    pnpm --filter @metavchim/shared build
    cd apps/mobile && npx expo prebuild --platform android --no-install
-   cd android && EXPO_PUBLIC_API_URL=https://app.metavchim.co.il ./gradlew assembleRelease
-   # → android/app/build/outputs/apk/release/app-release.apk
+   cd android && EXPO_PUBLIC_API_URL=https://app.metavchim.co.il \
+     ./gradlew assembleRelease -PreactNativeArchitectures=arm64-v8a
+   # → android/app/build/outputs/apk/release/app-release.apk (‎~40MB; בלי הדגל: כל הארכיטקטורות, ‎~110MB)
    ```
 
 ה-APK חתום במפתח הדיבאג של התבנית — מתאים לבדיקות, לא לחנות. **כתובת השרת
