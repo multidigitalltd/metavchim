@@ -1,10 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { formatIsraeliNumber } from "@metavchim/shared";
-import { apiGet, apiList, apiPost } from "@/lib/api";
+import { PROPERTY_TYPE_LABELS } from "@/lib/format";
+import { ApiError, apiGet, apiList, apiPost } from "@/lib/api";
 import { ConfirmDialog } from "../confirm-dialog";
 import { IconSearch } from "../icons";
+import { textMatches } from "../list-controls";
 import { Notice } from "../notice";
 
 /**
@@ -40,16 +42,25 @@ interface PickRow {
   id: string;
   title: string;
   subtitle: string;
+  /**
+   * ‏מה שמחפשים בו מעבר למה שמוצג — הטלפון של הקונה.
+   *
+   * ‏הוא אינו בשורה (הרשימה הזו מפרסמת לרשת, ומספר טלפון על המסך
+   * ‏הוא PII שאין בו צורך), אבל מתווך מחפש לפי מה שיש לו ביד —
+   * ‏ולרוב זה המספר.
+   */
+  search?: string;
 }
 
 interface BuyerRow {
   id: string;
-  contact: { name: string };
+  contact: { name: string; phone?: string };
   requirements: { cities: string[]; budgetMaxAgorot?: number; roomsMin?: number };
 }
 
 interface PropertyRow {
   id: string;
+  propertyType?: string;
   city?: string;
   neighborhood?: string;
   street?: string;
@@ -103,18 +114,35 @@ function buyerRow(row: BuyerRow): PickRow {
       ? null
       : `עד ${shekels(row.requirements.budgetMaxAgorot)} ₪`,
   ].filter((part): part is string => part !== null);
-  return { id: row.id, title: row.contact.name, subtitle: parts.join(" · ") };
+  return {
+    id: row.id,
+    title: row.contact.name,
+    subtitle: parts.join(" · "),
+    ...(row.contact.phone === undefined ? {} : { search: row.contact.phone }),
+  };
 }
 
 function propertyRow(row: PropertyRow): PickRow {
   const where = [row.street, row.neighborhood, row.city]
     .filter((part): part is string => typeof part === "string" && part !== "")
     .join(", ");
+  /*
+   * ‏סוג הנכס נשמר באנגלית (`apartment`) והמסך מבטיח חיפוש בעברית
+   * ‏— אותו תרגום בדיוק שכבר יושב בסינון הנכסים בשרת. בלעדיו
+   * ‏„דירה” לא היה מוצא דירה.
+   */
+  const typeLabel =
+    row.propertyType === undefined ? null : (PROPERTY_TYPE_LABELS[row.propertyType] ?? null);
   const parts = [
+    typeLabel,
     row.rooms === undefined ? null : `${formatIsraeliNumber(row.rooms)} חדרים`,
     row.priceAgorot === undefined ? null : `${shekels(row.priceAgorot)} ₪`,
   ].filter((part): part is string => part !== null);
-  return { id: row.id, title: where === "" ? "נכס ללא כתובת" : where, subtitle: parts.join(" · ") };
+  return {
+    id: row.id,
+    title: where === "" ? "נכס ללא כתובת" : where,
+    subtitle: parts.join(" · "),
+  };
 }
 
 export function PublishToNetworkDialog({
@@ -132,6 +160,7 @@ export function PublishToNetworkDialog({
   const copy = COPY[kind];
   const [q, setQ] = useState("");
   const [rows, setRows] = useState<PickRow[] | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<{ tone: "success" | "warning" | "danger"; text: string } | null>(
@@ -139,39 +168,72 @@ export function PublishToNetworkDialog({
   );
 
   /*
-   * ‏החיפוש רץ בשרת, עם השהיה קצרה: שאילתה לכל תו מקפיצה את הרשימה
-   * ‏מתחת לאצבע — אותו נימוק שכבר תועד ב-`ListFilters`.
+   * ‎**טעינה אחת, וסינון במסך** — בדיוק כמו ברשימות עצמן.
+   *
+   * ‏הגרסה הראשונה שלחה את הטקסט לשרת כ-`q`, וזו הייתה טעות
+   * ‏שקטה: `GET /buyers` מחפש בהערות, בהערות ה-AI, במקור ובערים
+   * ‏בלבד — **לא בשם ולא בטלפון**, כי שניהם מוצפנים במסד. כלומר
+   * ‏הקלדת השם שמוצג בשורה הייתה מחזירה רשימה ריקה (ביקורת Codex,
+   * ‏P1).
+   *
+   * ‏מסך הקונים כבר פותר את זה, ובדיוק כך: הוא שולף בלי `q`
+   * ‏(`filtersToQuery({ ...filters, q: "" })`) ומסנן ב-`textMatches`
+   * ‏על השם, הטלפון והערים — שם הם כבר מפוענחים ב-DTO. אותה דרך
+   * ‏כאן, ולא ניסוח שני שלה.
+   *
+   * ‏ובדרך נעלמת גם הבעיה של תשובה מאוחרת שדורסת תשובה חדשה
+   * ‏(ביקורת Codex, P2): אין בקשה לכל הקלדה, יש בקשה אחת לפתיחה.
    */
-  const load = useCallback(
-    (term: string) => {
-      const query = term.trim() === "" ? "" : `&q=${encodeURIComponent(term.trim())}`;
-      apiGet<{ items: (BuyerRow | PropertyRow)[] }>(`${copy.list}?limit=${LIMIT}${query}`)
-        .then((res) => {
-          const items = apiList(res.items, "items");
-          setRows(
-            kind === "buyer"
-              ? items.map((row) => buyerRow(row as BuyerRow))
-              : items.map((row) => propertyRow(row as PropertyRow)),
-          );
-        })
-        .catch(() => setRows([]));
-    },
-    [copy.list, kind],
-  );
+  const load = useCallback(() => {
+    setLoadError(null);
+    apiGet<{ items: (BuyerRow | PropertyRow)[] }>(`${copy.list}?limit=${LIMIT}`)
+      .then((res) => {
+        const items = apiList(res.items, "items");
+        setRows(
+          kind === "buyer"
+            ? items.map((row) => buyerRow(row as BuyerRow))
+            : items.map((row) => propertyRow(row as PropertyRow)),
+        );
+      })
+      /*
+       * ‎**כישלון אינו רשימה ריקה** (ביקורת Codex, P2).
+       *
+       * ‏קודם כל שגיאה — נפילה זמנית, 403 על יכולת צפייה שנשללה —
+       * ‏התגלגלה ל-`rows = []`, והחלון הודיע „לא נמצאו קונים”. זו
+       * ‏אמירה על המאגר, בזמן שהבקשה בכלל לא הצליחה, ואין ממנה
+       * ‏דרך חזרה.
+       */
+      .catch((err: unknown) => {
+        setRows(null);
+        setLoadError(err instanceof ApiError ? err.message : "טעינת הרשימה נכשלה");
+      });
+  }, [copy.list, kind]);
 
   useEffect(() => {
     if (!open) return;
-    const timer = setTimeout(() => load(q), q === "" ? 0 : 300);
-    return () => clearTimeout(timer);
-  }, [open, q, load]);
+    load();
+  }, [open, load]);
 
   /* ‏חלון שנסגר ונפתח שוב מתחיל נקי — בחירה ישנה היא הפתעה */
   useEffect(() => {
     if (open) return;
     setQ("");
+    setRows(null);
+    setLoadError(null);
     setPicked(new Set());
     setNote(null);
   }, [open]);
+
+  /*
+   * ‏הסינון על מה שכבר נטען: השם והטלפון מפוענחים כאן, והערים
+   * ‏ממילא בשורה. `visible` ולא כתיבה מחדש של `rows` — הבחירה
+   * ‏שורדת שינוי טקסט, וזה מה שמאפשר לבחור שלושה קונים בשלוש
+   * ‏חיפושים.
+   */
+  const visible = useMemo(
+    () => (rows ?? []).filter((row) => textMatches(q, row.title, row.subtitle, row.search)),
+    [rows, q],
+  );
 
   function toggle(id: string): void {
     setPicked((prev) => {
@@ -238,9 +300,16 @@ export function PublishToNetworkDialog({
 
         {note ? <Notice tone={note.tone}>{note.text}</Notice> : null}
 
-        {rows === null ? (
+        {loadError !== null ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <Notice tone="danger">{loadError}</Notice>
+            <button type="button" className="mv-btn-plain" onClick={load}>
+              נסו שוב
+            </button>
+          </div>
+        ) : rows === null ? (
           <p className="m-0" aria-live="polite">טוען…</p>
-        ) : rows.length === 0 ? (
+        ) : visible.length === 0 ? (
           <p className="m-0" style={{ color: "var(--color-text-muted)" }}>{copy.empty}</p>
         ) : (
           <>
@@ -248,7 +317,7 @@ export function PublishToNetworkDialog({
               className="m-0 flex max-h-[46vh] list-none flex-col gap-1 overflow-y-auto p-0"
               aria-label={copy.title}
             >
-              {rows.map((row) => (
+              {visible.map((row) => (
                 <li key={row.id}>
                   <label className="flex cursor-pointer items-center gap-2.5 rounded-lg px-2 py-2">
                     <input
@@ -271,7 +340,12 @@ export function PublishToNetworkDialog({
                 </li>
               ))}
             </ul>
-            {/* ‏התקרה נאמרת, כי „לא נמצא” על כרטיס שקיים הוא באג לעין */}
+            {/*
+              ‏התקרה נאמרת, כי „לא נמצא” על כרטיס שקיים הוא באג לעין.
+              ‏היא נמדדת על מה שנטען ולא על מה שמוצג: הסינון הוא
+              ‏מקומי, ולכן „מוצגים 12” אחרי חיפוש אינו אומר שהמאגר
+              ‏נגמר.
+            */}
             {rows.length === LIMIT ? (
               <p className="m-0 text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
                 מוצגים {LIMIT} הראשונים — צמצמו בחיפוש כדי להגיע לשאר.

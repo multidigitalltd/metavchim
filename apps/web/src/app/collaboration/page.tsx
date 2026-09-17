@@ -26,7 +26,7 @@ import {
 import { Button } from "@metavchim/ui";
 import { apiDelete, apiGet, apiPatch, apiPost, ApiError, apiList } from "@/lib/api";
 import { LEAD_INTENT_LABELS, leadSourceText } from "@/lib/lead-labels";
-import { useRequireAuth } from "@/lib/use-auth";
+import { can, useRequireAuth } from "@/lib/use-auth";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { LoadError } from "../load-error";
@@ -659,7 +659,7 @@ function DemandSection({
 }
 
 export default function CollaborationPage() {
-  const { loading: authLoading } = useRequireAuth();
+  const { user, loading: authLoading } = useRequireAuth();
   // אישור חיבור פותח חדר עסקה, והמסך נכנס אליו מיד
   const router = useRouter();
   /*
@@ -2165,7 +2165,16 @@ export default function CollaborationPage() {
               ‏(בקשת המשתמש). „הפניות ברשת” אינו כיוון שמעלים אליו
               ‏כרטיס, ולכן אין לו כפתור.
             */}
-            {coopTab === "market" ? null : (
+            {/*
+              ‎**ורק למי שרשאי לפרסם** (ביקורת Codex, P2).
+
+              ‏שתי נקודות הקצה המרוכזות גדורות ב-`collaboration.share`,
+              ‏ואילו הרשת עצמה נראית גם עם `collaboration.offer` בלבד.
+              ‏סוכן שהיכולת נשללה ממנו בחריג אישי היה ממלא את החלון,
+              ‏בוחר קונים, לוחץ — ורק אז מקבל 403. כפתור שאינו שם
+              ‏אומר את זה מראש.
+            */}
+            {coopTab === "market" || !can(user, "collaboration.share") ? null : (
               <div className="mt-3.5 flex flex-wrap items-center gap-2.5">
                 <button
                   type="button"
