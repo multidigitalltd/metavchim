@@ -7,6 +7,7 @@ import {
   whatsappAgentSeats,
   whatsappSeatOffer,
   whatsappSeatOfferText,
+  whatsappSeatsFullText,
 } from "./whatsapp-agent";
 
 /**
@@ -302,5 +303,54 @@ describe("הקצאת המקום — נספרת, ניתנת להעברה, ומו�
     const text = whatsappSeatOfferText(whatsappSeatOffer(null));
     expect(text).toContain("פנו אלינו");
     expect(text).not.toMatch(/\d/u);
+  });
+});
+
+/**
+ * ‎**„המקומות תפוסים” — ומה לעשות עכשיו.**
+ *
+ * ‏שתי הזרועות של הנוסח הקודם היו מבוי סתום: „כבו” הפנה לפקד
+ * ‏שאינו קיים בשם הזה, ו„פנו אלינו” נאמר גם כשיש דף תשלום. שתיהן
+ * ‏נבדקות כאן, כי טעות בהן אינה מפילה דבר — היא רק משאירה את מי
+ * ‏שנחסם בלי דרך קדימה (דיווח מהשטח).
+ */
+describe("whatsappSeatsFullText", () => {
+  it("מקום אחד ואפשר לקנות — גם השחרור וגם המחיר נאמרים", () => {
+    const text = whatsappSeatsFullText({
+      seats: 1,
+      offer: { kind: "purchase", monthlyAgorot: 4_900 },
+    });
+    expect(text).toContain("כלול לסוכן אחד");
+    // ‏הפקד מצוטט בשמו, כי זה מה שכתוב על המסך
+    expect(text).toContain("„מחזיק בסוכן”");
+    expect(text).toContain("49 ₪");
+    expect(text, "„פנו אלינו” כשאפשר לקנות הוא מבוי סתום").not.toContain("פנו אלינו");
+  });
+
+  it("מסלול שאינו מוכר מקומות — „פנו אלינו”, ובלי מחיר מומצא", () => {
+    const text = whatsappSeatsFullText({ seats: 1, offer: { kind: "contact" } });
+    expect(text).toContain("פנו אלינו");
+    expect(text).not.toContain("₪");
+  });
+
+  it("כמה מקומות — המספר נאמר, והשחרור מנוסח לרבים", () => {
+    const text = whatsappSeatsFullText({
+      seats: 3,
+      offer: { kind: "purchase", monthlyAgorot: 4_900 },
+    });
+    expect(text).toContain("3 מקומות");
+    expect(text).toContain("אחד המחזיקים");
+  });
+
+  /* ‏„כבו” הוא המילה שהמשתמש חיפש ולא מצא — ולכן היא לא חוזרת */
+  it("המילה „כבו” אינה מופיעה בשום ענף", () => {
+    for (const seats of [1, 2]) {
+      for (const offer of [
+        { kind: "purchase", monthlyAgorot: 4_900 } as const,
+        { kind: "contact" } as const,
+      ]) {
+        expect(whatsappSeatsFullText({ seats, offer })).not.toContain("כבו");
+      }
+    }
   });
 });

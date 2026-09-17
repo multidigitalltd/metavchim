@@ -7,6 +7,8 @@ import {
   limitState,
   WHATSAPP_AGENT_DENIAL_TEXT,
   whatsappAgentSeats,
+  whatsappSeatOffer,
+  whatsappSeatsFullText,
 } from "@metavchim/shared";
 import { AuditService } from "../../core/audit.service";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
@@ -278,10 +280,19 @@ export class TeamService {
       where: { tenantId, isActive: true, whatsappAccess: true },
     });
     if (used >= seats) {
+      /*
+       * ‎**ההודעה אומרת מה לעשות, ומה שהיא אומרת קיים על המסך.**
+       *
+       * ‏שני הנוסחים הקודמים היו מקובעים כאן: „כבו” (פקד שאינו
+       * ‏קיים בשם הזה) ו„פנו אלינו” (גם כשיש דף תשלום). שניהם
+       * ‏נגזרים עכשיו מההצעה, במקום אחד — ראו `whatsappSeatsFullText`.
+       */
+      const plan = await this.plans.forTenant(tenantId, tx);
       throw new BadRequestException(
-        seats === 1
-          ? "הסוכן בוואטסאפ כלול לסוכן אחד במשרד. כדי להעביר אותו — כבו אותו אצל מי שמחזיק בו כרגע, או פנו אלינו להוספת מקום."
-          : `המשרד מחזיק ${seats} מקומות לסוכן בוואטסאפ, וכולם תפוסים. כבו אצל אחד המחזיקים, או פנו אלינו להוספת מקום.`,
+        whatsappSeatsFullText({
+          seats,
+          offer: whatsappSeatOffer(plan?.whatsappSeatMonthlyAgorot ?? null),
+        }),
       );
     }
   }
