@@ -963,7 +963,25 @@ export class AgreementsService {
     if (head.status === "signed") throw new BadRequestException("ההסכם כבר נחתם");
     if (head.status === "declined") throw new BadRequestException("ההסכם נדחה");
 
-    const { signedAt, freshBuyerId } = await this.prisma.withExplicitTenant(
+    /*
+     * ‎**הקשר הדייר נקבע במפורש, ולא נסמך על „אין אחד”** (ביקורת
+     * ‏Codex, P2).
+     *
+     * ‏`withExplicitTenant` קובעת הקשר רק כשאין — והיא צודקת:
+     * ‏קורא שכבר פועל בשם אדם מסוים צריך להישאר הוא. אבל הנתיב
+     * ‏הזה ציבורי, והחותם עשוי להחזיק עוגיית התחברות **של משרד
+     * ‏אחר** (מתווך שבודק את הקישור של עצמו, עמית שקיבל אותו).
+     * ‏אז `SessionMiddleware` קובע את ההקשר ההוא, ו-RLS נקבע
+     * ‏למשרד של ההסכם — שני דיירים שונים באותה טרנזקציה.
+     *
+     * ‏התוצאה אינה דליפה: הכתיבה תידחה ב-`WITH CHECK` והכול יתגלגל
+     * ‏אחורה. אבל היא כן הרסנית — החתימה נופלת בלי סיבה נראית
+     * ‏לעין. `officeContext` של **הדייר שבהסכם** הוא מה שנכון כאן,
+     * ‏כי זה הדייר שבשמו נעשית העבודה.
+     */
+    const { signedAt, freshBuyerId } = await TenantContext.run(
+      officeContext(head.tenantId),
+      () => this.prisma.withExplicitTenant(
       head.tenantId,
       async (tx) => {
       /*
@@ -1079,6 +1097,7 @@ export class AgreementsService {
 
       return { signedAt, freshBuyerId };
       },
+      ),
     );
 
     /*

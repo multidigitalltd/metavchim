@@ -11,7 +11,7 @@ import {
 } from "@nestjs/common";
 import type { Request } from "express";
 import { z } from "zod";
-import { AGREEMENT_KINDS, IdSchema, isSignatureDataUrl } from "@metavchim/shared";
+import { AGREEMENT_KINDS, IdSchema, isSignatureDataUrl, PhoneInputSchema } from "@metavchim/shared";
 import { Throttle } from "@nestjs/throttler";
 import { Public, RequireCapability } from "../../common/auth.decorators";
 import { assertContactAccess } from "../../common/ownership";
@@ -76,7 +76,19 @@ const SignSchema = z
     open: z
       .object({
         address: z.string().min(2).max(200),
-        phone: z.string().min(9).max(20),
+        /*
+         * ‎**`PhoneInputSchema` ולא מחרוזת** (ביקורת Codex, P1).
+         *
+         * ‏המספר הזה אינו רק טקסט למסמך — הוא מה שמזהה לקוח קיים.
+         * ‏`findOrCreateByPhone` מגבבת את מה שהיא מקבלת **כמות
+         * ‏שהוא**, וכל שאר המערכת שומרת `+972…` (זה בדיוק מה
+         * ‏ש-`PhoneInputSchema` עושה, ולכן היא קיימת). חותם שהקליד
+         * ‏`050-1234567` היה מייצר גיבוב שאינו תואם לשום כרטיס,
+         * ‏מקבל כרטיס כפול, וההסכם היה נוחת עליו — כלומר בדיוק
+         * ‏ההפך מ„אם זה לקוח קיים שההסכם ייכנס לו לכרטיס”, שהיא
+         * ‏הבקשה שהולידה את התכונה.
+         */
+        phone: PhoneInputSchema,
         dealType: z.enum(["sale", "rent"]),
         propertyText: z.string().min(4).max(300),
         priceText: z.string().min(1).max(60),
