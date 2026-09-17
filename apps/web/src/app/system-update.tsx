@@ -74,6 +74,34 @@ interface Announcement {
  * ‏מתהפכים נכון במצב כהה, בזמן שקובץ תמונה היה נשאר בהיר על רקע
  * ‏כהה.
  */
+const FORUM_ART = (
+  <>
+    <ellipse cx="96" cy="74" rx="86" ry="60" className="mv-announce-blob" />
+    {/* השאלה — הבועה הגדולה, עם שורות הטקסט שבתוכה */}
+    <path
+      className="mv-announce-bubble"
+      d="M30 44h62a12 12 0 0 1 12 12v28a12 12 0 0 1-12 12H52l-14 12V96h-8a12 12 0 0 1-12-12V56a12 12 0 0 1 12-12Z"
+    />
+    <g className="mv-announce-wave">
+      <path d="M34 62h50" />
+      <path d="M34 74h50" />
+      <path d="M34 86h30" />
+    </g>
+    {/* התשובה — בועה שנייה, ובתוכה הכוכב: המדריך והדירוג */}
+    <path
+      className="mv-announce-bubble"
+      d="M118 16h48a12 12 0 0 1 12 12v24a12 12 0 0 1-12 12h-10l-13 11V64h-25a12 12 0 0 1-12-12V28a12 12 0 0 1 12-12Z"
+    />
+    <path
+      className="mv-announce-badge"
+      d="M142 29L144.8 36.2L152.5 36.6L146.5 41.5L148.5 48.9L142 44.7L135.5 48.9L137.5 41.5L131.5 36.6L139.2 36.2Z"
+    />
+    {/* הווי — אותו חותם כמו בשאר ההכרזות */}
+    <circle cx="150" cy="100" r="19" className="mv-announce-badge" />
+    <path className="mv-announce-tick" d="M142 100l6 6 11-13" />
+  </>
+);
+
 const MENTOR_ART = (
   <>
     <ellipse cx="96" cy="74" rx="86" ry="60" className="mv-announce-blob" />
@@ -118,6 +146,13 @@ const WHATSAPP_ART = (
 
 /** ‎**מהחדש לישן.** הכרזה חדשה נוספת בראש הרשימה. */
 const ANNOUNCEMENTS: readonly Announcement[] = [
+  {
+    id: "announce-forum-launch",
+    title: "פורום, מדריך בעלי מקצוע וכלים",
+    text: "שאלות והתייעצויות עם מתווכים מכל הארץ, בשם או בעילום שם. לצדן מדריך בעלי מקצוע עם דירוג מניסיון אישי, וכלים ומחשבונים של המקצוע.",
+    cta: { label: "לפתוח את הפורום", href: "/forum" },
+    art: FORUM_ART,
+  },
   {
     id: "announce-mentor-launch",
     title: "המנטור האישי שלך כאן",
