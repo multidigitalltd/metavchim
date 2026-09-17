@@ -15,8 +15,15 @@ import {
   sessionWindowOpen,
   shouldNotifyByWhatsApp,
   templateParams,
+  templateLineParams,
+  NOTIFY_TEMPLATE_LINES,
   type NotifyItem,
 } from "./whatsapp-notify.js";
+import {
+  WHATSAPP_TEMPLATE_PARAMS,
+  whatsappTemplateParams,
+} from "./whatsapp-templates.js";
+import { mentorMessageBody } from "./mentor.js";
 import { WA_BUTTON_TITLE_MAX } from "./whatsapp-buttons.js";
 import { agentAction } from "../agent/actions.js";
 
@@ -402,6 +409,97 @@ describe("templateParams", () => {
       item({ title: "כותרת", body: "ראשון\n\nשני" }),
     ]);
     expect(detail).toBe("ראשון · שני");
+  });
+});
+
+describe("templateLineParams", () => {
+  /*
+   * ‎**זו הבדיקה שהתלונה נשענת עליה.** תקציר המנטור נכתב שורה
+   * לכל נושא, ובתבנית עם פירוט אחד הוא הגיע כשרשרת „·” ארוכה
+   * שאי אפשר לסרוק (דיווח מהשטח).
+   */
+  it("תקציר המנטור מתפרק לשורות שלו, בלי „·”", () => {
+    const body = mentorMessageBody(
+      "בוקר טוב admin, כאן המנטור של דירומקס.",
+      ["🎯 6 הצעות בשבוע: עוד לא התחיל.", "💡 רעיון להיום — לשלוח הצעה."],
+      "עוד אפשר להגיע לזה — ואני איתך.",
+    );
+    const [title, ...lines] = templateLineParams([
+      item({ title: "התקציר היומי", body }),
+    ]);
+    expect(title).toBe("התקציר היומי");
+    expect(lines).toEqual([
+      "בוקר טוב admin, כאן המנטור של דירומקס.",
+      "🎯 6 הצעות בשבוע: עוד לא התחיל.",
+      "💡 רעיון להיום — לשלוח הצעה.",
+      "עוד אפשר להגיע לזה — ואני איתך.",
+    ]);
+    expect(lines.join("")).not.toContain("·");
+  });
+
+  it("כמה התראות — שורה לכל אחת", () => {
+    const [title, ...lines] = templateLineParams([
+      item({ title: "א" }),
+      item({ title: "ב" }),
+      item({ title: "ג" }),
+    ]);
+    expect(title).toBe("3 עדכונים חדשים");
+    expect(lines).toEqual(["א", "ב", "ג", ""]);
+  });
+
+  /*
+   * ‏גוף התבנית קבוע, ולכן מה שחורג מתקפל לשורה האחרונה — כלומר
+   * הגרוע ביותר כאן הוא מה שהיה קודם, ורק בשורה אחת.
+   */
+  it("מה שחורג מהמכסה מתקפל לשורה האחרונה", () => {
+    const [, ...lines] = templateLineParams([
+      item({ title: "א" }),
+      item({ title: "ב" }),
+      item({ title: "ג" }),
+      item({ title: "ד" }),
+      item({ title: "ה" }),
+    ]);
+    expect(lines).toEqual(["א", "ב", "ג", "ד · ה"]);
+  });
+
+  it("התראה בלי גוף — שורה אחת שאומרת איפה הפירוט", () => {
+    const [, ...lines] = templateLineParams([item({ title: "ליד חדש", body: null })]);
+    expect(lines[0]).toBe("פרטים מלאים במערכת");
+  });
+
+  /* ‏הכלל של Meta: ערך עם ירידת שורה פוסל את ההודעה כולה */
+  it("אף ערך אינו נושא ירידת שורה", () => {
+    const values = templateLineParams([
+      item({ title: "כותרת\nשנייה", body: "א\nב\nג" }),
+    ]);
+    for (const value of values) expect(value).not.toContain("\n");
+  });
+
+  /*
+   * ‎**מספר השורות הוא החוזה מול מה שנרשם ב-WhatsApp Manager.**
+   * שינוי כאן בלי שינוי שם שם מפיל כל התראה מחוץ לחלון.
+   */
+  it("מספר השורות תואם את המשתנים שבתבנית הרשומה", () => {
+    expect(WHATSAPP_TEMPLATE_PARAMS.notifyLines).toHaveLength(
+      NOTIFY_TEMPLATE_LINES + 1,
+    );
+    expect(WHATSAPP_TEMPLATE_PARAMS.notifyLines[0]).toBe("update_title");
+  });
+
+  /* ‏שורה ריקה נשלחת כרווח — Meta דוחה ערך ריק */
+  it("שורה שאין בה תוכן יוצאת כרווח יחיד, עם שם המשתנה שלה", () => {
+    const params = whatsappTemplateParams(
+      "notifyLines",
+      templateLineParams([item({ title: "ליד חדש", body: "שורה" })]),
+    );
+    expect(params.map((p) => p.parameter_name)).toEqual([
+      "update_title",
+      "line_1",
+      "line_2",
+      "line_3",
+      "line_4",
+    ]);
+    expect(params[2]?.text).toBe(" ");
   });
 });
 

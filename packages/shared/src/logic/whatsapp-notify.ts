@@ -32,6 +32,7 @@ import {
   callConvertCommand,
 } from "./call-convert-chat.js";
 import { notificationUrl, type PushableNotification } from "./web-push.js";
+import { flattenTemplateParam } from "./whatsapp-templates.js";
 import type { WhatsAppButton } from "./whatsapp-buttons.js";
 import { forumThreadCommand } from "./forum.js";
 import { VIEWING_PRICE_FEEDBACK, VIEWING_PRICE_LABELS, viewingFeedbackCommand } from "./viewing-feedback.js";
@@ -906,22 +907,81 @@ export function templateParams(items: readonly NotifyItem[]): [string, string] {
           .slice(0, 3)
           .map((item) => item.title)
           .join(" · ");
-  return [flatten(headline, 120), flatten(detail, 300)];
+  return [
+    flattenTemplateParam(headline, MAX_HEADLINE) || "עדכון",
+    flattenTemplateParam(detail, MAX_DETAIL) || "עדכון",
+  ];
+}
+
+/* ‏כותרת קצרה, פירוט ארוך — שניהם הרבה מתחת ל-1024 של גוף תבנית */
+const MAX_HEADLINE = 120;
+const MAX_DETAIL = 300;
+
+/**
+ * ‎**כמה שורות יש בתבנית הרב-שורתית** — כמספר משתני ה-`line_n`
+ * שב-`notifyLines`, וזה מה שנרשם ב-WhatsApp Manager.
+ *
+ * ‏ארבע ולא שש: כל שורה שאין בה תוכן נשלחת כרווח יחיד ומופיעה
+ * ‏כשורה ריקה. ארבע מכסות את תקציר המנטור במלואו (פתיחה, יעד,
+ * ‏רעיון, סיום) בלי להותיר ריקים בהודעה הרגילה.
+ */
+export const NOTIFY_TEMPLATE_LINES = 4;
+
+/* ‏4 × 200 + כותרת — עדיין מתחת לתקרת 1024 התווים של גוף תבנית */
+const MAX_LINE = 200;
+
+/**
+ * ‎**אותה התראה, שורה לכל פריט — למי שרשם את התבנית הרב-שורתית.**
+ *
+ * ## למה
+ *
+ * ‏ערך של תבנית אינו יכול להכיל ירידת שורה (Meta דוחה את ההודעה
+ * ‏כולה), ולכן `templateParams` משטח את גוף ההתראה ל-`·`. תקציר
+ * ‏המנטור, שנכתב שורה לכל נושא, הגיע כך כשרשרת אחת ארוכה שאי אפשר
+ * ‏לסרוק (דיווח מהשטח). ירידות השורה יכולות לשבת רק ב**גוף
+ * ‏התבנית**, כלומר משתנה לכל שורה — וזה מה שכאן.
+ *
+ * ## מה נכנס לשורות
+ *
+ * ‏התראה אחת — שורות הגוף שלה כמות שהן. כמה התראות — שורה לכל
+ * ‏אחת. מה שחורג מהמכסה מתקפל ל**שורה האחרונה** עם `·`, כלומר
+ * ‏הגרוע ביותר כאן הוא בדיוק מה שהיה קודם, ורק בשורה אחת.
+ */
+export function templateLineParams(
+  items: readonly NotifyItem[],
+): [string, string, string, string, string] {
+  const first = items[0];
+  const headline =
+    items.length === 1 && first ? first.title : `${items.length} עדכונים חדשים`;
+  const pool =
+    items.length === 1 && first
+      ? (first.body ?? "").split("\n")
+      : items.slice(0, NOTIFY_ITEMS_PER_MESSAGE).map((item) => item.title);
+  const lines = foldToLines(pool);
+  return [
+    flattenTemplateParam(headline, MAX_HEADLINE) || "עדכון",
+    lines[0] ?? "",
+    lines[1] ?? "",
+    lines[2] ?? "",
+    lines[3] ?? "",
+  ];
 }
 
 /**
- * תבנית של Meta דוחה שורות חדשות, טאבים ורצף רווחים כפולים.
- *
- * ‏השורה הופכת ל-`·` ולא לרווח: גוף ההתראה בנוי שורה לכל פריט
- * ‏(ראו `mentorMessageBody`), והדבקה ברווח החזירה בדיוק את גוש
- * ‏הטקסט שהשורות באו למנוע.
+ * ‏בדיוק `NOTIFY_TEMPLATE_LINES` ערכים: מה שחסר חוזר ריק (הבונה
+ * ‏המשותף הופך אותו לרווח, כי Meta דוחה ערך ריק), ומה שעודף
+ * ‏מתקפל לשורה האחרונה.
  */
-function flatten(text: string, max: number): string {
-  const cleaned = text
-    .replace(/[^\S\n]*\n[\s]*/gu, " · ")
-    .replace(/\s+/gu, " ")
-    .trim();
-  return cleaned.length > max
-    ? `${cleaned.slice(0, max - 1)}…`
-    : cleaned || "עדכון";
+function foldToLines(pool: readonly string[]): string[] {
+  const clean = pool
+    .map((line) => flattenTemplateParam(line, MAX_LINE))
+    .filter((line) => line !== "");
+  if (clean.length === 0) return ["פרטים מלאים במערכת", "", "", ""];
+  if (clean.length <= NOTIFY_TEMPLATE_LINES) {
+    return [...clean, ...Array<string>(NOTIFY_TEMPLATE_LINES - clean.length).fill("")];
+  }
+  return [
+    ...clean.slice(0, NOTIFY_TEMPLATE_LINES - 1),
+    flattenTemplateParam(clean.slice(NOTIFY_TEMPLATE_LINES - 1).join(" · "), MAX_LINE),
+  ];
 }
