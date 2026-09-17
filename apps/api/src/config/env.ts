@@ -21,7 +21,22 @@ for (const candidate of [resolve(process.cwd(), "../../.env"), resolve(process.c
 const EnvSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   API_PORT: z.coerce.number().int().min(1).max(65535).default(3001),
-  WEB_ORIGIN: z.string().url(),
+  /**
+   * ‎**מקור הווב — בלי לוכסן בסוף, וזה נאכף כאן ולא אצל הקוראים.**
+   *
+   * ‏עשרות מקומות בונים כתובת כ-`${WEB_ORIGIN}${path}`. לוכסן
+   * ‏אחד בסוף הערך הופך את כולם ל-`https://host//path` — נתיב
+   * ‏שאינו קיים, כלומר „העמוד לא נמצא” על כל קישור שהמערכת
+   * ‏שולחת: בוואטסאפ, במייל ובהתראה.
+   *
+   * ‏שני קוראים כבר גילו את זה וניקו בעצמם (`.replace(/\/+$/u, "")`),
+   * ‏וזו בדיוק הצורה שבה כלל אחד הופך לשלושה עותקים שאינם מסכימים.
+   * ‏הנרמול כאן פעם אחת, על גבול הסביבה, ואף קורא אינו צריך לזכור.
+   */
+  WEB_ORIGIN: z
+    .string()
+    .url()
+    .transform((value) => value.replace(/\/+$/u, "")),
   DATABASE_URL: z.string().min(1),
   REDIS_URL: z.string().min(1),
   /** מפתח AES-256-GCM להצפנת PII — 32 בייט ב-base64 (docs/04 §4). */

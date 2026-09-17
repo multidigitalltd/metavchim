@@ -206,7 +206,7 @@ const NEEDS_LINK = "needs-link";
  * שמחזיק עכשיו במספר שהוחלף.
  */
 function needsLinkText(webOrigin: string): string {
-  const link = `${webOrigin.replace(/\/+$/u, "")}/profile#whatsapp-link`;
+  const link = `${webOrigin}/profile#whatsapp-link`;
   return [
     "המכשיר הזה אינו מחובר לחשבון, ולכן אני לא יכולה לעבוד ממנו.",
     "",
@@ -569,7 +569,7 @@ export class WhatsAppAssistantService {
        * יודע שמשהו חסום ואינו יודע איפה לטפל בזה, וזה בדיוק המקום
        * שבו הוא מפסיק לנסות.
        */
-      const link = `${loadEnv().WEB_ORIGIN.replace(/\/+$/u, "")}/profile#whatsapp-link`;
+      const link = `${loadEnv().WEB_ORIGIN}/profile#whatsapp-link`;
       await this.sender.sendText(
         msg.fromWaId,
         `${WHATSAPP_AGENT_DENIAL_TEXT[denial]}\n\nלבדיקה ולהפעלה: ${link}`,

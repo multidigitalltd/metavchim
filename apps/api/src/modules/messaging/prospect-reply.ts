@@ -21,7 +21,7 @@
 
 /** קישור ההרשמה — נגזר מכתובת האתר כדי שלא יהיה עוד עותק להתיישן. */
 export function prospectReplyText(webOrigin: string): string {
-  const signup = `${webOrigin.replace(/\/+$/u, "")}/signup`;
+  const signup = `${webOrigin}/signup`;
   return [
     'שלום 👋 כאן הסוכן החכם של *מתווכים* — מערכת ניהול המשרד לסוכני נדל"ן.',
     "",

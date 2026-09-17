@@ -1648,7 +1648,8 @@ export class AgentExecuteService {
      */
     const scope = seesAllProperties() ? "במשרד" : "בטיפולך";
     return {
-      href: "/exclusivity",
+      // ‏„מעקב בלעדיות” הוא רצועה בראש `/properties`; `/exclusivity` לא נבנה מעולם
+      href: "/properties",
       message:
         items.length === 0
           ? `אין בלעדיות פעילות ${scope}`
@@ -3384,10 +3385,11 @@ export class AgentExecuteService {
     const window = reportWindow(params);
     const rows = await this.analytics.agentPerformance(window);
     if (rows.length === 0) {
-      return { href: "/analytics", message: "אין נתוני סוכנים לתקופה הזו" };
+      return { href: "/reports", message: "אין נתוני סוכנים לתקופה הזו" };
     }
     return {
-      href: "/analytics",
+      /* ‏מסך הניתוח הוא `/reports`; `/analytics` אינו נתיב קיים */
+      href: "/reports",
       message: `ביצועי ${rows.length} סוכנים ב-${window} הימים האחרונים`,
       data: { agents: rows },
     };
@@ -4124,7 +4126,7 @@ export class AgentExecuteService {
   /* ==================== הפורום המקצועי (docs/16) ==================== */
 
   private forumLink(threadId: string): string {
-    return `${loadEnv().WEB_ORIGIN.replace(/\/+$/u, "")}${forumThreadPath(threadId)}`;
+    return `${loadEnv().WEB_ORIGIN}${forumThreadPath(threadId)}`;
   }
 
   private forumLines(items: readonly { id: string; title: string; replyCount: number; author: { label: string } }[]): string[] {

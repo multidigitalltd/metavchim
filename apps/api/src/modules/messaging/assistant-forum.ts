@@ -34,7 +34,7 @@ export function forumReplyPrompt(threadTitle: string): AgentReply {
 }
 
 export function forumReplyPosted(threadId: string, anonymous: boolean, webOrigin: string): AgentReply {
-  const link = `${webOrigin.replace(/\/+$/u, "")}${forumThreadPath(threadId)}`;
+  const link = `${webOrigin}${forumThreadPath(threadId)}`;
   const text = `✅ התגובה פורסמה${anonymous ? " בעילום שם" : ""}. ${link}`;
   return { text, speak: "התגובה פורסמה בפורום." };
 }
