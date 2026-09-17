@@ -448,18 +448,35 @@ export function ListFilters({
           ‏כאן מצב שני שיכול להיפרד מזה של הדסקטופ. הנקודה מסמנת
           ‏שיש סינון פעיל מתחת למגירה הסגורה — סינון שלא רואים הוא
           ‏רשימה חסרה בלי הסבר.
+
+          ‎**44×44 — ולכן בלי `width`/`height` משלו** (ביקורת Codex).
+          ‏שאר הפקדים בשורה הם 38 גובה, ולכן נתתי לו את אותה מידה;
+          ‏אבל במובייל **זו הדרך היחידה** לפתוח את הסינונים, והרצפה
+          ‏המתועדת לאזור מגע היא 44 (docs/06 §נגישות). `mv-btn-icon`
+          ‏כבר נותן בדיוק את זה, והדריסה רק גרעה ממנו.
         */}
         {mobileToggle ? (
           <button
             type="button"
             className="mv-btn-plain mv-btn-icon mv-filter-mobile relative"
-            style={{ width: 38, height: 38, borderRadius: 11 }}
             aria-expanded={open}
             aria-label={open ? "סגירת הסינונים" : "סינונים"}
             onClick={() => setOpen(!open)}
           >
             <IconFilter s={17} />
-            {hasActiveFilters(draft) || childrenActive ? (
+            {/*
+              ‎**הנקודה נגזרת מ-`values` ולא מ-`draft`** (ביקורת
+              ‏Codex).
+
+              ‏`draft` הוא מה שהוקלד וטרם נשלח, ו-`values` הוא מה
+              ‏שהרשימה באמת מסוננת לפיו — הטופס מחיל ערכים מוקלדים
+              ‏רק בשליחה, במכוון. עם `draft` הנקודה שיקרה לשני
+              ‏הכיוונים: מי שניקה שדה וסגר את המגירה איבד את הנקודה
+              ‏בזמן שהרשימה עדיין מסוננת, ומי שהקליד וסגר קיבל נקודה
+              ‏על סינון שלא הוחל. סימון שמתאר את מה שמוצג — זה כל
+              ‏תפקידו.
+            */}
+            {hasActiveFilters(values) || childrenActive ? (
               <span
                 aria-hidden="true"
                 className="absolute rounded-full"
