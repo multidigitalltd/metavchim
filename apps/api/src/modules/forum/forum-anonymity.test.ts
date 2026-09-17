@@ -138,3 +138,83 @@ describe("הפורום — מה נחשף על מחבר", () => {
     await expect(run(() => svc.deleteThread(THREAD))).rejects.toBeInstanceOf(NotFoundException);
   });
 });
+
+/**
+ * ‎**והיוצא מן הכלל: דירוג במדריך** (docs/16 §2א).
+ *
+ * שאלה בעילום שם פוגעת לכל היותר בשואל. חוות דעת בעילום שם היא
+ * אמירה על **העסק של מישהו אחר**, שאין מולה עם מי לדבר — ולכן דירוג
+ * נושא תמיד שם וגם משרד. הבדיקה מכסה את שני הקצוות: מה נכתב למסד,
+ * ומה יוצא ב-DTO.
+ */
+function ratingHarness() {
+  const created: Record<string, unknown>[] = [];
+  const prisma = {
+    user: { findUnique: async () => ({ email: "agent@office.example", preferences: {} }) },
+    forumListing: { findFirst: async () => ({ id: "01LISTINGAAAAAAAAAAAAAAAAA" }) },
+    forumRating: {
+      findMany: async () => [
+        {
+          id: "01RATINGAAAAAAAAAAAAAAAAAA",
+          score: 5,
+          comment: "ליווה עסקה מורכבת, זמין בכל שעה",
+          createdAt: new Date(1),
+          user: { name: "דנה לוי" },
+          raterTenant: { name: 'לוי נדל"ן' },
+        },
+        {
+          /* משתמש שנמחק — המשרד נשאר, כי הוא בעמודה משלו */
+          id: "01RATINGBBBBBBBBBBBBBBBBBB",
+          score: 2,
+          comment: "לא חזר אליי",
+          createdAt: new Date(2),
+          user: null,
+          raterTenant: { name: "כהן נכסים" },
+        },
+      ],
+    },
+    $transaction: async (fn: (tx: unknown) => Promise<unknown>) =>
+      fn({
+        forumRating: {
+          findUnique: async () => null,
+          create: async (args: { data: Record<string, unknown> }) => {
+            created.push(args.data);
+            return args.data;
+          },
+          update: async (args: { data: Record<string, unknown> }) => args.data,
+        },
+        forumListing: { update: async () => ({ ratingSum: 5, ratingCount: 1 }) },
+      }),
+  } as unknown as PrismaService;
+  const crypto = { forumAuthorKey: key } as unknown as CryptoService;
+  const audit = { record: async () => undefined } as unknown as AuditService;
+  const notify = {} as unknown as ForumNotifyService;
+  const svc = new ForumService(prisma, crypto, audit, notify);
+  const run = <T>(fn: () => Promise<T>) =>
+    TenantContext.run(
+      { tenantId: TENANT, userId: ME, capabilities: new Set(), billingOnly: false } as Parameters<typeof TenantContext.run>[0],
+      fn,
+    );
+  return { svc, run, created };
+}
+
+describe("דירוג במדריך — תמיד בשם", () => {
+  it("השורה נכתבת עם המשתמש ועם המשרד, בלי ענף אנונימי", async () => {
+    const { svc, run, created } = ratingHarness();
+    await run(() => svc.rate("01LISTINGAAAAAAAAAAAAAAAAA", { score: 5 }));
+
+    expect(created).toHaveLength(1);
+    expect(created[0]).toMatchObject({ userId: ME, raterTenantId: TENANT, score: 5 });
+    expect(Object.hasOwn(created[0] ?? {}, "anonymous")).toBe(false);
+  });
+
+  it("ה-DTO נושא שם ומשרד; משתמש שנמחק — המשרד נשאר", async () => {
+    const { svc, run } = ratingHarness();
+    const { items } = await run(() => svc.listRatings("01LISTINGAAAAAAAAAAAAAAAAA"));
+
+    expect(items[0]?.author).toEqual({ label: "דנה לוי", office: 'לוי נדל"ן', anonymous: false });
+    expect(items[1]?.author).toEqual({ label: "משתמש שנמחק", office: "כהן נכסים", anonymous: false });
+    // ‏אין כאן „מתווך/ת אנונימי/ת”, בשום מצב
+    expect(items.every((item) => !item.author.anonymous)).toBe(true);
+  });
+});

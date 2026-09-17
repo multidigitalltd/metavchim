@@ -79,7 +79,8 @@ export interface ListingDto {
   area: string | null;
   ratingAverage: number | null;
   ratingCount: number;
-  myRating: { score: number; comment: string | null; anonymous: boolean } | null;
+  /** ‏דירוג הוא תמיד בשם — ראו `ForumRatingInputSchema` */
+  myRating: { score: number; comment: string | null } | null;
   mine: boolean;
   createdAt: string;
 }

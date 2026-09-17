@@ -131,12 +131,19 @@ export const ForumListingListSchema = z
   .strict();
 export type ForumListingList = z.infer<typeof ForumListingListSchema>;
 
-/** דירוג מניסיון אישי — כוכב אחד עד חמישה, ומשפט על החוויה. */
+/**
+ * דירוג מניסיון אישי — כוכב אחד עד חמישה, ומשפט על החוויה.
+ *
+ * ‎**ואין כאן `anonymous`.** זו הנקודה היחידה בפורום שבה אין עילום
+ * שם, והיא מכוונת: שאלה בעילום שם פוגעת לכל היותר בשואל, ואילו
+ * דירוג בעילום שם הוא אמירה על **העסק של מישהו אחר** שאין מולה עם
+ * מי לדבר. הסכמה `strict`, ולכן בקשה שעדיין שולחת את השדה נדחית
+ * בשער ולא נשמרת „כלא-אנונימית” בשקט.
+ */
 export const ForumRatingInputSchema = z
   .object({
     score: z.number().int().min(1).max(5),
     comment: z.string().trim().max(FORUM_RATING_COMMENT_MAX).optional(),
-    anonymous: z.boolean().default(false),
   })
   .strict();
 export type ForumRatingInput = z.infer<typeof ForumRatingInputSchema>;
