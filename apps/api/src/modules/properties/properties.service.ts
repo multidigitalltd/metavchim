@@ -53,6 +53,7 @@ import {
   leadOwnershipFilter,
 } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
+import { autoNetworkPublish } from "../../common/auto-network-publish";
 import { recordMentorWin } from "../../common/mentor-wins";
 import { deleteCoopDeals } from "../../common/coop-deal-cleanup";
 import { AuditService } from "../../core/audit.service";
@@ -311,18 +312,12 @@ export class PropertiesService {
    * ומפרסמים בכוונה.
    */
   private async autoPublishToNetwork(propertyId: string): Promise<void> {
-    const tenantId = TenantContext.current().tenantId;
-    const tenant = await this.prisma.tenant.findUnique({
-      where: { id: tenantId },
-      select: { settings: true },
-    });
-    const settings = (tenant?.settings ?? {}) as Record<string, unknown>;
-    if (settings["autoShareProperties"] !== true) return;
-    try {
-      await this.listings.publish(propertyId, uniformTerms(DEFAULT_COMMISSION_SPLIT));
-    } catch {
-      // הנכס נשמר; פרסום ידני זמין מכרטיס הנכס
-    }
+    await autoNetworkPublish(
+      { prisma: this.prisma, logger: this.logger },
+      "property",
+      propertyId,
+      () => this.listings.publish(propertyId, uniformTerms(DEFAULT_COMMISSION_SPLIT)),
+    );
   }
 
   /**

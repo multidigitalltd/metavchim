@@ -132,6 +132,20 @@ const FALLBACK_BY_DESIGN = new Set([
    * שהמסך ייחשף מוסיפים את הישות לשתי המפות ומוציאים אותה מכאן.
    */
   "mentor_achievement",
+  /*
+   * ‏איש קשר בלי כרטיס — **אין לו מסך, וזו עובדה ולא השמטה.**
+   *
+   * ‏שני כותבים מצביעים עליו, ושניהם רק כשאין עוגן טוב יותר:
+   * ‏שיחה נכנסת מלקוח מוכר שאין לו ליד (`publicNotification`),
+   * ‏ותשובת מייל מאדם שאין לו כרטיס קונה או ליד. במערכת הזו אדם
+   * ‏חי דרך הכרטיס שלו, ולאיש קשר עצמו אין עמוד — ולכן גם אין
+   * ‏לאן לנתב. שני המקומות כבר מעדיפים `lead`/`buyer` כשקיים.
+   *
+   * ‏השורה הזו נחשפה כשהשער התרחב ל-`notifyOnce`; היא אינה
+   * ‏הכשרה של המצב אלא רישום שלו. פתרון אמיתי הוא עמוד לאיש
+   * ‏קשר או קישור עמוק לשיחה בתיבה — ושניהם מעבר להיקף כאן.
+   */
+  "contact",
 ]);
 
 /**
@@ -304,7 +318,18 @@ for (const dir of sources) {
      * החלון שאחרי `notification.create` ולא כל הקובץ: `entityType`
      * מופיע גם ברישומי הביקורת, ואלה אינם מקשרים לשום מסך.
      */
-    for (const match of text.matchAll(/notification\.create(?:Many)?\(/gu)) {
+    /*
+     * ‎**וגם `notifyOnce` — ולא רק `notification.create`.**
+     *
+     * ‏העוזר הזה כותב את השורה ב-SQL גולמי (`ON CONFLICT DO
+     * ‏NOTHING`), ולכן מחרוזת „notification.create” אינה מופיעה
+     * ‏בו. עשרות התראות עוברות דרכו — המנטור, הפורום, המרכזייה
+     * ‏והדוח המשרדי — וכל אחת מהן חמקה מהבדיקה שכאן: סוג שאינו
+     * ‏ב-`TYPE_CATEGORY` נפל ל-`system` בשקט, כלומר הגיע גם למי
+     * ‏שכיבה את הקטגוריה שלו. שער שמדלג על המסלול שרוב ההתראות
+     * ‏עוברות בו ירוק תמיד.
+     */
+    for (const match of text.matchAll(/(?:notification\.create(?:Many)?|notifyOnce)\(/gu)) {
       const window = text.slice(match.index, match.index + 900);
       const entity = /entityType:\s*"([a-z_]+)"/u.exec(window);
       if (entity !== null) written.set(entity[1], file.slice(root.length + 1));

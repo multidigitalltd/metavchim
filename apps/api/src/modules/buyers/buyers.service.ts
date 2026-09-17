@@ -47,6 +47,7 @@ import {
   assertCanAssignAgents,
 } from "../../common/agent-names";
 import { TenantContext } from "../../common/tenant-context";
+import { autoNetworkPublish } from "../../common/auto-network-publish";
 import { deleteCoopDeals } from "../../common/coop-deal-cleanup";
 import { AuditService } from "../../core/audit.service";
 import { OutboxService } from "../../core/outbox.service";
@@ -236,21 +237,16 @@ export class BuyersService {
    * לא נקרא מ-`createForImport` — ראו הנימוק בצד הנכסים.
    */
   private async autoShareToNetwork(buyerId: string): Promise<void> {
-    const tenantId = TenantContext.current().tenantId;
-    const tenant = await this.prisma.tenant.findUnique({
-      where: { id: tenantId },
-      select: { settings: true },
-    });
-    const settings = (tenant?.settings ?? {}) as Record<string, unknown>;
-    if (settings["autoShareBuyers"] !== true) return;
-    try {
-      await this.collaboration.shareBuyer(
-        buyerId,
-        uniformTerms(DEFAULT_COMMISSION_SPLIT),
-      );
-    } catch {
-      // הקונה נשמר; שיתוף ידני זמין מכרטיס הקונה
-    }
+    await autoNetworkPublish(
+      { prisma: this.prisma, logger: this.logger },
+      "buyer",
+      buyerId,
+      () =>
+        this.collaboration.shareBuyer(
+          buyerId,
+          uniformTerms(DEFAULT_COMMISSION_SPLIT),
+        ),
+    );
   }
 
   /**
