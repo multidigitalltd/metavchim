@@ -15,6 +15,7 @@ import {
 import { useQuery } from "@/lib/use-query";
 import {
   Button,
+  CacheNotice,
   Card,
   ContactActions,
   ErrorState,
@@ -47,7 +48,7 @@ export default function BuyerScreen() {
       .then((rows) => apiList(rows, "matches"))
       .catch(() => null);
     return { buyer, matches };
-  }, [id]);
+  }, [id], { cacheKey: `buyer:${id}` });
 
   if (query.loading && query.data === null) return <Loading />;
   if (query.data === null) {
@@ -87,6 +88,7 @@ export default function BuyerScreen() {
   return (
     <Screen refreshing={query.refreshing} onRefresh={() => void query.refresh()}>
       <Stack.Screen options={{ title: b.contact.name }} />
+      <CacheNotice query={query} />
       <Card>
         <View style={styles.headRow}>
           <Text variant="heading" style={styles.grow}>

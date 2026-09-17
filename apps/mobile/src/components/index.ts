@@ -9,3 +9,4 @@ export { Row } from "./Row";
 export { Chips, type ChipOption } from "./Chips";
 export { ContactActions } from "./ContactActions";
 export { ProposalCard } from "./ProposalCard";
+export { CacheNotice } from "./CacheNotice";

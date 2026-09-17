@@ -5,7 +5,7 @@ import { apiGet, apiList, apiPatch, errorMessage } from "@/lib/api";
 import type { NotificationRow } from "@/lib/dtos";
 import { formatWhen } from "@/lib/format";
 import { useQuery } from "@/lib/use-query";
-import { Button, EmptyState, ErrorState, Loading, Row, Screen, Text } from "@/components";
+import { Button, CacheNotice, EmptyState, ErrorState, Loading, Row, Screen, Text } from "@/components";
 import { colors } from "@/theme";
 
 /** ‏לאן מובילה התראה — רק לישויות שיש להן מסך באפליקציה. */
@@ -31,6 +31,7 @@ export default function NotificationsScreen() {
         (r) => ({ items: apiList(r.items, "items"), unreadCount: r.unreadCount }),
       ),
     [],
+    { cacheKey: "notifications" },
   );
   // eslint-disable-next-line react-hooks/exhaustive-deps -- מכוון: השעון מתקדם רק כשהנתונים מתרעננים
   const now = useMemo(() => new Date(), [query.data]);
@@ -67,6 +68,7 @@ export default function NotificationsScreen() {
       }
       title="התראות"
     >
+      <CacheNotice query={query} />
       {query.loading && query.data === null ? <Loading /> : null}
       {query.error && query.data === null ? (
         <ErrorState message={query.error} onRetry={query.reload} />

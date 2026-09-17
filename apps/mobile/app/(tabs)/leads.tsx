@@ -7,7 +7,18 @@ import { can, useAuth } from "@/lib/auth";
 import type { LeadRow } from "@/lib/dtos";
 import { leadIntentLabel, leadSourceLabel, leadStatusLabel, leadStatusTone } from "@/lib/labels";
 import { useQuery } from "@/lib/use-query";
-import { Button, Chips, EmptyState, ErrorState, Field, Loading, Pill, Row, Screen } from "@/components";
+import {
+  Button,
+  CacheNotice,
+  Chips,
+  EmptyState,
+  ErrorState,
+  Field,
+  Loading,
+  Pill,
+  Row,
+  Screen,
+} from "@/components";
 import { colors, space } from "@/theme";
 
 type Filter = "open" | "new" | "in_progress" | "waiting_customer" | "converted" | "closed" | "all";
@@ -49,6 +60,7 @@ export default function LeadsScreen() {
         apiList(r.items, "items"),
       ),
     [scope],
+    { cacheKey: `leads:${filter}` },
   );
 
   // eslint-disable-next-line react-hooks/exhaustive-deps -- מכוון: השעון מתקדם רק כשהנתונים מתרעננים
@@ -80,6 +92,7 @@ export default function LeadsScreen() {
         />
         <Chips options={FILTERS} value={filter} onChange={setFilter} />
       </View>
+      <CacheNotice query={query} />
       {query.loading && query.data === null ? <Loading /> : null}
       {query.error && query.data === null ? (
         <ErrorState message={query.error} onRetry={query.reload} />

@@ -8,6 +8,7 @@ import { formatPrice, roomsLabel } from "@/lib/format";
 import { propertyStatusLabel, propertyStatusTone, propertyTypeLabel } from "@/lib/labels";
 import { useQuery } from "@/lib/use-query";
 import {
+  CacheNotice,
   Chips,
   EmptyState,
   ErrorState,
@@ -52,6 +53,7 @@ export default function PropertiesScreen() {
         apiList(r.items, "items"),
       ),
     [],
+    { cacheKey: "properties" },
   );
 
   const rows = useMemo(() => {
@@ -76,6 +78,7 @@ export default function PropertiesScreen() {
         />
         <Chips options={FILTERS} value={filter} onChange={setFilter} />
       </View>
+      <CacheNotice query={query} />
       {query.loading && query.data === null ? <Loading /> : null}
       {query.error && query.data === null ? (
         <ErrorState message={query.error} onRetry={query.reload} />

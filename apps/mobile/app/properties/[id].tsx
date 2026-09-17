@@ -16,6 +16,7 @@ import {
 import { useQuery } from "@/lib/use-query";
 import {
   Button,
+  CacheNotice,
   Card,
   ContactActions,
   ErrorState,
@@ -52,7 +53,7 @@ export default function PropertyScreen() {
       .then((rows) => apiList(rows, "matches"))
       .catch(() => null);
     return { property, matches };
-  }, [id]);
+  }, [id], { cacheKey: `property:${id}` });
 
   if (query.loading && query.data === null) return <Loading />;
   if (query.data === null) {
@@ -90,6 +91,7 @@ export default function PropertyScreen() {
   return (
     <Screen refreshing={query.refreshing} onRefresh={() => void query.refresh()}>
       <Stack.Screen options={{ title: address }} />
+      <CacheNotice query={query} />
       <Card>
         <View style={styles.headRow}>
           <Text variant="heading" style={styles.grow}>

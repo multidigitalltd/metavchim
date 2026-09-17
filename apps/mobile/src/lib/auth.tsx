@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import type { PropsWithChildren } from "react";
 import type { Capability } from "@metavchim/shared";
 import { ApiError, apiGet, apiPost, setUnauthorizedListener } from "./api";
+import { clearCacheScope, setCacheScope } from "./cache";
 import {
   readPushStatus,
   registerDevicePush,
@@ -71,6 +72,11 @@ export function AuthProvider({ children }: PropsWithChildren) {
   const [offline, setOffline] = useState(false);
   const [pushStatus, setPushStatus] = useState<PushStatus | null>(null);
 
+  // מרחב המטמון הוא המשתמש: בלי זהות אין מטמון, ומשתמש אחר — מרחב אחר
+  useEffect(() => {
+    setCacheScope(user?.id ?? null);
+  }, [user?.id]);
+
   const refresh = useCallback(async () => {
     const token = await readSessionToken();
     if (token === null) {
@@ -134,6 +140,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
     setUnauthorizedListener(() => {
       void clearSessionToken().then(() => setUser(null));
     });
+    // הזהות שפגה — המטמון שלה נמחק כשמזהה המשתמש ייצא מהמרחב (ראו למעלה)
     return () => setUnauthorizedListener(null);
   }, []);
 
@@ -187,15 +194,20 @@ export function AuthProvider({ children }: PropsWithChildren) {
     // עד התפוגה. אם השרת לא נגיש — המכשיר נמחק בכל מקרה.
     await apiPost("/auth/logout", {}).catch(() => undefined);
     await clearSessionToken();
+    // נתוני המשרד לא נשארים על מכשיר שהתנתק ממנו
+    const leaving = user?.id;
+    if (leaving) await clearCacheScope(leaving);
     setUser(null);
-  }, []);
+  }, [user?.id]);
 
   const changePassword = useCallback(async (currentPassword: string, newPassword: string) => {
     await apiPost("/auth/change-password", { currentPassword, newPassword });
     await unregisterDevicePush();
     await clearSessionToken();
+    const leaving = user?.id;
+    if (leaving) await clearCacheScope(leaving);
     setUser(null);
-  }, []);
+  }, [user?.id]);
 
   const value = useMemo<AuthState>(
     () => ({

@@ -7,7 +7,17 @@ import { can, useAuth } from "@/lib/auth";
 import type { AppointmentRow, LeadRow, TaskRow } from "@/lib/dtos";
 import { formatWhen } from "@/lib/format";
 import { useQuery } from "@/lib/use-query";
-import { Button, Card, ErrorState, Pill, Row, Screen, SectionTitle, Text } from "@/components";
+import {
+  Button,
+  CacheNotice,
+  Card,
+  ErrorState,
+  Pill,
+  Row,
+  Screen,
+  SectionTitle,
+  Text,
+} from "@/components";
 import { colors, space } from "@/theme";
 
 interface Today {
@@ -117,7 +127,7 @@ export default function TodayScreen() {
       unread: notifications.unreadCount,
       failed,
     };
-  }, [canLeads, canCalendar]);
+  }, [canLeads, canCalendar], { cacheKey: "today" });
 
   // „עכשיו” של הטעינה האחרונה — ניסוחי ההמתנה מתעדכנים יחד עם הנתונים
   // eslint-disable-next-line react-hooks/exhaustive-deps -- מכוון: השעון מתקדם רק כשהנתונים מתרעננים
@@ -153,6 +163,7 @@ export default function TodayScreen() {
         />
       }
     >
+      <CacheNotice query={query} />
       {query.error && data === null ? (
         <ErrorState message={query.error} onRetry={query.reload} />
       ) : null}

@@ -10,6 +10,7 @@ import { leadIntentLabel, leadSourceLabel, leadStatusLabel, leadStatusTone } fro
 import { useQuery } from "@/lib/use-query";
 import {
   Button,
+  CacheNotice,
   Card,
   Chips,
   ContactActions,
@@ -50,6 +51,7 @@ export default function LeadScreen() {
   const query = useQuery(
     () => apiGet<{ lead: LeadDetail; timeline: TimelineItem[] }>(`/leads/${id}`),
     [id],
+    { cacheKey: `lead:${id}` },
   );
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState<"status" | "note" | null>(null);
@@ -95,6 +97,7 @@ export default function LeadScreen() {
   return (
     <Screen refreshing={query.refreshing} onRefresh={() => void query.refresh()}>
       <Stack.Screen options={{ title: lead.contact.name }} />
+      <CacheNotice query={query} />
       <Card>
         <View style={styles.headRow}>
           <Text variant="heading">{lead.contact.name}</Text>

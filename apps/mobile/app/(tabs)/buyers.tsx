@@ -6,7 +6,17 @@ import type { BuyerRow } from "@/lib/dtos";
 import { formatBudget } from "@/lib/format";
 import { dealTypeLabel, maturityLabel, maturityTone } from "@/lib/labels";
 import { useQuery } from "@/lib/use-query";
-import { Chips, EmptyState, ErrorState, Field, Loading, Pill, Row, Screen } from "@/components";
+import {
+  CacheNotice,
+  Chips,
+  EmptyState,
+  ErrorState,
+  Field,
+  Loading,
+  Pill,
+  Row,
+  Screen,
+} from "@/components";
 import { colors, space } from "@/theme";
 
 type Filter = "all" | "very_hot" | "hot" | "interested" | "not_ripe";
@@ -30,6 +40,7 @@ export default function BuyersScreen() {
     () =>
       apiGet<{ items: BuyerRow[] }>("/buyers?limit=100").then((r) => apiList(r.items, "items")),
     [],
+    { cacheKey: "buyers" },
   );
 
   const rows = useMemo(() => {
@@ -57,6 +68,7 @@ export default function BuyersScreen() {
         />
         <Chips options={FILTERS} value={filter} onChange={setFilter} />
       </View>
+      <CacheNotice query={query} />
       {query.loading && query.data === null ? <Loading /> : null}
       {query.error && query.data === null ? (
         <ErrorState message={query.error} onRetry={query.reload} />
