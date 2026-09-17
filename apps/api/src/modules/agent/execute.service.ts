@@ -647,6 +647,8 @@ export class AgentExecuteService {
         return this.sendOffer(params);
       case "send_agreement":
         return this.sendAgreement(params);
+      case "open_signing_link":
+        return this.openSigningLink();
       case "send_email":
         return this.sendEmail(params);
       case "show_exclusivity":
@@ -3132,6 +3134,35 @@ export class AgentExecuteService {
    * אין `waUrl` ואין נמען: קישור פתוח לא יודע למי הוא הולך, וזו
    * בדיוק הנקודה. המתווך שולח אותו בעצמו, בכל ערוץ שנוח לו.
    */
+  /**
+   * ‎**קישור החתמה בלי לקוח** — התאום של `openIntakeLink`.
+   *
+   * ‏„כשמבקשים מהבוט קישור להחתמה של לקוח שלא ישאל איזה לקוח”
+   * ‏(בקשת המשתמש). הקישור נושא הזמנה בכתב עם פרטי המשרד בלבד,
+   * ‏והלקוח ממלא בעצמו את שמו, מספר הזהות, הכתובת, הטלפון והנכס
+   * ‏שבו מדובר.
+   *
+   * ‏בדיקת היכולת כאן ולא רק במטא־דאטה, כמו בכל פעולה אחרת בשירות
+   * ‏הזה: ההצהרה ב-`actions.ts` היא מה שהבוט מציע, והשער הוא מה
+   * ‏שקורה בפועל.
+   */
+  private async openSigningLink(): Promise<ExecuteResult> {
+    if (!TenantContext.current().capabilities.has("offers.send")) {
+      throw new ForbiddenException("אין לך הרשאה להפיק קישור להחתמה");
+    }
+    const created = await this.prisma.withTenant((tx) =>
+      this.agreements.createOpen(tx, { kind: "brokerage" }),
+    );
+    return {
+      message:
+        "הקישור מוכן — שלחו אותו ללקוח בכל דרך שנוחה לכם. " +
+        "הוא ימלא בעצמו את שמו, מספר הזהות והנכס שבו מדובר, ויחתום. " +
+        "אם הוא כבר לקוח של המשרד ההסכם ייכנס לכרטיס שלו; אם לא — ייפתח לו כרטיס. " +
+        "כל לחיצה כאן יוצרת קישור חדש, כך שאפשר לתת לכל לקוח קישור משלו.",
+      link: created.url,
+    };
+  }
+
   private async openIntakeLink(): Promise<ExecuteResult> {
     if (!TenantContext.current().capabilities.has("buyers.edit")) {
       throw new ForbiddenException("אין לך הרשאה ליצור קישור לטופס");

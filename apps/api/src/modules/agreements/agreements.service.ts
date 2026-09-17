@@ -7,7 +7,7 @@ import {
 } from "@nestjs/common";
 import { createHash, randomBytes } from "node:crypto";
 import { ulid } from "ulid";
-import { AGREEMENT_KIND_LABELS, AGREEMENT_KINDS_ON_PROPERTY, agreementRequiresProperty, jerusalemDayStart, pendingAgreementRank, pendingAgreementState, REQUIRED_PLACEHOLDERS, SIGNER_BLANK, SIGNER_PROVIDED_PLACEHOLDERS, defaultAgreementTemplate, fillSignerId, formatIsraeliNumber, formatJerusalemDate, renderAgreement, type AgreementKind, type AgreementValues, type PendingAgreementState, whatsappLink } from "@metavchim/shared";
+import { AGREEMENT_KIND_LABELS, AGREEMENT_KINDS_ON_PROPERTY, BuyerRequirementsSchema, agreementAllowsOpenLink, agreementDealLabel, agreementRequiresProperty, jerusalemDayStart, OPEN_SIGNER_PLACEHOLDERS, openSignerBlanks, pendingAgreementRank, pendingAgreementState, REQUIRED_PLACEHOLDERS, SIGNER_BLANK, SIGNER_PROVIDED_PLACEHOLDERS, defaultAgreementTemplate, fillSignerId, formatIsraeliNumber, formatJerusalemDate, renderAgreement, type AgreementKind, type AgreementValues, type PendingAgreementState, whatsappLink } from "@metavchim/shared";
 import {
   actionablePropertyIds,
   propertyRecordInScope,
@@ -17,11 +17,12 @@ import {
   orphanContactCondition,
   visibleContactIds,
 } from "../../common/ownership";
-import { actingUserId, TenantContext } from "../../common/tenant-context";
+import { actingUserId, officeContext, TenantContext } from "../../common/tenant-context";
 import { loadEnv } from "../../config/env";
 import { AuditService } from "../../core/audit.service";
 import { EmailService } from "../../core/email.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
+import { BuyersService } from "../buyers/buyers.service";
 import { ContactsService } from "../contacts/contacts.service";
 import { TenantLogoService } from "../../core/tenant-logo.service";
 import { EmailInboxService } from "../email-inbox/email-inbox.service";
@@ -80,6 +81,55 @@ export interface PublicAgreementView {
   signedAt?: Date;
   signerName?: string;
   bodyHash: string;
+  /**
+   * האם זה קישור **פתוח** — כלומר על החותם למלא גם את פרטיו ואת הנכס.
+   *
+   * ‏המסך אינו יכול להסיק את זה מהנוסח: שורת מילוי נראית אותו דבר
+   * ‏בשני המקרים. השרת יודע, כי אצלו יושב הנוסח הקפוא.
+   */
+  openLink: boolean;
+}
+
+/**
+ * ‎**מה שהחותם של קישור פתוח ממלא בעצמו.**
+ *
+ * ‏אלה השדות של `OPEN_SIGNER_PLACEHOLDERS` בלבוש של הטופס: שם
+ * ‏ומספר זיהוי כבר נוסעים ב-`sign` לכל הסכם, וכאן נוספים
+ * ‏הכתובת, הטלפון, סוג העסקה והנכס שבו מדובר.
+ *
+ * ‎`phone` הוא היחיד שאינו רק טקסט למסמך: הוא גם מה שמזהה לקוח
+ * ‏קיים, ולכן „אם זה לקוח קיים ההסכם ייכנס לו לכרטיס”.
+ */
+export interface OpenSignerAnswers {
+  address: string;
+  phone: string;
+  /** sale | rent — הקטלוג של הנכסים, ולא ניסוח חופשי */
+  dealType: string;
+  propertyText: string;
+  priceText: string;
+}
+
+/**
+ * מהתשובות של החותם אל שדות הנוסח.
+ *
+ * ‏המיפוי יושב כאן ולא בבקר, כי גם `createOpen` וגם `sign` צריכים
+ * ‏להסכים על אותם שמות — והשמות עצמם מגיעים מ-
+ * ‎`OPEN_SIGNER_PLACEHOLDERS`.
+ */
+function openSignerValues(
+  signerName: string,
+  signerIdNumber: string,
+  open: OpenSignerAnswers | undefined,
+): Partial<AgreementValues> {
+  return {
+    שם_הלקוח: signerName,
+    תעודת_זהות_הלקוח: signerIdNumber,
+    כתובת_הלקוח: open?.address ?? "",
+    טלפון_הלקוח: open?.phone ?? "",
+    סוג_העסקה: agreementDealLabel(open?.dealType),
+    תיאור_הנכס: open?.propertyText ?? "",
+    מחיר_משוער: open?.priceText ?? "",
+  };
 }
 
 /**
@@ -121,6 +171,12 @@ export class AgreementsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly contacts: ContactsService,
+    /*
+     * ‎**כרטיס קונה** — לחותם של קישור פתוח שעדיין אין לו כזה.
+     * ‏אין כאן מעגל: `BuyersModule` אינו מכיר את `AgreementsModule`
+     * ‏לא במישרין ולא דרך מה שהוא מייבא.
+     */
+    private readonly buyers: BuyersService,
     private readonly audit: AuditService,
     private readonly messaging: MessagingService,
     private readonly email: EmailService,
@@ -444,6 +500,90 @@ export class AgreementsService {
   }
 
   /**
+   * ‎**קישור החתמה בלי לקוח ובלי נכס** — הצד השני של `create`.
+   *
+   * ## ‏למה זו פעולה נפרדת ולא `contactId` אופציונלי
+   *
+   * ‏`create` שלם סביב לקוח ידוע: הוא ממחזר הסכם ממתין קיים, בודק
+   * ‏את הבעלות על הכרטיס ועל הנכס, ונכשל כשפרט חובה של הלקוח חסר.
+   * ‏כל אחד מהם הוא בדיוק ההתנהגות הנכונה שם, וכל אחד מהם היה
+   * ‏צריך ענף „אלא אם אין לקוח” — ארבעה ענפים בתוך פונקציה שכל
+   * ‏תפקידה הוא להוציא מסמך משפטי. כאן אין מה למחזר (שני לקוחות
+   * ‏שנפגשו באותו יום צריכים שני קישורים) ואין בעלות לבדוק, כי אין
+   * ‏על מי.
+   *
+   * ## ‏מה כן נשמר
+   *
+   * ‏פרטי **המשרד** נבדקים בדיוק כמו ב-`create`: מסמך בלי דמי
+   * ‏תיווך או בלי מועד תשלום אינו מסמך תקף, והחותם אינו יכול
+   * ‏להשלים אותם. מה שהחותם כן משלים (`OPEN_SIGNER_PLACEHOLDERS`)
+   * ‏נשאר בנוסח כשורטקוד ומתמלא ברגע החתימה.
+   */
+  async createOpen(tx: TenantTx, input: { kind: AgreementKind }): Promise<{ id: string; url: string }> {
+    const { tenantId, userId } = TenantContext.current();
+
+    /*
+     * ‎**בלעדיות אינה נִתנת בקישור פתוח** — אותו שער בדיוק שמחייב
+     * ‏`propertyId` ב-`create`, ומאותו נימוק: היא נִתנת על חלקה
+     * ‏מסוימת של המשרד. „בלעדיות שהלקוח מתאר בעצמו” היא מסמך על
+     * ‏נכס שאיש במשרד לא בדק.
+     */
+    if (!agreementAllowsOpenLink(input.kind)) {
+      throw new BadRequestException(
+        `${AGREEMENT_KIND_LABELS[input.kind]} נִתן על נכס מסוים של המשרד — אי אפשר להפיק אותו בקישור פתוח`,
+      );
+    }
+
+    const template = await this.templateFor(tx, input.kind);
+    const frozen = renderAgreement(template, await this.officeValues(), {
+      keep: OPEN_SIGNER_PLACEHOLDERS,
+    });
+    /*
+     * ‏אותו כלל של `create`: מסמך לא שלם לא נקפא ולא נשלח. השדות
+     * ‏שהחותם ימלא אינם יכולים להופיע כאן בכלל — `keep` מוציא אותם
+     * ‏מ-`unfilled` — ולכן כל מה שנשאר הוא פרט משרד שלא הוזן.
+     */
+    const blocking = frozen.unfilled.filter((name) =>
+      REQUIRED_PLACEHOLDERS[input.kind].includes(name as keyof AgreementValues),
+    );
+    if (blocking.length > 0) {
+      throw new AgreementFieldsMissingError(blocking.map((name) => name.replace(/_/gu, " ")));
+    }
+
+    /*
+     * ‏הנוסח שהחותם רואה לפני שמילא — שורות למילוי במקום השורטקוד.
+     * ‏הוא גם מה שנכנס ל-`presented_hash`: „מה הוצג” הוא בדיוק זה.
+     */
+    const preview = renderAgreement(frozen.text, openSignerBlanks()).text;
+    const token = randomBytes(32).toString("base64url");
+    const row = await tx.agreement.create({
+      data: {
+        id: ulid(),
+        tenantId,
+        kind: input.kind,
+        contactId: null,
+        propertyId: null,
+        signerTemplate: frozen.text,
+        renderedBody: preview,
+        bodyHash: AgreementsService.hashBody(preview),
+        presentedHash: AgreementsService.hashBody(preview),
+        publicToken: token,
+        tokenExpires: new Date(Date.now() + TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000),
+        createdBy: userId,
+      },
+    });
+
+    await this.audit.record(tx, {
+      action: "agreement.open_link",
+      entityType: "agreement",
+      entityId: row.id,
+      metadata: { kind: input.kind },
+    });
+
+    return { id: row.id, url: this.publicUrl(token) };
+  }
+
+  /**
    * שליחת הקישור ללקוח בפועל.
    *
    * עד כה הקישור רק **הוצג** על המסך, והמתווך היה אמור להעתיק אותו
@@ -608,12 +748,15 @@ export class AgreementsService {
       : { waUrl: whatsappLink(contact.phone, message), message };
   }
 
-  /** איסוף הערכים שממלאים את הנוסח — משרד, לקוח ונכס. */
-  private async collectValues(
-    tx: TenantTx,
-    contact: { name: string; phone: string },
-    input: { propertyId?: string; values?: Partial<AgreementValues> },
-  ): Promise<Partial<AgreementValues>> {
+  /**
+   * הערכים שמגיעים **מהמשרד** — מה שידוע עוד לפני שיודעים מי הלקוח.
+   *
+   * ‏הופרד מ-`collectValues` כשנוסף הקישור הפתוח: שם אין לקוח ואין
+   * ‏נכס, ורק החלק הזה של המפה ניתן למילוי בזמן היצירה. עותק שני של
+   * ‏„מאיפה מגיע שם המשרד ומה הן ברירות המחדל לדמי התיווך” היה
+   * ‏נפרד מהראשון בשקט ברגע שמישהו מוסיף שדה משרד אחד.
+   */
+  private async officeValues(): Promise<Partial<AgreementValues>> {
     const tenantId = TenantContext.current().tenantId;
     const tenant = await this.prisma.tenant.findUnique({
       where: { id: tenantId },
@@ -622,6 +765,33 @@ export class AgreementsService {
     const settings = (tenant?.settings ?? {}) as Record<string, unknown>;
     const asText = (key: string): string =>
       typeof settings[key] === "string" ? (settings[key] as string) : "";
+    return {
+      שם_המשרד: tenant?.name ?? "",
+      מספר_רישיון_תיווך: asText("licenseNumber"),
+      כתובת_המשרד: asText("officeAddress"),
+      טלפון_המשרד: asText("officePhone"),
+      /*
+       * ברירות המחדל של המשרד לדמי התיווך ומועד התשלום.
+       *
+       * שניהם פרטי חובה בתקנות, ושער ההצעות יוצר הסכם בלי שאיש הזין
+       * אותם — כלומר בלעדיהם השער לא היה יכול לייצר מסמך תקף בכלל.
+       * ערך מפורש בטופס השליחה גובר עליהם (הפריסה של input.values
+       * ב-`collectValues`).
+       */
+      דמי_תיווך: asText("defaultCommission"),
+      מועד_תשלום: asText("defaultPaymentTerms"),
+      תאריך: formatJerusalemDate(new Date()),
+    };
+  }
+
+  /** איסוף הערכים שממלאים את הנוסח — משרד, לקוח ונכס. */
+  private async collectValues(
+    tx: TenantTx,
+    contact: { name: string; phone: string },
+    input: { propertyId?: string; values?: Partial<AgreementValues> },
+  ): Promise<Partial<AgreementValues>> {
+    const tenantId = TenantContext.current().tenantId;
+    const office = await this.officeValues();
 
     let propertyText = "";
     let priceText = "";
@@ -652,7 +822,7 @@ export class AgreementsService {
       {
         // סוג העסקה הוא פרט חובה בתקנות, והוא יושב על הנכס — אין סיבה
         // לבקש מהמתווך להקליד אותו שוב
-        dealText = property.dealType === "rent" ? "שכירות" : property.dealType === "sale" ? "מכר" : "";
+        dealText = agreementDealLabel(property.dealType);
         propertyText = [
           property.rooms !== null ? `דירת ${property.rooms} חדרים` : null,
           [property.street, property.neighborhood, property.city].filter(Boolean).join(", "),
@@ -667,26 +837,12 @@ export class AgreementsService {
     }
 
     return {
-      שם_המשרד: tenant?.name ?? "",
-      מספר_רישיון_תיווך: asText("licenseNumber"),
-      כתובת_המשרד: asText("officeAddress"),
-      טלפון_המשרד: asText("officePhone"),
+      ...office,
       שם_הלקוח: contact.name,
       טלפון_הלקוח: contact.phone,
       סוג_העסקה: dealText,
       תיאור_הנכס: propertyText,
       מחיר_משוער: priceText,
-      /*
-       * ברירות המחדל של המשרד לדמי התיווך ומועד התשלום.
-       *
-       * שניהם פרטי חובה בתקנות, ושער ההצעות יוצר הסכם בלי שאיש הזין
-       * אותם — כלומר בלעדיהם השער לא היה יכול לייצר מסמך תקף בכלל.
-       * ערך מפורש בטופס השליחה גובר עליהם (הפריסה של input.values
-       * למטה).
-       */
-      דמי_תיווך: asText("defaultCommission"),
-      מועד_תשלום: asText("defaultPaymentTerms"),
-      תאריך: formatJerusalemDate(new Date()),
       ...input.values,
       /*
        * ‎**כשיש נכס, הנכס הוא המקור — גם אחרי פריסת הערכים מהבקשה.**
@@ -755,6 +911,7 @@ export class AgreementsService {
         signedAt: row.signedAt ?? undefined,
         signerName: row.signerName ?? undefined,
         bodyHash: row.bodyHash,
+        openLink: row.signerTemplate !== null,
       };
     });
   }
@@ -762,23 +919,81 @@ export class AgreementsService {
   /**
    * חתימה. הראיות נלכדות ברגע החתימה, והעדכון מותנה בסטטוס הנוכחי
    * כדי ששתי לחיצות מקבילות לא ייצרו שתי חתימות שונות.
+   *
+   * ‎**קישור פתוח נחתם באותו מסלול בדיוק**, ולא במסלול שני: אותה
+   * ‏נעילה מותנית, אותו גיבוב, אותן ראיות. מה שמשתנה הוא מאין בא
+   * ‏הנוסח הסופי — מהנוסח הקפוא ומהשדות שהחותם מילא, במקום מהנוסח
+   * ‏שכבר היה שלם — ומה שנוסף אחריו: פתירת הכרטיס.
    */
   async sign(
     token: string,
     input: {
       signerName: string;
       signerIdNumber: string;
+      /** קישור פתוח בלבד — שאר השדות שהחותם מילא. ראו `OpenSignerAnswers`. */
+      open?: OpenSignerAnswers;
       signatureImage?: string;
       ip?: string;
       userAgent?: string;
     },
   ): Promise<{ signedAt: Date }> {
-    return this.prisma.withPublicAgreement(token, async (tx) => {
-      const row = await tx.agreement.findFirst({ where: { publicToken: token } });
+    /*
+     * ‎**שני שלבים, ובכוונה.**
+     *
+     * ‏`withPublicAgreement` היא פוליסה צרה: היא חושפת את שורת
+     * ‏ההסכם של הטוקן, ותו לא. פתירת הכרטיס בקישור פתוח נוגעת
+     * ‏ב-`contacts` וב-`buyers`, ולכן היא **חייבת** לרוץ תחת הקשר
+     * ‏דייר רגיל — אותה הפרדה בדיוק שטופס הקליטה הציבורי עושה
+     * ‏(`IntakeService.materializeOpen`). החלופה, פוליסות כתיבה
+     * ‏ציבוריות על טבלאות הלקוחות, הייתה פותחת נתיב כתיבה שתלוי
+     * ‏בנכונות `USING` אחד.
+     *
+     * ‏השלב הראשון קורא בלבד; כל הכתיבה — החתימה, הכרטיס והקישור
+     * ‏ביניהם — יושבת בטרנזקציה אחת בשלב השני.
+     */
+    const head = await this.prisma.withPublicAgreement(token, async (tx) => {
+      const row = await tx.agreement.findFirst({
+        where: { publicToken: token },
+        select: { id: true, tenantId: true, tokenExpires: true, status: true },
+      });
       if (!row) throw new NotFoundException("ההסכם לא נמצא");
-      if (row.tokenExpires < new Date()) throw new GoneException("תוקף הקישור פג");
+      return row;
+    });
+    if (head.tokenExpires < new Date()) throw new GoneException("תוקף הקישור פג");
+    if (head.status === "signed") throw new BadRequestException("ההסכם כבר נחתם");
+    if (head.status === "declined") throw new BadRequestException("ההסכם נדחה");
+
+    const { signedAt, freshBuyerId } = await this.prisma.withExplicitTenant(
+      head.tenantId,
+      async (tx) => {
+      /*
+       * ‏נקרא **שוב** תחת הקשר הדייר, ולא מועבר מהשלב הראשון:
+       * ‏בין שני השלבים אפשר שההסכם נחתם או נדחה, והבדיקות שלמעלה
+       * ‏מתארות מצב שכבר אינו. הנעילה המותנית שבהמשך היא ההכרעה
+       * ‏האמיתית, וזו הקריאה שהיא נשענת עליה.
+       */
+      const row = await tx.agreement.findFirst({ where: { id: head.id } });
+      if (!row) throw new NotFoundException("ההסכם לא נמצא");
       if (row.status === "signed") throw new BadRequestException("ההסכם כבר נחתם");
       if (row.status === "declined") throw new BadRequestException("ההסכם נדחה");
+
+      /*
+       * ‎**קישור פתוח בלי השדות שהחותם ממלא — דחייה, לא מסמך חסר.**
+       *
+       * ‏הסכמה של הבקר אינה יכולה לדעת אם הטוקן הזה פתוח, ולכן
+       * ‏השדות שם `optional`. כאן זה ידוע: בלעדיהם הנוסח היה נחתם
+       * ‏עם `[חסר: …]` מודפס באמצע מסמך משפטי — בדיוק מה ש-`create`
+       * ‏כבר חוסם בצד השני.
+       *
+       * ‏והכיוון ההפוך נחסם גם הוא: בהסכם רגיל הערכים כבר בנוסח
+       * ‏מרגע השליחה, ו„פרטים” בבקשת החתימה היו טענה לדרוס אותם.
+       */
+      if (row.signerTemplate !== null && input.open === undefined) {
+        throw new BadRequestException("יש למלא את פרטי הלקוח ואת הנכס לפני החתימה");
+      }
+      if (row.signerTemplate === null && input.open !== undefined) {
+        throw new BadRequestException("ההסכם הזה הופק על לקוח ונכס מסוימים — פרטיו כבר בתוכו");
+      }
 
       const signedAt = new Date();
       /*
@@ -791,8 +1006,20 @@ export class AgreementsService {
        * הגיבוב מחושב מחדש על הנוסח הסופי — הוא צריך להעיד על מה
        * שנחתם. הגיבוב שהוצג ללקוח לפני החתימה נשמר ב-presented_hash,
        * כך שאפשר להוכיח גם מה הוצג וגם מה נחתם.
+       *
+       * ‎**בקישור פתוח הנוסח הסופי נבנה ולא מתוקן.** אין בו שורה
+       * ‏אחת למלא אלא שבע, ולכן הוא מורץ מהנוסח הקפוא עם הערכים של
+       * ‏החותם. `signerTemplate` הוא **הקפאה משלו** ולא הפניה
+       * ‏לתבנית המשרד, ולכן ההבטחה נשמרת: נוסח שהמשרד שינה בינתיים
+       * ‏אינו נוגע בהסכם שכבר יצא.
        */
-      const finalBody = fillSignerId(row.renderedBody, input.signerIdNumber);
+      const finalBody =
+        row.signerTemplate === null
+          ? fillSignerId(row.renderedBody, input.signerIdNumber)
+          : renderAgreement(
+              row.signerTemplate,
+              openSignerValues(input.signerName, input.signerIdNumber, input.open),
+            ).text;
       const updated = await tx.agreement.updateMany({
         where: { id: row.id, status: { in: ["pending", "viewed"] } },
         data: {
@@ -800,6 +1027,12 @@ export class AgreementsService {
           signerName: input.signerName,
           signerIdNumber: input.signerIdNumber,
           renderedBody: finalBody,
+          /*
+           * ‎`presentedHash` נשאר מה שהוצג. בהסכם רגיל זה
+           * ‏`row.bodyHash`; בקישור פתוח הוא כבר נכתב ביצירה ולא
+           * ‏השתנה מאז — ושניהם אותו דבר, כי עד החתימה הגיבובים
+           * ‏זהים.
+           */
           presentedHash: row.bodyHash,
           bodyHash: AgreementsService.hashBody(finalBody),
           signedAt,
@@ -809,6 +1042,19 @@ export class AgreementsService {
         },
       });
       if (updated.count === 0) throw new BadRequestException("ההסכם כבר טופל");
+
+      /*
+       * ‎**והכרטיס.** זה מה שהופך קישור פתוח למשהו שנשאר במערכת
+       * ‏ולא למסמך יתום: מרגע החתימה ההסכם יושב על כרטיס הלקוח,
+       * ‏בדיוק כמו כל הסכם אחר.
+       */
+      const freshBuyerId =
+        row.signerTemplate === null || input.open === undefined
+          ? null
+          : await this.attachSignerCard(tx, row, {
+              name: input.signerName,
+              phone: input.open.phone,
+            });
 
       // בלעדיות שנחתמה — הצלחה של מי שהוציא את ההסכם (docs/14 §2)
       if (row.kind === "exclusivity" && row.createdBy !== null) {
@@ -831,7 +1077,103 @@ export class AgreementsService {
         });
       }
 
-      return { signedAt };
+      return { signedAt, freshBuyerId };
+      },
+    );
+
+    /*
+     * ‎`afterCreate` **מחוץ** לטרנזקציה — התאמות, פרסום לרשת
+     * ‏והתראות. אותו סדר בדיוק שהקישור הפתוח של טופס הקליטה עובד
+     * ‏בו, ומאותו נימוק: עבודה ארוכה בתוך טרנזקציה מחזיקה נעילות
+     * ‏על שורות הלקוח.
+     *
+     * ‏וכישלון שלה אינו מבטל את החתימה: המסמך חתום, הכרטיס קיים,
+     * ‏ורק הריצות שאחריהם יחזרו בסבב הבא. חתימה שנופלת בגלל התאמה
+     * ‏שלא רצה היא בדיוק ההפך מהנכון.
+     */
+    if (freshBuyerId !== null) {
+      await TenantContext.run(officeContext(head.tenantId), () =>
+        this.buyers.afterCreate(freshBuyerId),
+      ).catch(() => undefined);
+    }
+
+    return { signedAt };
+  }
+
+  /**
+   * ‎**הכרטיס של מי שחתם על קישור פתוח.**
+   *
+   * ## ‏„לפתוח כרטיס רק אם אין כזה” (בקשת המשתמש)
+   *
+   * ‎`findOrCreateByPhone` מחזירה את איש הקשר הקיים כשהמספר כבר
+   * ‏במאגר — לקוח ותיק שחתם על הזמנה בכתב אינו מקבל כרטיס שני,
+   * ‏וההסכם נוחת אצלו. `typedBy` הוא „office” כי המספר הגיע
+   * ‏**מבעליו**: אין כאן סוכן מחובר שאפשר לבדוק מולו הרשאה, בדיוק
+   * ‏כמו בטופס הקליטה הציבורי.
+   *
+   * ## ‏למה גם כרטיס קונה
+   *
+   * ‏ההסכמים מוצגים על כרטיס הלקוח. איש קשר בלי כרטיס הוא מסמך
+   * ‏שנחתם ואיש במשרד אינו רואה — כלומר בדיוק הכישלון שהתכונה באה
+   * ‏למנוע. כרטיס **קיים** גובר תמיד; אחד חדש נפתח רק כשאין.
+   *
+   * ‎`ownerUserId` הוא מי שהפיק את הקישור: את השליחה עשה הלקוח,
+   * ‏ובלי בעלים מפורש הכרטיס נעלם מכל סוכן שרואה „רק שלי” — כלומר
+   * ‏מהסוכן שביקש אותו.
+   *
+   * ‏מחזירה את מזהה הקונה **החדש** בלבד, כי רק הוא צריך
+   * ‎`afterCreate`.
+   */
+  private async attachSignerCard(
+    tx: TenantTx,
+    row: { id: string; tenantId: string; createdBy: string | null },
+    signer: { name: string; phone: string },
+  ): Promise<string | null> {
+    const contact = await this.contacts.findOrCreateByPhone(tx, {
+      name: signer.name,
+      phone: signer.phone,
+    });
+
+    /*
+     * ‏נעילת **שורת** איש הקשר לפני הבדיקה „יש כבר קונה”.
+     *
+     * ‎`findOrCreateByPhone` נוטלת נעילה מייעצת על המספר, וזה מסדר
+     * ‏אותה מול יוצרי כרטיסים אחרים — אבל לא מול
+     * ‏`BuyersService.convertFromLead`, שנועלת את שורת איש הקשר
+     * ‏ב-`SELECT … FOR UPDATE`. שני מנגנוני נעילה שונים אינם
+     * ‏נפגשים, ואותו אדם היה מקבל שני כרטיסי קונה פעילים. זו אותה
+     * ‏נעילה בדיוק שטופס הקליטה נוטל באותה נקודה.
+     */
+    await tx.$queryRaw`SELECT id FROM contacts WHERE id = ${contact.id} AND tenant_id = ${row.tenantId} FOR UPDATE`;
+    const existing = await tx.buyer.findFirst({
+      where: { tenantId: row.tenantId, contactId: contact.id, deletedAt: null },
+      orderBy: { createdAt: "asc" },
+      select: { id: true },
+    });
+
+    await tx.agreement.update({
+      where: { id: row.id },
+      data: { contactId: contact.id },
+    });
+    await this.audit.record(tx, {
+      action: "agreement.open_signed",
+      entityType: "agreement",
+      entityId: row.id,
+      metadata: { contactId: contact.id, reusedCard: existing !== null },
+    });
+
+    if (existing !== null) return null;
+    return this.buyers.createWithin(tx, {
+      typedBy: "office",
+      contactName: signer.name,
+      contactPhone: signer.phone,
+      /*
+       * ‏בלי דרישות: הזמנה בכתב אינה אומרת מה הלקוח מחפש, ולנחש
+       * ‏עבורו היה מייצר התאמות על קריטריונים שאיש לא מסר.
+       */
+      requirements: BuyerRequirementsSchema.parse({}),
+      source: "agreement_link",
+      ...(row.createdBy === null ? {} : { ownerUserId: row.createdBy }),
     });
   }
 

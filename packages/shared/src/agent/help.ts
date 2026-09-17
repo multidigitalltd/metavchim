@@ -95,6 +95,7 @@ const GROUPS: { label: string; ids: readonly string[] }[] = [
       "send_offer",
       "send_offers_bulk",
       "send_agreement",
+      "open_signing_link",
       "send_email",
       "send_message",
       "call_contact",
