@@ -76,7 +76,9 @@ import {
   type ServiceVersion,
 } from "@metavchim/shared";
 import { loadEnv } from "../../config/env";
+import { TaxTablesSchema, type TaxTables, type TaxTablesInput } from "@metavchim/shared";
 import { PlatformAdmin } from "../../common/auth.decorators";
+import { TaxTablesService } from "../../core/tax-tables.service";
 import { PlatformAdminGuard } from "../../common/platform-admin.guard";
 import { whatsappSeatQuotaWhere } from "../../core/whatsapp-seat-quota";
 import { CryptoService } from "../../core/crypto.service";
@@ -795,6 +797,7 @@ export class PlatformController {
   constructor(
     private readonly prisma: PrismaService,
     private readonly platformSettings: PlatformSettingsService,
+    private readonly taxTables: TaxTablesService,
     private readonly email: EmailService,
     private readonly backups: BackupsService,
     private readonly plans: PlanCatalogService,
@@ -1122,6 +1125,14 @@ export class PlatformController {
    * מוחזרים מה-Service ולא מהטבלה ישירות, כדי שהמסך יראה את מה
    * שהמערכת באמת תגבה — כולל ברירות המחדל של מקורות שטרם תומחרו.
    */
+  /** ‏מדרגות מס רכישה ותקרת הפטור במס שבח — מתעדכנות מדי ינואר, לכל המשרדים. */
+  @Patch("tax-tables")
+  async replaceTaxTables(
+    @Body(new ZodValidationPipe(TaxTablesSchema)) body: TaxTablesInput,
+  ): Promise<TaxTables> {
+    return this.taxTables.replace(body, TenantContext.current().userId);
+  }
+
   @Get("lead-prices")
   async leadPrices(): Promise<{ prices: LeadSourcePrice[] }> {
     return { prices: await this.leadPricing.all() };

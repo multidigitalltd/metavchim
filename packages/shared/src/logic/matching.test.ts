@@ -5,6 +5,7 @@ import {
   propertyEvaluableCriteria,
   resolveMatchWeights,
   scoreMatch,
+  buyerGateMissing,
 } from "./matching.js";
 import { MATCH_CRITERIA, ScoreComponentSchema } from "../schemas/match.js";
 import type { PropertyFields } from "../schemas/property.js";
@@ -1303,5 +1304,22 @@ describe("פירוט שנשמר מכיל תמיד את קריטריוני החו
     for (const mandatory of MANDATORY_MATCH_CRITERIA) {
       expect(criteria.has(mandatory)).toBe(true);
     }
+  });
+
+  describe("buyerGateMissing — מה חסר בקונה כדי שתהיה התאמה", () => {
+    const base = {
+      cities: ["תל אביב"], neighborhoods: [], dealType: "sale" as const, propertyTypes: ["apartment" as const],
+      features: {},
+    };
+    it("קונה עם עיר וסוג נכס — לא חסר דבר", () => {
+      expect(buyerGateMissing(base as never)).toEqual([]);
+    });
+    it("בלי סוג נכס — „סוג הנכס”; בלי עיר ובלי אזור — גם „מיקום”", () => {
+      expect(buyerGateMissing({ ...base, propertyTypes: [] } as never)).toEqual(["סוג הנכס"]);
+      expect(buyerGateMissing({ ...base, cities: [], propertyTypes: [] } as never)).toEqual(["מיקום (עיר ושכונה)", "סוג הנכס"]);
+    });
+    it("קונה שסימן אזור על המפה בלי עיר — המיקום נבחן", () => {
+      expect(buyerGateMissing({ ...base, cities: [], searchAreas: [{ lat: 32.07, lon: 34.78, radiusKm: 2 }] } as never)).toEqual([]);
+    });
   });
 });

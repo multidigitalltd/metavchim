@@ -1,22 +1,24 @@
 "use client";
 
-import { useState } from "react";
+import { createContext, useContext, useEffect, useState } from "react";
 import {
+  CAPITAL_GAINS_RATE_PERCENT,
+  capitalGains,
   commissionBreakdown,
+  DEFAULT_TAX_TABLES,
   DEFAULT_VAT_PERCENT,
   monthlyPayment,
   perSqmGapPercent,
   pricePerSqmAgorot,
   type PerSqmBenchmark,
-  PURCHASE_TAX_ADDITIONAL_HOME,
-  PURCHASE_TAX_SINGLE_HOME,
-  PURCHASE_TAX_YEAR,
   purchaseTax,
   rentalYieldPercent,
   shekelsLabel,
   type TaxBracket,
+  type TaxTables,
 } from "@metavchim/shared";
-import { apiGet, ApiError } from "@/lib/api";
+import { apiGet, apiPatch, ApiError } from "@/lib/api";
+import { useRequireAuth } from "@/lib/use-auth";
 import { formatNumber } from "@/lib/format";
 import { IconBank, IconBanknote, IconCoins, IconKey, IconRuler } from "../icons";
 import { Notice } from "../notice";
@@ -68,16 +70,87 @@ function Calc({ title, icon, domain, children }: { title: string; icon: React.Re
   );
 }
 
+/**
+ * ‏טבלאות המס — נתון שמשתנה בחוק מדי ינואר. נשמרות בפלטפורמה: כל
+ * ‏משתמש קורא את אותם מספרים, ורק מנהל הפלטפורמה מעדכן (במקום,
+ * ‏מתוך המחשבון). משרד אינו „מתקן” מדרגות לעצמו — מספר מס שכל
+ * ‏משרד עורך בנפרד הוא מספר בלי מקור.
+ */
+const TaxTablesContext = createContext<{
+  tables: TaxTables;
+  canEdit: boolean;
+  save: (next: TaxTables) => Promise<void>;
+}>({ tables: DEFAULT_TAX_TABLES, canEdit: false, save: async () => undefined });
+
 export function Calculators() {
+  const { user } = useRequireAuth();
+  const [tables, setTables] = useState<TaxTables>(DEFAULT_TAX_TABLES);
+  useEffect(() => {
+    apiGet<TaxTables>("/forum/tax-tables").then(setTables).catch(() => setTables(DEFAULT_TAX_TABLES));
+  }, []);
+  const save = async (next: TaxTables): Promise<void> => {
+    setTables(await apiPatch<TaxTables>("/platform/tax-tables", next));
+  };
   return (
-    <div className="grid gap-3 lg:grid-cols-2">
-      <Commission />
-      <Mortgage />
-      <Yield />
-      <PurchaseTax />
-      <Area />
+    <TaxTablesContext.Provider value={{ tables, canEdit: user?.isPlatformAdmin === true, save }}>
+      <div className="grid gap-3 lg:grid-cols-2">
+        <Commission />
+        <Mortgage />
+        <Yield />
+        <PurchaseTax />
+        <CapitalGains />
+        <Area />
+      </div>
+    </TaxTablesContext.Provider>
+  );
+}
+
+/** ‏המשפט שכל משתמש רואה ליד טבלת מס — והעריכה, רק למנהל הפלטפורמה */
+function TaxTableNote({ year, editing, onToggle }: { year: number; editing: boolean; onToggle: () => void }) {
+  const { canEdit } = useContext(TaxTablesContext);
+  return (
+    <p className="mv-form-hint mt-2">
+      לפי הפרסום ל-{year}. המספרים מתעדכנים מדי ינואר — נא בדקו מול הפרסום העדכני של רשות המסים לפני שמצטטים ללקוח.
+      {canEdit ? (
+        <>
+          {" "}
+          <button type="button" className="underline" onClick={onToggle} aria-expanded={editing}>
+            {editing ? "לסגור עריכה" : "לעדכן (מנהל הפלטפורמה)"}
+          </button>
+        </>
+      ) : null}
+    </p>
+  );
+}
+
+function SaveRow({ busy, error, onSave }: { busy: boolean; error: string | null; onSave: () => void }) {
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-2">
+      <button type="button" className="mv-btn-action" disabled={busy} onClick={onSave}>{busy ? "שומר…" : "לשמור לכל המשרדים"}</button>
+      {error ? <span style={{ color: "var(--color-danger)" }}>{error}</span> : null}
     </div>
   );
+}
+
+/** ‏שמירה עם הטיפול המשותף בשגיאות — לשני מחשבוני המס */
+function useTableSave(): { busy: boolean; error: string | null; run: (next: TaxTables) => Promise<boolean> } {
+  const { save } = useContext(TaxTablesContext);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const run = async (next: TaxTables): Promise<boolean> => {
+    setBusy(true);
+    setError(null);
+    try {
+      await save(next);
+      return true;
+    } catch (err: unknown) {
+      setError(err instanceof ApiError ? err.message : "השמירה נכשלה");
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  };
+  return { busy, error, run };
 }
 
 function Commission() {
@@ -142,16 +215,23 @@ function Yield() {
 }
 
 function PurchaseTax() {
+  const { tables } = useContext(TaxTablesContext);
   const [price, setPrice] = useState("2500000");
   const [single, setSingle] = useState(true);
-  const [brackets, setBrackets] = useState<TaxBracket[]>([...PURCHASE_TAX_SINGLE_HOME]);
   const [editing, setEditing] = useState(false);
-  const active = single ? brackets : PURCHASE_TAX_ADDITIONAL_HOME;
+  const [draft, setDraft] = useState<TaxTables["purchase"] | null>(null);
+  const { busy, error, run } = useTableSave();
+  const active = single ? tables.purchase.singleHome : tables.purchase.additionalHome;
   const tax = purchaseTax(num(price), active);
+  const list: "singleHome" | "additionalHome" = single ? "singleHome" : "additionalHome";
 
   function setBracket(index: number, patch: Partial<TaxBracket>): void {
-    setBrackets((prev) => prev.map((b, i) => (i === index ? { ...b, ...patch } : b)));
+    setDraft((prev) => {
+      const base = prev ?? tables.purchase;
+      return { ...base, [list]: base[list].map((b, i) => (i === index ? { ...b, ...patch } : b)) };
+    });
   }
+  const shown = (draft ?? tables.purchase)[list];
 
   return (
     <Calc title="מס רכישה" icon={<IconBanknote s={19} />} domain="mv-domain-violet">
@@ -168,30 +248,136 @@ function PurchaseTax() {
       <div className="mt-3">
         <Result label="מס רכישה משוער" value={shekelsLabel(tax)} />
       </div>
-      <p className="mv-form-hint mt-2">
-        לפי מדרגות {PURCHASE_TAX_YEAR}. המדרגות מתעדכנות מדי ינואר — בדקו מול הפרסום העדכני של רשות המסים לפני שמצטטים ללקוח.
-        {single ? (
-          <>
-            {" "}
-            <button type="button" className="underline" onClick={() => setEditing((v) => !v)} aria-expanded={editing}>
-              {editing ? "לסגור עריכה" : "לעדכן מדרגות"}
-            </button>
-          </>
-        ) : null}
-      </p>
-      {editing && single ? (
-        <ul className="m-0 mt-2 flex list-none flex-col gap-2 p-0" aria-label="מדרגות מס — דירה יחידה">
-          {brackets.map((bracket, i) => (
-            <li key={i} className="grid grid-cols-2 gap-2">
-              <Field
-                label={bracket.upTo === null ? "מעל המדרגה הקודמת" : `עד (₪)`}
-                value={bracket.upTo === null ? "" : String(bracket.upTo)}
-                onChange={(v) => setBracket(i, { upTo: v.trim() === "" ? null : num(v) })}
-              />
-              <Field label="אחוז" value={String(bracket.percent)} onChange={(v) => setBracket(i, { percent: num(v) })} suffix="%" />
-            </li>
+      <TaxTableNote year={tables.purchase.year} editing={editing} onToggle={() => { setEditing((v) => !v); setDraft(null); }} />
+      {editing ? (
+        <div className="mt-2">
+          <Field label="שנת הפרסום" value={String((draft ?? tables.purchase).year)} onChange={(v) => setDraft((prev) => ({ ...(prev ?? tables.purchase), year: num(v) }))} />
+          <ul className="m-0 mt-2 flex list-none flex-col gap-2 p-0" aria-label={single ? "מדרגות מס — דירה יחידה" : "מדרגות מס — דירה נוספת"}>
+            {shown.map((bracket, i) => (
+              <li key={i} className="grid grid-cols-2 gap-2">
+                <Field
+                  label={bracket.upTo === null ? "מעל המדרגה הקודמת" : "עד (₪)"}
+                  value={bracket.upTo === null ? "" : String(bracket.upTo)}
+                  onChange={(v) => setBracket(i, { upTo: v.trim() === "" ? null : num(v) })}
+                />
+                <Field label="אחוז" value={String(bracket.percent)} onChange={(v) => setBracket(i, { percent: num(v) })} suffix="%" />
+              </li>
+            ))}
+          </ul>
+          <SaveRow
+            busy={busy}
+            error={error}
+            onSave={() => {
+              void run({ ...tables, purchase: draft ?? tables.purchase }).then((ok) => {
+                if (ok) {
+                  setEditing(false);
+                  setDraft(null);
+                }
+              });
+            }}
+          />
+        </div>
+      ) : null}
+    </Calc>
+  );
+}
+
+/**
+ * ‏מס שבח — ההערכה שהכי שואלים עליה, והכי צריך להיזהר בה. הכללים
+ * ‏ב-`capitalGains` בחבילה המשותפת; כאן רק הקלט, התוצאה וההסתייגות.
+ */
+function CapitalGains() {
+  const { tables } = useContext(TaxTablesContext);
+  const [purchasePrice, setPurchasePrice] = useState("1500000");
+  const [purchaseDate, setPurchaseDate] = useState("2016-01-01");
+  const [salePrice, setSalePrice] = useState("2500000");
+  const [saleDate, setSaleDate] = useState("2026-01-01");
+  const [expenses, setExpenses] = useState("100000");
+  const [cpi, setCpi] = useState("0");
+  const [single, setSingle] = useState(true);
+  const [editing, setEditing] = useState(false);
+  const [ceilingDraft, setCeilingDraft] = useState<string | null>(null);
+  const [yearDraft, setYearDraft] = useState<string | null>(null);
+  const { busy, error, run } = useTableSave();
+  const result = capitalGains({
+    purchasePriceShekels: num(purchasePrice),
+    purchaseDate,
+    salePriceShekels: num(salePrice),
+    saleDate,
+    expensesShekels: num(expenses),
+    cpiPercent: num(cpi),
+    singleHome: single,
+    singleHomeCeilingShekels: tables.capitalGains.singleHomeCeiling,
+  });
+
+  return (
+    <Calc title="מס שבח (הערכה)" icon={<IconCoins s={19} />} domain="mv-domain-violet">
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Field label="מחיר הרכישה" value={purchasePrice} onChange={setPurchasePrice} suffix="₪" />
+        <label className="flex flex-col gap-1 text-[length:var(--type-caption)] font-semibold">
+          תאריך הרכישה
+          <input type="date" className="mv-control" value={purchaseDate} onChange={(e) => setPurchaseDate(e.target.value)} />
+        </label>
+        <Field label="מחיר המכירה" value={salePrice} onChange={setSalePrice} suffix="₪" />
+        <label className="flex flex-col gap-1 text-[length:var(--type-caption)] font-semibold">
+          תאריך המכירה
+          <input type="date" className="mv-control" value={saleDate} onChange={(e) => setSaleDate(e.target.value)} />
+        </label>
+        <Field label="הוצאות מוכרות (עו״ד, תיווך, מס רכישה, שיפוץ)" value={expenses} onChange={setExpenses} suffix="₪" />
+        <Field label="עליית המדד בין התאריכים (חל על מחיר הרכישה)" value={cpi} onChange={setCpi} suffix="%" />
+        <div className="flex flex-col gap-1 text-[length:var(--type-caption)] font-semibold sm:col-span-2">
+          הדירה הנמכרת
+          <div className="mv-seg" role="group" aria-label="הדירה הנמכרת">
+            <button type="button" aria-pressed={single} onClick={() => setSingle(true)}>דירה יחידה</button>
+            <button type="button" aria-pressed={!single} onClick={() => setSingle(false)}>דירה נוספת</button>
+          </div>
+        </div>
+      </div>
+      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+        <Result label="שבח ריאלי" value={shekelsLabel(result.realGain)} />
+        <Result label={`מס שבח משוער (${CAPITAL_GAINS_RATE_PERCENT}%)`} value={shekelsLabel(result.tax)} />
+      </div>
+      {result.notes.length > 0 ? (
+        <ul className="m-0 mt-2 flex list-none flex-col gap-1 p-0 text-[length:var(--type-caption-lg)]" aria-label="איך חושב">
+          {result.notes.map((note) => (
+            <li key={note} style={{ color: "var(--color-text-soft)" }}>· {note}</li>
           ))}
         </ul>
+      ) : null}
+      <p className="mv-form-hint mt-2">
+        הערכה בלבד: בלי פחת, הוצאות מימון, ירושה ומתנה, ובלי בדיקת תנאי הפטור. לפני שמצטטים ללקוח — הסימולטור של רשות המסים או יועץ מס.
+      </p>
+      <TaxTableNote
+        year={tables.capitalGains.year}
+        editing={editing}
+        onToggle={() => {
+          setEditing((v) => !v);
+          setCeilingDraft(null);
+          setYearDraft(null);
+        }}
+      />
+      {editing ? (
+        <div className="mt-2 grid gap-2 sm:grid-cols-2">
+          <Field label="תקרת הפטור לדירה יחידה" value={ceilingDraft ?? String(tables.capitalGains.singleHomeCeiling)} onChange={setCeilingDraft} suffix="₪" />
+          <Field label="שנת הפרסום" value={yearDraft ?? String(tables.capitalGains.year)} onChange={setYearDraft} />
+          <div className="sm:col-span-2">
+            <SaveRow
+              busy={busy}
+              error={error}
+              onSave={() => {
+                void run({
+                  ...tables,
+                  capitalGains: {
+                    year: yearDraft === null ? tables.capitalGains.year : num(yearDraft),
+                    singleHomeCeiling: ceilingDraft === null ? tables.capitalGains.singleHomeCeiling : num(ceilingDraft),
+                  },
+                }).then((ok) => {
+                  if (ok) setEditing(false);
+                });
+              }}
+            />
+          </div>
+        </div>
       ) : null}
     </Calc>
   );
