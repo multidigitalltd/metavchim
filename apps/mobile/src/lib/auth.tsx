@@ -31,10 +31,22 @@ type LoginOutcome = { kind: "ok" } | { kind: "otp"; otpToken: string };
 interface AuthState {
   /** ‏`undefined` — עדיין לא ידוע (הטוקן נקרא מהאחסון); `null` — לא מחובר. */
   user: AuthUser | null | undefined;
+  /**
+   * ‏יש טוקן שמור, אבל השרת לא ענה — לא „לא מחובר”. המעטפת מציגה
+   * ‏מסך „אין חיבור” עם ניסיון חוזר, ולא את מסך ההתחברות: מי שנכנס
+   * ‏ברכבת בלי קליטה אינו צריך להקליד סיסמה מחדש (ביקורת Codex).
+   */
+  offline: boolean;
   login(email: string, password: string): Promise<LoginOutcome>;
   verifyOtp(otpToken: string, code: string): Promise<void>;
   logout(): Promise<void>;
   refresh(): Promise<void>;
+  /**
+   * ‏החלפת סיסמה. השרת מבטל את שאר החיבורים, וגם החיבור הזה נפסל
+   * ‏(עידן הסיסמה שלו ישן מהסיסמה החדשה) — ולכן בסיום מתנתקים
+   * ‏מקומית ומתחברים מחדש עם הסיסמה החדשה, כמו ב-web.
+   */
+  changePassword(currentPassword: string, newPassword: string): Promise<void>;
 }
 
 const AuthContext = createContext<AuthState | null>(null);
@@ -46,28 +58,32 @@ interface LoginResponse {
 
 export function AuthProvider({ children }: PropsWithChildren) {
   const [user, setUser] = useState<AuthUser | null | undefined>(undefined);
+  const [offline, setOffline] = useState(false);
 
   const refresh = useCallback(async () => {
     const token = await readSessionToken();
     if (token === null) {
+      setOffline(false);
       setUser(null);
       return;
     }
     try {
       const { user: me } = await apiGet<{ user: AuthUser }>("/auth/me");
+      setOffline(false);
       setUser(me);
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) {
         await clearSessionToken();
+        setOffline(false);
         setUser(null);
         return;
       }
       /*
-       * ‏תקלת רשת אינה „לא מחובר”: הטוקן עדיין תקף, והאפליקציה נפתחת
-       * ‏ברכבת בלי קליטה. משאירים את מה שידוע ונותנים למסכים להציג את
-       * ‏שגיאת הטעינה שלהם.
+       * ‏תקלת רשת אינה „לא מחובר”: הטוקן עדיין תקף. כשהזהות כבר
+       * ‏ידועה — המסכים מציגים את שגיאת הטעינה שלהם; כשעדיין לא —
+       * ‏המעטפת מציגה „אין חיבור” וניסיון חוזר, ולא מסך התחברות.
        */
-      setUser((current) => current ?? null);
+      setOffline(true);
     }
   }, []);
 
@@ -82,13 +98,22 @@ export function AuthProvider({ children }: PropsWithChildren) {
     return () => setUnauthorizedListener(null);
   }, []);
 
-  const adopt = useCallback(async (response: LoginResponse) => {
-    if (!response.session) {
-      throw new ApiError(502, "השרת לא החזיר Session לאפליקציה — יש לעדכן את השרת");
-    }
-    await writeSessionToken(response.session.token);
-    setUser(response.user);
-  }, []);
+  /*
+   * ‏הזהות שנשמרת היא של `/auth/me`, לא של תשובת ההתחברות: זו נושאת
+   * ‏את המשתמש הבסיסי בלבד, בלי `capabilities` ו-`billingOnly`, ואיתה
+   * ‏כל `can()` היה עונה „לא” עד ההפעלה הבאה (ביקורת Codex). אם
+   * ‏המשיכה נכשלת ברשת — הטוקן כבר שמור, ומסך „אין חיבור” מנסה שוב.
+   */
+  const adopt = useCallback(
+    async (response: LoginResponse) => {
+      if (!response.session) {
+        throw new ApiError(502, "השרת לא החזיר Session לאפליקציה — יש לעדכן את השרת");
+      }
+      await writeSessionToken(response.session.token);
+      await refresh();
+    },
+    [refresh],
+  );
 
   const login = useCallback(
     async (email: string, password: string): Promise<LoginOutcome> => {
@@ -123,9 +148,15 @@ export function AuthProvider({ children }: PropsWithChildren) {
     setUser(null);
   }, []);
 
+  const changePassword = useCallback(async (currentPassword: string, newPassword: string) => {
+    await apiPost("/auth/change-password", { currentPassword, newPassword });
+    await clearSessionToken();
+    setUser(null);
+  }, []);
+
   const value = useMemo<AuthState>(
-    () => ({ user, login, verifyOtp, logout, refresh }),
-    [user, login, verifyOtp, logout, refresh],
+    () => ({ user, offline, login, verifyOtp, logout, refresh, changePassword }),
+    [user, offline, login, verifyOtp, logout, refresh, changePassword],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

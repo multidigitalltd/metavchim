@@ -97,6 +97,13 @@ const ListQuerySchema = z
       .enum(["true", "false"])
       .optional()
       .transform((v) => (v === undefined ? undefined : v === "true")),
+    /**
+     * ‏סדר העמוד. ברירת המחדל — החדש ראשון, כמו תמיד. `oldest` הוא
+     * ‏תור המענה: מסך „היום” בנייד מבקש את הלידים הפתוחים שממתינים
+     * ‏הכי הרבה זמן, וסינון של „החדשים ביותר” אחרי העימוד היה משמיט
+     * ‏בדיוק את הוותיקים — אלה שכבר חרגו מה-KPI (ביקורת Codex).
+     */
+    order: z.enum(["newest", "oldest"]).default("newest"),
     cursor: z.string().max(30).optional(),
     limit: z.coerce.number().int().min(1).max(100).default(50),
   })

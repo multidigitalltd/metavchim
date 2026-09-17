@@ -1,10 +1,11 @@
 import { useEffect } from "react";
-import { I18nManager } from "react-native";
+import { I18nManager, StyleSheet } from "react-native";
 import { Stack, useRouter, useSegments } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import * as SplashScreen from "expo-splash-screen";
-import { SafeAreaProvider } from "react-native-safe-area-context";
+import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import { AuthProvider, useAuth } from "@/lib/auth";
+import { ErrorState } from "@/components";
 import { colors } from "@/theme";
 
 /*
@@ -22,19 +23,42 @@ void SplashScreen.preventAutoHideAsync();
  * ‏שומר הכניסה: בלי Session — מסך ההתחברות; עם Session — האפליקציה.
  * ‏עד שידוע (הטוקן נקרא מהאחסון המאובטח) מסך הפתיחה נשאר, ולא מסך
  * ‏התחברות שמהבהב לרגע אצל מי שכבר מחובר.
+ *
+ * ‏סיסמה זמנית — חובה להחליף לפני כל פעולה אחרת, כמו ב-web: השרת
+ * ‏מסמן `mustChangePassword` ואינו חוסם נתיבים עסקיים בעצמו, ולכן
+ * ‏השומר כאן הוא מה שמונע עבודה עם סיסמה שמנהל המשרד הקליד
+ * ‏(ביקורת Codex).
  */
 function Gate() {
-  const { user } = useAuth();
+  const { user, offline, refresh } = useAuth();
   const segments = useSegments();
   const router = useRouter();
   const inLogin = segments[0] === "login";
+  const inChangePassword = segments[0] === "change-password";
 
   useEffect(() => {
-    if (user === undefined) return;
+    if (user === undefined) {
+      if (offline) void SplashScreen.hideAsync();
+      return;
+    }
     void SplashScreen.hideAsync();
-    if (user === null && !inLogin) router.replace("/login");
-    else if (user !== null && inLogin) router.replace("/(tabs)/today");
-  }, [user, inLogin, router]);
+    if (user === null) {
+      if (!inLogin) router.replace("/login");
+    } else if (user.mustChangePassword) {
+      if (!inChangePassword) router.replace("/change-password");
+    } else if (inLogin || inChangePassword) {
+      router.replace("/(tabs)/today");
+    }
+  }, [user, offline, inLogin, inChangePassword, router]);
+
+  // ‏טוקן שמור והשרת לא ענה — לא מסך התחברות, אלא ניסיון חוזר
+  if (user === undefined && offline) {
+    return (
+      <SafeAreaView style={styles.offline}>
+        <ErrorState message="אין חיבור לשרת — בדקו את הרשת" onRetry={() => void refresh()} />
+      </SafeAreaView>
+    );
+  }
 
   return (
     <Stack
@@ -48,6 +72,10 @@ function Gate() {
     >
       <Stack.Screen name="index" options={{ headerShown: false }} />
       <Stack.Screen name="login" options={{ headerShown: false }} />
+      <Stack.Screen
+        name="change-password"
+        options={{ title: "החלפת סיסמה", headerBackVisible: false, gestureEnabled: false }}
+      />
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
       <Stack.Screen name="notifications" options={{ title: "התראות" }} />
       <Stack.Screen name="leads/[id]" options={{ title: "ליד" }} />
@@ -67,3 +95,7 @@ export default function RootLayout() {
     </SafeAreaProvider>
   );
 }
+
+const styles = StyleSheet.create({
+  offline: { flex: 1, justifyContent: "center", backgroundColor: colors.bg },
+});

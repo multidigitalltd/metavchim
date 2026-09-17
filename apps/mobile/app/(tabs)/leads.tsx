@@ -21,8 +21,6 @@ const FILTERS: { key: Filter; label: string }[] = [
   { key: "all", label: "הכול" },
 ];
 
-const OPEN = new Set(["new", "in_progress", "waiting_customer"]);
-
 /** ‏שם או טלפון: ספרות מושוות מול ספרות, טקסט מול השם. */
 function leadMatches(lead: LeadRow, needle: string): boolean {
   if (needle === "") return true;
@@ -36,10 +34,19 @@ export default function LeadsScreen() {
   const router = useRouter();
   const [filter, setFilter] = useState<Filter>("open");
   const [search, setSearch] = useState("");
+  /*
+   * ‏הסינון במסד ולא על העמוד שחזר, כמו במסך ה-web: „לטיפול” הוא
+   * ‏`open=true` ולא „מה שנשאר אחרי שסיננו 100 חדשים”. החיפוש נשאר
+   * ‏מקומי — הוא מצמצם בתוך העמוד שכבר נטען.
+   */
+  const scope =
+    filter === "all" ? "" : filter === "open" ? "&open=true" : `&status=${filter}`;
   const query = useQuery(
     () =>
-      apiGet<{ items: LeadRow[] }>("/leads?limit=100").then((r) => apiList(r.items, "items")),
-    [],
+      apiGet<{ items: LeadRow[] }>(`/leads?limit=100${scope}`).then((r) =>
+        apiList(r.items, "items"),
+      ),
+    [scope],
   );
 
   // eslint-disable-next-line react-hooks/exhaustive-deps -- מכוון: השעון מתקדם רק כשהנתונים מתרעננים
@@ -47,12 +54,9 @@ export default function LeadsScreen() {
   const rows = useMemo(() => {
     const needle = search.trim();
     return (query.data ?? [])
-      .filter((lead) =>
-        filter === "all" ? true : filter === "open" ? OPEN.has(lead.status) : lead.status === filter,
-      )
       .filter((lead) => leadMatches(lead, needle))
       .sort(compareLeadsByUrgency);
-  }, [query.data, filter, search]);
+  }, [query.data, search]);
 
   return (
     <Screen title="לידים" scroll={false}>

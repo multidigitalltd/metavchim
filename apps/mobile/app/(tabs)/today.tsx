@@ -57,12 +57,27 @@ export default function TodayScreen() {
     const dayEndInclusive = new Date(end.getTime() - 1);
     const none: never[] = [];
     const [leads, appointments, tasks, notifications] = await Promise.all([
+      /*
+       * ‏תור המענה נבנה בשרת ולא מתוך „100 החדשים”: הוותיקים ביותר
+       * ‏מבין הפתוחים (הם שחורגים מה-KPI), ובנפרד כל מה שסומן „דורש
+       * ‏טיפול” — ליד כזה יכול להיות חדש ועדיין ראשון בתור. במשרד עם
+       * ‏מאות לידים העמוד הראשון של „החדש ראשון” היה משמיט בדיוק את
+       * ‏מי שממתין הכי הרבה (ביקורת Codex).
+       */
       canLeads
         ? settle(
             "לידים",
-            apiGet<{ items: LeadRow[] }>("/leads?limit=100").then((r) =>
-              apiList(r.items, "items"),
-            ),
+            Promise.all([
+              apiGet<{ items: LeadRow[] }>("/leads?open=true&order=oldest&limit=100").then((r) =>
+                apiList(r.items, "items"),
+              ),
+              apiGet<{ items: LeadRow[] }>("/leads?open=true&requiresHuman=true&limit=100").then(
+                (r) => apiList(r.items, "items"),
+              ),
+            ]).then(([oldest, urgent]) => {
+              const seen = new Set(oldest.map((lead) => lead.id));
+              return [...oldest, ...urgent.filter((lead) => !seen.has(lead.id))];
+            }),
             none as LeadRow[],
           )
         : Promise.resolve(none as LeadRow[]),
