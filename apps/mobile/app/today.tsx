@@ -151,18 +151,7 @@ export default function TodayScreen() {
   const greeting = firstName ? `שלום, ${firstName}` : "שלום";
 
   return (
-    <Screen
-      title={greeting}
-      refreshing={query.refreshing}
-      onRefresh={() => void query.refresh()}
-      trailing={
-        <Button
-          title={data && data.unread > 0 ? `התראות · ${data.unread}` : "התראות"}
-          kind={data && data.unread > 0 ? "secondary" : "ghost"}
-          onPress={() => router.push("/notifications")}
-        />
-      }
-    >
+    <Screen title={greeting} root refreshing={query.refreshing} onRefresh={() => void query.refresh()}>
       <CacheNotice query={query} />
       {query.error && data === null ? (
         <ErrorState message={query.error} onRetry={query.reload} />

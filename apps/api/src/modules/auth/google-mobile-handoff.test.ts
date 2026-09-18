@@ -37,13 +37,20 @@ function controllerWith(over: {
     expiresAt: new Date("2030-01-01T00:00:00Z"),
     user: USER,
   }));
-  const handoff = { issue: vi.fn(async () => "C".repeat(43)), redeem: vi.fn(async () => USER.email) };
+  const handoff = {
+    issueGoogle: vi.fn(async () => "C".repeat(43)),
+    redeemGoogle: vi.fn(async () => USER.id),
+    issueWebSession: vi.fn(async () => "W".repeat(43)),
+    redeemWebSession: vi.fn(async () => "T".repeat(43)),
+  };
   const auth = {
     issueSession,
     loginWithVerifiedEmail: vi.fn(async () => {
       if (over.loginError) throw over.loginError;
       return USER;
     }),
+    getUserForSession: vi.fn(async () => USER),
+    sessionExpiry: vi.fn(async () => new Date("2030-01-01T00:00:00Z")),
   };
   const google = {
     authorizationUrl: vi.fn(async () => "https://accounts.google.test/auth"),
@@ -70,12 +77,19 @@ function response() {
   return res as unknown as Response & typeof res;
 }
 
-function request(over: { query?: Record<string, string>; cookies?: Record<string, string> }): Request {
+function request(over: {
+  query?: Record<string, string>;
+  cookies?: Record<string, string>;
+  bearer?: string;
+}): Request {
   return {
     query: over.query ?? {},
     cookies: over.cookies ?? {},
     ip: "10.0.0.1",
-    headers: { "user-agent": "metavchim-mobile" },
+    headers: {
+      "user-agent": "metavchim-mobile",
+      ...(over.bearer ? { authorization: `Bearer ${over.bearer}` } : {}),
+    },
   } as unknown as Request;
 }
 
@@ -101,7 +115,7 @@ describe("google/callback לנייד", () => {
     const { controller, auth, handoff } = controllerWith({});
     const res = response();
     await controller.googleCallback(request({ query: { code: "g", state: "S" }, cookies }), res);
-    expect(handoff.issue).toHaveBeenCalledWith(USER.email);
+    expect(handoff.issueGoogle).toHaveBeenCalledWith(USER.id);
     expect(res.redirect).toHaveBeenCalledWith(`${MOBILE_GOOGLE_RETURN_URL}?code=${"C".repeat(43)}`);
     expect(auth.issueSession).not.toHaveBeenCalled();
     expect(res.cookie).not.toHaveBeenCalled();
@@ -143,8 +157,8 @@ describe("google/exchange", () => {
   it("ממיר את הקוד ל-Session בגוף — עם הכתובת מאומתת מחדש מול החשבון", async () => {
     const { controller, auth, handoff } = controllerWith({});
     const result = await controller.googleExchange({ code: "C".repeat(43) }, request({}));
-    expect(handoff.redeem).toHaveBeenCalledWith("C".repeat(43));
-    expect(auth.loginWithVerifiedEmail).toHaveBeenCalledWith(USER.email);
+    expect(handoff.redeemGoogle).toHaveBeenCalledWith("C".repeat(43));
+    expect(auth.getUserForSession).toHaveBeenCalledWith(USER.id);
     expect(auth.issueSession).toHaveBeenCalledWith(USER, { ip: "10.0.0.1", userAgent: "metavchim-mobile" });
     expect(result).toEqual({
       user: USER,
@@ -154,10 +168,60 @@ describe("google/exchange", () => {
 
   it("קוד שפג או שכבר נוצל — 401, ובלי Session", async () => {
     const { controller, auth, handoff } = controllerWith({});
-    handoff.redeem.mockRejectedValueOnce(new UnauthorizedException("פג"));
+    handoff.redeemGoogle.mockRejectedValueOnce(new UnauthorizedException("פג"));
     await expect(controller.googleExchange({ code: "C".repeat(43) }, request({}))).rejects.toBeInstanceOf(
       UnauthorizedException,
     );
     expect(auth.issueSession).not.toHaveBeenCalled();
+  });
+});
+
+describe("web-session — ה-Session של האפליקציה אל הדפדפן המוטמע", () => {
+  it("הקוד נולד מהטוקן של הבקשה, ולא ממשהו אחר", async () => {
+    const { controller, handoff } = controllerWith({});
+    const result = await controller.webSession(request({ bearer: "T".repeat(43) }));
+    expect(handoff.issueWebSession).toHaveBeenCalledWith("T".repeat(43));
+    expect(result).toEqual({ code: "W".repeat(43) });
+  });
+
+  it("הנחיתה שמה את אותו טוקן בעוגייה, מסמנת embedded, ומפנה לנתיב", async () => {
+    const { controller, auth } = controllerWith({});
+    const res = response();
+    await controller.webSessionLanding("W".repeat(43), request({ query: { next: "/settings" } }), res);
+    expect(auth.issueSession).not.toHaveBeenCalled();
+    expect(res.cookie).toHaveBeenCalledWith("mv_session", "T".repeat(43), expect.anything());
+    expect(res.cookie).toHaveBeenCalledWith("mv_embedded", "1", expect.objectContaining({ httpOnly: false }));
+    expect(res.redirect).toHaveBeenCalledWith("https://app.test/settings");
+  });
+
+  it("נתיב חיצוני או כפול-לוכסן נופל ללוח הבקרה", async () => {
+    for (const next of ["//evil.example", "https://evil.example/x", "settings", ""]) {
+      const { controller } = controllerWith({});
+      const res = response();
+      await controller.webSessionLanding("W".repeat(43), request({ query: { next } }), res);
+      expect(res.redirect).toHaveBeenCalledWith("https://app.test/");
+    }
+  });
+
+  it("קוד שפג, קוד בצורה לא נכונה, או Session שכבר אינו קיים — למסך ההתחברות, בלי עוגייה", async () => {
+    const expired = controllerWith({});
+    expired.handoff.redeemWebSession.mockRejectedValueOnce(new UnauthorizedException("פג"));
+    const res = response();
+    await expired.controller.webSessionLanding("W".repeat(43), request({}), res);
+    expect(res.cookie).not.toHaveBeenCalled();
+    expect(res.redirect).toHaveBeenCalledWith("https://app.test/login");
+
+    const malformed = controllerWith({});
+    const res2 = response();
+    await malformed.controller.webSessionLanding("short", request({}), res2);
+    expect(malformed.handoff.redeemWebSession).not.toHaveBeenCalled();
+    expect(res2.redirect).toHaveBeenCalledWith("https://app.test/login");
+
+    const gone = controllerWith({});
+    gone.auth.sessionExpiry.mockResolvedValueOnce(null);
+    const res3 = response();
+    await gone.controller.webSessionLanding("W".repeat(43), request({}), res3);
+    expect(res3.cookie).not.toHaveBeenCalled();
+    expect(res3.redirect).toHaveBeenCalledWith("https://app.test/login");
   });
 });

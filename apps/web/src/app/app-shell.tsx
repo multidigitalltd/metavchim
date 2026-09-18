@@ -9,6 +9,7 @@ import { clearSessionCache, fetchMe } from "@/lib/session-cache";
 import { can, type AuthUser } from "@/lib/use-auth";
 import { FeaturesProvider } from "@/lib/use-features";
 import { isPublicPath } from "@/lib/public-paths";
+import { isEmbedded } from "@/lib/embedded";
 import { IconChevronDown, IconUsers } from "./icons";
 import { NotificationsBell } from "./notifications-bell";
 import { TopbarSearch } from "./topbar-search";
@@ -342,6 +343,14 @@ export function AppShell({ children }: { children: ReactNode }) {
    * ‏לחיצה, הבחירה שלו גוברת.
    */
   const [navGroupOpen, setNavGroupOpen] = useState<Record<string, boolean>>({});
+  /*
+   * ‏נקרא אחרי ההרכבה ולא בזמן הרינדור: העוגייה קיימת רק בדפדפן,
+   * ‏ורינדור-שרת שמחליט אחרת מהלקוח היה נותן אי-התאמה של hydration.
+   */
+  const [embedded, setEmbedded] = useState(false);
+  useEffect(() => {
+    setEmbedded(isEmbedded());
+  }, []);
   const drawerRef = useRef<HTMLElement>(null);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
 
@@ -501,6 +510,28 @@ export function AppShell({ children }: { children: ReactNode }) {
   }
   if (isPublic) {
     return <main id="main-content" className="mx-auto max-w-6xl px-4 py-6">{children}</main>;
+  }
+
+  /*
+   * ‏בתוך האפליקציה לנייד (WebView) — התוכן בלבד.
+   *
+   * ‏הסרגל, שורת הכותרת, הפעמון והתפריט שייכים שם לאפליקציה, ותפריט
+   * ‏שני מתחת לתפריט הוא בלבול. שער „חיבור אחד לחשבון” נשאר בחוץ
+   * ‏בכוונה: החיבור כאן הוא **אותו** Session של האפליקציה (ראו
+   * ‏`/auth/web-session` ב-API), והאפליקציה מנהלת אותו בעצמה. שאר
+   * ‏הספקים נשארים — המסכים נשענים על `useFeature` ועל הסופטפון.
+   */
+  if (embedded) {
+    return (
+      <div className="mv-embedded">
+        <main id="main-content" className="mv-content">
+          <TrialBanner trialEndsAt={me?.trialEndsAt} />
+          <FeaturesProvider features={counts?.features ?? null} failed={featuresFailed}>
+            <SoftphoneProvider>{children}</SoftphoneProvider>
+          </FeaturesProvider>
+        </main>
+      </div>
+    );
   }
 
   /*

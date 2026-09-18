@@ -1,22 +1,27 @@
 import { useEffect, useState } from "react";
-import { KeyboardAvoidingView, Platform, StyleSheet, View } from "react-native";
-import { useLocalSearchParams } from "expo-router";
+import { StyleSheet, View } from "react-native";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { googleLoginErrorText } from "@metavchim/shared";
 import { apiConfigured, apiOrigin, isValidApiOrigin, setApiOrigin, BUILT_IN_API_ORIGIN } from "@/lib/config";
 import { useAuth } from "@/lib/auth";
 import { apiGet, errorMessage } from "@/lib/api";
 import { openGoogleSignIn } from "@/lib/google-login";
-import { Button, Card, Field, Screen, Text } from "@/components";
+import { AuthShell } from "@/components/AuthShell";
+import { Button, Card, Field, Text } from "@/components";
 import { colors, space } from "@/theme";
 
 /**
- * ‏מסך ההתחברות — אימייל וסיסמה, ושלב שני של קוד אימייל כשהשרת דורש;
- * ‏ו„התחברות עם Google” כשהחיבור מוגדר בשרת (`/auth/providers`, כמו
- * ‏ב-web). אותם נתיבי API כמו ב-web, עם `client: "mobile"` (ראו
- * ‏`lib/auth` ו-`lib/google-login`).
+ * ‏מסך ההתחברות — כמו `/login` ב-web: לוח המותג, ומתחתיו אימייל
+ * ‏וסיסמה, „שכחתי סיסמה”, „התחברות עם Google” כשהחיבור מוגדר בשרת,
+ * ‏ושלב שני של קוד אימייל כשהשרת דורש. אותם נתיבי API, עם
+ * ‏`client: "mobile"` (ראו `lib/auth` ו-`lib/google-login`).
+ *
+ * ‏כתובת השרת אינה מוצגת: היא צרובה בבנייה. „הגדרות מתקדמות” — לבדיקות
+ * ‏מול שרת אחר — נפתחות בלחיצה ארוכה על הלוגו, ואינן חלק מהמסך.
  */
 export default function LoginScreen() {
   const { login, verifyOtp, loginWithGoogle } = useAuth();
+  const router = useRouter();
   const { googleError } = useLocalSearchParams<{ googleError?: string }>();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -28,6 +33,9 @@ export default function LoginScreen() {
   const [busy, setBusy] = useState(false);
   const [googleBusy, setGoogleBusy] = useState(false);
   const [googleEnabled, setGoogleEnabled] = useState(false);
+  const [advanced, setAdvanced] = useState(!apiConfigured());
+  const [server, setServer] = useState(apiOrigin());
+  const [serverNote, setServerNote] = useState<string | null>(null);
 
   // הכפתור מוצג רק כשהחיבור מוגדר בפועל — אחרת הוא היה מוביל לשגיאה
   useEffect(() => {
@@ -44,23 +52,6 @@ export default function LoginScreen() {
     };
   }, []);
 
-  async function withGoogle() {
-    setError(null);
-    setGoogleBusy(true);
-    try {
-      const outcome = await openGoogleSignIn();
-      if (outcome.kind === "code") await loginWithGoogle(outcome.code);
-      else if (outcome.kind === "error") setError(googleLoginErrorText(outcome.error));
-    } catch (err: unknown) {
-      setError(errorMessage(err, googleLoginErrorText("failed")));
-    } finally {
-      setGoogleBusy(false);
-    }
-  }
-  const [advanced, setAdvanced] = useState(false);
-  const [server, setServer] = useState(apiOrigin());
-  const [serverNote, setServerNote] = useState<string | null>(null);
-
   async function saveServer() {
     const value = server.trim();
     if (value !== "" && !isValidApiOrigin(value)) {
@@ -69,7 +60,7 @@ export default function LoginScreen() {
     }
     const applied = await setApiOrigin(value);
     setServer(applied);
-    setServerNote(applied === "" ? "אין כתובת שרת" : `השרת: ${applied}`);
+    setServerNote(applied === "" ? "חזרה לכתובת הצרובה" : "נשמר");
   }
 
   async function submit() {
@@ -109,127 +100,115 @@ export default function LoginScreen() {
     }
   }
 
+  async function withGoogle() {
+    setError(null);
+    setGoogleBusy(true);
+    try {
+      const outcome = await openGoogleSignIn();
+      if (outcome.kind === "code") await loginWithGoogle(outcome.code);
+      else if (outcome.kind === "error") setError(googleLoginErrorText(outcome.error));
+    } catch (err: unknown) {
+      setError(errorMessage(err, googleLoginErrorText("failed")));
+    } finally {
+      setGoogleBusy(false);
+    }
+  }
+
   return (
-    <Screen>
-      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined}>
-        <View style={styles.brand}>
-          <Text variant="heading" style={styles.center}>
-            מתווכים
-          </Text>
-          <Text variant="muted" style={styles.center}>
-            המתווך סוגר עסקאות. המערכת מטפלת בכל השאר.
-          </Text>
-        </View>
-
-        {!apiConfigured() ? (
-          <Card style={styles.warn}>
-            <Text style={styles.warnText}>
-              כתובת השרת אינה מוגדרת — פתחו „הגדרות מתקדמות” וכתבו אותה, או הגדירו
-              EXPO_PUBLIC_API_URL בבנייה.
-            </Text>
-          </Card>
-        ) : null}
-
-        <Card>
-          {otpToken === null ? (
-            <>
-              <Field
-                label="אימייל"
-                value={email}
-                onChangeText={setEmail}
-                autoCapitalize="none"
-                autoComplete="email"
-                keyboardType="email-address"
-                textContentType="username"
-                returnKeyType="next"
-              />
-              <Field
-                label="סיסמה"
-                value={password}
-                onChangeText={setPassword}
-                secureTextEntry
-                autoComplete="current-password"
-                textContentType="password"
-                returnKeyType="go"
-                onSubmitEditing={() => void submit()}
-                error={error}
-              />
-              <Button title="התחברות" onPress={() => void submit()} busy={busy} disabled={googleBusy} />
-              {googleEnabled ? (
-                <Button
-                  title="התחברות עם Google"
-                  kind="secondary"
-                  onPress={() => void withGoogle()}
-                  busy={googleBusy}
-                  disabled={busy}
-                  accessibilityHint="נפתח דפדפן לבחירת חשבון Google"
-                />
-              ) : null}
-            </>
-          ) : (
-            <>
-              <Text>שלחנו קוד בן 6 ספרות לכתובת {email.trim()}.</Text>
-              <Field
-                label="קוד אימות"
-                value={code}
-                onChangeText={setCode}
-                keyboardType="number-pad"
-                autoComplete="one-time-code"
-                textContentType="oneTimeCode"
-                maxLength={6}
-                returnKeyType="go"
-                onSubmitEditing={() => void verify()}
-                error={error}
-              />
-              <Button title="אימות" onPress={() => void verify()} busy={busy} />
-              <Button
-                title="חזרה"
-                kind="ghost"
-                onPress={() => {
-                  setOtpToken(null);
-                  setError(null);
-                }}
-              />
-            </>
-          )}
-        </Card>
-
-        <Button
-          title={advanced ? "סגירת הגדרות מתקדמות" : "הגדרות מתקדמות"}
-          kind="ghost"
-          onPress={() => setAdvanced((v) => !v)}
-        />
-        {advanced ? (
-          <Card>
-            <Text variant="muted">
-              כתובת השרת שהאפליקציה מדברת איתו. ריק = הכתובת הצרובה בבנייה
-              {BUILT_IN_API_ORIGIN ? ` (${BUILT_IN_API_ORIGIN})` : ""}.
-            </Text>
-            <Field
-              label="כתובת שרת"
-              value={server}
-              onChangeText={setServer}
-              autoCapitalize="none"
-              autoCorrect={false}
-              keyboardType="url"
-              placeholder="http://192.168.1.10:3001"
-              error={serverNote}
+    <AuthShell
+      title={otpToken === null ? "התחברות" : "קוד אימות"}
+      subtitle={
+        otpToken === null ? "נכנסים עם החשבון שמנהל המשרד פתח לך." : `שלחנו קוד בן 6 ספרות לכתובת ${email.trim()}.`
+      }
+      onBrandLongPress={() => setAdvanced((v) => !v)}
+    >
+      {otpToken === null ? (
+        <View style={styles.stack}>
+          <Field
+            label="אימייל"
+            value={email}
+            onChangeText={setEmail}
+            autoCapitalize="none"
+            autoComplete="email"
+            keyboardType="email-address"
+            textContentType="username"
+            returnKeyType="next"
+          />
+          <Field
+            label="סיסמה"
+            value={password}
+            onChangeText={setPassword}
+            secureTextEntry
+            autoComplete="current-password"
+            textContentType="password"
+            returnKeyType="go"
+            onSubmitEditing={() => void submit()}
+            error={error}
+          />
+          <Button title="התחברות" onPress={() => void submit()} busy={busy} disabled={googleBusy} />
+          {googleEnabled ? (
+            <Button
+              title="התחברות עם Google"
+              kind="ghost"
+              onPress={() => void withGoogle()}
+              busy={googleBusy}
+              disabled={busy}
+              accessibilityHint="נפתח דפדפן לבחירת חשבון Google"
             />
-            <Button title="שמירת הכתובת" kind="secondary" onPress={() => void saveServer()} />
-          </Card>
-        ) : (
-          <Text variant="small" style={styles.center}>
-            {apiConfigured() ? `שרת: ${apiOrigin()}` : ""}
+          ) : null}
+          <Button title="שכחתי סיסמה" kind="text" onPress={() => router.push("/forgot-password")} />
+        </View>
+      ) : (
+        <View style={styles.stack}>
+          <Field
+            label="קוד אימות"
+            value={code}
+            onChangeText={setCode}
+            keyboardType="number-pad"
+            autoComplete="one-time-code"
+            textContentType="oneTimeCode"
+            maxLength={6}
+            returnKeyType="go"
+            onSubmitEditing={() => void verify()}
+            error={error}
+          />
+          <Button title="אימות" onPress={() => void verify()} busy={busy} />
+          <Button
+            title="חזרה"
+            kind="text"
+            onPress={() => {
+              setOtpToken(null);
+              setError(null);
+            }}
+          />
+        </View>
+      )}
+
+      {advanced ? (
+        <Card style={styles.advanced}>
+          <Text variant="label">הגדרות מתקדמות</Text>
+          <Text variant="small">
+            השרת שהאפליקציה מדברת איתו — לבדיקות בלבד. ריק = הכתובת הצרובה בבנייה
+            {BUILT_IN_API_ORIGIN ? " (קיימת)" : " (חסרה)"}.
           </Text>
-        )}
-      </KeyboardAvoidingView>
-    </Screen>
+          <Field
+            label="כתובת שרת"
+            value={server}
+            onChangeText={setServer}
+            autoCapitalize="none"
+            autoCorrect={false}
+            keyboardType="url"
+            placeholder="https://…"
+            error={serverNote}
+          />
+          <Button title="שמירה" kind="ghost" small onPress={() => void saveServer()} />
+        </Card>
+      ) : null}
+    </AuthShell>
   );
 }
 
 const styles = StyleSheet.create({
-  brand: { paddingVertical: space.xl, gap: space.xs },
-  center: { textAlign: "center" },
-  warn: { backgroundColor: colors.warningBg, borderColor: colors.warning, marginBottom: space.md },
-  warnText: { color: colors.warning },
+  stack: { gap: 14 },
+  advanced: { marginTop: space.xl, borderColor: colors.warning },
 });

@@ -4,7 +4,6 @@ import { useRouter } from "expo-router";
 import Constants from "expo-constants";
 import { ROLE_LABELS, type UserRole } from "@metavchim/shared";
 import { useAuth } from "@/lib/auth";
-import { apiOrigin } from "@/lib/config";
 import type { PushStatus } from "@/lib/push";
 import { Button, Card, Row, Screen, Text } from "@/components";
 import { space } from "@/theme";
@@ -19,8 +18,12 @@ const PUSH_TEXT: Record<PushStatus, string> = {
   unsupported: "אינן זמינות בסביבה הזו (סימולטור, Expo Go, או בנייה בלי מזהה פרויקט).",
 };
 
-/** ‏„עוד” — מי מחובר, התראות, והתנתקות. ההגדרות עצמן נשארות ב-web. */
-export default function MoreScreen() {
+/**
+ * ‏„האפליקציה” — מה ששייך למכשיר הזה: מי מחובר, התראות הפוש, הפרופיל
+ * ‏(במערכת), התנתקות והגרסה. שאר ההגדרות הן של המשרד ויושבות
+ * ‏ב„ניהול משרד” בתפריט.
+ */
+export default function AppSettingsScreen() {
   const { user, logout, pushStatus, enablePush } = useAuth();
   const router = useRouter();
   const [pushBusy, setPushBusy] = useState(false);
@@ -53,12 +56,26 @@ export default function MoreScreen() {
   const roleLabel = role === undefined ? null : (ROLE_LABELS[role] ?? role);
 
   return (
-    <Screen title="עוד">
+    <Screen title="האפליקציה">
       <Card>
         <Text variant="title">{user?.name ?? ""}</Text>
         <Text variant="muted">{user?.email ?? ""}</Text>
         <Text variant="muted">{[user?.tenantName, roleLabel].filter(Boolean).join(" · ")}</Text>
       </Card>
+
+      <Row
+        title="הפרופיל שלי"
+        subtitle="שם, טלפון, סיסמה, ערכת נושא ונגישות"
+        chevron
+        onPress={() => router.push("/web/profile")}
+      />
+      <Row title="התראות" subtitle="מה קרה מאז שהיית כאן" chevron onPress={() => router.push("/notifications")} />
+      <Row
+        title="החיבורים הפתוחים שלי"
+        subtitle="המכשירים שמחוברים לחשבון"
+        chevron
+        onPress={() => router.push("/web/profile")}
+      />
 
       <Card>
         <Text variant="title">התראות פוש</Text>
@@ -71,18 +88,11 @@ export default function MoreScreen() {
         ) : null}
       </Card>
 
-      <Row
-        title="התראות"
-        subtitle="מה קרה מאז שהיית כאן"
-        onPress={() => router.push("/notifications")}
-      />
-      <Row title="הגדרות, הרשאות ואינטגרציות" subtitle="נעשות מהמחשב — במערכת המלאה" />
-
       <Button title="התנתקות" kind="danger" onPress={confirmLogout} style={styles.logout} />
 
       <Text variant="small" style={styles.meta}>
-        גרסה {Constants.expoConfig?.version ?? "?"}
-        {BUILD_SHA ? ` (${BUILD_SHA.slice(0, 7)})` : ""} · שרת {apiOrigin() || "לא הוגדר"}
+        מתווכים · גרסה {Constants.expoConfig?.version ?? "?"}
+        {BUILD_SHA ? ` (${BUILD_SHA.slice(0, 7)})` : ""}
       </Text>
     </Screen>
   );

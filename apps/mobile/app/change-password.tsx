@@ -41,7 +41,7 @@ export default function ChangePasswordScreen() {
   }
 
   return (
-    <Screen>
+    <Screen title="החלפת סיסמה">
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined}>
         <Card>
           <Text variant="title">נדרשת סיסמה חדשה</Text>

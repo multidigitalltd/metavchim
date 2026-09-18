@@ -200,8 +200,8 @@ function stripComments(text) {
  * ‎**שתי מפות ניתוב, ולכן שני מקומות להתפצל — וזה בדיוק מה שקרה.**
  *
  * ‎`ENTITY_ROUTES` בחבילה המשותפת מנתבת את התראת הדחיפה ואת ההודעה
- * בוואטסאפ. ‏`notification-links.ts` בווב מנתבת את **הפעמון ומסך
- * ההתראות**. הן נכתבו בנפרד, ובבדיקה הזו נמצא ששש ישויות היו
+ * בוואטסאפ. ‏`notification-links.ts` (גם היא בחבילה המשותפת היום —
+ * ‏האפליקציה לנייד קוראת אותה) מנתבת את **הפעמון ומסך ההתראות**. הן נכתבו בנפרד, ובבדיקה הזו נמצא ששש ישויות היו
  * בראשונה ולא בשנייה — ביניהן `coop_deal`: „הודעה חדשה בחדר עסקה”
  * הובילה לחדר בוואטסאפ, ובפעמון נחתה ברשימת ההתראות (בקשת
  * המשתמש). ‏`shared_lead` היה הפוך — בווב ולא במשותפת.
@@ -211,7 +211,7 @@ function stripComments(text) {
  * שהן **מכסות את אותן ישויות** — ומי שמוסיף סוג חדש בצד אחד יידע
  * מיד שהשני מחכה.
  */
-const webPath = join(root, "apps/web/src/lib/notification-links.ts");
+const webPath = join(root, "packages/shared/src/logic/notification-links.ts");
 const webSrc = stripComments(readFileSync(webPath, "utf8"));
 const webTypes = [...webSrc.matchAll(/case "([a-z_]+)":/gu)].map((m) => m[1]);
 if (webTypes.length === 0) {

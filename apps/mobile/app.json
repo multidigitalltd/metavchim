@@ -11,7 +11,7 @@
     "splash": {
       "image": "./assets/splash.png",
       "resizeMode": "contain",
-      "backgroundColor": "#0c6e34"
+      "backgroundColor": "#0b0e0c"
     },
     "ios": {
       "bundleIdentifier": "co.il.metavchim.app",
@@ -27,7 +27,7 @@
       "package": "co.il.metavchim.app",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#0c6e34"
+        "backgroundColor": "#111513"
       }
     },
     "plugins": [
@@ -38,7 +38,7 @@
         "expo-notifications",
         {
           "icon": "./assets/notification-icon.png",
-          "color": "#0c6e34",
+          "color": "#0f8a43",
           "defaultChannel": "default"
         }
       ],
@@ -46,6 +46,17 @@
         "expo-audio",
         {
           "microphonePermission": "האפליקציה מקליטה כדי לתמלל מה שאמרת ולהפוך אותו לפעולה במערכת."
+        }
+      ],
+      [
+        "expo-font",
+        {
+          "fonts": [
+            "./assets/fonts/Almoni-Regular.ttf",
+            "./assets/fonts/Almoni-Medium.ttf",
+            "./assets/fonts/Almoni-Bold.ttf",
+            "./assets/fonts/Almoni-Ultrabold.ttf"
+          ]
         }
       ]
     ],
@@ -58,7 +69,7 @@
     },
     "notification": {
       "icon": "./assets/notification-icon.png",
-      "color": "#0c6e34",
+      "color": "#0f8a43",
       "iosDisplayInForeground": true
     },
     "runtimeVersion": {

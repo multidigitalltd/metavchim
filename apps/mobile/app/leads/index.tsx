@@ -75,6 +75,7 @@ export default function LeadsScreen() {
   return (
     <Screen
       title="לידים"
+      root
       scroll={false}
       trailing={
         can(user, "leads.edit") ? (

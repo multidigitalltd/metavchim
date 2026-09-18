@@ -46,6 +46,6 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
   },
   active: { backgroundColor: colors.primarySoft, borderColor: colors.primaryAccent },
-  label: { fontSize: font.sm, color: colors.text, fontWeight: "600" },
+  label: { fontSize: font.sm, color: colors.text, fontFamily: "Almoni-Medium" },
   activeLabel: { color: colors.primary },
 });

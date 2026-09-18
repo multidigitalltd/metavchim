@@ -57,7 +57,7 @@ export default function BuyersScreen() {
   }, [query.data, filter, search]);
 
   return (
-    <Screen title="לקוחות" scroll={false}>
+    <Screen title="לקוחות" root scroll={false}>
       <View style={styles.tools}>
         <Field
           label="חיפוש"

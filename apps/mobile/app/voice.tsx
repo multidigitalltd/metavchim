@@ -18,7 +18,7 @@ import {
   transcribeRecording,
   useVoiceRecorder,
 } from "@/lib/recorder";
-import { Button, Card, Chips, Field, ProposalCard, Text } from "@/components";
+import { Button, Card, Chips, Field, ProposalCard, Text, TopBar } from "@/components";
 import { colors, radius, space, TOUCH } from "@/theme";
 
 type Suggestion = { actionId: string; title: string; example: string };
@@ -204,11 +204,7 @@ export default function VoiceScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={["top", "left", "right"]}>
-      <View style={styles.header}>
-        <Text variant="heading" accessibilityRole="header">
-          הסוכן האישי
-        </Text>
-      </View>
+      <TopBar title="הסוכן הקולי" root />
 
       <ScrollView ref={scroll} contentContainerStyle={styles.thread} keyboardShouldPersistTaps="handled">
         {unavailable ? (

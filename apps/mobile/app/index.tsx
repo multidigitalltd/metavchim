@@ -6,5 +6,5 @@ import { Loading } from "@/components";
 export default function Index() {
   const { user } = useAuth();
   if (user === undefined) return <Loading />;
-  return <Redirect href={user === null ? "/login" : "/(tabs)/today"} />;
+  return <Redirect href={user === null ? "/login" : "/today"} />;
 }

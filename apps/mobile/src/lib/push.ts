@@ -1,3 +1,4 @@
+import { routeFor } from "./nav";
 import { Platform } from "react-native";
 import * as Device from "expo-device";
 import * as Notifications from "expo-notifications";
@@ -131,7 +132,7 @@ export async function unregisterDevicePush(): Promise<void> {
  * ‏הנתיב, והשאר נוחתים ברשימת ההתראות — לעולם לא על מסך שאינו קיים.
  */
 export function routeForPushUrl(url: unknown): string {
-  if (typeof url !== "string") return "/notifications";
-  const match = /^\/(leads|properties|buyers)\/([A-Za-z0-9]{26})$/u.exec(url);
-  return match ? url : "/notifications";
+  if (typeof url !== "string" || !url.startsWith("/")) return "/notifications";
+  // ‏מסך נייטיבי כשיש, ואחרת אותו מסך של ה-web מוטמע — אין „אין מסך כזה”
+  return routeFor(url);
 }

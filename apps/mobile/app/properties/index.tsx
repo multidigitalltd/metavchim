@@ -67,7 +67,7 @@ export default function PropertiesScreen() {
   }, [query.data, filter, search]);
 
   return (
-    <Screen title="נכסים" scroll={false}>
+    <Screen title="נכסים" root scroll={false}>
       <View style={styles.tools}>
         <Field
           label="חיפוש"

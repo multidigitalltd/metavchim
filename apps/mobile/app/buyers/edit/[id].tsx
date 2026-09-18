@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { KeyboardAvoidingView, Platform, StyleSheet, View } from "react-native";
-import { Stack, useLocalSearchParams, useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import {
   DEAL_TYPE_LABELS,
   FINANCING_LABELS,
@@ -142,8 +142,7 @@ export default function EditBuyerScreen() {
   if (loaded === null) return <Loading />;
 
   return (
-    <Screen>
-      <Stack.Screen options={{ title: `עריכה — ${loaded.contact.name}` }} />
+    <Screen title={`עריכה — ${loaded.contact.name}`}>
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined}>
         <Card>
           <Text variant="title">מה מחפשים</Text>

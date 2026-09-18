@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { KeyboardAvoidingView, Platform, StyleSheet } from "react-native";
-import { Stack, useRouter } from "expo-router";
+import { useRouter } from "expo-router";
 import {
   LEAD_INTENT_LABELS,
   LEAD_SOURCE_LABELS,
@@ -69,8 +69,8 @@ export default function NewLeadScreen() {
   }
 
   return (
-    <Screen>
-      <Stack.Screen options={{ title: "ליד חדש" }} />
+    <Screen title="ליד חדש">
+      
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined}>
         <Card>
           <Field

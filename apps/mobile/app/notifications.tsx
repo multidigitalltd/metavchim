@@ -1,30 +1,30 @@
 import { useMemo } from "react";
 import { Alert, StyleSheet } from "react-native";
 import { useRouter } from "expo-router";
+import { notificationHref, type Capability } from "@metavchim/shared";
 import { apiGet, apiList, apiPatch, errorMessage } from "@/lib/api";
+import { can as canDo, useAuth } from "@/lib/auth";
+import { routeFor } from "@/lib/nav";
 import type { NotificationRow } from "@/lib/dtos";
 import { formatWhen } from "@/lib/format";
 import { useQuery } from "@/lib/use-query";
 import { Button, CacheNotice, EmptyState, ErrorState, Loading, Row, Screen, Text } from "@/components";
 import { colors } from "@/theme";
 
-/** ‏לאן מובילה התראה — רק לישויות שיש להן מסך באפליקציה. */
-function targetOf(n: NotificationRow): string | null {
-  if (!n.entityType || !n.entityId) return null;
-  switch (n.entityType) {
-    case "lead":
-      return `/leads/${n.entityId}`;
-    case "property":
-      return `/properties/${n.entityId}`;
-    case "buyer":
-      return `/buyers/${n.entityId}`;
-    default:
-      return null;
-  }
+/**
+ * ‏לאן מובילה התראה — אותה מפה כמו הפעמון ומסך ההתראות ב-web
+ * ‏(`notificationHref` בחבילה המשותפת, עם היכולות של המשתמש), ומשם
+ * ‏למסך הנייטיבי כשיש או ל-web המוטמע. `null` = אין יעד ספציפי.
+ */
+function targetOf(n: NotificationRow, can: (c: Capability) => boolean): string | null {
+  const href = notificationHref(n.entityType, n.entityId, can);
+  return href === null ? null : routeFor(href);
 }
 
 export default function NotificationsScreen() {
   const router = useRouter();
+  const { user } = useAuth();
+  const can = (capability: Capability) => canDo(user, capability);
   const query = useQuery(
     () =>
       apiGet<{ items: NotificationRow[]; unreadCount: number }>("/notifications?limit=50").then(
@@ -44,7 +44,7 @@ export default function NotificationsScreen() {
         () => undefined,
       );
     }
-    const target = targetOf(n);
+    const target = targetOf(n, can);
     if (target !== null) router.push(target);
   }
 
