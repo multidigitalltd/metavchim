@@ -73,8 +73,8 @@ const DAY_FMT = new Intl.DateTimeFormat("he-IL", {
  * ‏היומן — אותם נתונים כמו `/calendar` ב-web (שבועיים אחורה, שלושה
  * ‏קדימה, בשעון ישראל), מסודרים לטלפון: רשימה לפי ימים ולא רשת
  * ‏שבועית, השבוע / השבוע הבא, ו„לתיעוד” — סיורים שהתקיימו וטרם
- * ‏נרשמה תוצאה. סימון „התקיימה” וביטול כאן; דחייה, עריכה ותיעוד
- * ‏תוצאה — במסך הפגישה של המערכת.
+ * ‏נרשמה תוצאה. סימון „התקיימה” וביטול כאן; דחייה ותיעוד תוצאה —
+ * ‏במסך הפגישה (נייטיבי); עריכת הכותרת והעלאת הקלטה — במערכת.
  */
 export default function CalendarScreen() {
   const styles = useStyles();
@@ -175,7 +175,7 @@ export default function CalendarScreen() {
         <Button
           title="+ פגישה"
           kind="secondary"
-          onPress={() => router.push("/web/calendar/new")}
+          onPress={() => router.push("/calendar/new")}
         />
       }
     >
@@ -244,7 +244,7 @@ export default function CalendarScreen() {
               <Row
                 title={a.title ?? KIND_LABELS[a.kind] ?? a.kind}
                 subtitle={subtitle}
-                onPress={() => router.push(`/web/calendar/${a.id}`)}
+                onPress={() => router.push(`/calendar/${a.id}`)}
                 trailing={
                   <Pill tone={KIND_TONE[a.kind] ?? "neutral"}>
                     {KIND_LABELS[a.kind] ?? a.kind}
@@ -259,7 +259,7 @@ export default function CalendarScreen() {
                         title="תיעוד התוצאה"
                         kind="secondary"
                         small
-                        onPress={() => router.push(`/web/calendar/${a.id}`)}
+                        onPress={() => router.push(`/calendar/${a.id}`)}
                       />
                     ) : null}
                     <Button

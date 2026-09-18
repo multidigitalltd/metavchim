@@ -64,8 +64,8 @@
 | נכסים · נכס | `/properties`, `/properties/:id`, `:id/matches` | פרטים, מה חסר למוכנות, בעל הנכס, לקוחות מתאימים |
 | לקוחות · לקוח | `/buyers`, `/buyers/:id`, `:id/matches` | דרישות, מימון, נכסים מתאימים |
 | משימות · משימה חדשה | `/tasks?status&assignee`, `PATCH :id`, `POST /tasks` | הדליים של `groupTasksByBucket` (shared), שלי / כל המשרד, „בוצע”; מועד מהיר (`quickDueOptions`, שעון ישראל), עדיפות, קישור לישות |
-| יומן | `/appointments?from&to`, `PATCH :id` | אותו טווח כמו ה-web (שבועיים אחורה, שלושה קדימה, שעון ישראל), לפי ימים עם התאריך העברי, „לתיעוד”; „התקיימה”, ביטול; השאר במסך הפגישה המוטמע |
-| התאמות | `/matches?minScore&propertyId`, `PATCH :id/dismiss`, `POST /offers`, `POST /offers/:id/whatsapp` | אותו קיבוץ כמו ה-web, סף, „לא רלוונטי” עם סיבה (`DISMISS_REASONS`), הצעה בוואטסאפ |
+| יומן · פגישה חדשה · פגישה | `/appointments?from&to`, `POST /appointments`, `/appointments/:id`, `PATCH :id`, `POST :id/reschedule` | אותו טווח כמו ה-web (שבועיים אחורה, שלושה קדימה, שעון ישראל), לפי ימים עם התאריך העברי, „לתיעוד”; פגישה חדשה בלי בורר תאריכים (`WhenPicker`: ימים ושעות בשעון ישראל, `resolveJerusalemWall`), הודעת וואטסאפ ללקוח מוכנה; תיעוד תוצאה + משוב למוכר (`VIEWING_*_FEEDBACK`), דחייה, ביטול; הקלטה ועריכה — במערכת |
+| התאמות | `/matches?minScore&propertyId`, `PATCH :id/dismiss`, `POST /offers`, `POST /offers/:id/whatsapp`, `POST /offers/:id/email` | אותו קיבוץ כמו ה-web, סף, „לא רלוונטי” עם סיבה (`DISMISS_REASONS`), הצעה בוואטסאפ או במייל |
 | התראות · Push | `/notifications`, `PATCH :id/read`, `POST /notifications/push/device` | רשימה, ניווט לישות; **פוש נייטיב** דרך Expo Push, מאותה סריקה ואותו מטען מצונזר כמו הדפדפן |
 
 - **Push נייטיב** ✅ — טבלת `device_push_tokens` (RLS), רישום אידמפוטנטי לפי טוקן, שליחה

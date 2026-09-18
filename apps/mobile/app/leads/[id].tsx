@@ -1,12 +1,21 @@
 import { useMemo, useState } from "react";
 import { Alert, StyleSheet, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { LEAD_STATUS_LABELS, leadWaiting, type LeadStatus } from "@metavchim/shared";
+import {
+  LEAD_STATUS_LABELS,
+  leadWaiting,
+  type LeadStatus,
+} from "@metavchim/shared";
 import { apiGet, apiPatch, apiPost, errorMessage } from "@/lib/api";
 import { can, useAuth } from "@/lib/auth";
 import type { LeadDetail, TimelineItem } from "@/lib/dtos";
 import { formatWhen } from "@/lib/format";
-import { leadIntentLabel, leadSourceLabel, leadStatusLabel, leadStatusTone } from "@/lib/labels";
+import {
+  leadIntentLabel,
+  leadSourceLabel,
+  leadStatusLabel,
+  leadStatusTone,
+} from "@/lib/labels";
 import { useQuery } from "@/lib/use-query";
 import {
   Button,
@@ -24,10 +33,12 @@ import {
 } from "@/components";
 import { space } from "@/theme";
 
-const STATUS_OPTIONS = (Object.keys(LEAD_STATUS_LABELS) as LeadStatus[]).map((key) => ({
-  key,
-  label: LEAD_STATUS_LABELS[key],
-}));
+const STATUS_OPTIONS = (Object.keys(LEAD_STATUS_LABELS) as LeadStatus[]).map(
+  (key) => ({
+    key,
+    label: LEAD_STATUS_LABELS[key],
+  }),
+);
 
 const KIND_LABELS: Record<string, string> = {
   note: "הערה",
@@ -49,7 +60,8 @@ export default function LeadScreen() {
   const canEdit = can(user, "leads.edit");
   const canTasks = can(user, "calendar.manage");
   const query = useQuery(
-    () => apiGet<{ lead: LeadDetail; timeline: TimelineItem[] }>(`/leads/${id}`),
+    () =>
+      apiGet<{ lead: LeadDetail; timeline: TimelineItem[] }>(`/leads/${id}`),
     [id],
     { cacheKey: `lead:${id}` },
   );
@@ -88,19 +100,30 @@ export default function LeadScreen() {
 
   if (query.loading && query.data === null) return <Loading />;
   if (query.data === null) {
-    return <ErrorState message={query.error ?? "הליד לא נטען"} onRetry={query.reload} />;
+    return (
+      <ErrorState
+        message={query.error ?? "הליד לא נטען"}
+        onRetry={query.reload}
+      />
+    );
   }
 
   const { lead, timeline } = query.data;
   const waiting = leadWaiting(lead.createdAt, lead.status, now);
 
   return (
-    <Screen title={lead.contact.name} refreshing={query.refreshing} onRefresh={() => void query.refresh()}>
+    <Screen
+      title={lead.contact.name}
+      refreshing={query.refreshing}
+      onRefresh={() => void query.refresh()}
+    >
       <CacheNotice query={query} />
       <Card>
         <View style={styles.headRow}>
           <Text variant="heading">{lead.contact.name}</Text>
-          <Pill tone={lead.requiresHuman ? "danger" : leadStatusTone(lead.status)}>
+          <Pill
+            tone={lead.requiresHuman ? "danger" : leadStatusTone(lead.status)}
+          >
             {lead.requiresHuman ? "דורש טיפול" : leadStatusLabel(lead.status)}
           </Pill>
         </View>
@@ -124,7 +147,27 @@ export default function LeadScreen() {
             onPress={() =>
               router.push({
                 pathname: "/tasks/new",
-                params: { entityType: "lead", entityId: lead.id, label: lead.contact.name },
+                params: {
+                  entityType: "lead",
+                  entityId: lead.id,
+                  label: lead.contact.name,
+                },
+              })
+            }
+          />
+        ) : null}
+        {canTasks ? (
+          <Button
+            title="קביעת פגישה"
+            kind="ghost"
+            onPress={() =>
+              router.push({
+                pathname: "/calendar/new",
+                params: {
+                  leadId: lead.id,
+                  label: lead.contact.name,
+                  phone: lead.contact.phone,
+                },
               })
             }
           />

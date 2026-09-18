@@ -277,13 +277,8 @@ export default function TodayScreen() {
                   key={appt.id}
                   title={appt.title ?? KIND_LABELS[appt.kind] ?? appt.kind}
                   subtitle={formatWhen(appt.startsAt, now)}
-                  onPress={
-                    appt.leadId
-                      ? () => router.push(`/leads/${appt.leadId}`)
-                      : appt.propertyId
-                        ? () => router.push(`/properties/${appt.propertyId}`)
-                        : undefined
-                  }
+                  onPress={() => router.push(`/calendar/${appt.id}`)}
+                  chevron
                   trailing={
                     <Pill tone="primary">
                       {KIND_LABELS[appt.kind] ?? appt.kind}
