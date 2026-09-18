@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { KeyboardAvoidingView, Platform, StyleSheet, View } from "react-native";
+import { KeyboardAvoidingView, Platform, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import {
   DEAL_TYPE_LABELS,
@@ -11,9 +11,24 @@ import {
 } from "@metavchim/shared";
 import { apiGet, apiPatch, errorMessage } from "@/lib/api";
 import type { BuyerDetail } from "@/lib/dtos";
-import { agorotToShekelsInput, numberInput, shekelsInputToAgorot } from "@/lib/format";
-import { Button, Card, Chips, ErrorState, Field, Loading, MultiChips, Screen, Text } from "@/components";
-import { colors, space } from "@/theme";
+import {
+  agorotToShekelsInput,
+  numberInput,
+  shekelsInputToAgorot,
+} from "@/lib/format";
+import {
+  Button,
+  Card,
+  Chips,
+  ErrorState,
+  Field,
+  Loading,
+  MultiChips,
+  Screen,
+  Text,
+} from "@/components";
+import { space } from "@/theme";
+import { makeStyles } from "@/lib/theme";
 
 type Level = "must" | "nice" | "none";
 const LEVELS: { key: Level; label: string }[] = [
@@ -29,10 +44,20 @@ const BUILTIN_FEATURES: [string, string][] = [
   ["hasSafeRoom", "ממ״ד"],
   ["hasStorage", "מחסן"],
 ];
-const DEALS = Object.entries(DEAL_TYPE_LABELS).map(([key, label]) => ({ key, label }));
-const TYPES = Object.entries(PROPERTY_TYPE_LABELS).map(([key, label]) => ({ key, label }));
-const FINANCING = (Object.keys(FINANCING_LABELS) as FinancingStatus[]).map((key) => ({ key, label: FINANCING_LABELS[key] }));
-const MATURITY = (Object.keys(MATURITY_LABELS) as BuyerMaturity[]).map((key) => ({ key, label: MATURITY_LABELS[key] }));
+const DEALS = Object.entries(DEAL_TYPE_LABELS).map(([key, label]) => ({
+  key,
+  label,
+}));
+const TYPES = Object.entries(PROPERTY_TYPE_LABELS).map(([key, label]) => ({
+  key,
+  label,
+}));
+const FINANCING = (Object.keys(FINANCING_LABELS) as FinancingStatus[]).map(
+  (key) => ({ key, label: FINANCING_LABELS[key] }),
+);
+const MATURITY = (Object.keys(MATURITY_LABELS) as BuyerMaturity[]).map(
+  (key) => ({ key, label: MATURITY_LABELS[key] }),
+);
 const ENTRY = [
   { key: "none", label: "לא צוין" },
   { key: "immediate", label: "מיידי" },
@@ -41,7 +66,10 @@ const ENTRY = [
 ];
 
 const splitList = (text: string): string[] =>
-  text.split(",").map((s) => s.trim()).filter(Boolean);
+  text
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
 
 /**
  * ‏עריכת קונה — אותו `PATCH /buyers/:id` כמו ב-web: הדרישות נשלחות
@@ -49,6 +77,7 @@ const splitList = (text: string): string[] =>
  * ‏והעדפת הקומה — שאין להם עריכה כאן — נשארים כפי שהם.
  */
 export default function EditBuyerScreen() {
+  const styles = useStyles();
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const [loaded, setLoaded] = useState<BuyerDetail | null>(null);
@@ -84,10 +113,13 @@ export default function EditBuyerScreen() {
         setFinancing((b.financing as FinancingStatus) ?? "unknown");
         setMaturity(b.maturity as BuyerMaturity);
       })
-      .catch((err: unknown) => setLoadError(errorMessage(err, "הלקוח לא נטען")));
+      .catch((err: unknown) =>
+        setLoadError(errorMessage(err, "הלקוח לא נטען")),
+      );
   }, [id]);
 
-  const set = (key: string) => (value: string) => setForm((f) => ({ ...f, [key]: value }));
+  const set = (key: string) => (value: string) =>
+    setForm((f) => ({ ...f, [key]: value }));
   const featureKeys = [
     ...BUILTIN_FEATURES,
     ...Object.keys(features)
@@ -122,7 +154,8 @@ export default function EditBuyerScreen() {
       flexibilityNotes: text("flexibilityNotes"),
       features: cleanFeatures,
     };
-    for (const key of Object.keys(requirements)) if (requirements[key] === undefined) delete requirements[key];
+    for (const key of Object.keys(requirements))
+      if (requirements[key] === undefined) delete requirements[key];
     try {
       await apiPatch(`/buyers/${id}`, {
         requirements,
@@ -138,31 +171,79 @@ export default function EditBuyerScreen() {
     }
   }
 
-  if (loadError) return <ErrorState message={loadError} onRetry={() => router.back()} />;
+  if (loadError)
+    return <ErrorState message={loadError} onRetry={() => router.back()} />;
   if (loaded === null) return <Loading />;
 
   return (
     <Screen title={`עריכה — ${loaded.contact.name}`}>
-      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+      >
         <Card>
           <Text variant="title">מה מחפשים</Text>
           <Text variant="label">עסקה</Text>
-          <Chips options={DEALS} value={form["dealType"] ?? "sale"} onChange={set("dealType")} />
-          <Field label="ערים (מופרדות בפסיק)" value={form["cities"] ?? ""} onChangeText={set("cities")} />
-          <Field label="שכונות (מופרדות בפסיק)" value={form["neighborhoods"] ?? ""} onChangeText={set("neighborhoods")} />
+          <Chips
+            options={DEALS}
+            value={form["dealType"] ?? "sale"}
+            onChange={set("dealType")}
+          />
+          <Field
+            label="ערים (מופרדות בפסיק)"
+            value={form["cities"] ?? ""}
+            onChangeText={set("cities")}
+          />
+          <Field
+            label="שכונות (מופרדות בפסיק)"
+            value={form["neighborhoods"] ?? ""}
+            onChangeText={set("neighborhoods")}
+          />
           <Text variant="label">סוגי נכס</Text>
           <MultiChips options={TYPES} value={types} onChange={setTypes} />
           <View style={styles.row}>
-            <Field grow label="תקציב מ-(₪)" value={form["budgetMin"] ?? ""} onChangeText={set("budgetMin")} keyboardType="number-pad" />
-            <Field grow label="עד (₪)" value={form["budgetMax"] ?? ""} onChangeText={set("budgetMax")} keyboardType="number-pad" />
+            <Field
+              grow
+              label="תקציב מ-(₪)"
+              value={form["budgetMin"] ?? ""}
+              onChangeText={set("budgetMin")}
+              keyboardType="number-pad"
+            />
+            <Field
+              grow
+              label="עד (₪)"
+              value={form["budgetMax"] ?? ""}
+              onChangeText={set("budgetMax")}
+              keyboardType="number-pad"
+            />
           </View>
           <View style={styles.row}>
-            <Field grow label="חדרים מ-" value={form["roomsMin"] ?? ""} onChangeText={set("roomsMin")} keyboardType="decimal-pad" />
-            <Field grow label="עד" value={form["roomsMax"] ?? ""} onChangeText={set("roomsMax")} keyboardType="decimal-pad" />
+            <Field
+              grow
+              label="חדרים מ-"
+              value={form["roomsMin"] ?? ""}
+              onChangeText={set("roomsMin")}
+              keyboardType="decimal-pad"
+            />
+            <Field
+              grow
+              label="עד"
+              value={form["roomsMax"] ?? ""}
+              onChangeText={set("roomsMax")}
+              keyboardType="decimal-pad"
+            />
           </View>
-          <Field label="שטח מינימלי (מ״ר)" value={form["areaSqmMin"] ?? ""} onChangeText={set("areaSqmMin")} keyboardType="number-pad" />
+          <Field
+            label="שטח מינימלי (מ״ר)"
+            value={form["areaSqmMin"] ?? ""}
+            onChangeText={set("areaSqmMin")}
+            keyboardType="number-pad"
+          />
           <Text variant="label">כניסה</Text>
-          <Chips options={ENTRY} value={form["entryType"] ?? "none"} onChange={set("entryType")} />
+          <Chips
+            options={ENTRY}
+            value={form["entryType"] ?? "none"}
+            onChange={set("entryType")}
+          />
         </Card>
 
         <Card style={styles.card}>
@@ -170,31 +251,67 @@ export default function EditBuyerScreen() {
           {featureKeys.map(([key, label]) => (
             <View key={key}>
               <Text variant="label">{label}</Text>
-              <Chips options={LEVELS} value={features[key] ?? "none"} onChange={(v) => setFeatures((f) => ({ ...f, [key]: v }))} />
+              <Chips
+                options={LEVELS}
+                value={features[key] ?? "none"}
+                onChange={(v) => setFeatures((f) => ({ ...f, [key]: v }))}
+              />
             </View>
           ))}
-          <Field label="גמישות והערות לדרישות" value={form["flexibilityNotes"] ?? ""} onChangeText={set("flexibilityNotes")} multiline numberOfLines={3} maxLength={1000} style={styles.multiline} />
+          <Field
+            label="גמישות והערות לדרישות"
+            value={form["flexibilityNotes"] ?? ""}
+            onChangeText={set("flexibilityNotes")}
+            multiline
+            numberOfLines={3}
+            maxLength={1000}
+            style={styles.multiline}
+          />
         </Card>
 
         <Card style={styles.card}>
           <Text variant="title">הלקוח</Text>
           <Text variant="label">מימון</Text>
-          <Chips options={FINANCING} value={financing} onChange={setFinancing} />
+          <Chips
+            options={FINANCING}
+            value={financing}
+            onChange={setFinancing}
+          />
           <Text variant="label">בשלות</Text>
           <Chips options={MATURITY} value={maturity} onChange={setMaturity} />
-          <Field label="הערות הסוכן" value={form["agentNotes"] ?? ""} onChangeText={set("agentNotes")} multiline numberOfLines={3} maxLength={4000} style={styles.multiline} />
+          <Field
+            label="הערות הסוכן"
+            value={form["agentNotes"] ?? ""}
+            onChangeText={set("agentNotes")}
+            multiline
+            numberOfLines={3}
+            maxLength={4000}
+            style={styles.multiline}
+          />
         </Card>
 
         {error ? <Text style={styles.error}>{error}</Text> : null}
-        <Button title="שמירת השינויים" onPress={() => void save()} busy={busy} style={styles.card} />
+        <Button
+          title="שמירת השינויים"
+          onPress={() => void save()}
+          busy={busy}
+          style={styles.card}
+        />
       </KeyboardAvoidingView>
     </Screen>
   );
 }
 
-const styles = StyleSheet.create({
-  card: { marginTop: space.md },
-  row: { flexDirection: "row", gap: space.sm },
-  multiline: { minHeight: 88, textAlignVertical: "top", paddingTop: space.md },
-  error: { color: colors.danger, marginTop: space.md },
+const useStyles = makeStyles((t) => {
+  const c = t.colors;
+  return {
+    card: { marginTop: space.md },
+    row: { flexDirection: "row", gap: space.sm },
+    multiline: {
+      minHeight: 88,
+      textAlignVertical: "top",
+      paddingTop: space.md,
+    },
+    error: { color: c.danger, marginTop: space.md },
+  };
 });

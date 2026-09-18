@@ -1,10 +1,17 @@
 import type { PropsWithChildren, ReactNode } from "react";
-import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, View } from "react-native";
+import {
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  ScrollView,
+  View,
+} from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { chrome, colors, space, type } from "@/theme";
+import { chrome, space, type } from "@/theme";
 import { Logo } from "./Logo";
 import { Text } from "./Text";
+import { makeStyles } from "@/lib/theme";
 
 /**
  * ‏המעטפת של מסכי הכניסה — `AuthShell` של ה-web: לוח המותג הירוק עם
@@ -26,19 +33,37 @@ export function AuthShell({
   onBrandLongPress?: () => void;
   foot?: ReactNode;
 }>) {
+  const styles = useStyles();
   return (
     <SafeAreaView style={styles.safe} edges={["top", "left", "right"]}>
-      <KeyboardAvoidingView style={styles.fill} behavior={Platform.OS === "ios" ? "padding" : undefined}>
-        <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
-          <LinearGradient colors={[...chrome.authGradient]} start={{ x: 0, y: 0 }} end={{ x: 0.6, y: 1 }} style={styles.brand}>
-            <Pressable onLongPress={onBrandLongPress} delayLongPress={1500} accessibilityRole="header" style={styles.logo}>
+      <KeyboardAvoidingView
+        style={styles.fill}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+      >
+        <ScrollView
+          contentContainerStyle={styles.scroll}
+          keyboardShouldPersistTaps="handled"
+        >
+          <LinearGradient
+            colors={[...chrome.authGradient]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 0.6, y: 1 }}
+            style={styles.brand}
+          >
+            <Pressable
+              onLongPress={onBrandLongPress}
+              delayLongPress={1500}
+              accessibilityRole="header"
+              style={styles.logo}
+            >
               <Logo size={26} wordmark={21} />
             </Pressable>
             <Text style={styles.h1} weight={900}>
               המתווך סוגר עסקאות. המערכת מטפלת בכל השאר.
             </Text>
             <Text style={styles.lead}>
-              מערכת ניהול למשרדי תיווך בישראל — נכסים, קונים, התאמות והצעות במקום אחד.
+              מערכת ניהול למשרדי תיווך בישראל — נכסים, קונים, התאמות והצעות
+              במקום אחד.
             </Text>
             <View style={styles.points}>
               {points.map((point) => (
@@ -71,20 +96,32 @@ const DEFAULT_POINTS = [
   "רשת שיתופי פעולה בין משרדים — ביקושים והפניות לקוחות",
 ] as const;
 
-const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: colors.bg },
-  fill: { flex: 1 },
-  scroll: { flexGrow: 1 },
-  brand: { paddingHorizontal: 26, paddingVertical: 28, gap: 14 },
-  logo: { alignSelf: "flex-start" },
-  h1: { color: "#ffffff", fontSize: 30, lineHeight: 35, letterSpacing: -0.6 },
-  lead: { color: "rgba(255, 255, 255, 0.88)", fontSize: type.body, lineHeight: 25 },
-  points: { gap: 9, marginTop: 6 },
-  point: { flexDirection: "row", alignItems: "flex-start", gap: 9 },
-  check: { color: colors.action, fontSize: type.captionLg, lineHeight: 21 },
-  pointText: { flex: 1, color: "rgba(255, 255, 255, 0.92)", fontSize: type.captionLg, lineHeight: 21 },
-  panel: { paddingHorizontal: 20, paddingTop: 26, paddingBottom: 40, gap: 6 },
-  title: { fontSize: 23, lineHeight: 30, marginBottom: 4 },
-  sub: { color: colors.textMuted, fontSize: type.captionLg, marginBottom: 14 },
-  foot: { marginTop: space.lg, alignItems: "center" },
+const useStyles = makeStyles((t) => {
+  const c = t.colors;
+  return {
+    safe: { flex: 1, backgroundColor: c.bg },
+    fill: { flex: 1 },
+    scroll: { flexGrow: 1 },
+    brand: { paddingHorizontal: 26, paddingVertical: 28, gap: 14 },
+    logo: { alignSelf: "flex-start" },
+    h1: { color: "#ffffff", fontSize: 30, lineHeight: 35, letterSpacing: -0.6 },
+    lead: {
+      color: "rgba(255, 255, 255, 0.88)",
+      fontSize: type.body,
+      lineHeight: 25,
+    },
+    points: { gap: 9, marginTop: 6 },
+    point: { flexDirection: "row", alignItems: "flex-start", gap: 9 },
+    check: { color: c.action, fontSize: type.captionLg, lineHeight: 21 },
+    pointText: {
+      flex: 1,
+      color: "rgba(255, 255, 255, 0.92)",
+      fontSize: type.captionLg,
+      lineHeight: 21,
+    },
+    panel: { paddingHorizontal: 20, paddingTop: 26, paddingBottom: 40, gap: 6 },
+    title: { fontSize: 23, lineHeight: 30, marginBottom: 4 },
+    sub: { color: c.textMuted, fontSize: type.captionLg, marginBottom: 14 },
+    foot: { marginTop: space.lg, alignItems: "center" },
+  };
 });

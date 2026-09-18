@@ -1,10 +1,11 @@
 import { useState } from "react";
-import { StyleSheet, View } from "react-native";
+import { View } from "react-native";
 import { useRouter } from "expo-router";
 import { apiPost, errorMessage } from "@/lib/api";
 import { AuthShell } from "@/components/AuthShell";
 import { Button, Field, Text } from "@/components";
-import { colors, space } from "@/theme";
+import { space } from "@/theme";
+import { makeStyles } from "@/lib/theme";
 
 /**
  * ‏„שכחתי סיסמה” — אותו נתיב ואותה התנהגות כמו ב-web: התשובה זהה
@@ -13,6 +14,7 @@ import { colors, space } from "@/theme";
  * ‏מתחברים כאן איתה.
  */
 export default function ForgotPasswordScreen() {
+  const styles = useStyles();
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [sent, setSent] = useState(false);
@@ -41,17 +43,25 @@ export default function ForgotPasswordScreen() {
     <AuthShell
       title="איפוס סיסמה"
       subtitle="נשלח לך קישור לאיפוס הסיסמה במייל."
-      points={["הקישור תקף ל-30 דקות", "נשלח רק לכתובת שרשומה במערכת", "אף אחד אחר לא מקבל התראה"]}
+      points={[
+        "הקישור תקף ל-30 דקות",
+        "נשלח רק לכתובת שרשומה במערכת",
+        "אף אחד אחר לא מקבל התראה",
+      ]}
     >
       {sent ? (
         <View style={styles.stack}>
           <View style={styles.notice} accessibilityRole="alert">
             <Text>
-              אם הכתובת רשומה במערכת — נשלח אליה קישור לאיפוס הסיסמה. הקישור תקף ל-30 דקות. בדקו
-              גם בתיקיית הספאם.
+              אם הכתובת רשומה במערכת — נשלח אליה קישור לאיפוס הסיסמה. הקישור תקף
+              ל-30 דקות. בדקו גם בתיקיית הספאם.
             </Text>
           </View>
-          <Button title="חזרה להתחברות" kind="ghost" onPress={() => router.replace("/login")} />
+          <Button
+            title="חזרה להתחברות"
+            kind="ghost"
+            onPress={() => router.replace("/login")}
+          />
         </View>
       ) : (
         <View style={styles.stack}>
@@ -67,21 +77,32 @@ export default function ForgotPasswordScreen() {
             onSubmitEditing={() => void submit()}
             error={error}
           />
-          <Button title="שלח קישור לאיפוס" onPress={() => void submit()} busy={busy} />
-          <Button title="חזרה להתחברות" kind="text" onPress={() => router.back()} />
+          <Button
+            title="שלח קישור לאיפוס"
+            onPress={() => void submit()}
+            busy={busy}
+          />
+          <Button
+            title="חזרה להתחברות"
+            kind="text"
+            onPress={() => router.back()}
+          />
         </View>
       )}
     </AuthShell>
   );
 }
 
-const styles = StyleSheet.create({
-  stack: { gap: 14 },
-  notice: {
-    borderWidth: 1,
-    borderColor: colors.success,
-    backgroundColor: colors.surface,
-    borderRadius: 10,
-    padding: space.md,
-  },
+const useStyles = makeStyles((t) => {
+  const c = t.colors;
+  return {
+    stack: { gap: 14 },
+    notice: {
+      borderWidth: 1,
+      borderColor: c.success,
+      backgroundColor: c.surface,
+      borderRadius: 10,
+      padding: space.md,
+    },
+  };
 });

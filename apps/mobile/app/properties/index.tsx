@@ -1,11 +1,15 @@
 import { useMemo, useState } from "react";
-import { FlatList, StyleSheet, View } from "react-native";
+import { FlatList, View } from "react-native";
 import { useRouter } from "expo-router";
 import { propertyAddressOr } from "@metavchim/shared";
 import { apiGet, apiList } from "@/lib/api";
 import type { PropertyRow } from "@/lib/dtos";
 import { formatPrice, roomsLabel } from "@/lib/format";
-import { propertyStatusLabel, propertyStatusTone, propertyTypeLabel } from "@/lib/labels";
+import {
+  propertyStatusLabel,
+  propertyStatusTone,
+  propertyTypeLabel,
+} from "@/lib/labels";
 import { useQuery } from "@/lib/use-query";
 import {
   CacheNotice,
@@ -19,7 +23,8 @@ import {
   Screen,
   Text,
 } from "@/components";
-import { colors, space } from "@/theme";
+import { space } from "@/theme";
+import { makeStyles } from "@/lib/theme";
 
 type Filter = "active" | "draft" | "on_hold" | "closed" | "all";
 
@@ -44,6 +49,7 @@ function matches(filter: Filter, status: string): boolean {
 
 /** ‏מסך הנכסים — כתובת, סוג, חדרים ומחיר; המוכנות כאחוז. */
 export default function PropertiesScreen() {
+  const styles = useStyles();
   const router = useRouter();
   const [filter, setFilter] = useState<Filter>("active");
   const [search, setSearch] = useState("");
@@ -62,7 +68,9 @@ export default function PropertiesScreen() {
       (p) =>
         matches(filter, p.status) &&
         (needle === "" ||
-          [p.city, p.neighborhood, p.street].some((part) => part?.includes(needle) ?? false)),
+          [p.city, p.neighborhood, p.street].some(
+            (part) => part?.includes(needle) ?? false,
+          )),
     );
   }, [query.data, filter, search]);
 
@@ -93,10 +101,18 @@ export default function PropertiesScreen() {
           ListEmptyComponent={<EmptyState title="אין נכסים בסינון הזה" />}
           renderItem={({ item: p }) => {
             const address = propertyAddressOr(
-              { street: p.street, houseNumber: p.houseNumber, neighborhood: p.neighborhood },
+              {
+                street: p.street,
+                houseNumber: p.houseNumber,
+                neighborhood: p.neighborhood,
+              },
               p.city ?? "ללא כתובת",
             );
-            const details = [propertyTypeLabel(p.propertyType), roomsLabel(p.rooms), p.city]
+            const details = [
+              propertyTypeLabel(p.propertyType),
+              roomsLabel(p.rooms),
+              p.city,
+            ]
               .filter(Boolean)
               .join(" · ");
             return (
@@ -117,7 +133,8 @@ export default function PropertiesScreen() {
               >
                 {p.readinessScore < 100 ? (
                   <Text variant="small">
-                    מוכנות {p.readinessScore}% · חסרים {p.missingFields.length} פרטים
+                    מוכנות {p.readinessScore}% · חסרים {p.missingFields.length}{" "}
+                    פרטים
                   </Text>
                 ) : null}
               </Row>
@@ -129,8 +146,15 @@ export default function PropertiesScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  tools: { paddingHorizontal: space.lg, gap: space.sm, backgroundColor: colors.bg },
-  list: { padding: space.lg, gap: space.sm, paddingBottom: space.xl * 2 },
-  price: { fontWeight: "700" },
+const useStyles = makeStyles((t) => {
+  const c = t.colors;
+  return {
+    tools: {
+      paddingHorizontal: space.lg,
+      gap: space.sm,
+      backgroundColor: c.bg,
+    },
+    list: { padding: space.lg, gap: space.sm, paddingBottom: space.xl * 2 },
+    price: { fontWeight: "700" },
+  };
 });

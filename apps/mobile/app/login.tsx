@@ -1,14 +1,21 @@
 import { useEffect, useState } from "react";
-import { StyleSheet, View } from "react-native";
+import { View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { googleLoginErrorText } from "@metavchim/shared";
-import { apiConfigured, apiOrigin, isValidApiOrigin, setApiOrigin, BUILT_IN_API_ORIGIN } from "@/lib/config";
+import {
+  apiConfigured,
+  apiOrigin,
+  isValidApiOrigin,
+  setApiOrigin,
+  BUILT_IN_API_ORIGIN,
+} from "@/lib/config";
 import { useAuth } from "@/lib/auth";
 import { apiGet, errorMessage } from "@/lib/api";
 import { openGoogleSignIn } from "@/lib/google-login";
 import { AuthShell } from "@/components/AuthShell";
 import { Button, Card, Field, Text } from "@/components";
-import { colors, space } from "@/theme";
+import { space } from "@/theme";
+import { makeStyles } from "@/lib/theme";
 
 /**
  * ‏מסך ההתחברות — כמו `/login` ב-web: לוח המותג, ומתחתיו אימייל
@@ -20,6 +27,7 @@ import { colors, space } from "@/theme";
  * ‏מול שרת אחר — נפתחות בלחיצה ארוכה על הלוגו, ואינן חלק מהמסך.
  */
 export default function LoginScreen() {
+  const styles = useStyles();
   const { login, verifyOtp, loginWithGoogle } = useAuth();
   const router = useRouter();
   const { googleError } = useLocalSearchParams<{ googleError?: string }>();
@@ -106,7 +114,8 @@ export default function LoginScreen() {
     try {
       const outcome = await openGoogleSignIn();
       if (outcome.kind === "code") await loginWithGoogle(outcome.code);
-      else if (outcome.kind === "error") setError(googleLoginErrorText(outcome.error));
+      else if (outcome.kind === "error")
+        setError(googleLoginErrorText(outcome.error));
     } catch (err: unknown) {
       setError(errorMessage(err, googleLoginErrorText("failed")));
     } finally {
@@ -118,7 +127,9 @@ export default function LoginScreen() {
     <AuthShell
       title={otpToken === null ? "התחברות" : "קוד אימות"}
       subtitle={
-        otpToken === null ? "נכנסים עם החשבון שמנהל המשרד פתח לך." : `שלחנו קוד בן 6 ספרות לכתובת ${email.trim()}.`
+        otpToken === null
+          ? "נכנסים עם החשבון שמנהל המשרד פתח לך."
+          : `שלחנו קוד בן 6 ספרות לכתובת ${email.trim()}.`
       }
       onBrandLongPress={() => setAdvanced((v) => !v)}
     >
@@ -145,7 +156,12 @@ export default function LoginScreen() {
             onSubmitEditing={() => void submit()}
             error={error}
           />
-          <Button title="התחברות" onPress={() => void submit()} busy={busy} disabled={googleBusy} />
+          <Button
+            title="התחברות"
+            onPress={() => void submit()}
+            busy={busy}
+            disabled={googleBusy}
+          />
           {googleEnabled ? (
             <Button
               title="התחברות עם Google"
@@ -156,7 +172,11 @@ export default function LoginScreen() {
               accessibilityHint="נפתח דפדפן לבחירת חשבון Google"
             />
           ) : null}
-          <Button title="שכחתי סיסמה" kind="text" onPress={() => router.push("/forgot-password")} />
+          <Button
+            title="שכחתי סיסמה"
+            kind="text"
+            onPress={() => router.push("/forgot-password")}
+          />
         </View>
       ) : (
         <View style={styles.stack}>
@@ -188,7 +208,8 @@ export default function LoginScreen() {
         <Card style={styles.advanced}>
           <Text variant="label">הגדרות מתקדמות</Text>
           <Text variant="small">
-            השרת שהאפליקציה מדברת איתו — לבדיקות בלבד. ריק = הכתובת הצרובה בבנייה
+            השרת שהאפליקציה מדברת איתו — לבדיקות בלבד. ריק = הכתובת הצרובה
+            בבנייה
             {BUILT_IN_API_ORIGIN ? " (קיימת)" : " (חסרה)"}.
           </Text>
           <Field
@@ -201,14 +222,22 @@ export default function LoginScreen() {
             placeholder="https://…"
             error={serverNote}
           />
-          <Button title="שמירה" kind="ghost" small onPress={() => void saveServer()} />
+          <Button
+            title="שמירה"
+            kind="ghost"
+            small
+            onPress={() => void saveServer()}
+          />
         </Card>
       ) : null}
     </AuthShell>
   );
 }
 
-const styles = StyleSheet.create({
-  stack: { gap: 14 },
-  advanced: { marginTop: space.xl, borderColor: colors.warning },
+const useStyles = makeStyles((t) => {
+  const c = t.colors;
+  return {
+    stack: { gap: 14 },
+    advanced: { marginTop: space.xl, borderColor: c.warning },
+  };
 });

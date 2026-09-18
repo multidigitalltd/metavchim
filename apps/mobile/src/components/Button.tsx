@@ -1,7 +1,15 @@
 import type { ReactNode } from "react";
-import { ActivityIndicator, Pressable, StyleSheet, View, type StyleProp, type ViewStyle } from "react-native";
+import {
+  ActivityIndicator,
+  Pressable,
+  StyleSheet,
+  View,
+  type StyleProp,
+  type ViewStyle,
+} from "react-native";
 import { family } from "@/lib/fonts";
-import { colors, CONTROL_H, radius, space, type } from "@/theme";
+import { CONTROL_H, radius, space, type, type Palette } from "@/theme";
+import { useColors } from "@/lib/theme";
 import { Text } from "./Text";
 
 /**
@@ -27,13 +35,17 @@ interface ButtonProps {
   small?: boolean;
 }
 
-const KIND: Record<Kind, { bg: string; fg: string; border: string }> = {
-  primary: { bg: colors.action, fg: colors.onAction, border: colors.action },
-  secondary: { bg: colors.primarySoft, fg: colors.primary, border: colors.primary },
-  ghost: { bg: colors.surface, fg: colors.textSoft, border: colors.inputBorder },
-  danger: { bg: colors.surface, fg: colors.danger, border: colors.danger },
-  text: { bg: "transparent", fg: colors.primary, border: "transparent" },
-};
+function kinds(
+  c: Palette,
+): Record<Kind, { bg: string; fg: string; border: string }> {
+  return {
+    primary: { bg: c.action, fg: c.onAction, border: c.action },
+    secondary: { bg: c.primarySoft, fg: c.primary, border: c.primary },
+    ghost: { bg: c.surface, fg: c.textSoft, border: c.inputBorder },
+    danger: { bg: c.surface, fg: c.danger, border: c.danger },
+    text: { bg: "transparent", fg: c.primary, border: "transparent" },
+  };
+}
 
 /** ‏כפתור — 42pt (`--control-h`), מצב טעינה, וניגודיות מהערכה. */
 export function Button({
@@ -47,7 +59,7 @@ export function Button({
   icon,
   small = false,
 }: ButtonProps) {
-  const palette = KIND[kind];
+  const palette = kinds(useColors())[kind];
   const inactive = disabled || busy;
   return (
     <Pressable
@@ -71,7 +83,11 @@ export function Button({
         <View style={styles.inner}>
           {icon}
           <Text
-            style={[styles.label, small && styles.smallLabel, { color: palette.fg, fontFamily: family(700) }]}
+            style={[
+              styles.label,
+              small && styles.smallLabel,
+              { color: palette.fg, fontFamily: family(700) },
+            ]}
           >
             {title}
           </Text>

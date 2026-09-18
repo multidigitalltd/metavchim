@@ -9,6 +9,7 @@
  * ‏הצבע הישן — ואיש אינו רואה, כי זה מסך אחר.
  *
  * ‏השער קורא את הערכה הבהירה מה-CSS (ההגדרה הראשונה של כל משתנה)
+ * ‏ואת הכהה (המיפוי ב-`:root[data-theme="dark"]` אל `--dk-*`/`--dm-*`),
  * ‏ומשווה לכל טוקן בנייד לפי המיפוי שלמטה. טוקן שאין לו מקור ב-CSS
  * ‏הוא גם כשל: צבע שהומצא בנייד אינו חלק מהמערכת.
  */
@@ -51,14 +52,45 @@ const MAP = {
 const theme = readFileSync(themePath, "utf8");
 const css = readFileSync(cssPath, "utf8");
 
-const colorsBlock = theme.slice(theme.indexOf("export const colors"), theme.indexOf("} as const;"));
-const mobile = Object.fromEntries(
-  [...colorsBlock.matchAll(/^\s*(\w+):\s*"(#[0-9a-fA-F]{6})"/gmu)].map((m) => [m[1], m[2].toLowerCase()]),
-);
+/** ‏הטוקנים של בלוק אחד ב-`theme.ts` — מהכותרת ועד הסוגר הראשון שאחריה. */
+function tokensOf(header) {
+  const start = theme.indexOf(header);
+  if (start < 0) return {};
+  const end = /^\}( as const)?;/mu.exec(theme.slice(start));
+  const block = theme.slice(start, end ? start + end.index : undefined);
+  return Object.fromEntries(
+    [...block.matchAll(/^\s*(\w+):\s*"(#[0-9a-fA-F]{6})"/gmu)].map((m) => [
+      m[1],
+      m[2].toLowerCase(),
+    ]),
+  );
+}
+const mobile = tokensOf("export const colors");
+const mobileDark = tokensOf("export const darkColors");
+
+/**
+ * ‏הערכה הכהה: `:root[data-theme="dark"]` ממפה כל `--color-*` ל-`var(--dk-*)`
+ * ‏(או `--dm-*`), והערך עצמו יושב בהגדרה של המשתנה הכהה.
+ */
+const darkBlockStart = css.indexOf(':root[data-theme="dark"]');
+const darkBlock =
+  darkBlockStart < 0
+    ? ""
+    : css.slice(darkBlockStart, css.indexOf("\n}", darkBlockStart));
+function cssDarkValue(name) {
+  const alias = new RegExp(
+    String.raw`^\s*${name}:\s*var\((--[\w-]+)\)`,
+    "mu",
+  ).exec(darkBlock);
+  return alias ? cssValue(alias[1]) : null;
+}
 
 /** ‏הערכה הבהירה: ההגדרה הראשונה עם ערך hex — ההגדרות הכהות מפנות ל-`var(--dk-…)`. */
 function cssValue(name) {
-  const match = new RegExp(String.raw`^\s*${name}:\s*(#[0-9a-fA-F]{6})\b`, "mu").exec(css);
+  const match = new RegExp(
+    String.raw`^\s*${name}:\s*(#[0-9a-fA-F]{6})\b`,
+    "mu",
+  ).exec(css);
   return match ? match[1].toLowerCase() : null;
 }
 
@@ -67,11 +99,25 @@ for (const [token, variable] of Object.entries(MAP)) {
   const ours = mobile[token];
   const theirs = cssValue(variable);
   if (ours === undefined) problems.push(`חסר בנייד: ${token}`);
-  else if (theirs === null) problems.push(`אין מקור ב-CSS: ${variable} (${token})`);
-  else if (ours !== theirs) problems.push(`${token}: הנייד ${ours}, ה-CSS ${variable} ${theirs}`);
+  else if (theirs === null)
+    problems.push(`אין מקור ב-CSS: ${variable} (${token})`);
+  else if (ours !== theirs)
+    problems.push(`${token}: הנייד ${ours}, ה-CSS ${variable} ${theirs}`);
 }
 for (const token of Object.keys(mobile)) {
   if (!(token in MAP)) problems.push(`טוקן בלי מקור במיפוי: ${token}`);
+}
+for (const [token, variable] of Object.entries(MAP)) {
+  const ours = mobileDark[token];
+  const theirs = cssDarkValue(variable);
+  if (ours === undefined) problems.push(`חסר בערכה הכהה בנייד: ${token}`);
+  else if (theirs === null)
+    problems.push(`אין מקור כהה ב-CSS: ${variable} (${token})`);
+  else if (ours !== theirs)
+    problems.push(`כהה ${token}: הנייד ${ours}, ה-CSS ${variable} ${theirs}`);
+}
+for (const token of Object.keys(mobileDark)) {
+  if (!(token in MAP)) problems.push(`טוקן כהה בלי מקור במיפוי: ${token}`);
 }
 
 if (problems.length > 0) {
@@ -81,4 +127,6 @@ if (problems.length > 0) {
   process.exit(1);
 }
 
-console.log(`✓ ${Object.keys(MAP).length} טוקני עיצוב בנייד תואמים ל-globals.css`);
+console.log(
+  `✓ ${Object.keys(MAP).length} טוקני עיצוב בנייד תואמים ל-globals.css — בערכה הבהירה ובכהה`,
+);

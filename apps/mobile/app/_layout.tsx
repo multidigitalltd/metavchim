@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { I18nManager, StyleSheet } from "react-native";
+import { I18nManager } from "react-native";
 import { Stack, useRouter, useSegments } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useFonts } from "expo-font";
@@ -11,7 +11,8 @@ import { FONT_ASSETS } from "@/lib/fonts";
 import { routeForPushUrl } from "@/lib/push";
 import { ShellProvider } from "@/lib/shell";
 import { Drawer, ErrorState } from "@/components";
-import { colors } from "@/theme";
+
+import { makeStyles, ThemeProvider, useColors, useTheme } from "@/lib/theme";
 
 /*
  * ‏עברית היא השפה היחידה של המערכת, ולכן הפריסה ימין-לשמאל תמיד —
@@ -37,11 +38,15 @@ void SplashScreen.preventAutoHideAsync();
  * ‏המוטמע, כמו ב-web: כל מסך אחר היה מחזיר 402.
  */
 function Gate({ fontsReady }: { fontsReady: boolean }) {
+  const styles = useStyles();
+  const c = useColors();
   const { user, offline, refresh } = useAuth();
   const segments = useSegments();
   const router = useRouter();
   const inAuth =
-    segments[0] === "login" || segments[0] === "auth" || segments[0] === "forgot-password";
+    segments[0] === "login" ||
+    segments[0] === "auth" ||
+    segments[0] === "forgot-password";
   const inChangePassword = segments[0] === "change-password";
   const path = (segments as readonly string[]).join("/");
   const inBilling = path.startsWith("web/settings/billing");
@@ -77,7 +82,9 @@ function Gate({ fontsReady }: { fontsReady: boolean }) {
     const id = response.notification.request.identifier;
     if (handled.current === id) return;
     handled.current = id;
-    router.push(routeForPushUrl(response.notification.request.content.data?.["url"]));
+    router.push(
+      routeForPushUrl(response.notification.request.content.data?.["url"]),
+    );
   }, [response, user, router]);
 
   if (!fontsReady) return null;
@@ -86,7 +93,10 @@ function Gate({ fontsReady }: { fontsReady: boolean }) {
   if (user === undefined && offline) {
     return (
       <SafeAreaView style={styles.offline}>
-        <ErrorState message="אין חיבור לשרת — בדקו את הרשת" onRetry={() => void refresh()} />
+        <ErrorState
+          message="אין חיבור לשרת — בדקו את הרשת"
+          onRetry={() => void refresh()}
+        />
       </SafeAreaView>
     );
   }
@@ -97,10 +107,21 @@ function Gate({ fontsReady }: { fontsReady: boolean }) {
    */
   return (
     <>
-      <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.bg } }} />
+      <Stack
+        screenOptions={{
+          headerShown: false,
+          contentStyle: { backgroundColor: c.bg },
+        }}
+      />
       <Drawer />
     </>
   );
+}
+
+/** ‏שורת המצב לפי הערכה — טקסט כהה על הבהירה, בהיר על הכהה. */
+function ThemedStatusBar() {
+  const { scheme } = useTheme();
+  return <StatusBar style={scheme === "dark" ? "light" : "dark"} />;
 }
 
 export default function RootLayout() {
@@ -109,16 +130,21 @@ export default function RootLayout() {
   const fontsReady = fontsLoaded || fontsError !== null;
   return (
     <SafeAreaProvider>
-      <AuthProvider>
-        <ShellProvider>
-          <StatusBar style="dark" />
-          <Gate fontsReady={fontsReady} />
-        </ShellProvider>
-      </AuthProvider>
+      <ThemeProvider>
+        <AuthProvider>
+          <ShellProvider>
+            <ThemedStatusBar />
+            <Gate fontsReady={fontsReady} />
+          </ShellProvider>
+        </AuthProvider>
+      </ThemeProvider>
     </SafeAreaProvider>
   );
 }
 
-const styles = StyleSheet.create({
-  offline: { flex: 1, backgroundColor: colors.bg, justifyContent: "center" },
+const useStyles = makeStyles((t) => {
+  const c = t.colors;
+  return {
+    offline: { flex: 1, backgroundColor: c.bg, justifyContent: "center" },
+  };
 });

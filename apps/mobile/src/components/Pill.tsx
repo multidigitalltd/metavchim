@@ -1,20 +1,29 @@
 import { StyleSheet, View } from "react-native";
-import { colors, radius, space, type } from "@/theme";
+import { radius, space, type, type Palette } from "@/theme";
+import { useColors } from "@/lib/theme";
 import { Text } from "./Text";
 
 export type Tone = "neutral" | "success" | "amber" | "danger" | "primary";
 
-const TONES: Record<Tone, { fg: string; bg: string }> = {
-  neutral: { fg: colors.chipNeutralFg, bg: colors.chipNeutralBg },
-  success: { fg: colors.success, bg: colors.successSoft },
-  amber: { fg: colors.amberFg, bg: colors.warningBg },
-  danger: { fg: colors.danger, bg: colors.dangerSoft },
-  primary: { fg: colors.primary, bg: colors.primarySoft },
-};
+function tones(c: Palette): Record<Tone, { fg: string; bg: string }> {
+  return {
+    neutral: { fg: c.chipNeutralFg, bg: c.chipNeutralBg },
+    success: { fg: c.success, bg: c.successSoft },
+    amber: { fg: c.amberFg, bg: c.warningBg },
+    danger: { fg: c.danger, bg: c.dangerSoft },
+    primary: { fg: c.primary, bg: c.primarySoft },
+  };
+}
 
 /** ‏גלולת סטטוס — אותה משפחת צבעים כמו `.mv-chip-*` ב-web: 14/700, פינות 99. */
-export function Pill({ tone = "neutral", children }: { tone?: Tone; children: string }) {
-  const { fg, bg } = TONES[tone];
+export function Pill({
+  tone = "neutral",
+  children,
+}: {
+  tone?: Tone;
+  children: string;
+}) {
+  const { fg, bg } = tones(useColors())[tone];
   return (
     <View style={[styles.pill, { backgroundColor: bg }]}>
       <Text style={[styles.text, { color: fg }]} weight={700}>

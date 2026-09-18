@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { Alert, StyleSheet } from "react-native";
+import { Alert } from "react-native";
 import { useRouter } from "expo-router";
 import { notificationHref, type Capability } from "@metavchim/shared";
 import { apiGet, apiList, apiPatch, errorMessage } from "@/lib/api";
@@ -8,28 +8,44 @@ import { routeFor } from "@/lib/nav";
 import type { NotificationRow } from "@/lib/dtos";
 import { formatWhen } from "@/lib/format";
 import { useQuery } from "@/lib/use-query";
-import { Button, CacheNotice, EmptyState, ErrorState, Loading, Row, Screen, Text } from "@/components";
-import { colors } from "@/theme";
+import {
+  Button,
+  CacheNotice,
+  EmptyState,
+  ErrorState,
+  Loading,
+  Row,
+  Screen,
+  Text,
+} from "@/components";
+import { makeStyles } from "@/lib/theme";
 
 /**
  * ‏לאן מובילה התראה — אותה מפה כמו הפעמון ומסך ההתראות ב-web
  * ‏(`notificationHref` בחבילה המשותפת, עם היכולות של המשתמש), ומשם
  * ‏למסך הנייטיבי כשיש או ל-web המוטמע. `null` = אין יעד ספציפי.
  */
-function targetOf(n: NotificationRow, can: (c: Capability) => boolean): string | null {
+function targetOf(
+  n: NotificationRow,
+  can: (c: Capability) => boolean,
+): string | null {
   const href = notificationHref(n.entityType, n.entityId, can);
   return href === null ? null : routeFor(href);
 }
 
 export default function NotificationsScreen() {
+  const styles = useStyles();
   const router = useRouter();
   const { user } = useAuth();
   const can = (capability: Capability) => canDo(user, capability);
   const query = useQuery(
     () =>
-      apiGet<{ items: NotificationRow[]; unreadCount: number }>("/notifications?limit=50").then(
-        (r) => ({ items: apiList(r.items, "items"), unreadCount: r.unreadCount }),
-      ),
+      apiGet<{ items: NotificationRow[]; unreadCount: number }>(
+        "/notifications?limit=50",
+      ).then((r) => ({
+        items: apiList(r.items, "items"),
+        unreadCount: r.unreadCount,
+      })),
     [],
     { cacheKey: "notifications" },
   );
@@ -63,7 +79,11 @@ export default function NotificationsScreen() {
       onRefresh={() => void query.refresh()}
       trailing={
         query.data && query.data.unreadCount > 0 ? (
-          <Button title="סמן הכול כנקרא" kind="ghost" onPress={() => void readAll()} />
+          <Button
+            title="סמן הכול כנקרא"
+            kind="ghost"
+            onPress={() => void readAll()}
+          />
         ) : undefined
       }
       title="התראות"
@@ -93,6 +113,9 @@ export default function NotificationsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  unread: { color: colors.primary, fontWeight: "700" },
+const useStyles = makeStyles((t) => {
+  const c = t.colors;
+  return {
+    unread: { color: c.primary, fontWeight: "700" },
+  };
 });

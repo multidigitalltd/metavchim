@@ -1,6 +1,7 @@
-import { Pressable, ScrollView, StyleSheet } from "react-native";
-import { colors, radius, type } from "@/theme";
+import { Pressable, ScrollView } from "react-native";
+import { radius, type } from "@/theme";
 import { Text } from "./Text";
+import { makeStyles } from "@/lib/theme";
 
 export interface ChipOption<K extends string> {
   key: K;
@@ -21,6 +22,7 @@ export function Chips<K extends string>({
   value: K;
   onChange: (key: K) => void;
 }) {
+  const styles = useStyles();
   return (
     <ScrollView
       horizontal
@@ -38,8 +40,13 @@ export function Chips<K extends string>({
             onPress={() => onChange(option.key)}
             style={[styles.chip, active && styles.active]}
           >
-            <Text style={[styles.label, active && styles.activeLabel]} weight={700}>
-              {option.count === undefined ? option.label : `${option.label} · ${option.count}`}
+            <Text
+              style={[styles.label, active && styles.activeLabel]}
+              weight={700}
+            >
+              {option.count === undefined
+                ? option.label
+                : `${option.label} · ${option.count}`}
             </Text>
           </Pressable>
         );
@@ -48,18 +55,21 @@ export function Chips<K extends string>({
   );
 }
 
-const styles = StyleSheet.create({
-  strip: { gap: 8, paddingVertical: 4 },
-  chip: {
-    minHeight: 36,
-    justifyContent: "center",
-    paddingHorizontal: 14,
-    borderRadius: radius.pill,
-    borderWidth: 1,
-    borderColor: colors.inputBorder,
-    backgroundColor: colors.surface,
-  },
-  active: { backgroundColor: colors.primary, borderColor: colors.primary },
-  label: { fontSize: type.caption, color: colors.textSoft, lineHeight: 18 },
-  activeLabel: { color: colors.surface },
+const useStyles = makeStyles((t) => {
+  const c = t.colors;
+  return {
+    strip: { gap: 8, paddingVertical: 4 },
+    chip: {
+      minHeight: 36,
+      justifyContent: "center",
+      paddingHorizontal: 14,
+      borderRadius: radius.pill,
+      borderWidth: 1,
+      borderColor: c.inputBorder,
+      backgroundColor: c.surface,
+    },
+    active: { backgroundColor: c.primary, borderColor: c.primary },
+    label: { fontSize: type.caption, color: c.textSoft, lineHeight: 18 },
+    activeLabel: { color: c.surface },
+  };
 });

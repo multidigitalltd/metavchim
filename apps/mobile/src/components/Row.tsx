@@ -1,8 +1,9 @@
 import type { PropsWithChildren, ReactNode } from "react";
-import { Pressable, StyleSheet, View } from "react-native";
+import { Pressable, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { chrome, colors, radius, space, type } from "@/theme";
+import { radius, space, type } from "@/theme";
 import { Text } from "./Text";
+import { makeStyles, useColors } from "@/lib/theme";
 
 interface RowProps {
   title: string;
@@ -34,12 +35,16 @@ export function Row({
   chevron = false,
   children,
 }: PropsWithChildren<RowProps>) {
+  const styles = useStyles();
+  const c = useColors();
   return (
     <Pressable
       onPress={onPress}
       disabled={onPress === undefined}
       accessibilityRole={onPress ? "button" : undefined}
-      accessibilityLabel={accessibilityLabel ?? `${title}${subtitle ? `, ${subtitle}` : ""}`}
+      accessibilityLabel={
+        accessibilityLabel ?? `${title}${subtitle ? `, ${subtitle}` : ""}`
+      }
       style={({ pressed }) => [
         styles.row,
         tone === "new" && styles.new,
@@ -60,36 +65,42 @@ export function Row({
         {children}
       </View>
       {trailing ? <View style={styles.trailing}>{trailing}</View> : null}
-      {chevron ? <Ionicons name="chevron-back" size={18} color={colors.textMuted} /> : null}
+      {chevron ? (
+        <Ionicons name="chevron-back" size={18} color={c.textMuted} />
+      ) : null}
     </Pressable>
   );
 }
 
-const styles = StyleSheet.create({
-  row: {
-    minHeight: 66,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 15,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.rowBorder,
-    borderRadius: radius.row,
-    paddingHorizontal: space.lg,
-    paddingVertical: 13,
-  },
-  new: { backgroundColor: chrome.rowNewBg },
-  highlight: { backgroundColor: chrome.rowHighlightBg },
-  pressed: { backgroundColor: colors.surfaceSunken },
-  leading: {
-    width: 40,
-    height: 40,
-    borderRadius: radius.md,
-    backgroundColor: colors.primarySoft,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  main: { flex: 1, gap: 2 },
-  title: { fontSize: type.rowTitle, letterSpacing: -0.26 },
-  trailing: { alignItems: "flex-end", gap: space.xs },
+const useStyles = makeStyles((t) => {
+  const c = t.colors;
+  const ch = t.chrome;
+  return {
+    row: {
+      minHeight: 66,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 15,
+      backgroundColor: c.surface,
+      borderWidth: 1,
+      borderColor: c.rowBorder,
+      borderRadius: radius.row,
+      paddingHorizontal: space.lg,
+      paddingVertical: 13,
+    },
+    new: { backgroundColor: ch.rowNewBg },
+    highlight: { backgroundColor: ch.rowHighlightBg },
+    pressed: { backgroundColor: c.surfaceSunken },
+    leading: {
+      width: 40,
+      height: 40,
+      borderRadius: radius.md,
+      backgroundColor: c.primarySoft,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    main: { flex: 1, gap: 2 },
+    title: { fontSize: type.rowTitle, letterSpacing: -0.26 },
+    trailing: { alignItems: "flex-end", gap: space.xs },
+  };
 });

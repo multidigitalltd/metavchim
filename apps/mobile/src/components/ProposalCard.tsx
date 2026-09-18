@@ -1,14 +1,19 @@
 import { useMemo, useState } from "react";
-import { StyleSheet, View } from "react-native";
-import { agentResultRefs, agentTurnRefs, type AgentHistoryRef } from "@metavchim/shared";
+import { View } from "react-native";
+import {
+  agentResultRefs,
+  agentTurnRefs,
+  type AgentHistoryRef,
+} from "@metavchim/shared";
 import { ApiError, apiPost } from "@/lib/api";
 import type { ExecuteResult, Proposal } from "@/lib/agent";
-import { colors, space } from "@/theme";
+import { space } from "@/theme";
 import { Button } from "./Button";
 import { Card } from "./Card";
 import { Chips } from "./Chips";
 import { Pill } from "./Pill";
 import { Text } from "./Text";
+import { makeStyles } from "@/lib/theme";
 
 /** מה נדרש כדי לאשר, לפי כמה הפעולה יקרה אם היא שגויה. */
 const CONFIRM_LABEL: Record<Proposal["risk"], string> = {
@@ -37,9 +42,14 @@ export function ProposalCard({
 }: {
   proposal: Proposal;
   transcript: string;
-  onDone: (result: ExecuteResult, params: Record<string, unknown>, refs: AgentHistoryRef[]) => void;
+  onDone: (
+    result: ExecuteResult,
+    params: Record<string, unknown>,
+    refs: AgentHistoryRef[],
+  ) => void;
   onCancel: () => void;
 }) {
+  const styles = useStyles();
   const [chosen, setChosen] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -48,12 +58,15 @@ export function ProposalCard({
     () =>
       (proposal.candidates?.options ?? []).map((option) => ({
         key: option.id,
-        label: option.detail ? `${option.label} · ${option.detail}` : option.label,
+        label: option.detail
+          ? `${option.label} · ${option.detail}`
+          : option.label,
       })),
     [proposal.candidates],
   );
   const needsChoice = proposal.candidates !== undefined;
-  const blocked = needsChoice && (chosen === null || candidateChips.length === 0);
+  const blocked =
+    needsChoice && (chosen === null || candidateChips.length === 0);
 
   function params(): Record<string, unknown> {
     const merged: Record<string, unknown> = {};
@@ -103,8 +116,13 @@ export function ProposalCard({
       }
       onDone(
         {
-          message: failure === null ? messages.join(" · ") : `${messages.join(" · ")} · ${failure}`,
-          ...(failure === null && primary.href !== undefined ? { href: primary.href } : {}),
+          message:
+            failure === null
+              ? messages.join(" · ")
+              : `${messages.join(" · ")} · ${failure}`,
+          ...(failure === null && primary.href !== undefined
+            ? { href: primary.href }
+            : {}),
           ...(link === undefined ? {} : { link }),
         },
         sent,
@@ -131,7 +149,9 @@ export function ProposalCard({
         <View key={field.key} style={styles.field}>
           <Text variant="label">{field.label}</Text>
           <Text>{field.display}</Text>
-          {field.evidence ? <Text variant="small">„{field.evidence}”</Text> : null}
+          {field.evidence ? (
+            <Text variant="small">„{field.evidence}”</Text>
+          ) : null}
         </View>
       ))}
 
@@ -150,7 +170,11 @@ export function ProposalCard({
         <View style={styles.field}>
           <Text variant="label">{proposal.candidates.label}</Text>
           {candidateChips.length > 0 ? (
-            <Chips options={candidateChips} value={chosen ?? ""} onChange={setChosen} />
+            <Chips
+              options={candidateChips}
+              value={chosen ?? ""}
+              onChange={setChosen}
+            />
           ) : (
             <Text variant="muted">
               {CANDIDATE_REASON[proposal.candidates.reason ?? "not_found"]}
@@ -159,7 +183,9 @@ export function ProposalCard({
         </View>
       ) : null}
 
-      {proposal.clarify ? <Text style={styles.warning}>{proposal.clarify}</Text> : null}
+      {proposal.clarify ? (
+        <Text style={styles.warning}>{proposal.clarify}</Text>
+      ) : null}
 
       {proposal.followUps && proposal.followUps.length > 0 ? (
         <View style={styles.field}>
@@ -190,12 +216,15 @@ export function ProposalCard({
   );
 }
 
-const styles = StyleSheet.create({
-  card: { borderColor: colors.primaryAccent },
-  head: { flexDirection: "row", alignItems: "center", gap: space.sm },
-  grow: { flex: 1 },
-  field: { gap: 2 },
-  warning: { color: colors.warning },
-  error: { color: colors.danger },
-  actions: { flexDirection: "row", gap: space.sm, marginTop: space.sm },
+const useStyles = makeStyles((t) => {
+  const c = t.colors;
+  return {
+    card: { borderColor: c.primaryAccent },
+    head: { flexDirection: "row", alignItems: "center", gap: space.sm },
+    grow: { flex: 1 },
+    field: { gap: 2 },
+    warning: { color: c.warning },
+    error: { color: c.danger },
+    actions: { flexDirection: "row", gap: space.sm, marginTop: space.sm },
+  };
 });
