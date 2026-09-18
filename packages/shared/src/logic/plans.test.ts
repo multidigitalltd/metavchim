@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   CUSTOM_PRICE_LABEL,
   DEFAULT_PLANS,
+  WHATSAPP_SEAT_MONTHLY_AGOROT,
   FREE_PRICE_LABEL,
   PLAN_FEATURES,
   PRICE_TERMS_NOTE,
@@ -22,6 +23,7 @@ import {
   yearlySavingPercent,
   type PlanDefinition,
 } from "./plans.js";
+import { whatsappSeatOffer } from "./whatsapp-agent.js";
 
 const basePlan = (over: Partial<PlanDefinition> = {}): PlanDefinition => ({
   code: "test",
@@ -509,5 +511,44 @@ describe("מחירים לפני מע\"מ", () => {
   it("הסייג שנשלח לאתר התדמית אומר את שני הדברים", () => {
     expect(PRICE_TERMS_NOTE).toContain("אינם כוללים מע\"מ");
     expect(PRICE_TERMS_NOTE).toContain("לשנה הראשונה");
+  });
+});
+
+/**
+ * ‎**המקום הנוסף בוואטסאפ נמכר — בכל המסלולים, ובמחיר אחד.**
+ *
+ * עד כה כל ארבעת המסלולים נשאו `null`, שפירושו „לא נמכר”. התוצאה
+ * הייתה יכולת שקיימת בקוד ואי אפשר לקנות אותה: כפתור „הוספת מקום”
+ * לא הופיע לאף משרד, והודעת החסימה הפנתה ל„פנו אלינו”.
+ *
+ * ‎`null` נבדק במפורש ולא רק „יש מספר”: הוא הערך שהיה כאן, והוא
+ * המצב שהבדיקה הזו קיימת כדי למנוע את חזרתו בשקט.
+ */
+describe("מחיר המקום הנוסף בוואטסאפ", () => {
+  it("כל מסלול נושא את המחיר, ואף אחד אינו `null`", () => {
+    expect(DEFAULT_PLANS).not.toHaveLength(0);
+    for (const plan of DEFAULT_PLANS) {
+      expect(plan.whatsappSeatMonthlyAgorot, plan.code).toBe(
+        WHATSAPP_SEAT_MONTHLY_AGOROT,
+      );
+    }
+  });
+
+  it("‏49 ₪ — באגורות, שלם וחיובי", () => {
+    expect(WHATSAPP_SEAT_MONTHLY_AGOROT).toBe(4_900);
+    expect(Number.isInteger(WHATSAPP_SEAT_MONTHLY_AGOROT)).toBe(true);
+  });
+
+  /*
+   * ‎**וההצעה אכן נפתחת.** המחיר לבדו אינו מספיק — `whatsappSeatOffer`
+   * דורשת גם שהסליקה זמינה, וזו הבדיקה שהשניים מתחברים.
+   */
+  it("עם סליקה זמינה — יש מה לקנות, ובלעדיה פנייה אנושית", () => {
+    expect(whatsappSeatOffer(WHATSAPP_SEAT_MONTHLY_AGOROT, true)).toEqual({
+      kind: "purchase",
+      monthlyAgorot: WHATSAPP_SEAT_MONTHLY_AGOROT,
+    });
+    /* ‏מחיר בלי סליקה אינו הצעה — המסך לא יציג כפתור שאין לאן ללחוץ בו */
+    expect(whatsappSeatOffer(WHATSAPP_SEAT_MONTHLY_AGOROT, false).kind).toBe("contact");
   });
 });

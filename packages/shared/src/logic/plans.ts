@@ -278,6 +278,21 @@ export function isFreePlan(
  * הטבלה היא מה שבעל הפלטפורמה קבע, וזו נקודת ההתחלה שממנה הוא
  * התחיל. משרד שנרשם לפני שהוגדר משהו עדיין צריך לעבוד.
  */
+/**
+ * ‎**המחיר למקום וואטסאפ נוסף — 49 ₪ לחודש, בכל המסלולים.**
+ *
+ * ‏עד כה כל ארבעת המסלולים נשאו `null`, שפירושו „לא נמכר”: כפתור
+ * ‏„הוספת מקום” לא הופיע לאף משרד, והודעת החסימה הפנתה ל„פנו
+ * ‏אלינו” — כלומר יכולת שקיימת בקוד ואי אפשר לקנות אותה.
+ *
+ * ‏קבוע אחד ולא ארבעה מספרים: מחיר שנכתב ארבע פעמים משתנה שלוש
+ * ‏פעמים ביום שבו מעדכנים אותו.
+ *
+ * ‏זו **ברירת מחדל**, לא תקרה: בעל הפלטפורמה משנה אותה לכל מסלול
+ * ‏בנפרד ב-`/platform` ← מסלולים, ומה שנשמר שם גובר.
+ */
+export const WHATSAPP_SEAT_MONTHLY_AGOROT = 4_900;
+
 export const DEFAULT_PLANS: readonly PlanDefinition[] = [
   {
     code: "basic",
@@ -288,7 +303,7 @@ export const DEFAULT_PLANS: readonly PlanDefinition[] = [
     maxUsers: 2,
     maxProperties: 60,
     maxAutomations: null,
-    whatsappSeatMonthlyAgorot: null,
+    whatsappSeatMonthlyAgorot: WHATSAPP_SEAT_MONTHLY_AGOROT,
     maxNetworkListings: null,
     maxNetworkDemands: null,
     features: ["whatsapp", "landing_pages", "voice_intake"],
@@ -306,7 +321,7 @@ export const DEFAULT_PLANS: readonly PlanDefinition[] = [
     maxUsers: 6,
     maxProperties: 300,
     maxAutomations: null,
-    whatsappSeatMonthlyAgorot: null,
+    whatsappSeatMonthlyAgorot: WHATSAPP_SEAT_MONTHLY_AGOROT,
     maxNetworkListings: null,
     maxNetworkDemands: null,
     features: [
@@ -331,7 +346,7 @@ export const DEFAULT_PLANS: readonly PlanDefinition[] = [
     maxUsers: 20,
     maxProperties: null,
     maxAutomations: null,
-    whatsappSeatMonthlyAgorot: null,
+    whatsappSeatMonthlyAgorot: WHATSAPP_SEAT_MONTHLY_AGOROT,
     maxNetworkListings: null,
     maxNetworkDemands: null,
     features: [
@@ -359,7 +374,7 @@ export const DEFAULT_PLANS: readonly PlanDefinition[] = [
     maxUsers: null,
     maxProperties: null,
     maxAutomations: null,
-    whatsappSeatMonthlyAgorot: null,
+    whatsappSeatMonthlyAgorot: WHATSAPP_SEAT_MONTHLY_AGOROT,
     maxNetworkListings: null,
     maxNetworkDemands: null,
     features: PLAN_FEATURES.map((f) => f.code),
