@@ -1,6 +1,5 @@
 import { buyerSourceLabel, normalizePhoneForWhatsapp,
   JERUSALEM_TZ,
-  type PropertyStatus,
   type PropertyType,
 } from "@metavchim/shared";
 
@@ -199,14 +198,8 @@ export function propertyTypeGroups(): PropertyTypeGroup[] {
 }
 
 
-export const STATUS_LABELS: Record<PropertyStatus, string> = {
-  draft: "טיוטה",
-  active: "פעיל",
-  on_hold: "בהמתנה",
-  sold: "נמכר",
-  rented: "הושכר",
-  archived: "בארכיון",
-};
+/* ‏הרשימה עצמה ב-shared — האפליקציה לנייד מציגה את אותן תוויות. */
+export { PROPERTY_STATUS_LABELS as STATUS_LABELS } from "@metavchim/shared";
 
 /* התוויות יושבות ליד הסכימה — ראו `lead-labels.ts` לאותו נימוק. */
 export { FINANCING_LABELS } from "@metavchim/shared";

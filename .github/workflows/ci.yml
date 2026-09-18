@@ -105,6 +105,13 @@ jobs:
       - name: Colour contrast floor
         run: pnpm --filter @metavchim/web verify:contrast
 
+      # ‏טוקני העיצוב של הנייד הם עותק של globals.css — React Native
+      # אינו קורא CSS. עותק נפרד בשקט: תיקון ניגודיות ב-web (וזה קרה
+      # שלוש פעמים) לא היה מגיע לנייד, ואיש לא היה רואה, כי זה מסך
+      # אחר. השער משווה כל טוקן למקור, ונכשל גם על צבע שהומצא בנייד.
+      - name: Mobile theme tokens match the CSS
+        run: pnpm --filter @metavchim/mobile verify:theme
+
       # רמז הגלילה בסרגל הלשוניות. הסרגל נגלל לרוחב ופס הגלילה מוסתר
       # בכוונה, והצירוף הזה הפך לשונית שנקטעת על קצה המסך לתוכן
       # שנראה חתוך — בלי שום סימן שאפשר להגיע אליו. שלושת חלקי

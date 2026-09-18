@@ -50,6 +50,27 @@ describe("סינון הלידים הפתוחים של הסוכן", () => {
     expect(schema.slice(0, schema.indexOf(".strict()"))).toMatch(/\bopen: z\b/u);
   });
 
+  /*
+   * ‎**תור המענה של הנייד — הוותיק ראשון, במסד.**
+   *
+   * מסך „היום” מבקש את הלידים הפתוחים שממתינים הכי הרבה זמן. „החדש
+   * ראשון” ואז סינון על העמוד היה משמיט בדיוק את הוותיקים — אלה
+   * שכבר חרגו מה-KPI (ביקורת Codex). הסדר ההפוך חייב להפוך גם את
+   * כיוון הסמן, אחרת העמוד השני חוזר על הראשון.
+   */
+  it("„הוותיק ראשון” הופך את הסדר ואת כיוון הסמן יחד", () => {
+    const list = LEADS.slice(LEADS.indexOf("async list("));
+    expect(list).toMatch(/orderBy: \{ id: oldestFirst \? "asc" : "desc" \}/u);
+    expect(list).toMatch(
+      /id: oldestFirst \? \{ gt: query\.cursor \} : \{ lt: query\.cursor \}/u,
+    );
+    const CONTROLLER = read(new URL("./leads.controller.ts", import.meta.url));
+    const schema = CONTROLLER.slice(CONTROLLER.indexOf("const ListQuerySchema"));
+    expect(schema.slice(0, schema.indexOf(".strict()"))).toMatch(
+      /order: z\.enum\(\["newest", "oldest"\]\)\.default\("newest"\)/u,
+    );
+  });
+
   it("הסוכן מבקש פתוחים כברירת מחדל, וסטטוס מפורש מצמצם", () => {
     expect(EXECUTE).toMatch(
       /status === undefined \? \{ open: true \} : \{ status \}/u,

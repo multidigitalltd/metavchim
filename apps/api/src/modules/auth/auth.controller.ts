@@ -21,6 +21,7 @@ import { afterLoginTarget, IdSchema, safeLoginReturnPath } from "@metavchim/shar
 import { loadEnv } from "../../config/env";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { AnyAuthenticated, BillingAllowed, Public } from "../../common/auth.decorators";
+import { SESSION_COOKIE, sessionTokenOf } from "../../common/session-token";
 import { TenantContext } from "../../common/tenant-context";
 import {
   AuthService,
@@ -34,15 +35,30 @@ import { LoginOtpService } from "./login-otp.service";
 import { LoginThrottleService } from "./login-throttle.service";
 import { PasswordResetService } from "./password-reset.service";
 
-export const SESSION_COOKIE = "mv_session";
+/** ‏השם חי ב-`common/session-token.ts`; מיוצא מכאן לצרכנים הקיימים. */
+export { SESSION_COOKIE };
 /** state+nonce (ואם יש — יעד החזרה) של סבב ה-OAuth — קצר-חיים, נמחק מיד בסיום. */
 const OAUTH_COOKIE = "mv_oauth";
 const OAUTH_TTL_MS = 10 * 60 * 1000;
+
+/**
+ * ‏מי מתחבר — דפדפן או האפליקציה לנייד.
+ *
+ * ‏לדפדפן ה-Session נכנס לעוגיית `httpOnly` והגוף אינו נושא אותו.
+ * ‏לנייד אין צנצנת עוגיות שאפשר לסמוך עליה, ולכן הטוקן חוזר בגוף
+ * ‏התשובה והאפליקציה שומרת אותו ב-Keychain / Keystore ומצרפת אותו
+ * ‏בכותרת `Authorization` (ראו `common/session-token.ts`).
+ *
+ * ‏ההצהרה היא של הלקוח ולא ניחוש מ-User-Agent: מכשיר נייד שפותח את
+ * ‏אפליקציית הווב הוא עדיין דפדפן, ומגיע לו עוגייה.
+ */
+const ClientSchema = z.enum(["web", "mobile"]).default("web");
 
 const LoginSchema = z
   .object({
     email: z.string().email().max(254),
     password: z.string().min(8).max(200),
+    client: ClientSchema,
   })
   .strict();
 
@@ -81,8 +97,17 @@ const VerifyOtpSchema = z
   .object({
     otpToken: z.string().regex(/^[A-Za-z0-9_-]{32}$/u),
     code: z.string().regex(/^\d{6}$/u),
+    client: ClientSchema,
   })
   .strict();
+
+/**
+ * ‏תשובת התחברות. לנייד — גם ה-Session עצמו; לדפדפן הוא בעוגייה
+ * ‏ואינו מופיע כאן, כדי שסקריפט בדף לא יוכל לקרוא אותו.
+ */
+type LoginResult =
+  | { user: AuthenticatedUser }
+  | { user: AuthenticatedUser; session: { token: string; expiresAt: string } };
 
 const ForgotPasswordSchema = z.object({ email: z.string().email().max(254) }).strict();
 
@@ -276,7 +301,7 @@ export class AuthController {
     @Body() body: z.infer<typeof LoginSchema>,
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
-  ): Promise<{ user: AuthenticatedUser } | { otpRequired: true; otpToken: string }> {
+  ): Promise<LoginResult | { otpRequired: true; otpToken: string }> {
     // הזמנה אטומית לפני כל עבודת סיסמה — גם בקשות מקבילות לא עוקפות
     // את הסף (docs/04 §6; ביקורת Codex, PR #15).
     await this.throttle.reserveAttempt(body.email, req.ip);
@@ -305,6 +330,24 @@ export class AuthController {
       ip: req.ip,
       userAgent: req.headers["user-agent"],
     });
+    return this.deliverSession(res, body.client, user, token, expiresAt);
+  }
+
+  /**
+   * ‏מסירת ה-Session ללקוח לפי סוגו — עוגייה לדפדפן, גוף לנייד.
+   * ‏אף פעם לא שניהם: Session שנמצא גם בעוגייה וגם בידי סקריפט הוא
+   * ‏הגרוע שבשני העולמות.
+   */
+  private deliverSession(
+    res: Response,
+    client: z.infer<typeof ClientSchema>,
+    user: AuthenticatedUser,
+    token: string,
+    expiresAt: Date,
+  ): LoginResult {
+    if (client === "mobile") {
+      return { user, session: { token, expiresAt: expiresAt.toISOString() } };
+    }
     this.setSessionCookie(res, token, expiresAt);
     return { user };
   }
@@ -320,18 +363,17 @@ export class AuthController {
     @Body(new ZodValidationPipe(VerifyOtpSchema)) body: z.infer<typeof VerifyOtpSchema>,
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
-  ): Promise<{ user: AuthenticatedUser }> {
+  ): Promise<LoginResult> {
     if (!(await this.otp.isActive())) {
       throw new UnauthorizedException();
     }
     const userId = await this.otp.verify(body.otpToken, body.code);
     const user = await this.auth.getUserForSession(userId);
-    const { token, expiresAt } = await this.auth.issueSession(user, {
+    const { token, expiresAt, user: sessionUser } = await this.auth.issueSession(user, {
       ip: req.ip,
       userAgent: req.headers["user-agent"],
     });
-    this.setSessionCookie(res, token, expiresAt);
-    return { user };
+    return this.deliverSession(res, body.client, sessionUser, token, expiresAt);
   }
 
   /**
@@ -370,7 +412,7 @@ export class AuthController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<{ ok: true }> {
-    const token = (req.cookies as Record<string, string> | undefined)?.[SESSION_COOKIE];
+    const token = sessionTokenOf(req) ?? undefined;
     if (token) {
       await this.auth.logout(token);
     }
@@ -440,7 +482,7 @@ export class AuthController {
   ): Promise<ProfileDto> {
     const user = (req as Request & { authUser?: AuthenticatedUser }).authUser;
     if (!user) throw new UnauthorizedException();
-    const token = (req.cookies as Record<string, string> | undefined)?.[SESSION_COOKIE];
+    const token = sessionTokenOf(req) ?? undefined;
     return this.auth.updateProfile(user.id, body, token);
   }
 
@@ -475,7 +517,7 @@ export class AuthController {
     if (!user) {
       throw new UnauthorizedException();
     }
-    const token = (req.cookies as Record<string, string> | undefined)?.[SESSION_COOKIE];
+    const token = sessionTokenOf(req) ?? undefined;
     await this.auth.changePassword(user.id, body.currentPassword, body.newPassword, token);
     return { ok: true };
   }
@@ -496,7 +538,7 @@ export class AuthController {
   async sessions(@Req() req: Request): Promise<{ sessions: SessionInfo[] }> {
     const user = (req as Request & { authUser?: AuthenticatedUser }).authUser;
     if (!user) throw new UnauthorizedException();
-    const token = (req.cookies as Record<string, string> | undefined)?.[SESSION_COOKIE];
+    const token = sessionTokenOf(req) ?? undefined;
     return { sessions: await this.auth.listSessions(user.id, token) };
   }
 
@@ -532,7 +574,7 @@ export class AuthController {
   async revokeOtherSessions(@Req() req: Request): Promise<{ revoked: number }> {
     const user = (req as Request & { authUser?: AuthenticatedUser }).authUser;
     if (!user) throw new UnauthorizedException();
-    const token = (req.cookies as Record<string, string> | undefined)?.[SESSION_COOKIE];
+    const token = sessionTokenOf(req) ?? undefined;
     return { revoked: await this.auth.revokeAllSessions(user.id, token) };
   }
 }

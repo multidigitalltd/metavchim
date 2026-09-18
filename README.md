@@ -23,6 +23,7 @@ SaaS רב-דיירים (Multi-Tenant) למשרדי תיווך: לידים מכל
 apps/
   api/       NestJS — ה-API וכל מודולי הדומיין; Prisma + מיגרציות עם RLS
   web/       Next.js (React) — PWA בעברית, RTL, נגישה (ת"י 5568 / WCAG 2.2 AA)
+  mobile/    Expo (React Native) — אפליקציה לנייד על אותו API (docs/adr/ADR-007)
   workers/   BullMQ — עיבוד רקע (תמלול, התאמות, שליחות, תזכורות)
 packages/
   shared/    סכמות Zod, חוזי אירועים, RBAC, לוגיקה עסקית — אמת אחת לכל האפליקציות
@@ -46,6 +47,7 @@ psql "postgresql://metavchim:metavchim@localhost:5432/metavchim" \
 pnpm --filter @metavchim/api db:seed      # סוכנויות דמו (demo-a/b@metavchim.local / Demo1234!)
 
 pnpm dev                            # web על :3000, api על :3001
+pnpm --filter @metavchim/mobile start   # האפליקציה לנייד (Expo Go / סימולטור) — ראו apps/mobile/README.md
 ```
 
 ## איכות — מה רץ ב-CI ומה מריצים לפני PR

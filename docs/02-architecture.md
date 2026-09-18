@@ -8,6 +8,7 @@
 flowchart TB
     subgraph Clients["צרכנים"]
         PWA["Web App / PWA<br/>(מתווך)"]
+        MOB["אפליקציה לנייד<br/>(מתווך, Expo)"]
         WA["WhatsApp<br/>(מתווך + לקוח)"]
         TEL["טלפוניה<br/>(לקוח)"]
         EXT["מערכות חיצוניות<br/>(Kanko, אתר שיווקי, API)"]
@@ -85,6 +86,7 @@ flowchart TB
 |------|-------|-------|
 | Backend | **NestJS (Node 22, TypeScript)** | מערכת מודולים מובנית שממפה 1:1 על ה-Modular Monolith; DI, Guards, Pipes; מצטיין ב-WebSockets וסטרימינג (סוכן קולי, LLM) |
 | Frontend | **Next.js (React) כ-PWA** | מאגר הגיוס הגדול בישראל; SSR לדפי הצעה; RTL מלא; PWA להתקנה במובייל |
+| נייד | **Expo (React Native)** | אותו API, אותה חבילת `shared`; Session בכותרת Bearer — [ADR-007](adr/ADR-007-native-mobile-app.md) |
 | UI | **Radix UI + Tailwind** | רכיבים Headless נגישים מיסודם (ת"י 5568 / WCAG 2.2 AA) |
 | טיפוסים משותפים | **Monorepo (pnpm + Turborepo) + Zod** | סכמה אחת לשרת, ל-Workers ולממשק — הקומפיילר תופס אי-התאמות חוזה |
 | ORM | **Prisma** | טיפוסים מה-DB עד הממשק; מיגרציות מנוהלות |
@@ -120,7 +122,7 @@ flowchart TB
 | **Voice Agent** | ניהול שיחה קולית בזמן אמת: מכונת מצבים לשיחה, גישה לנתוני נכסים דרך API פנימי, כללי אסקלציה לאדם |
 | **Billing & Quotas** | מנויים, מסלולים, קרדיטים, מכסות (דקות/הודעות), Feature Flags לפי מסלול |
 | **Audit & Analytics** | לוג ביקורת בלתי-ניתן-לשינוי, אירועי שימוש, דוחות |
-| **Notifications** | התראות למתווך: In-App (WebSocket), WhatsApp, Push, Email — לפי העדפות |
+| **Notifications** | התראות למתווך: In-App, WhatsApp, Push (דפדפן ונייד דרך Expo), Email — לפי העדפות |
 
 ## 5. תקשורת בין מודולים
 
@@ -171,6 +173,7 @@ apps/
     src/platform/
       messaging/  ai/  voice/  billing/  audit/  notifications/
   web/               # Next.js (React) PWA
+  mobile/            # Expo (React Native) — אפליקציה לנייד, צרכן של אותו API
   workers/           # BullMQ processors (אותם מודולים, Entry נפרד)
 packages/
   shared/            # סכמות Zod, טיפוסים, חוזי אירועים, TenantContext

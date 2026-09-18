@@ -1,0 +1,68 @@
+{
+  "expo": {
+    "name": "מתווכים",
+    "slug": "metavchim",
+    "version": "0.1.0",
+    "scheme": "metavchim",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0c6e34"
+    },
+    "ios": {
+      "bundleIdentifier": "co.il.metavchim.app",
+      "supportsTablet": false,
+      "infoPlist": {
+        "CFBundleDevelopmentRegion": "he",
+        "CFBundleLocalizations": [
+          "he"
+        ]
+      }
+    },
+    "android": {
+      "package": "co.il.metavchim.app",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#0c6e34"
+      }
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      "expo-localization",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/notification-icon.png",
+          "color": "#0c6e34",
+          "defaultChannel": "default"
+        }
+      ],
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "האפליקציה מקליטה כדי לתמלל מה שאמרת ולהפוך אותו לפעולה במערכת."
+        }
+      ]
+    ],
+    "extra": {
+      "supportsRTL": true,
+      "router": {},
+      "eas": {
+        "projectId": ""
+      }
+    },
+    "notification": {
+      "icon": "./assets/notification-icon.png",
+      "color": "#0c6e34",
+      "iosDisplayInForeground": true
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    }
+  }
+}

@@ -65,6 +65,16 @@ export const PropertyStatusSchema = z.enum([
 ]);
 export type PropertyStatus = z.infer<typeof PropertyStatusSchema>;
 
+/** ‏תוויות הסטטוס — מקור אחד ל-web ולנייד; הטיפוס אוכף שכל ערך מתורגם. */
+export const PROPERTY_STATUS_LABELS: Record<PropertyStatus, string> = {
+  draft: "טיוטה",
+  active: "פעיל",
+  on_hold: "בהמתנה",
+  sold: "נמכר",
+  rented: "הושכר",
+  archived: "בארכיון",
+};
+
 /**
  * נכס נסרק מול קונים רק בסטטוסים האלה.
  *

@@ -785,9 +785,12 @@ export class LeadsService {
      */
     open?: boolean;
     requiresHuman?: boolean;
+    /** ‏`oldest` — הוותיק ראשון; ראו `ListQuerySchema` בבקר. */
+    order?: "newest" | "oldest";
     cursor?: string;
     limit: number;
   }): Promise<Page<LeadDto>> {
+    const oldestFirst = query.order === "oldest";
     return this.prisma.withTenant(async (tx) => {
       const tenantId = TenantContext.current().tenantId;
       const rows = await tx.lead.findMany({
@@ -802,9 +805,10 @@ export class LeadsService {
                 ? { status: { notIn: [...OPEN_LEAD_STATUSES] } }
                 : {}),
           ...(query.requiresHuman !== undefined ? { requiresHuman: query.requiresHuman } : {}),
-          ...(query.cursor ? { id: { lt: query.cursor } } : {}),
+          // ‏המזהה הוא ULID, ולכן סדר המזהים הוא סדר הזמן — לשני הכיוונים
+          ...(query.cursor ? { id: oldestFirst ? { gt: query.cursor } : { lt: query.cursor } } : {}),
         },
-        orderBy: { id: "desc" },
+        orderBy: { id: oldestFirst ? "asc" : "desc" },
         take: query.limit + 1,
       });
       const hasMore = rows.length > query.limit;

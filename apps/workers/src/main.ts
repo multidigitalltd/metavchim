@@ -41,6 +41,11 @@ import {
   pushOutcome,
   pushPayload,
   shouldPush,
+  chunkExpoPush,
+  expoPushMessage,
+  expoPushOutcome,
+  type ExpoPushMessage,
+  type ExpoPushTicket,
   contactIdsFromSources,
   seesAllContactsWith,
   visibleContactFilters,
@@ -2783,8 +2788,45 @@ function configurePush(): boolean {
   return pushConfigured;
 }
 
+/**
+ * ‏שליחה ל-Expo Push — אצווה אחת, כרטיס תשובה לכל הודעה באותו סדר.
+ *
+ * ‏כשל HTTP של הבקשה כולה (רשת, 5xx) מוחזר ככרטיסי `retry` לכולן:
+ * ‏אין מידע על אף טוקן, ומחיקה על סמך תקלה של Expo הייתה משתיקה
+ * ‏מכשירים תקינים. אין תצורה: השירות אינו דורש מפתח לשליחה.
+ */
+const EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send";
+
+async function sendExpoPushBatch(messages: ExpoPushMessage[]): Promise<ExpoPushTicket[]> {
+  const retryAll = (): ExpoPushTicket[] =>
+    messages.map(() => ({ status: "error", message: "expo push request failed" }));
+  try {
+    const res = await fetch(EXPO_PUSH_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        "Accept-Encoding": "gzip, deflate",
+      },
+      body: JSON.stringify(messages),
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!res.ok) return retryAll();
+    const body = (await res.json()) as { data?: ExpoPushTicket[] };
+    if (!Array.isArray(body.data) || body.data.length !== messages.length) return retryAll();
+    return body.data;
+  } catch {
+    return retryAll();
+  }
+}
+
 async function processPushSweep(): Promise<void> {
-  if (!configurePush()) return;
+  /*
+   * ‏שני ערוצים באותה סריקה: הדפדפן (VAPID — כבוי בלי מפתחות) והנייד
+   * ‏(Expo — בלי תצורה). הסריקה רצה כל עוד אחד מהם יכול לשלוח, ומסמנת
+   * ‏`pushed_at` רק כשניגשה בפועל להתראות של המשרד.
+   */
+  const webPushConfigured = configurePush();
   const since = new Date(Date.now() - PUSH_MAX_AGE_MS);
   const tenants = await prisma.tenant.findMany({ select: { id: true } });
 
@@ -2816,21 +2858,36 @@ async function processPushSweep(): Promise<void> {
     });
     if (pending.length === 0) continue;
 
-    const subscriptions = await prisma.$transaction(async (tx) => {
+    const { subscriptions, devices } = await prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenant.id}, true)`;
-      return tx.pushSubscription.findMany({ where: { tenantId: tenant.id } });
+      return {
+        subscriptions: webPushConfigured
+          ? await tx.pushSubscription.findMany({ where: { tenantId: tenant.id } })
+          : [],
+        devices: await tx.devicePushToken.findMany({ where: { tenantId: tenant.id } }),
+      };
     });
+    // אין למי לשלוח בשום ערוץ — ההתראות נשארות לא-מסומנות, למקרה
+    // שהמפתחות יוגדרו או שמכשיר יירשם בדקות הקרובות
+    if (!webPushConfigured && devices.length === 0) continue;
 
-    const byUser = new Map<string, typeof subscriptions>();
-    for (const sub of subscriptions) {
-      const list = byUser.get(sub.userId) ?? [];
-      list.push(sub);
-      byUser.set(sub.userId, list);
-    }
+    type Recipients = { web: typeof subscriptions; devices: typeof devices };
+    const byUser = new Map<string, Recipients>();
+    const recipientsOf = (userId: string): Recipients => {
+      const existing = byUser.get(userId);
+      if (existing) return existing;
+      const fresh: Recipients = { web: [], devices: [] };
+      byUser.set(userId, fresh);
+      return fresh;
+    };
+    for (const sub of subscriptions) recipientsOf(sub.userId).web.push(sub);
+    for (const device of devices) recipientsOf(device.userId).devices.push(device);
 
     const retire: string[] = [];
     const bumpFailure: string[] = [];
     const succeeded: string[] = [];
+    /* ‏הודעות הנייד נאספות ונשלחות באצוות אחרי הלולאה — ראו למטה */
+    const expoQueue: { deviceId: string; message: ExpoPushMessage }[] = [];
 
     /*
      * ‎**והדחיפה לדפדפן היא הערוץ השלישי** (ביקורת Codex, P1, על
@@ -2860,7 +2917,8 @@ async function processPushSweep(): Promise<void> {
     );
     const pushSubjects = await notificationAnchorSubjects(tenant.id, pending);
 
-    for (const [userId, subs] of byUser) {
+    for (const [userId, recipients] of byUser) {
+      const subs = recipients.web;
       const caps = pushCaps.get(userId) ?? new Set<Capability>();
       const viewer: NotificationViewer = {
         allowed: await visibleContactIdSet(tenant.id, userId, caps),
@@ -2872,7 +2930,12 @@ async function processPushSweep(): Promise<void> {
         // התראה משרדית (userId ריק) הולכת לכל מי שנרשם במשרד
         if (raw.userId && raw.userId !== userId) continue;
         const notification = redactNotification(raw, viewer, pushSubjects);
-        const payload = JSON.stringify(pushPayload(notification));
+        const message = pushPayload(notification);
+        const payload = JSON.stringify(message);
+
+        for (const device of recipients.devices) {
+          expoQueue.push({ deviceId: device.id, message: expoPushMessage(device.token, message) });
+        }
 
         for (const sub of subs) {
           try {
@@ -2903,6 +2966,39 @@ async function processPushSweep(): Promise<void> {
       }
     }
 
+    /*
+     * ‏הנייד — באצוות של 100, כפי ש-Expo מקבל. הטוקן מסווג לפי
+     * ‏הכרטיס שלו (`expoPushOutcome`), עם אותה תקרת כישלונות רצופים
+     * ‏כמו בדפדפן. אותו מכשיר יכול להופיע בכמה הודעות; מחיקה גוברת
+     * ‏על הצלחה, כי `DeviceNotRegistered` אינו מצב שחולף.
+     */
+    const deviceSucceeded = new Set<string>();
+    const deviceFailed = new Set<string>();
+    const deviceRetire = new Set<string>();
+    const failuresById = new Map(devices.map((d) => [d.id, d.failureCount]));
+    for (const batch of chunkExpoPush(expoQueue)) {
+      const tickets = await sendExpoPushBatch(batch.map((item) => item.message));
+      batch.forEach((item, index) => {
+        const ticket = tickets[index];
+        const outcome = ticket ? expoPushOutcome(ticket) : "retry";
+        if (outcome === "delivered") {
+          deviceSucceeded.add(item.deviceId);
+        } else if (
+          outcome === "retire" ||
+          shouldRetireAfterFailure((failuresById.get(item.deviceId) ?? 0) + 1)
+        ) {
+          deviceRetire.add(item.deviceId);
+        } else {
+          deviceFailed.add(item.deviceId);
+        }
+      });
+    }
+    for (const id of deviceRetire) {
+      deviceSucceeded.delete(id);
+      deviceFailed.delete(id);
+    }
+    for (const id of deviceSucceeded) deviceFailed.delete(id);
+
     await prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenant.id}, true)`;
       // כולן מסומנות, גם המסוננות — אחרת הן יישלפו שוב בכל סריקה
@@ -2910,6 +3006,23 @@ async function processPushSweep(): Promise<void> {
         where: { tenantId: tenant.id, id: { in: pending.map((n) => n.id) } },
         data: { pushedAt: new Date() },
       });
+      if (deviceSucceeded.size > 0) {
+        await tx.devicePushToken.updateMany({
+          where: { tenantId: tenant.id, id: { in: [...deviceSucceeded] } },
+          data: { failureCount: 0, lastSuccessAt: new Date() },
+        });
+      }
+      if (deviceFailed.size > 0) {
+        await tx.devicePushToken.updateMany({
+          where: { tenantId: tenant.id, id: { in: [...deviceFailed] } },
+          data: { failureCount: { increment: 1 } },
+        });
+      }
+      if (deviceRetire.size > 0) {
+        await tx.devicePushToken.deleteMany({
+          where: { tenantId: tenant.id, id: { in: [...deviceRetire] } },
+        });
+      }
       if (succeeded.length > 0) {
         await tx.pushSubscription.updateMany({
           where: { tenantId: tenant.id, id: { in: succeeded } },
