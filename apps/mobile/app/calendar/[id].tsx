@@ -91,6 +91,8 @@ const DAY_FMT = new Intl.DateTimeFormat("he-IL", {
 
 type Panel = "none" | "document" | "reschedule";
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+
 /**
  * ‏מסך הפגישה — מה שהיומן ב-web עושה בשורה: תיעוד התוצאה (לסיור גם
  * ‏המשוב למוכר בשלוש הקשות), דחייה למועד חדש (שומרת את מונה הדחיות
@@ -145,9 +147,14 @@ export default function AppointmentScreen() {
   const hebrew = hebrewDateFull(start);
 
   function openReschedule() {
-    const suggested = jerusalemWallParts(
-      new Date(start.getTime() + 7 * 24 * 60 * 60 * 1000),
-    );
+    /*
+     * ‏ברירת מחדל: אותה שעה, שבוע קדימה — ואם גם זה כבר עבר (סיור
+     * ‏שממתין לתיעוד מזה שבועיים), מחר באותה שעה. הצעה שבעבר הייתה
+     * ‏מחזירה פגישה ל„מתוכננת” ברגע שחלף (ביקורת Codex).
+     */
+    const week = start.getTime() + 7 * DAY_MS;
+    const tomorrow = Date.now() + DAY_MS;
+    const suggested = jerusalemWallParts(new Date(Math.max(week, tomorrow)));
     setDate(suggested.date);
     setTime(suggested.time);
     if (a.endsAt)
@@ -191,6 +198,10 @@ export default function AppointmentScreen() {
     const resolved = resolveJerusalemWall(date, time, null);
     if (!resolved.ok) {
       setError(jerusalemWallErrorMessage(resolved.reason));
+      return;
+    }
+    if (resolved.at.getTime() < Date.now()) {
+      setError("המועד החדש כבר עבר — בחרו יום ושעה קדימה.");
       return;
     }
     setBusy(true);

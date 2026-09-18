@@ -15,14 +15,23 @@ import {
 import { apiPost, errorMessage } from "@/lib/api";
 import { openWhatsapp } from "@/lib/contact-actions";
 import {
+  recentPeople,
+  recentProperties,
+  searchPeople,
+  searchProperties,
+  type PickedPerson,
+} from "@/lib/link-search";
+import {
   Button,
   Card,
   Chips,
   DURATIONS,
   Field,
+  LinkPicker,
   Screen,
   Text,
   WhenPicker,
+  type PickOption,
 } from "@/components";
 import { space } from "@/theme";
 
@@ -51,9 +60,10 @@ const WHEN_FMT = new Intl.DateTimeFormat("he-IL", {
 
 /**
  * ‏פגישה חדשה — כמו `/calendar/new` ב-web, בלי בורר תאריכים: סוג, יום
- * ‏ושעה בשעון ישראל (`WhenPicker`), משך, כותרת והערות. הקישור ללקוח
- * ‏או לנכס מגיע מהכרטיס שממנו נפתח המסך (`?leadId=`, `?buyerId=`,
- * ‏`?propertyId=`, ולתצוגה `label`, `phone`, `where`).
+ * ‏ושעה בשעון ישראל (`WhenPicker`), משך, כותרת והערות. שני צדי הפגישה
+ * ‏— מי ואיפה — נבחרים כאן (`LinkPicker`, אותם מקורות כמו ב-web); הצד
+ * ‏שממנו הגיעו (`?leadId=` / `?buyerId=` / `?propertyId=`, ולתצוגה
+ * ‏`label`, `phone`, `where`) כבר מסומן, וניתן להחלפה.
  *
  * ‏אחרי הקביעה, כשיש טלפון של הלקוח: הודעת וואטסאפ מנוסחת ומוכנה —
  * ‏המתווך רק לוחץ שליחה. לעולם לא אוטומטית (docs/README, עיקרון 8).
@@ -82,6 +92,16 @@ export default function NewAppointmentScreen() {
   const [kind, setKind] = useState<Kind>(
     isKind(params.kind) ? params.kind : propertyId ? "viewing" : "meeting",
   );
+  const [person, setPerson] = useState<PickedPerson | null>(() =>
+    leadId
+      ? { kind: "lead", id: leadId, label: label ?? "הליד שנבחר", phone }
+      : buyerId
+        ? { kind: "buyer", id: buyerId, label: label ?? "הלקוח שנבחר", phone }
+        : null,
+  );
+  const [property, setProperty] = useState<PickOption | null>(() =>
+    propertyId ? { id: propertyId, label: where ?? "הנכס שנבחר" } : null,
+  );
   const [date, setDate] = useState(jerusalemWallParts(now).date);
   const [time, setTime] = useState("");
   const [duration, setDuration] = useState("60");
@@ -90,8 +110,6 @@ export default function NewAppointmentScreen() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const linked = [label, where].filter(Boolean).join(" · ");
-
   async function submit() {
     setError(null);
     const resolved = resolveJerusalemWall(date, time, null);
@@ -99,7 +117,8 @@ export default function NewAppointmentScreen() {
       setError(jerusalemWallErrorMessage(resolved.reason));
       return;
     }
-    if (resolved.at.getTime() < now.getTime()) {
+    // ‏מול הרגע של הלחיצה, לא של פתיחת המסך (ביקורת Codex)
+    if (resolved.at.getTime() < Date.now()) {
       setError("המועד כבר עבר — בחרו יום ושעה קדימה.");
       return;
     }
@@ -111,12 +130,13 @@ export default function NewAppointmentScreen() {
         startsAt: resolved.at.toISOString(),
         durationMinutes: Number(duration),
         ...(notes.trim() ? { notes: notes.trim() } : {}),
-        ...(leadId ? { leadId } : {}),
-        ...(buyerId ? { buyerId } : {}),
-        ...(propertyId ? { propertyId } : {}),
+        ...(person?.kind === "lead" ? { leadId: person.id } : {}),
+        ...(person?.kind === "buyer" ? { buyerId: person.id } : {}),
+        ...(property ? { propertyId: property.id } : {}),
       });
-      if (phone && label) {
-        const message = `שלום ${label}, קבענו ${KIND_LABELS[kind]}${where ? ` ב${where}` : ""} ל${WHEN_FMT.format(resolved.at)}. נתראה!`;
+      if (person?.phone) {
+        const { phone: to, label: name } = person;
+        const message = `שלום ${name}, קבענו ${KIND_LABELS[kind]}${property ? ` ב${property.label}` : ""} ל${WHEN_FMT.format(resolved.at)}. נתראה!`;
         Alert.alert(
           "הפגישה נקבעה",
           "לעדכן את הלקוח? ההודעה כבר מנוסחת — נשאר רק ללחוץ שליחה בוואטסאפ.",
@@ -129,7 +149,7 @@ export default function NewAppointmentScreen() {
             {
               text: "וואטסאפ",
               onPress: () => {
-                void openWhatsapp(phone, message);
+                void openWhatsapp(to, message);
                 router.replace("/calendar");
               },
             },
@@ -150,9 +170,26 @@ export default function NewAppointmentScreen() {
         behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
         <Card>
-          {linked ? <Text variant="muted">{linked}</Text> : null}
           <Text variant="label">סוג</Text>
           <Chips options={KINDS} value={kind} onChange={setKind} />
+          <LinkPicker
+            label="עם מי"
+            placeholder="שם הלקוח או הליד"
+            chosen={person}
+            onPick={(option) => setPerson(option as PickedPerson)}
+            onClear={() => setPerson(null)}
+            search={searchPeople}
+            recent={recentPeople}
+          />
+          <LinkPicker
+            label="איפה"
+            placeholder="כתובת הנכס"
+            chosen={property}
+            onPick={setProperty}
+            onClear={() => setProperty(null)}
+            search={searchProperties}
+            recent={recentProperties}
+          />
           <WhenPicker
             date={date}
             time={time}
