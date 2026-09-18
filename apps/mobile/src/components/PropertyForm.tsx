@@ -11,6 +11,8 @@ import {
 import type { PropertyDetail } from "@/lib/dtos";
 import {
   agorotToShekelsInput,
+  dateInput,
+  dateToInput,
   numberInput,
   shekelsInputToAgorot,
 } from "@/lib/format";
@@ -50,10 +52,15 @@ const withNone = (map: Record<string, string>) => [
   { key: NONE, label: "לא צוין" },
   ...Object.entries(map).map(([key, label]) => ({ key, label })),
 ];
-const TYPES = Object.entries(PROPERTY_TYPE_LABELS).map(([key, label]) => ({
-  key,
-  label,
-}));
+/*
+ * ‏`shared_tabu` הוא הייצוג הישן של טאבו משותף כ„סוג נכס”; היום זה שדה
+ * ‏משלו (`sharedTabu`), והשרת מוחק את הסוג הישן כשהשדה נשלח. מציעים
+ * ‏רק סוגים אמיתיים, ונכס ותיק עם הסוג הישן נפתח כ„טאבו משותף: כן”.
+ */
+const LEGACY_SHARED_TABU = "shared_tabu";
+const TYPES = Object.entries(PROPERTY_TYPE_LABELS)
+  .filter(([key]) => key !== LEGACY_SHARED_TABU)
+  .map(([key, label]) => ({ key, label }));
 const DEALS = Object.entries(DEAL_TYPE_LABELS).map(([key, label]) => ({
   key,
   label,
@@ -66,6 +73,12 @@ const STATUSES = (Object.keys(PROPERTY_STATUS_LABELS) as PropertyStatus[]).map(
     label: PROPERTY_STATUS_LABELS[key],
   }),
 );
+/* ‏בקליטה השרת מקבל רק טיוטה או פעיל (`CreatePropertySchema`) */
+const CREATE_STATUSES = STATUSES.filter(
+  (s) => s.key === "draft" || s.key === "active",
+);
+/** ‏מצבי כניסה שדורשים תאריך */
+const DATED_ENTRY = new Set(["on_date", "from_date"]);
 const ENTRY: { key: string; label: string }[] = [
   { key: NONE, label: "לא צוין" },
   { key: "immediate", label: "מיידי" },
@@ -80,7 +93,10 @@ function initialForm(p: PropertyDetail | null): Record<string, string> {
     neighborhood: p?.neighborhood ?? "",
     street: p?.street ?? "",
     houseNumber: p?.houseNumber ?? "",
-    propertyType: p?.propertyType ?? NONE,
+    propertyType:
+      p?.propertyType === undefined || p.propertyType === LEGACY_SHARED_TABU
+        ? NONE
+        : p.propertyType,
     dealType: p?.dealType ?? "sale",
     rooms: p?.rooms === undefined ? "" : String(p.rooms),
     areaSqm: p?.areaSqm === undefined ? "" : String(p.areaSqm),
@@ -90,10 +106,12 @@ function initialForm(p: PropertyDetail | null): Record<string, string> {
     condition: p?.condition ?? NONE,
     facing: p?.facing ?? NONE,
     entryType: p?.entryType ?? NONE,
+    entryDate: dateToInput(p?.entryDate),
     entryNote: p?.entryNote ?? "",
     marketingTitle: p?.marketingTitle ?? "",
     internalNotes: p?.internalNotes ?? "",
-    sharedTabu: p?.sharedTabu ? "yes" : "no",
+    sharedTabu:
+      p?.sharedTabu || p?.propertyType === LEGACY_SHARED_TABU ? "yes" : "no",
     ownerName: "",
     ownerPhone: "",
   };
@@ -144,6 +162,15 @@ export function PropertyForm({
       setError("בעל הנכס — שם וטלפון יחד, או בלי שניהם");
       return;
     }
+    // ‏„בתאריך” / „מתאריך” בלי תאריך הם בחירה שאין לה משמעות — ההתאמות מתעלמות ממנה
+    const entryType = form["entryType"] ?? NONE;
+    const entryIso = DATED_ENTRY.has(entryType)
+      ? dateInput(form["entryDate"] ?? "")
+      : null;
+    if (DATED_ENTRY.has(entryType) && entryIso === null) {
+      setError("מועד הכניסה — צריך תאריך, למשל 15.10.2026");
+      return;
+    }
     setBusy(true);
     const text = (key: string): string | undefined => {
       const v = (form[key] ?? "").trim();
@@ -166,7 +193,11 @@ export function PropertyForm({
       priceAgorot: shekelsInputToAgorot(form["price"] ?? ""),
       condition: form["condition"] === NONE ? cleared : form["condition"],
       facing: form["facing"] === NONE ? cleared : form["facing"],
-      entryType: form["entryType"] === NONE ? undefined : form["entryType"],
+      entryType: entryType === NONE ? undefined : entryType,
+      entryDate:
+        entryIso === null
+          ? cleared
+          : new Date(`${entryIso}T00:00:00.000Z`).toISOString(),
       entryNote: text("entryNote"),
       marketingTitle: text("marketingTitle"),
       internalNotes: text("internalNotes"),
@@ -329,6 +360,16 @@ export function PropertyForm({
           value={form["entryType"] ?? NONE}
           onChange={set("entryType")}
         />
+        {DATED_ENTRY.has(form["entryType"] ?? NONE) ? (
+          <Field
+            label="התאריך"
+            value={form["entryDate"] ?? ""}
+            onChangeText={set("entryDate")}
+            placeholder="15.10.2026"
+            keyboardType="numbers-and-punctuation"
+            maxLength={10}
+          />
+        ) : null}
         <Field
           label="הערת כניסה"
           value={form["entryNote"] ?? ""}
@@ -352,7 +393,11 @@ export function PropertyForm({
           style={styles.multiline}
         />
         <Text variant="label">סטטוס</Text>
-        <Chips options={STATUSES} value={status} onChange={setStatus} />
+        <Chips
+          options={creating ? CREATE_STATUSES : STATUSES}
+          value={status}
+          onChange={setStatus}
+        />
       </Card>
 
       {error ? <Text style={styles.error}>{error}</Text> : null}

@@ -14,7 +14,8 @@ export function formatPrice(agorot: number | undefined | null): string {
 /** ‏טווח תקציב — „₪ 1.5M–2M” נשאר למסכי הדוחות; כאן המספרים המלאים. */
 export function formatBudget(min?: number, max?: number): string {
   if (min === undefined && max === undefined) return "לא צוין";
-  if (min !== undefined && max !== undefined) return `${formatPrice(min)} – ${formatPrice(max)}`;
+  if (min !== undefined && max !== undefined)
+    return `${formatPrice(min)} – ${formatPrice(max)}`;
   if (max !== undefined) return `עד ${formatPrice(max)}`;
   return `מ-${formatPrice(min)}`;
 }
@@ -27,7 +28,9 @@ export function formatWhen(iso: string, now: Date): string {
   const at = new Date(iso);
   const day = jerusalemDayLabel(at);
   const today = jerusalemDayLabel(now);
-  const tomorrow = jerusalemDayLabel(new Date(now.getTime() + 24 * 60 * 60 * 1000));
+  const tomorrow = jerusalemDayLabel(
+    new Date(now.getTime() + 24 * 60 * 60 * 1000),
+  );
   const time = formatJerusalemTime(at);
   if (day === today) return `היום ${time}`;
   if (day === tomorrow) return `מחר ${time}`;
@@ -62,4 +65,32 @@ export function numberInput(text: string): number | undefined {
   if (trimmed === "") return undefined;
   const value = Number(trimmed);
   return Number.isFinite(value) ? value : undefined;
+}
+
+/**
+ * ‏תאריך שהוקלד — „15.10.2026”, „15/10/2026” או „2026-10-15” — ל-`YYYY-MM-DD`.
+ * ‏`null` כשאינו תאריך בלוח (30.02 נדחה, לא מתגלגל).
+ */
+export function dateInput(text: string): string | null {
+  const t = text.trim();
+  let y: number, m: number, d: number;
+  const dmy = /^(\d{1,2})[./](\d{1,2})[./](\d{4})$/u.exec(t);
+  const ymd = /^(\d{4})-(\d{2})-(\d{2})$/u.exec(t);
+  if (dmy) [d, m, y] = [Number(dmy[1]), Number(dmy[2]), Number(dmy[3])];
+  else if (ymd) [y, m, d] = [Number(ymd[1]), Number(ymd[2]), Number(ymd[3])];
+  else return null;
+  const iso = `${String(y).padStart(4, "0")}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+  const check = new Date(`${iso}T00:00:00Z`);
+  return Number.isNaN(check.getTime()) ||
+    check.toISOString().slice(0, 10) !== iso
+    ? null
+    : iso;
+}
+
+/** ‏ISO מהשרת → „15.10.2026” לשדה קלט; ריק כשאין. */
+export function dateToInput(iso: string | undefined): string {
+  if (!iso) return "";
+  const at = new Date(iso);
+  if (Number.isNaN(at.getTime())) return "";
+  return formatJerusalemDate(at);
 }

@@ -12,6 +12,8 @@ import {
 import type { BuyerDetail } from "@/lib/dtos";
 import {
   agorotToShekelsInput,
+  dateInput,
+  dateToInput,
   numberInput,
   shekelsInputToAgorot,
 } from "@/lib/format";
@@ -85,6 +87,7 @@ function initialForm(b: BuyerDetail | null): Record<string, string> {
     roomsMax: r?.roomsMax === undefined ? "" : String(r.roomsMax),
     areaSqmMin: r?.areaSqmMin === undefined ? "" : String(r.areaSqmMin),
     entryType: r?.entryType ?? "none",
+    entryBy: dateToInput(r?.entryBy),
     flexibilityNotes: r?.flexibilityNotes ?? "",
     agentNotes: b?.agentNotes ?? "",
   };
@@ -149,6 +152,14 @@ export function BuyerForm({
         return;
       }
     }
+    // ‏„עד תאריך” בלי תאריך הוא דרישה שההתאמות מתעלמות ממנה
+    const entryType = form["entryType"] ?? "none";
+    const entryByIso =
+      entryType === "by_date" ? dateInput(form["entryBy"] ?? "") : null;
+    if (entryType === "by_date" && entryByIso === null) {
+      setError("כניסה עד תאריך — צריך תאריך, למשל 15.10.2026");
+      return;
+    }
     setBusy(true);
     const cleanFeatures: Record<string, "must" | "nice"> = {};
     for (const [key, level] of Object.entries(features)) {
@@ -169,7 +180,11 @@ export function BuyerForm({
       roomsMin: numberInput(form["roomsMin"] ?? ""),
       roomsMax: numberInput(form["roomsMax"] ?? ""),
       areaSqmMin: numberInput(form["areaSqmMin"] ?? ""),
-      entryType: form["entryType"] === "none" ? undefined : form["entryType"],
+      entryType: entryType === "none" ? undefined : entryType,
+      entryBy:
+        entryByIso === null
+          ? undefined
+          : new Date(`${entryByIso}T00:00:00.000Z`).toISOString(),
       flexibilityNotes: text("flexibilityNotes"),
       features: cleanFeatures,
     };
@@ -307,6 +322,16 @@ export function BuyerForm({
           value={form["entryType"] ?? "none"}
           onChange={set("entryType")}
         />
+        {(form["entryType"] ?? "none") === "by_date" ? (
+          <Field
+            label="עד תאריך"
+            value={form["entryBy"] ?? ""}
+            onChangeText={set("entryBy")}
+            placeholder="15.10.2026"
+            keyboardType="numbers-and-punctuation"
+            maxLength={10}
+          />
+        ) : null}
       </Card>
 
       <Card style={styles.card}>

@@ -67,6 +67,8 @@ export interface PropertyDetail extends PropertyRow {
   condition?: string;
   facing?: string;
   entryType?: string;
+  /** ‏ISO — רק ל-`on_date` / `from_date` */
+  entryDate?: string;
   entryNote?: string;
   internalNotes?: string;
   marketingTitle?: string;
@@ -99,6 +101,8 @@ export interface BuyerDetail extends BuyerRow {
     propertyTypes: string[];
     areaSqmMin?: number;
     entryType?: string;
+    /** ‏ISO — רק ל-`by_date` */
+    entryBy?: string;
     flexibilityNotes?: string;
     features: Record<string, "must" | "nice">;
   };
