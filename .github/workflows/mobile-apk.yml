@@ -31,18 +31,20 @@ on:
         required: true
         default: "https://app.metavchim.co.il"
 
-# ‏Release אחד מתגלגל — שתי ריצות במקביל היו דורסות זו את זו
+# ‏Release אחד מתגלגל — שתי ריצות במקביל היו דורסות זו את זו. הריצה
+# ‏החדשה מבטלת את הקודמת: הקומיט האחרון הוא מה שרוצים ב-Release, וריצה
+# ‏שנתקעה (ראו למטה) לא צריכה לחסום את זו שאחריה עד התקרה.
 concurrency:
   group: mobile-apk
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   apk:
     runs-on: ubuntu-latest
-    # ‏הריצה הראשונה, בלי מטמון, נחתכה ב-45 דקות באמצע Gradle. ה-C++ של
-    # ‏React Native (worklets, reanimated) נבנה לכל ארכיטקטורה מחדש —
-    # ‏ולכן ארכיטקטורה אחת, מטמון Gradle, ותקרה שמשאירה מרווח.
-    timeout-minutes: 90
+    # ‏ה-C++ של React Native (worklets, reanimated) נבנה לכל ארכיטקטורה
+    # ‏מחדש — ולכן ארכיטקטורה אחת ומטמון Gradle. עם זיכרון מספיק (למטה)
+    # ‏הבנייה כולה היא כ-15–25 דקות; התקרה משאירה מרווח ולא יותר.
+    timeout-minutes: 60
     permissions:
       contents: write
     steps:
@@ -76,11 +78,24 @@ jobs:
         working-directory: apps/mobile
         run: npx expo prebuild --platform android --no-install
 
+      # ‏התבנית של Expo נותנת ל-Gradle ‎2GB heap ו-512MB metaspace. ב-R8 של
+      # ‏האפליקציה הזו (Kotlin של כל מודולי Expo + Hermes) ה-metaspace נגמר:
+      # ‏`minifyReleaseWithR8 FAILED` עם `OutOfMemoryError: Metaspace` אחרי
+      # ‏12 דקות, ואז ה-JVM נתקע בלולאת OOM עד התקרה — שלוש ריצות רצופות
+      # ‏„נחתכו” כך, בלי שהלוג הראשי אמר למה. ל-runner יש ‎16GB.
+      - name: Give Gradle enough memory
+        working-directory: apps/mobile/android
+        run: |
+          sed -i 's|^org.gradle.jvmargs=.*|org.gradle.jvmargs=-Xmx6g -XX:MaxMetaspaceSize=1536m -XX:+HeapDumpOnOutOfMemoryError|' gradle.properties
+          grep '^org.gradle.jvmargs' gradle.properties
+
       # ‏arm64 בלבד — כל טלפון אנדרואיד מהשנים האחרונות; armv7 היה מכפיל
       # ‏את זמן הקומפילציה של ה-C++ (וזה מה שחצה את התקרה בריצה הראשונה).
       # ‏בלי x86 של אמולטורים. APK אוניברסלי לבדיקות היה 110MB; כך ~22MB.
       - name: Build release APK
         working-directory: apps/mobile/android
+        # ‏כישלון ב-Gradle חייב לעצור את הצעד, לא להשאיר JVM תקוע עד תקרת המשרה
+        timeout-minutes: 45
         env:
           # ‏בריצה אוטומטית (push) אין קלט — הייצור
           EXPO_PUBLIC_API_URL: ${{ inputs.api_url || 'https://app.metavchim.co.il' }}
