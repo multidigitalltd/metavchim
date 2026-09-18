@@ -19,7 +19,8 @@ export function Chips<K extends string>({
   onChange,
 }: {
   options: readonly ChipOption<K>[];
-  value: K;
+  /** ‏`null` — אף אחת לא נבחרה (רשימת סיבות שבוחרים ממנה פעם אחת). */
+  value: K | null;
   onChange: (key: K) => void;
 }) {
   const styles = useStyles();

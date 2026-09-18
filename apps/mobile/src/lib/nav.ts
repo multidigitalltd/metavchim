@@ -55,37 +55,165 @@ export const NAV_ITEMS: readonly NavItem[] = [
   /* ‏מסך הבית של האפליקציה — הדשבורד של המערכת (בקשת המשתמש) */
   { href: "/", label: "דשבורד", icon: "grid-outline" },
   { href: "/today", label: "היום", icon: "sunny-outline", native: "/today" },
-  { href: "/properties", label: "נכסים", icon: "home-outline", native: "/properties", modules: ["properties"], count: (s) => s.properties },
-  { href: "/properties/recruitment", label: "נכסים לגיוס", icon: "flag-outline", modules: ["properties"], sub: true },
-  { href: "/buyers", label: "קונים · שוכרים", icon: "people-outline", native: "/buyers", modules: ["buyers"], count: (s) => s.buyers },
-  { href: "/leads", label: "לידים", icon: "flash-outline", native: "/leads", modules: ["leads"], badge: (s) => s.newLeads },
-  { href: "/voice", label: "הסוכן הקולי", icon: "mic-outline", native: "/voice", feature: "voice_intake" },
-  { href: "/calls", label: "שיחות", icon: "call-outline", modules: ["leads", "buyers"] },
-  { href: "/matches", label: "התאמות", icon: "git-compare-outline", modules: ["matches"], count: (s) => s.matches },
-  { href: "/offers", label: "הצעות", icon: "document-text-outline", modules: ["offers"] },
-  { href: "/inbox", label: "תיבת מייל", icon: "mail-outline", badge: (s) => s.emailUnread ?? 0 },
-  { href: "/calendar", label: "יומן", icon: "calendar-outline", modules: ["calendar"] },
-  { href: "/tasks", label: "משימות", icon: "checkbox-outline", modules: ["calendar"], badge: (s) => s.urgentTasks },
-  { href: "/collaboration", label: 'שת"פים', icon: "link-outline", modules: ["collaboration"] },
-  { href: "/kanko", label: "קונים - kanko", icon: "people-circle-outline", tag: "soon" },
-  { href: "/reports", label: "דוחות", icon: "bar-chart-outline", modules: ["reports"], feature: "analytics", needs: "analytics.view" },
-  { href: "/forum", label: "פורום וכלים", icon: "chatbubbles-outline", tag: "beta" },
-  { href: "/mentor", label: "המנטור האישי שלך", icon: "sparkles-outline", tag: "ai" },
+  {
+    href: "/properties",
+    label: "נכסים",
+    icon: "home-outline",
+    native: "/properties",
+    modules: ["properties"],
+    count: (s) => s.properties,
+  },
+  {
+    href: "/properties/recruitment",
+    label: "נכסים לגיוס",
+    icon: "flag-outline",
+    modules: ["properties"],
+    sub: true,
+  },
+  {
+    href: "/buyers",
+    label: "קונים · שוכרים",
+    icon: "people-outline",
+    native: "/buyers",
+    modules: ["buyers"],
+    count: (s) => s.buyers,
+  },
+  {
+    href: "/leads",
+    label: "לידים",
+    icon: "flash-outline",
+    native: "/leads",
+    modules: ["leads"],
+    badge: (s) => s.newLeads,
+  },
+  {
+    href: "/voice",
+    label: "הסוכן הקולי",
+    icon: "mic-outline",
+    native: "/voice",
+    feature: "voice_intake",
+  },
+  {
+    href: "/calls",
+    label: "שיחות",
+    icon: "call-outline",
+    modules: ["leads", "buyers"],
+  },
+  {
+    href: "/matches",
+    label: "התאמות",
+    icon: "git-compare-outline",
+    native: "/matches",
+    modules: ["matches"],
+    count: (s) => s.matches,
+  },
+  {
+    href: "/offers",
+    label: "הצעות",
+    icon: "document-text-outline",
+    modules: ["offers"],
+  },
+  {
+    href: "/inbox",
+    label: "תיבת מייל",
+    icon: "mail-outline",
+    badge: (s) => s.emailUnread ?? 0,
+  },
+  {
+    href: "/calendar",
+    label: "יומן",
+    icon: "calendar-outline",
+    native: "/calendar",
+    modules: ["calendar"],
+  },
+  {
+    href: "/tasks",
+    label: "משימות",
+    icon: "checkbox-outline",
+    native: "/tasks",
+    modules: ["calendar"],
+    badge: (s) => s.urgentTasks,
+  },
+  {
+    href: "/collaboration",
+    label: 'שת"פים',
+    icon: "link-outline",
+    modules: ["collaboration"],
+  },
+  {
+    href: "/kanko",
+    label: "קונים - kanko",
+    icon: "people-circle-outline",
+    tag: "soon",
+  },
+  {
+    href: "/reports",
+    label: "דוחות",
+    icon: "bar-chart-outline",
+    modules: ["reports"],
+    feature: "analytics",
+    needs: "analytics.view",
+  },
+  {
+    href: "/forum",
+    label: "פורום וכלים",
+    icon: "chatbubbles-outline",
+    tag: "beta",
+  },
+  {
+    href: "/mentor",
+    label: "המנטור האישי שלך",
+    icon: "sparkles-outline",
+    tag: "ai",
+  },
   { href: "/media", label: "רכש מדיה", icon: "megaphone-outline", tag: "soon" },
   { href: "/docs", label: "הדרכות", icon: "book-outline", external: true },
-  { href: "/settings", label: "ניהול משרד", icon: "settings-outline", modules: ["admin"], needs: "settings.manage" },
-  { href: "/setup", label: "הקמה", icon: "checkmark-done-outline", modules: ["admin"], needs: "settings.manage" },
-  { href: "/platform", label: "פלטפורמה", icon: "cube-outline", platformAdmin: true },
+  {
+    href: "/settings",
+    label: "ניהול משרד",
+    icon: "settings-outline",
+    modules: ["admin"],
+    needs: "settings.manage",
+  },
+  {
+    href: "/setup",
+    label: "הקמה",
+    icon: "checkmark-done-outline",
+    modules: ["admin"],
+    needs: "settings.manage",
+  },
+  {
+    href: "/platform",
+    label: "פלטפורמה",
+    icon: "cube-outline",
+    platformAdmin: true,
+  },
 ];
 
 /** ‏האם הפריט מוצג למשתמש הזה, עם הסיכום הזה — אותם כללים כמו `navLink` ב-web. */
-export function navVisible(item: NavItem, user: AuthUser | null, summary: NavSummary | null): boolean {
+export function navVisible(
+  item: NavItem,
+  user: AuthUser | null,
+  summary: NavSummary | null,
+): boolean {
   if (item.platformAdmin && user?.isPlatformAdmin !== true) return false;
-  if (item.needs !== undefined && !(user?.capabilities?.includes(item.needs) ?? false)) return false;
+  if (
+    item.needs !== undefined &&
+    !(user?.capabilities?.includes(item.needs) ?? false)
+  )
+    return false;
   const blocked = summary?.blockedModules ?? [];
-  if (item.modules !== undefined && item.modules.every((m) => blocked.includes(m))) return false;
+  if (
+    item.modules !== undefined &&
+    item.modules.every((m) => blocked.includes(m))
+  )
+    return false;
   // ‏כל עוד הסיכום לא נטען — מציגים, כדי שהתפריט לא „יקפוץ” על רשת איטית
-  if (item.feature !== undefined && summary?.features !== undefined && !summary.features.includes(item.feature)) {
+  if (
+    item.feature !== undefined &&
+    summary?.features !== undefined &&
+    !summary.features.includes(item.feature)
+  ) {
     return false;
   }
   return true;
@@ -96,8 +224,12 @@ export function navLabelFor(path: string): string | null {
   const clean = path.split("?")[0] ?? path;
   let best: NavItem | null = null;
   for (const item of NAV_ITEMS) {
-    const hit = item.href === "/" ? clean === "/" : clean === item.href || clean.startsWith(`${item.href}/`);
-    if (hit && (best === null || item.href.length > best.href.length)) best = item;
+    const hit =
+      item.href === "/"
+        ? clean === "/"
+        : clean === item.href || clean.startsWith(`${item.href}/`);
+    if (hit && (best === null || item.href.length > best.href.length))
+      best = item;
   }
   return best?.label ?? null;
 }
@@ -124,9 +256,12 @@ export function webScreenTitle(path: string): string {
 export function routeFor(href: string): string {
   const [path, query] = href.split("?", 2);
   const clean = path ?? "/";
-  const entity = /^\/(leads|properties|buyers)\/([A-Za-z0-9]{26})$/u.exec(clean);
+  const entity = /^\/(leads|properties|buyers)\/([A-Za-z0-9]{26})$/u.exec(
+    clean,
+  );
   if (entity) return clean;
   const item = NAV_ITEMS.find((i) => i.href === clean);
-  if (item?.native) return item.native;
+  // ‏השאילתה נשארת גם במסך נייטיב — „17 קונים מתאימים” מגיע ל-`/matches?property=…`
+  if (item?.native) return `${item.native}${query ? `?${query}` : ""}`;
   return `/web${clean === "/" ? "/home" : clean}${query ? `?${query}` : ""}`;
 }
