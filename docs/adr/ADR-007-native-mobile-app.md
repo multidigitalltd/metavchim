@@ -61,10 +61,10 @@
 | היום | `/leads?open=true&order=oldest`, `/leads?requiresHuman=true`, `/appointments`, `/tasks`, `/notifications` | תור המענה מהשרת (הוותיק ראשון), הפגישות של היום, המשימות שלי (סימון „בוצע”) |
 | לידים · ליד חדש · ליד | `/leads` (סינון במסד), `POST /leads`, `/leads/:id`, `PATCH :id/status`, `POST :id/notes` | קליטה מהירה; חיוג, וואטסאפ, סטטוס, ציר זמן והערה |
 | קול | `/voice-intakes/transcribe`, `/agent/help`, `/agent/interpret`, `/agent/execute`, `/agent/conversation/turn` | הסוכן האישי: הקלטה → תמלול → הצעה לאישור → ביצוע, עם אותם כללים כמו ב-web |
-| נכסים · נכס | `/properties`, `/properties/:id`, `:id/matches` | פרטים, מה חסר למוכנות, בעל הנכס, לקוחות מתאימים |
-| לקוחות · לקוח | `/buyers`, `/buyers/:id`, `:id/matches` | דרישות, מימון, נכסים מתאימים |
+| נכסים · נכס · חדש · עריכה | `/properties`, `/properties/:id`, `:id/matches`, `POST /properties`, `PATCH :id` | קליטה ועריכה באותו טופס (`PropertyForm`), פרטים, מה חסר למוכנות, בעל הנכס, לקוחות מתאימים |
+| לקוחות · לקוח · חדש · עריכה | `/buyers`, `/buyers/:id`, `:id/matches`, `POST /buyers`, `PATCH :id` | קליטה ועריכה באותו טופס (`BuyerForm`), דרישות, מימון, נכסים מתאימים |
 | משימות · משימה חדשה | `/tasks?status&assignee`, `PATCH :id`, `POST /tasks` | הדליים של `groupTasksByBucket` (shared), שלי / כל המשרד, „בוצע”; מועד מהיר (`quickDueOptions`, שעון ישראל), עדיפות, קישור לישות |
-| יומן · פגישה חדשה · פגישה | `/appointments?from&to`, `POST /appointments`, `/appointments/:id`, `PATCH :id`, `POST :id/reschedule` | אותו טווח כמו ה-web (שבועיים אחורה, שלושה קדימה, שעון ישראל), לפי ימים עם התאריך העברי, „לתיעוד”; פגישה חדשה בלי בורר תאריכים (`WhenPicker`: ימים ושעות בשעון ישראל, `resolveJerusalemWall`), הודעת וואטסאפ ללקוח מוכנה; תיעוד תוצאה + משוב למוכר (`VIEWING_*_FEEDBACK`), דחייה, ביטול; הקלטה ועריכה — במערכת |
+| יומן · פגישה חדשה · פגישה | `/appointments?from&to`, `POST /appointments`, `/appointments/:id`, `PATCH :id`, `POST :id/reschedule` | אותו טווח כמו ה-web (שבועיים אחורה, שלושה קדימה, שעון ישראל), לפי ימים עם התאריך העברי, „לתיעוד”; פגישה חדשה בלי בורר תאריכים (`WhenPicker`: ימים ושעות בשעון ישראל, `resolveJerusalemWall`), הודעת וואטסאפ ללקוח מוכנה; תיעוד תוצאה + משוב למוכר (`VIEWING_*_FEEDBACK`), דחייה, ביטול, עריכת כותרת/הערות, הקלטת הפגישה (`POST :id/recording`, אותו מקליט של הסוכן הקולי) |
 | התאמות | `/matches?minScore&propertyId`, `PATCH :id/dismiss`, `POST /offers`, `POST /offers/:id/whatsapp`, `POST /offers/:id/email` | אותו קיבוץ כמו ה-web, סף, „לא רלוונטי” עם סיבה (`DISMISS_REASONS`), הצעה בוואטסאפ או במייל |
 | התראות · Push | `/notifications`, `PATCH :id/read`, `POST /notifications/push/device` | רשימה, ניווט לישות; **פוש נייטיב** דרך Expo Push, מאותה סריקה ואותו מטען מצונזר כמו הדפדפן |
 

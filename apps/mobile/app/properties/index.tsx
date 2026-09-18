@@ -3,6 +3,7 @@ import { FlatList, View } from "react-native";
 import { useRouter } from "expo-router";
 import { propertyAddressOr } from "@metavchim/shared";
 import { apiGet, apiList } from "@/lib/api";
+import { can, useAuth } from "@/lib/auth";
 import type { PropertyRow } from "@/lib/dtos";
 import { formatPrice, roomsLabel } from "@/lib/format";
 import {
@@ -12,6 +13,7 @@ import {
 } from "@/lib/labels";
 import { useQuery } from "@/lib/use-query";
 import {
+  Button,
   CacheNotice,
   Chips,
   EmptyState,
@@ -51,6 +53,7 @@ function matches(filter: Filter, status: string): boolean {
 export default function PropertiesScreen() {
   const styles = useStyles();
   const router = useRouter();
+  const { user } = useAuth();
   const [filter, setFilter] = useState<Filter>("active");
   const [search, setSearch] = useState("");
   const query = useQuery(
@@ -75,7 +78,20 @@ export default function PropertiesScreen() {
   }, [query.data, filter, search]);
 
   return (
-    <Screen title="נכסים" root scroll={false}>
+    <Screen
+      title="נכסים"
+      root
+      scroll={false}
+      trailing={
+        can(user, "properties.create") ? (
+          <Button
+            title="+ נכס"
+            kind="secondary"
+            onPress={() => router.push("/properties/new")}
+          />
+        ) : undefined
+      }
+    >
       <View style={styles.tools}>
         <Field
           label="חיפוש"

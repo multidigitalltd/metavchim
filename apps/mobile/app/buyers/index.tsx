@@ -2,11 +2,13 @@ import { useMemo, useState } from "react";
 import { FlatList, View } from "react-native";
 import { useRouter } from "expo-router";
 import { apiGet, apiList } from "@/lib/api";
+import { can, useAuth } from "@/lib/auth";
 import type { BuyerRow } from "@/lib/dtos";
 import { formatBudget } from "@/lib/format";
 import { dealTypeLabel, maturityLabel, maturityTone } from "@/lib/labels";
 import { useQuery } from "@/lib/use-query";
 import {
+  Button,
   CacheNotice,
   Chips,
   EmptyState,
@@ -36,6 +38,7 @@ const MATURITY_ORDER = ["very_hot", "hot", "interested", "not_ripe"];
 export default function BuyersScreen() {
   const styles = useStyles();
   const router = useRouter();
+  const { user } = useAuth();
   const [filter, setFilter] = useState<Filter>("all");
   const [search, setSearch] = useState("");
   const query = useQuery(
@@ -65,7 +68,20 @@ export default function BuyersScreen() {
   }, [query.data, filter, search]);
 
   return (
-    <Screen title="לקוחות" root scroll={false}>
+    <Screen
+      title="לקוחות"
+      root
+      scroll={false}
+      trailing={
+        can(user, "buyers.edit") ? (
+          <Button
+            title="+ לקוח"
+            kind="secondary"
+            onPress={() => router.push("/buyers/new")}
+          />
+        ) : undefined
+      }
+    >
       <View style={styles.tools}>
         <Field
           label="חיפוש"
