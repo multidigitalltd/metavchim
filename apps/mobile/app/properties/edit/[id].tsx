@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { KeyboardAvoidingView, Platform, StyleSheet } from "react-native";
-import { Stack, useLocalSearchParams, useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import {
   DEAL_TYPE_LABELS,
   PROPERTY_CONDITION_LABELS,
@@ -151,8 +151,7 @@ export default function EditPropertyScreen() {
   if (loaded === null) return <Loading />;
 
   return (
-    <Screen>
-      <Stack.Screen options={{ title: "עריכת נכס" }} />
+    <Screen title="עריכת נכס">
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined}>
         <Card>
           <Text variant="title">כתובת</Text>

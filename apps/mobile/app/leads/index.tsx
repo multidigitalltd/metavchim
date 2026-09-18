@@ -1,11 +1,16 @@
 import { useMemo, useState } from "react";
-import { FlatList, StyleSheet, View } from "react-native";
+import { FlatList, View } from "react-native";
 import { useRouter } from "expo-router";
 import { compareLeadsByUrgency, leadWaiting } from "@metavchim/shared";
 import { apiGet, apiList } from "@/lib/api";
 import { can, useAuth } from "@/lib/auth";
 import type { LeadRow } from "@/lib/dtos";
-import { leadIntentLabel, leadSourceLabel, leadStatusLabel, leadStatusTone } from "@/lib/labels";
+import {
+  leadIntentLabel,
+  leadSourceLabel,
+  leadStatusLabel,
+  leadStatusTone,
+} from "@/lib/labels";
 import { useQuery } from "@/lib/use-query";
 import {
   Button,
@@ -19,9 +24,17 @@ import {
   Row,
   Screen,
 } from "@/components";
-import { colors, space } from "@/theme";
+import { space } from "@/theme";
+import { makeStyles } from "@/lib/theme";
 
-type Filter = "open" | "new" | "in_progress" | "waiting_customer" | "converted" | "closed" | "all";
+type Filter =
+  | "open"
+  | "new"
+  | "in_progress"
+  | "waiting_customer"
+  | "converted"
+  | "closed"
+  | "all";
 
 const FILTERS: { key: Filter; label: string }[] = [
   { key: "open", label: "לטיפול" },
@@ -38,11 +51,14 @@ function leadMatches(lead: LeadRow, needle: string): boolean {
   if (needle === "") return true;
   if (lead.contact.name.includes(needle)) return true;
   const digits = needle.replace(/\D/gu, "");
-  return digits !== "" && lead.contact.phone.replace(/\D/gu, "").includes(digits);
+  return (
+    digits !== "" && lead.contact.phone.replace(/\D/gu, "").includes(digits)
+  );
 }
 
 /** ‏מסך הלידים — מי ממתין הכי הרבה זמן למעלה, כמו ב-web. */
 export default function LeadsScreen() {
+  const styles = useStyles();
   const router = useRouter();
   const { user } = useAuth();
   const [filter, setFilter] = useState<Filter>("open");
@@ -53,7 +69,11 @@ export default function LeadsScreen() {
    * ‏מקומי — הוא מצמצם בתוך העמוד שכבר נטען.
    */
   const scope =
-    filter === "all" ? "" : filter === "open" ? "&open=true" : `&status=${filter}`;
+    filter === "all"
+      ? ""
+      : filter === "open"
+        ? "&open=true"
+        : `&status=${filter}`;
   const query = useQuery(
     () =>
       apiGet<{ items: LeadRow[] }>(`/leads?limit=100${scope}`).then((r) =>
@@ -75,10 +95,15 @@ export default function LeadsScreen() {
   return (
     <Screen
       title="לידים"
+      root
       scroll={false}
       trailing={
         can(user, "leads.edit") ? (
-          <Button title="+ ליד" kind="secondary" onPress={() => router.push("/leads/new")} />
+          <Button
+            title="+ ליד"
+            kind="secondary"
+            onPress={() => router.push("/leads/new")}
+          />
         ) : undefined
       }
     >
@@ -107,7 +132,9 @@ export default function LeadsScreen() {
           ListEmptyComponent={
             <EmptyState
               title={search ? "לא נמצא ליד כזה" : "אין לידים בסינון הזה"}
-              hint={filter === "open" && !search ? "כל הלידים טופלו." : undefined}
+              hint={
+                filter === "open" && !search ? "כל הלידים טופלו." : undefined
+              }
             />
           }
           renderItem={({ item: lead }) => {
@@ -124,10 +151,20 @@ export default function LeadsScreen() {
                 onPress={() => router.push(`/leads/${lead.id}`)}
                 trailing={
                   <>
-                    <Pill tone={lead.requiresHuman ? "danger" : leadStatusTone(lead.status)}>
-                      {lead.requiresHuman ? "דורש טיפול" : leadStatusLabel(lead.status)}
+                    <Pill
+                      tone={
+                        lead.requiresHuman
+                          ? "danger"
+                          : leadStatusTone(lead.status)
+                      }
+                    >
+                      {lead.requiresHuman
+                        ? "דורש טיפול"
+                        : leadStatusLabel(lead.status)}
                     </Pill>
-                    {waiting?.level === "late" ? <Pill tone="danger">מעל יממה</Pill> : null}
+                    {waiting?.level === "late" ? (
+                      <Pill tone="danger">מעל יממה</Pill>
+                    ) : null}
                   </>
                 }
               />
@@ -139,7 +176,14 @@ export default function LeadsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  tools: { paddingHorizontal: space.lg, gap: space.sm, backgroundColor: colors.bg },
-  list: { padding: space.lg, gap: space.sm, paddingBottom: space.xl * 2 },
+const useStyles = makeStyles((t) => {
+  const c = t.colors;
+  return {
+    tools: {
+      paddingHorizontal: space.lg,
+      gap: space.sm,
+      backgroundColor: c.bg,
+    },
+    list: { padding: space.lg, gap: space.sm, paddingBottom: space.xl * 2 },
+  };
 });

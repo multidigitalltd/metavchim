@@ -18,7 +18,13 @@ export interface LeadRow {
 }
 
 export interface LeadDetail extends LeadRow {
-  contact: { id: string; name: string; phone: string; email?: string; sharedTabu: boolean };
+  contact: {
+    id: string;
+    name: string;
+    phone: string;
+    email?: string;
+    sharedTabu: boolean;
+  };
   requiresHumanReason?: string;
   summary?: string;
 }
@@ -103,19 +109,39 @@ export interface BuyerDetail extends BuyerRow {
 export interface MatchRow {
   id: string;
   propertyId: string;
+  buyerId: string;
   score: number;
   explanation: string;
   status: string;
   property: { address: string; title?: string; priceAgorot?: number };
+  /** ‏שם הקונה — רק כשיש הרשאה אליו; אחרת „קונה של סוכן אחר”. */
+  buyerName: string | null;
+}
+
+/** ‏`OfferDto` — קישור שנוצר; `pending_approval` = טרם יצא בשום ערוץ. */
+export interface OfferInfo {
+  id: string;
+  status: string;
+  url: string;
+  openCount: number;
 }
 
 export interface TaskRow {
   id: string;
   title: string;
+  notes?: string;
   dueAt?: string;
   status: string;
   priority: string;
+  entityType?: string;
+  entityId?: string;
   entityLabel?: string;
+  assigneeName?: string;
+  assignedByName?: string;
+  automatic?: boolean;
+  /** ‏השרת אומר; המסך לא מנחש. חסר בשרת ישן = מותר. */
+  canEdit?: boolean;
+  createdAt?: string;
 }
 
 export interface AppointmentRow {
@@ -124,8 +150,12 @@ export interface AppointmentRow {
   title?: string;
   leadId?: string;
   propertyId?: string;
+  buyerId?: string;
   startsAt: string;
+  endsAt?: string;
   status: string;
+  outcome?: string;
+  notes?: string;
 }
 
 export interface NotificationRow {

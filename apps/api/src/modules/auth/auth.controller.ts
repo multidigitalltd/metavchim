@@ -119,6 +119,15 @@ type LoginResult =
 
 const ForgotPasswordSchema = z.object({ email: z.string().email().max(254) }).strict();
 
+/** ‏הסימן ל-web שהוא רץ בתוך האפליקציה — אותו שם כמו ב-`apps/web/src/lib/embedded.ts`. */
+const EMBEDDED_COOKIE = "mv_embedded";
+const EMBEDDED_COOKIE_TTL_MS = 365 * 24 * 60 * 60 * 1000;
+
+/** ‏נתיב פנימי לאחר הנחיתה — לוכסן אחד בתחילתו, ואחרת לוח הבקרה. */
+function safeInternalPath(next: unknown): string {
+  return typeof next === "string" && /^\/(?!\/)[^\s]*$/u.test(next) ? next : "/";
+}
+
 /** ‏הקוד שהאפליקציה קיבלה בכתובת החזרה מ-Google (ראו `mobile-handoff.service.ts`). */
 const GoogleExchangeSchema = z.object({ code: z.string().regex(MOBILE_HANDOFF_CODE_PATTERN) }).strict();
 
@@ -293,7 +302,7 @@ export class AuthController {
          * ‏לא Session — קוד. ה-Session ייוולד בבקשה של האפליקציה
          * ‏עצמה (`googleExchange`), ולא בדפדפן שהאפליקציה פתחה.
          */
-        res.redirect(mobileGoogleReturnUrl({ kind: "code", code: await this.handoff.issue(user.email) }));
+        res.redirect(mobileGoogleReturnUrl({ kind: "code", code: await this.handoff.issueGoogle(user.id) }));
         return;
       }
       const { token, expiresAt } = await this.auth.issueSession(user, {
@@ -322,9 +331,9 @@ export class AuthController {
 
   /**
    * ‏שלב 3, לנייד בלבד — המרת הקוד מכתובת החזרה ל-Session בגוף
-   * ‏התשובה, כמו `login` עם `client: "mobile"`. הכתובת נבדקת שוב מול
-   * ‏המשתמש (קיים, פעיל, המשרד רשאי לעבוד): הקוד הוכיח בעלות על
-   * ‏הכתובת לפני פחות מדקה, לא יותר מזה.
+   * ‏התשובה, כמו `login` עם `client: "mobile"`. המשתמש נבדק שוב
+   * ‏(קיים, פעיל, המשרד רשאי לעבוד): הקוד הוכיח בעלות על הכתובת לפני
+   * ‏פחות מדקה, לא יותר מזה.
    */
   @Public()
   @Post("google/exchange")
@@ -334,13 +343,86 @@ export class AuthController {
     @Body(new ZodValidationPipe(GoogleExchangeSchema)) body: z.infer<typeof GoogleExchangeSchema>,
     @Req() req: Request,
   ): Promise<LoginResult> {
-    const email = await this.handoff.redeem(body.code);
-    const user = await this.auth.loginWithVerifiedEmail(email);
+    const userId = await this.handoff.redeemGoogle(body.code);
+    const user = await this.auth.getUserForSession(userId);
     const { token, expiresAt } = await this.auth.issueSession(user, {
       ip: req.ip,
       userAgent: req.headers["user-agent"],
     });
     return { user, session: { token, expiresAt: expiresAt.toISOString() } };
+  }
+
+  /**
+   * ‏הכיוון ההפוך: ה-Session של האפליקציה אל הדפדפן המוטמע שלה.
+   *
+   * ‏האפליקציה מציגה את מסכי ה-web שאין לה גרסה נייטיבית שלהם בתוך
+   * ‏WebView, וה-web מדבר עם ה-API בעוגייה. הקוד כאן נושא את **אותו**
+   * ‏Session (ולא מנפיק חדש — שער „חיבור אחד לחשבון” ב-web היה רואה
+   * ‏חיבור שני), תקף לדקה ולשימוש אחד. ראו `mobile-handoff.service.ts`.
+   *
+   * ‏`BillingAllowed`: משרד שתקופתו נגמרה צריך להגיע דווקא למסך המנוי
+   * ‏ב-web — וזה הנתיב שמביא אותו לשם.
+   */
+  @AnyAuthenticated()
+  @BillingAllowed()
+  @Post("web-session")
+  @Throttle({ default: { ttl: 60_000, limit: 30 } })
+  @HttpCode(200)
+  async webSession(@Req() req: Request): Promise<{ code: string; webOrigin: string }> {
+    const token = sessionTokenOf(req);
+    if (token === null) throw new UnauthorizedException();
+    /*
+     * ‏גם המקור של ה-web: בייצור הוא זהה ל-API (Caddy), אבל בפיתוח
+     * ‏ה-API ב-3001 וה-web ב-3000 — והאפליקציה מכירה רק את ה-API.
+     * ‏הנחיתה מפנה ל-`WEB_ORIGIN`, וה-WebView חייב לדעת שזה „שלנו”.
+     */
+    return { code: await this.handoff.issueWebSession(token), webOrigin: loadEnv().WEB_ORIGIN };
+  }
+
+  /**
+   * ‏הנחיתה של ה-WebView: הקוד → אותו Session בעוגייה (עם התפוגה
+   * ‏המקורית שלו), עוגיית `mv_embedded` שמסתירה את מעטפת ה-web (ראו
+   * ‏`apps/web/src/lib/embedded.ts`), והפניה למסך המבוקש.
+   *
+   * ‏`next` הוא נתיב פנימי בלבד — לוכסן אחד בתחילתו, ולא שניים
+   * ‏(`//host` הוא כתובת מוחלטת בעיני הדפדפן): הפניה לפי קלט שלא
+   * ‏נבדק היא open redirect, גם כשהקלט מגיע מהאפליקציה שלנו.
+   */
+  @Public()
+  @Get("web-session/:code")
+  async webSessionLanding(
+    @Param("code") code: string,
+    @Req() req: Request,
+    @Res() res: Response,
+  ): Promise<void> {
+    const env = loadEnv();
+    const next = safeInternalPath((req.query as Record<string, unknown>)["next"]);
+    if (!MOBILE_HANDOFF_CODE_PATTERN.test(code)) {
+      res.redirect(`${env.WEB_ORIGIN}/login`);
+      return;
+    }
+    let token: string;
+    try {
+      token = await this.handoff.redeemWebSession(code);
+    } catch {
+      res.redirect(`${env.WEB_ORIGIN}/login`);
+      return;
+    }
+    const expiresAt = await this.auth.sessionExpiry(token);
+    if (expiresAt === null || expiresAt.getTime() <= Date.now()) {
+      res.redirect(`${env.WEB_ORIGIN}/login`);
+      return;
+    }
+    this.setSessionCookie(res, token, expiresAt);
+    res.cookie(EMBEDDED_COOKIE, "1", {
+      // ‏נקראת בצד הלקוח (ה-AppShell), ולכן אינה httpOnly
+      httpOnly: false,
+      secure: env.COOKIE_SECURE,
+      sameSite: "lax",
+      maxAge: EMBEDDED_COOKIE_TTL_MS,
+      path: "/",
+    });
+    res.redirect(`${env.WEB_ORIGIN}${next}`);
   }
 
   private setSessionCookie(res: Response, token: string, expiresAt: Date): void {

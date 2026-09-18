@@ -36,7 +36,7 @@ export default function GoogleReturnScreen() {
   }, [code, error, loginWithGoogle, router]);
 
   return (
-    <Screen>
+    <Screen bare>
       <Loading label="מתחברים עם Google…" />
     </Screen>
   );

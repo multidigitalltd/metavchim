@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { FlatList, StyleSheet, View } from "react-native";
+import { FlatList, View } from "react-native";
 import { useRouter } from "expo-router";
 import { apiGet, apiList } from "@/lib/api";
 import type { BuyerRow } from "@/lib/dtos";
@@ -17,7 +17,8 @@ import {
   Row,
   Screen,
 } from "@/components";
-import { colors, space } from "@/theme";
+import { space } from "@/theme";
+import { makeStyles } from "@/lib/theme";
 
 type Filter = "all" | "very_hot" | "hot" | "interested" | "not_ripe";
 
@@ -33,12 +34,15 @@ const MATURITY_ORDER = ["very_hot", "hot", "interested", "not_ripe"];
 
 /** ‏לקוחות (קונים ושוכרים) — החמים למעלה. */
 export default function BuyersScreen() {
+  const styles = useStyles();
   const router = useRouter();
   const [filter, setFilter] = useState<Filter>("all");
   const [search, setSearch] = useState("");
   const query = useQuery(
     () =>
-      apiGet<{ items: BuyerRow[] }>("/buyers?limit=100").then((r) => apiList(r.items, "items")),
+      apiGet<{ items: BuyerRow[] }>("/buyers?limit=100").then((r) =>
+        apiList(r.items, "items"),
+      ),
     [],
     { cacheKey: "buyers" },
   );
@@ -53,11 +57,15 @@ export default function BuyersScreen() {
           b.contact.name.includes(needle) ||
           b.requirements.cities.some((c) => c.includes(needle)),
       )
-      .sort((a, b) => MATURITY_ORDER.indexOf(a.maturity) - MATURITY_ORDER.indexOf(b.maturity));
+      .sort(
+        (a, b) =>
+          MATURITY_ORDER.indexOf(a.maturity) -
+          MATURITY_ORDER.indexOf(b.maturity),
+      );
   }, [query.data, filter, search]);
 
   return (
-    <Screen title="לקוחות" scroll={false}>
+    <Screen title="לקוחות" root scroll={false}>
       <View style={styles.tools}>
         <Field
           label="חיפוש"
@@ -87,12 +95,19 @@ export default function BuyersScreen() {
               subtitle={[
                 dealTypeLabel(b.requirements.dealType),
                 b.requirements.cities.join(", "),
-                formatBudget(b.requirements.budgetMinAgorot, b.requirements.budgetMaxAgorot),
+                formatBudget(
+                  b.requirements.budgetMinAgorot,
+                  b.requirements.budgetMaxAgorot,
+                ),
               ]
                 .filter(Boolean)
                 .join(" · ")}
               onPress={() => router.push(`/buyers/${b.id}`)}
-              trailing={<Pill tone={maturityTone(b.maturity)}>{maturityLabel(b.maturity)}</Pill>}
+              trailing={
+                <Pill tone={maturityTone(b.maturity)}>
+                  {maturityLabel(b.maturity)}
+                </Pill>
+              }
             />
           )}
         />
@@ -101,7 +116,14 @@ export default function BuyersScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  tools: { paddingHorizontal: space.lg, gap: space.sm, backgroundColor: colors.bg },
-  list: { padding: space.lg, gap: space.sm, paddingBottom: space.xl * 2 },
+const useStyles = makeStyles((t) => {
+  const c = t.colors;
+  return {
+    tools: {
+      paddingHorizontal: space.lg,
+      gap: space.sm,
+      backgroundColor: c.bg,
+    },
+    list: { padding: space.lg, gap: space.sm, paddingBottom: space.xl * 2 },
+  };
 });

@@ -1,7 +1,11 @@
 import { useMemo, useState } from "react";
-import { Alert, StyleSheet, View } from "react-native";
+import { Alert, View } from "react-native";
 import { useRouter } from "expo-router";
-import { compareTasks, jerusalemDayRange, leadWaiting } from "@metavchim/shared";
+import {
+  compareTasks,
+  jerusalemDayRange,
+  leadWaiting,
+} from "@metavchim/shared";
 import { apiGet, apiList, apiPatch, errorMessage } from "@/lib/api";
 import { can, useAuth } from "@/lib/auth";
 import type { AppointmentRow, LeadRow, TaskRow } from "@/lib/dtos";
@@ -18,7 +22,8 @@ import {
   SectionTitle,
   Text,
 } from "@/components";
-import { colors, space } from "@/theme";
+import { space } from "@/theme";
+import { makeStyles } from "@/lib/theme";
 
 interface Today {
   waitingLeads: LeadRow[];
@@ -46,88 +51,113 @@ const KIND_LABELS: Record<string, string> = {
  * ‏מוצג כ„אין פגישות היום”.
  */
 export default function TodayScreen() {
+  const styles = useStyles();
   const { user, pushStatus, enablePush } = useAuth();
   const router = useRouter();
   const canLeads = can(user, "leads.view_own");
   const canCalendar = can(user, "calendar.manage");
 
-  const query = useQuery<Today>(async () => {
-    const now = new Date();
-    const failed: string[] = [];
-    const settle = async <T,>(label: string, work: Promise<T>, fallback: T): Promise<T> => {
-      try {
-        return await work;
-      } catch {
-        failed.push(label);
-        return fallback;
-      }
-    };
-    const { start, end } = jerusalemDayRange(now);
-    // הסוף כולל: פגישה בחצות הבאה שייכת למחר (ראו הדשבורד ב-web)
-    const dayEndInclusive = new Date(end.getTime() - 1);
-    const none: never[] = [];
-    const [leads, appointments, tasks, notifications] = await Promise.all([
-      /*
-       * ‏תור המענה נבנה בשרת ולא מתוך „100 החדשים”: הוותיקים ביותר
-       * ‏מבין הפתוחים (הם שחורגים מה-KPI), ובנפרד כל מה שסומן „דורש
-       * ‏טיפול” — ליד כזה יכול להיות חדש ועדיין ראשון בתור. במשרד עם
-       * ‏מאות לידים העמוד הראשון של „החדש ראשון” היה משמיט בדיוק את
-       * ‏מי שממתין הכי הרבה (ביקורת Codex).
-       */
-      canLeads
-        ? settle(
-            "לידים",
-            Promise.all([
-              apiGet<{ items: LeadRow[] }>("/leads?open=true&order=oldest&limit=100").then((r) =>
-                apiList(r.items, "items"),
+  const query = useQuery<Today>(
+    async () => {
+      const now = new Date();
+      const failed: string[] = [];
+      const settle = async <T,>(
+        label: string,
+        work: Promise<T>,
+        fallback: T,
+      ): Promise<T> => {
+        try {
+          return await work;
+        } catch {
+          failed.push(label);
+          return fallback;
+        }
+      };
+      const { start, end } = jerusalemDayRange(now);
+      // הסוף כולל: פגישה בחצות הבאה שייכת למחר (ראו הדשבורד ב-web)
+      const dayEndInclusive = new Date(end.getTime() - 1);
+      const none: never[] = [];
+      const [leads, appointments, tasks, notifications] = await Promise.all([
+        /*
+         * ‏תור המענה נבנה בשרת ולא מתוך „100 החדשים”: הוותיקים ביותר
+         * ‏מבין הפתוחים (הם שחורגים מה-KPI), ובנפרד כל מה שסומן „דורש
+         * ‏טיפול” — ליד כזה יכול להיות חדש ועדיין ראשון בתור. במשרד עם
+         * ‏מאות לידים העמוד הראשון של „החדש ראשון” היה משמיט בדיוק את
+         * ‏מי שממתין הכי הרבה (ביקורת Codex).
+         */
+        canLeads
+          ? settle(
+              "לידים",
+              Promise.all([
+                apiGet<{ items: LeadRow[] }>(
+                  "/leads?open=true&order=oldest&limit=100",
+                ).then((r) => apiList(r.items, "items")),
+                apiGet<{ items: LeadRow[] }>(
+                  "/leads?open=true&requiresHuman=true&limit=100",
+                ).then((r) => apiList(r.items, "items")),
+              ]).then(([oldest, urgent]) => {
+                const seen = new Set(oldest.map((lead) => lead.id));
+                return [
+                  ...oldest,
+                  ...urgent.filter((lead) => !seen.has(lead.id)),
+                ];
+              }),
+              none as LeadRow[],
+            )
+          : Promise.resolve(none as LeadRow[]),
+        canCalendar
+          ? settle(
+              "פגישות",
+              apiGet<AppointmentRow[]>(
+                `/appointments?from=${start.toISOString()}&to=${dayEndInclusive.toISOString()}`,
+              ).then((r) => apiList(r, "appointments")),
+              none as AppointmentRow[],
+            )
+          : Promise.resolve(none as AppointmentRow[]),
+        canCalendar
+          ? settle(
+              "משימות",
+              apiGet<TaskRow[]>("/tasks?status=open&assignee=me").then((r) =>
+                apiList(r, "tasks"),
               ),
-              apiGet<{ items: LeadRow[] }>("/leads?open=true&requiresHuman=true&limit=100").then(
-                (r) => apiList(r.items, "items"),
-              ),
-            ]).then(([oldest, urgent]) => {
-              const seen = new Set(oldest.map((lead) => lead.id));
-              return [...oldest, ...urgent.filter((lead) => !seen.has(lead.id))];
-            }),
-            none as LeadRow[],
-          )
-        : Promise.resolve(none as LeadRow[]),
-      canCalendar
-        ? settle(
-            "פגישות",
-            apiGet<AppointmentRow[]>(
-              `/appointments?from=${start.toISOString()}&to=${dayEndInclusive.toISOString()}`,
-            ).then((r) => apiList(r, "appointments")),
-            none as AppointmentRow[],
-          )
-        : Promise.resolve(none as AppointmentRow[]),
-      canCalendar
-        ? settle(
-            "משימות",
-            apiGet<TaskRow[]>("/tasks?status=open&assignee=me").then((r) =>
-              apiList(r, "tasks"),
-            ),
-            none as TaskRow[],
-          )
-        : Promise.resolve(none as TaskRow[]),
-      settle("התראות", apiGet<{ unreadCount: number }>("/notifications?limit=1"), {
-        unreadCount: 0,
-      }),
-    ]);
-    const waitingLeads = leads
-      .map((lead) => ({ lead, waiting: leadWaiting(lead.createdAt, lead.status, now) }))
-      .filter(
-        ({ lead, waiting }) => lead.requiresHuman || (waiting !== null && waiting.level !== "ok"),
-      )
-      .sort((a, b) => (b.waiting?.hours ?? Infinity) - (a.waiting?.hours ?? Infinity))
-      .map(({ lead }) => lead);
-    return {
-      waitingLeads,
-      appointments: [...appointments].sort((a, b) => a.startsAt.localeCompare(b.startsAt)),
-      tasks: [...tasks].sort(compareTasks),
-      unread: notifications.unreadCount,
-      failed,
-    };
-  }, [canLeads, canCalendar], { cacheKey: "today" });
+              none as TaskRow[],
+            )
+          : Promise.resolve(none as TaskRow[]),
+        settle(
+          "התראות",
+          apiGet<{ unreadCount: number }>("/notifications?limit=1"),
+          {
+            unreadCount: 0,
+          },
+        ),
+      ]);
+      const waitingLeads = leads
+        .map((lead) => ({
+          lead,
+          waiting: leadWaiting(lead.createdAt, lead.status, now),
+        }))
+        .filter(
+          ({ lead, waiting }) =>
+            lead.requiresHuman || (waiting !== null && waiting.level !== "ok"),
+        )
+        .sort(
+          (a, b) =>
+            (b.waiting?.hours ?? Infinity) - (a.waiting?.hours ?? Infinity),
+        )
+        .map(({ lead }) => lead);
+      return {
+        waitingLeads,
+        appointments: [...appointments].sort((a, b) =>
+          a.startsAt.localeCompare(b.startsAt),
+        ),
+        tasks: [...tasks].sort(compareTasks),
+        unread: notifications.unreadCount,
+        failed,
+      };
+    },
+    [canLeads, canCalendar],
+    { cacheKey: "today" },
+  );
 
   // „עכשיו” של הטעינה האחרונה — ניסוחי ההמתנה מתעדכנים יחד עם הנתונים
   // eslint-disable-next-line react-hooks/exhaustive-deps -- מכוון: השעון מתקדם רק כשהנתונים מתרעננים
@@ -153,21 +183,17 @@ export default function TodayScreen() {
   return (
     <Screen
       title={greeting}
+      root
       refreshing={query.refreshing}
       onRefresh={() => void query.refresh()}
-      trailing={
-        <Button
-          title={data && data.unread > 0 ? `התראות · ${data.unread}` : "התראות"}
-          kind={data && data.unread > 0 ? "secondary" : "ghost"}
-          onPress={() => router.push("/notifications")}
-        />
-      }
     >
       <CacheNotice query={query} />
       {query.error && data === null ? (
         <ErrorState message={query.error} onRetry={query.reload} />
       ) : null}
-      {data === null && query.loading ? <Text variant="muted">טוען את היום…</Text> : null}
+      {data === null && query.loading ? (
+        <Text variant="muted">טוען את היום…</Text>
+      ) : null}
 
       {pushStatus === "undetermined" ? (
         <Card>
@@ -175,7 +201,11 @@ export default function TodayScreen() {
           <Text variant="muted">
             ליד חדש, פגישה קרובה ומשימה שהגיע זמנה — גם כשהאפליקציה סגורה.
           </Text>
-          <Button title="הפעלת התראות" kind="secondary" onPress={() => void enablePush()} />
+          <Button
+            title="הפעלת התראות"
+            kind="secondary"
+            onPress={() => void enablePush()}
+          />
         </Card>
       ) : null}
 
@@ -184,18 +214,26 @@ export default function TodayScreen() {
           {data.failed.length > 0 ? (
             <Card style={styles.warn}>
               <Text style={styles.warnText}>
-                לא הצלחנו לטעון: {data.failed.join(", ")}. משכו למטה כדי לנסות שוב.
+                לא הצלחנו לטעון: {data.failed.join(", ")}. משכו למטה כדי לנסות
+                שוב.
               </Text>
             </Card>
           ) : null}
 
           {canLeads ? (
             <>
-              <SectionTitle count={data.waitingLeads.length}>ממתינים לך</SectionTitle>
+              <SectionTitle count={data.waitingLeads.length}>
+                ממתינים לך
+              </SectionTitle>
               {can(user, "leads.edit") ? (
-                <Button title="+ ליד חדש" kind="ghost" onPress={() => router.push("/leads/new")} />
+                <Button
+                  title="+ ליד חדש"
+                  kind="ghost"
+                  onPress={() => router.push("/leads/new")}
+                />
               ) : null}
-              {data.waitingLeads.length === 0 && !data.failed.includes("לידים") ? (
+              {data.waitingLeads.length === 0 &&
+              !data.failed.includes("לידים") ? (
                 <Card>
                   <Text variant="muted">אין ליד שממתין למענה. יפה.</Text>
                 </Card>
@@ -225,8 +263,11 @@ export default function TodayScreen() {
 
           {canCalendar ? (
             <>
-              <SectionTitle count={data.appointments.length}>היום ביומן</SectionTitle>
-              {data.appointments.length === 0 && !data.failed.includes("פגישות") ? (
+              <SectionTitle count={data.appointments.length}>
+                היום ביומן
+              </SectionTitle>
+              {data.appointments.length === 0 &&
+              !data.failed.includes("פגישות") ? (
                 <Card>
                   <Text variant="muted">אין פגישות היום.</Text>
                 </Card>
@@ -243,12 +284,20 @@ export default function TodayScreen() {
                         ? () => router.push(`/properties/${appt.propertyId}`)
                         : undefined
                   }
-                  trailing={<Pill tone="primary">{KIND_LABELS[appt.kind] ?? appt.kind}</Pill>}
+                  trailing={
+                    <Pill tone="primary">
+                      {KIND_LABELS[appt.kind] ?? appt.kind}
+                    </Pill>
+                  }
                 />
               ))}
 
               <SectionTitle count={data.tasks.length}>המשימות שלי</SectionTitle>
-              <Button title="+ משימה" kind="ghost" onPress={() => router.push("/tasks/new")} />
+              <Button
+                title="+ משימה"
+                kind="ghost"
+                onPress={() => router.push("/tasks/new")}
+              />
               {data.tasks.length === 0 && !data.failed.includes("משימות") ? (
                 <Card>
                   <Text variant="muted">אין משימות פתוחות.</Text>
@@ -258,12 +307,17 @@ export default function TodayScreen() {
                 <Row
                   key={task.id}
                   title={task.title}
-                  subtitle={[task.entityLabel, task.dueAt ? formatWhen(task.dueAt, now) : null]
+                  subtitle={[
+                    task.entityLabel,
+                    task.dueAt ? formatWhen(task.dueAt, now) : null,
+                  ]
                     .filter(Boolean)
                     .join(" · ")}
                   trailing={
                     <View style={styles.taskActions}>
-                      {task.priority === "high" ? <Pill tone="danger">דחוף</Pill> : null}
+                      {task.priority === "high" ? (
+                        <Pill tone="danger">דחוף</Pill>
+                      ) : null}
                       <Button
                         title="בוצע"
                         kind="secondary"
@@ -283,8 +337,11 @@ export default function TodayScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  warn: { backgroundColor: colors.warningBg, borderColor: colors.warning },
-  warnText: { color: colors.warning },
-  taskActions: { alignItems: "flex-end", gap: space.xs },
+const useStyles = makeStyles((t) => {
+  const c = t.colors;
+  return {
+    warn: { backgroundColor: c.warningBg, borderColor: c.warning },
+    warnText: { color: c.warning },
+    taskActions: { alignItems: "flex-end", gap: space.xs },
+  };
 });

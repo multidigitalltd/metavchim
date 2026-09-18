@@ -1,5 +1,7 @@
 export { Text } from "./Text";
-export { Screen } from "./Screen";
+export { Screen, TopBar } from "./Screen";
+export { Drawer } from "./Drawer";
+export { Logo, LogoMark } from "./Logo";
 export { Card, SectionTitle } from "./Card";
 export { Pill, type Tone } from "./Pill";
 export { Button } from "./Button";

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Alert, Linking, ScrollView, StyleSheet, View } from "react-native";
+import { Alert, Linking, ScrollView, View } from "react-native";
 import { useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import {
@@ -9,7 +9,12 @@ import {
   type AgentHistoryRef,
 } from "@metavchim/shared";
 import { apiGet, apiPost, ApiError, errorMessage } from "@/lib/api";
-import type { AgentHelp, ExecuteResult, HistoryTurn, Proposal } from "@/lib/agent";
+import type {
+  AgentHelp,
+  ExecuteResult,
+  HistoryTurn,
+  Proposal,
+} from "@/lib/agent";
 import { routeForPushUrl } from "@/lib/push";
 import {
   ensureMicrophone,
@@ -18,17 +23,47 @@ import {
   transcribeRecording,
   useVoiceRecorder,
 } from "@/lib/recorder";
-import { Button, Card, Chips, Field, ProposalCard, Text } from "@/components";
-import { colors, radius, space, TOUCH } from "@/theme";
+import {
+  Button,
+  Card,
+  Chips,
+  Field,
+  ProposalCard,
+  Text,
+  TopBar,
+} from "@/components";
+import { radius, space, TOUCH } from "@/theme";
+import { makeStyles } from "@/lib/theme";
 
 type Suggestion = { actionId: string; title: string; example: string };
 
 type ChatItem =
   | { id: number; role: "user"; text: string }
   | { id: number; role: "agent"; kind: "reply"; text: string }
-  | { id: number; role: "agent"; kind: "note"; tone: "info" | "danger"; text: string; suggestions?: Suggestion[]; said?: string }
-  | { id: number; role: "agent"; kind: "proposal"; proposal: Proposal; transcript: string; settled?: "done" | "cancelled" }
-  | { id: number; role: "agent"; kind: "result"; result: ExecuteResult; lines: string | null };
+  | {
+      id: number;
+      role: "agent";
+      kind: "note";
+      tone: "info" | "danger";
+      text: string;
+      suggestions?: Suggestion[];
+      said?: string;
+    }
+  | {
+      id: number;
+      role: "agent";
+      kind: "proposal";
+      proposal: Proposal;
+      transcript: string;
+      settled?: "done" | "cancelled";
+    }
+  | {
+      id: number;
+      role: "agent";
+      kind: "result";
+      result: ExecuteResult;
+      lines: string | null;
+    };
 
 type Phase = "idle" | "recording" | "transcribing" | "thinking";
 
@@ -44,6 +79,7 @@ type ChatDraft = Draft<ChatItem>;
  * ‏מה שיוצא ללקוח נפתח באפליקציה של המכשיר ולא נשלח מכאן.
  */
 export default function VoiceScreen() {
+  const styles = useStyles();
   const router = useRouter();
   const recorder = useVoiceRecorder();
   const [items, setItems] = useState<ChatItem[]>([]);
@@ -75,18 +111,34 @@ export default function VoiceScreen() {
     return id;
   }, []);
 
-  const settleProposal = useCallback((id: number, settled: "done" | "cancelled") => {
-    setItems((current) =>
-      current.map((item) =>
-        item.id === id && item.role === "agent" && item.kind === "proposal" ? { ...item, settled } : item,
-      ),
-    );
-  }, []);
+  const settleProposal = useCallback(
+    (id: number, settled: "done" | "cancelled") => {
+      setItems((current) =>
+        current.map((item) =>
+          item.id === id && item.role === "agent" && item.kind === "proposal"
+            ? { ...item, settled }
+            : item,
+        ),
+      );
+    },
+    [],
+  );
 
   /** ‏תוצאה של פעולה: הודעה, שורות, וזיכרון השיחה — כמו ב-web. */
   const settle = useCallback(
-    (transcript: string, action: string, result: ExecuteResult, params: Record<string, unknown>, refs: AgentHistoryRef[]) => {
-      push({ role: "agent", kind: "result", result, lines: agentResultText(result.data) });
+    (
+      transcript: string,
+      action: string,
+      result: ExecuteResult,
+      params: Record<string, unknown>,
+      refs: AgentHistoryRef[],
+    ) => {
+      push({
+        role: "agent",
+        kind: "result",
+        result,
+        lines: agentResultText(result.data),
+      });
       const turn: HistoryTurn = {
         transcript,
         action,
@@ -123,7 +175,9 @@ export default function VoiceScreen() {
             role: "agent",
             kind: "note",
             tone: "info",
-            ...(suggestions.length > 0 ? { suggestions, said: transcript } : {}),
+            ...(suggestions.length > 0
+              ? { suggestions, said: transcript }
+              : {}),
             text: [
               ...(proposal.degraded.length > 0
                 ? proposal.degraded
@@ -140,18 +194,31 @@ export default function VoiceScreen() {
           return;
         }
         if (proposalRunsImmediately(proposal)) {
-          const params = Object.fromEntries(proposal.fields.map((f) => [f.key, f.value]));
+          const params = Object.fromEntries(
+            proposal.fields.map((f) => [f.key, f.value]),
+          );
           const executed = await apiPost<ExecuteResult>("/agent/execute", {
             action: proposal.actionId,
             params,
             transcript,
           });
-          settle(transcript, proposal.actionId, executed, params, executed.ref ? [executed.ref] : []);
+          settle(
+            transcript,
+            proposal.actionId,
+            executed,
+            params,
+            executed.ref ? [executed.ref] : [],
+          );
           return;
         }
         push({ role: "agent", kind: "proposal", proposal, transcript });
       } catch (err: unknown) {
-        push({ role: "agent", kind: "note", tone: "danger", text: errorMessage(err, "לא הצלחתי לנתח את הבקשה") });
+        push({
+          role: "agent",
+          kind: "note",
+          tone: "danger",
+          text: errorMessage(err, "לא הצלחתי לנתח את הבקשה"),
+        });
       } finally {
         setPhase("idle");
       }
@@ -167,7 +234,12 @@ export default function VoiceScreen() {
         if (uri === null) throw new Error("no recording");
         const transcript = await transcribeRecording(uri);
         if (transcript.trim() === "") {
-          push({ role: "agent", kind: "note", tone: "info", text: "לא שמעתי כלום — נסו שוב קרוב יותר למיקרופון." });
+          push({
+            role: "agent",
+            kind: "note",
+            tone: "info",
+            text: "לא שמעתי כלום — נסו שוב קרוב יותר למיקרופון.",
+          });
           setPhase("idle");
           return;
         }
@@ -175,13 +247,21 @@ export default function VoiceScreen() {
         await send(transcript);
       } catch (err: unknown) {
         setPhase("idle");
-        push({ role: "agent", kind: "note", tone: "danger", text: errorMessage(err, "ההקלטה לא תומללה — נסו שוב") });
+        push({
+          role: "agent",
+          kind: "note",
+          tone: "danger",
+          text: errorMessage(err, "ההקלטה לא תומללה — נסו שוב"),
+        });
       }
       return;
     }
     if (phase !== "idle") return;
     if (!(await ensureMicrophone())) {
-      Alert.alert("אין הרשאת מיקרופון", "אפשר לאפשר אותה בהגדרות המכשיר, או להקליד למטה.");
+      Alert.alert(
+        "אין הרשאת מיקרופון",
+        "אפשר לאפשר אותה בהגדרות המכשיר, או להקליד למטה.",
+      );
       return;
     }
     try {
@@ -204,13 +284,13 @@ export default function VoiceScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={["top", "left", "right"]}>
-      <View style={styles.header}>
-        <Text variant="heading" accessibilityRole="header">
-          הסוכן האישי
-        </Text>
-      </View>
+      <TopBar title="הסוכן הקולי" root />
 
-      <ScrollView ref={scroll} contentContainerStyle={styles.thread} keyboardShouldPersistTaps="handled">
+      <ScrollView
+        ref={scroll}
+        contentContainerStyle={styles.thread}
+        keyboardShouldPersistTaps="handled"
+      >
         {unavailable ? (
           <Card>
             <Text style={styles.danger}>{unavailable}</Text>
@@ -220,7 +300,12 @@ export default function VoiceScreen() {
           <Card>
             <Text variant="title">מה אפשר לומר</Text>
             {help.examples.slice(0, 6).map((example) => (
-              <Button key={example} title={example} kind="ghost" onPress={() => void send(example)} />
+              <Button
+                key={example}
+                title={example}
+                kind="ghost"
+                onPress={() => void send(example)}
+              />
             ))}
           </Card>
         ) : null}
@@ -243,7 +328,11 @@ export default function VoiceScreen() {
             case "note":
               return (
                 <View key={item.id} style={[styles.bubble, styles.agentBubble]}>
-                  <Text style={item.tone === "danger" ? styles.danger : undefined}>{item.text}</Text>
+                  <Text
+                    style={item.tone === "danger" ? styles.danger : undefined}
+                  >
+                    {item.text}
+                  </Text>
                   {item.suggestions && item.said ? (
                     <View style={styles.chips}>
                       {item.suggestions.map((s) => (
@@ -262,7 +351,8 @@ export default function VoiceScreen() {
               return item.settled ? (
                 <View key={item.id} style={[styles.bubble, styles.agentBubble]}>
                   <Text variant="muted">
-                    {item.proposal.title} — {item.settled === "done" ? "אושר" : "בוטל"}
+                    {item.proposal.title} —{" "}
+                    {item.settled === "done" ? "אושר" : "בוטל"}
                   </Text>
                 </View>
               ) : (
@@ -273,32 +363,57 @@ export default function VoiceScreen() {
                   onCancel={() => settleProposal(item.id, "cancelled")}
                   onDone={(result, params, refs) => {
                     settleProposal(item.id, "done");
-                    settle(item.transcript, item.proposal.actionId, result, params, refs);
+                    settle(
+                      item.transcript,
+                      item.proposal.actionId,
+                      result,
+                      params,
+                      refs,
+                    );
                   }}
                 />
               );
             case "result":
               return (
                 <View key={item.id} style={[styles.bubble, styles.agentBubble]}>
-                  {item.result.insight ? <Text variant="label">{item.result.insight}</Text> : null}
+                  {item.result.insight ? (
+                    <Text variant="label">{item.result.insight}</Text>
+                  ) : null}
                   <Text>{item.result.message}</Text>
-                  {item.lines ? <Text variant="muted">{item.lines}</Text> : null}
+                  {item.lines ? (
+                    <Text variant="muted">{item.lines}</Text>
+                  ) : null}
                   <View style={styles.chips}>
                     {item.result.href ? (
-                      <Button title="פתיחה" kind="secondary" onPress={() => openHref(item.result.href ?? "")} />
+                      <Button
+                        title="פתיחה"
+                        kind="secondary"
+                        onPress={() => openHref(item.result.href ?? "")}
+                      />
                     ) : null}
                     {item.result.link ? (
                       <Button
                         title="פתיחה בוואטסאפ"
                         kind="secondary"
-                        onPress={() => void Linking.openURL(item.result.link ?? "")}
+                        onPress={() =>
+                          void Linking.openURL(item.result.link ?? "")
+                        }
                       />
                     ) : null}
                     {(item.result.nextSteps ?? []).map((step) => (
-                      <Button key={step.text} title={step.label} kind="ghost" onPress={() => void send(step.text)} />
+                      <Button
+                        key={step.text}
+                        title={step.label}
+                        kind="ghost"
+                        onPress={() => void send(step.text)}
+                      />
                     ))}
                     {item.result.suggestion ? (
-                      <Button title={item.result.suggestion} kind="ghost" onPress={() => void send(item.result.suggestion ?? "")} />
+                      <Button
+                        title={item.result.suggestion}
+                        kind="ghost"
+                        onPress={() => void send(item.result.suggestion ?? "")}
+                      />
                     ) : null}
                   </View>
                 </View>
@@ -316,9 +431,17 @@ export default function VoiceScreen() {
           title={phase === "recording" ? "■ סיום ההקלטה" : "● הקלטה"}
           kind={phase === "recording" ? "danger" : "primary"}
           onPress={() => void toggleRecording()}
-          disabled={phase === "thinking" || phase === "transcribing" || unavailable !== null}
+          disabled={
+            phase === "thinking" ||
+            phase === "transcribing" ||
+            unavailable !== null
+          }
           style={styles.record}
-          accessibilityHint={phase === "recording" ? "עוצר את ההקלטה ושולח לתמלול" : "מתחיל הקלטה"}
+          accessibilityHint={
+            phase === "recording"
+              ? "עוצר את ההקלטה ושולח לתמלול"
+              : "מתחיל הקלטה"
+          }
         />
         <View style={styles.typeRow}>
           <Field
@@ -331,7 +454,12 @@ export default function VoiceScreen() {
             grow
             editable={phase === "idle" && unavailable === null}
           />
-          <Button title="שליחה" kind="secondary" onPress={submitText} disabled={phase !== "idle" || text.trim().length < 2} />
+          <Button
+            title="שליחה"
+            kind="secondary"
+            onPress={submitText}
+            disabled={phase !== "idle" || text.trim().length < 2}
+          />
         </View>
         <Chips
           options={[{ key: "clear", label: "שיחה חדשה" }]}
@@ -346,23 +474,45 @@ export default function VoiceScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: colors.bg },
-  header: { paddingHorizontal: space.lg, paddingTop: space.sm, paddingBottom: space.sm },
-  thread: { padding: space.lg, gap: space.sm, paddingBottom: space.xl },
-  bubble: { borderRadius: radius.lg, padding: space.md, maxWidth: "92%", gap: space.xs },
-  userBubble: { alignSelf: "flex-start", backgroundColor: colors.tabActive },
-  userText: { color: "#ffffff" },
-  agentBubble: { alignSelf: "flex-end", backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
-  danger: { color: colors.danger },
-  chips: { flexDirection: "row", flexWrap: "wrap", gap: space.sm, marginTop: space.xs },
-  composer: {
-    padding: space.md,
-    gap: space.sm,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-    backgroundColor: colors.surface,
-  },
-  record: { minHeight: TOUCH + 12 },
-  typeRow: { flexDirection: "row", alignItems: "flex-end", gap: space.sm },
+const useStyles = makeStyles((t) => {
+  const c = t.colors;
+  return {
+    safe: { flex: 1, backgroundColor: c.bg },
+    header: {
+      paddingHorizontal: space.lg,
+      paddingTop: space.sm,
+      paddingBottom: space.sm,
+    },
+    thread: { padding: space.lg, gap: space.sm, paddingBottom: space.xl },
+    bubble: {
+      borderRadius: radius.lg,
+      padding: space.md,
+      maxWidth: "92%",
+      gap: space.xs,
+    },
+    userBubble: { alignSelf: "flex-start", backgroundColor: c.tabActive },
+    userText: { color: "#ffffff" },
+    agentBubble: {
+      alignSelf: "flex-end",
+      backgroundColor: c.surface,
+      borderWidth: 1,
+      borderColor: c.border,
+    },
+    danger: { color: c.danger },
+    chips: {
+      flexDirection: "row",
+      flexWrap: "wrap",
+      gap: space.sm,
+      marginTop: space.xs,
+    },
+    composer: {
+      padding: space.md,
+      gap: space.sm,
+      borderTopWidth: 1,
+      borderTopColor: c.border,
+      backgroundColor: c.surface,
+    },
+    record: { minHeight: TOUCH + 12 },
+    typeRow: { flexDirection: "row", alignItems: "flex-end", gap: space.sm },
+  };
 });

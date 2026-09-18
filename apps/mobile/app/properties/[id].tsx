@@ -1,5 +1,5 @@
 import { StyleSheet, View } from "react-native";
-import { Stack, useLocalSearchParams, useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { PROPERTY_READINESS_LABELS, propertyAddressOr } from "@metavchim/shared";
 import { apiGet, apiList } from "@/lib/api";
 import { can, useAuth } from "@/lib/auth";
@@ -90,8 +90,8 @@ export default function PropertyScreen() {
   ];
 
   return (
-    <Screen refreshing={query.refreshing} onRefresh={() => void query.refresh()}>
-      <Stack.Screen options={{ title: address }} />
+    <Screen title={address} refreshing={query.refreshing} onRefresh={() => void query.refresh()}>
+      
       <CacheNotice query={query} />
       <Card>
         <View style={styles.headRow}>

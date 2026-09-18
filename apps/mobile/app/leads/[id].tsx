@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Alert, StyleSheet, View } from "react-native";
-import { Stack, useLocalSearchParams, useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { LEAD_STATUS_LABELS, leadWaiting, type LeadStatus } from "@metavchim/shared";
 import { apiGet, apiPatch, apiPost, errorMessage } from "@/lib/api";
 import { can, useAuth } from "@/lib/auth";
@@ -95,8 +95,7 @@ export default function LeadScreen() {
   const waiting = leadWaiting(lead.createdAt, lead.status, now);
 
   return (
-    <Screen refreshing={query.refreshing} onRefresh={() => void query.refresh()}>
-      <Stack.Screen options={{ title: lead.contact.name }} />
+    <Screen title={lead.contact.name} refreshing={query.refreshing} onRefresh={() => void query.refresh()}>
       <CacheNotice query={query} />
       <Card>
         <View style={styles.headRow}>

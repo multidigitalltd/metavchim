@@ -1,5 +1,5 @@
 import { StyleSheet, View } from "react-native";
-import { Stack, useLocalSearchParams, useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { apiGet, apiList } from "@/lib/api";
 import { can, useAuth } from "@/lib/auth";
 import type { BuyerDetail, MatchRow } from "@/lib/dtos";
@@ -87,8 +87,8 @@ export default function BuyerScreen() {
   ];
 
   return (
-    <Screen refreshing={query.refreshing} onRefresh={() => void query.refresh()}>
-      <Stack.Screen options={{ title: b.contact.name }} />
+    <Screen title={b.contact.name} refreshing={query.refreshing} onRefresh={() => void query.refresh()}>
+      
       <CacheNotice query={query} />
       <Card>
         <View style={styles.headRow}>

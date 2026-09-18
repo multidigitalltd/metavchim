@@ -588,6 +588,18 @@ export class AuthService {
     return count;
   }
 
+  /**
+   * ‏תפוגת ה-Session שהטוקן מזהה, או `null` כשאין כזה — למסירת אותו
+   * ‏Session לעוגייה של הדפדפן המוטמע באפליקציה, עם התפוגה המקורית.
+   */
+  async sessionExpiry(token: string): Promise<Date | null> {
+    const row = await this.prisma.session.findUnique({
+      where: { tokenHash: AuthService.hashToken(token) },
+      select: { expiresAt: true },
+    });
+    return row?.expiresAt ?? null;
+  }
+
   /** פענוח עוגיית Session → הקשר בקשה מלא, או null אם לא מאומת. */
   async resolveSession(
     token: string,

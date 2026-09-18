@@ -1,10 +1,19 @@
-import type { PropsWithChildren } from "react";
-import { StyleSheet, View, type ViewProps } from "react-native";
-import { colors, radius, space } from "@/theme";
+import type { PropsWithChildren, ReactNode } from "react";
+import { View, type ViewProps } from "react-native";
+import { radius, space } from "@/theme";
 import { Text } from "./Text";
+import { makeStyles } from "@/lib/theme";
 
-/** ‏כרטיס — משטח לבן, מסגרת, ריפוד. התוכן לעולם אינו נוגע במסגרת. */
-export function Card({ style, children, ...rest }: PropsWithChildren<ViewProps>) {
+/**
+ * ‏כרטיס — `.mv-card`: משטח לבן, מסגרת `line`, פינות 22 והצללה
+ * ‏אחת במנוחה. התוכן לעולם אינו נוגע במסגרת.
+ */
+export function Card({
+  style,
+  children,
+  ...rest
+}: PropsWithChildren<ViewProps>) {
+  const styles = useStyles();
   return (
     <View {...rest} style={[styles.card, style]}>
       {children}
@@ -12,30 +21,57 @@ export function Card({ style, children, ...rest }: PropsWithChildren<ViewProps>)
   );
 }
 
-export function SectionTitle({ children, count }: { children: string; count?: number }) {
+/** ‏כותרת כרטיס/פאנל — `.mv-card-head`: כותרת, מונה, וקישור בקצה. */
+export function SectionTitle({
+  children,
+  count,
+  trailing,
+}: {
+  children: string;
+  count?: number;
+  trailing?: ReactNode;
+}) {
+  const styles = useStyles();
   return (
     <View style={styles.section}>
-      <Text variant="title" accessibilityRole="header">
-        {children}
-      </Text>
-      {count === undefined ? null : <Text variant="muted">{count}</Text>}
+      <View style={styles.sectionMain}>
+        <Text variant="title" accessibilityRole="header">
+          {children}
+        </Text>
+        {count === undefined ? null : (
+          <Text variant="muted" weight={700}>
+            {count}
+          </Text>
+        )}
+      </View>
+      {trailing}
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  card: {
-    backgroundColor: colors.surface,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: space.lg,
-    gap: space.sm,
-  },
-  section: {
-    flexDirection: "row",
-    alignItems: "baseline",
-    justifyContent: "space-between",
-    marginTop: space.sm,
-  },
+const useStyles = makeStyles((t) => {
+  const c = t.colors;
+  return {
+    card: {
+      backgroundColor: c.surface,
+      borderRadius: radius.lg,
+      borderWidth: 1,
+      borderColor: c.border,
+      padding: 18,
+      gap: space.sm,
+      ...t.shadowCard,
+    },
+    section: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      marginTop: space.sm,
+      gap: space.sm,
+    },
+    sectionMain: {
+      flexDirection: "row",
+      alignItems: "baseline",
+      gap: space.sm,
+    },
+  };
 });

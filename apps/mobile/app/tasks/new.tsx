@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { KeyboardAvoidingView, Platform, StyleSheet } from "react-native";
-import { Stack, useLocalSearchParams, useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import {
   TASK_PRIORITIES,
   TASK_PRIORITY_LABELS,
@@ -69,8 +69,8 @@ export default function NewTaskScreen() {
   }
 
   return (
-    <Screen>
-      <Stack.Screen options={{ title: "משימה חדשה" }} />
+    <Screen title="משימה חדשה">
+      
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined}>
         <Card>
           {entity?.label ? <Text variant="muted">על {entity.label}</Text> : null}
