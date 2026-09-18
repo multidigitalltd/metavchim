@@ -8,9 +8,22 @@
 #
 # ‏פוש נייטיב דורש מזהה פרויקט EAS ב-app.json; בלעדיו האפליקציה
 # ‏מדווחת „לא זמין בסביבה הזו” וכל השאר עובד.
+#
+# ‏**רץ גם על כל מיזוג ל-main שנוגע באפליקציה או בחבילה המשותפת**,
+# ‏ומעלה את הקובץ ל-Release מתגלגל בשם `mobile-latest` — כך שהקובץ
+# ‏העדכני תמיד באותה כתובת, בלי לחפש ריצה בלשונית Actions. השרת
+# ‏מתעדכן בנפרד (כפתור „עדכן גרסה” ב-/platform), והנתונים אינם
+# ‏תלויים בזה בכלל: האפליקציה קוראת את אותו מסד דרך אותו API.
 name: Mobile APK
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - apps/mobile/**
+      - packages/shared/**
+      - pnpm-lock.yaml
+      - .github/workflows/mobile-apk.yml
   workflow_dispatch:
     inputs:
       api_url:
@@ -18,10 +31,17 @@ on:
         required: true
         default: "https://app.metavchim.co.il"
 
+# ‏Release אחד מתגלגל — שתי ריצות במקביל היו דורסות זו את זו
+concurrency:
+  group: mobile-apk
+  cancel-in-progress: false
+
 jobs:
   apk:
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
 
@@ -53,7 +73,10 @@ jobs:
       - name: Build release APK
         working-directory: apps/mobile/android
         env:
-          EXPO_PUBLIC_API_URL: ${{ inputs.api_url }}
+          # ‏בריצה אוטומטית (push) אין קלט — הייצור
+          EXPO_PUBLIC_API_URL: ${{ inputs.api_url || 'https://app.metavchim.co.il' }}
+          # ‏מוצג במסך „עוד” — כדי לדעת איזה קומיט מותקן על המכשיר
+          EXPO_PUBLIC_BUILD_SHA: ${{ github.sha }}
         # ‏R8, כיווץ משאבים ואריזת ספריות נייטיב דחוסה — 22MB במקום 110MB.
         run: >-
           ./gradlew assembleRelease --no-daemon
@@ -62,9 +85,27 @@ jobs:
           -Pandroid.enableShrinkResourcesInReleaseBuilds=true
           -Pexpo.useLegacyPackaging=true
 
+      - name: Name the file by commit
+        run: cp apps/mobile/android/app/build/outputs/apk/release/app-release.apk "metavchim-${GITHUB_SHA::7}.apk"
+
       - uses: actions/upload-artifact@v4
         with:
           name: metavchim-${{ github.sha }}
-          path: apps/mobile/android/app/build/outputs/apk/release/app-release.apk
+          path: metavchim-*.apk
           if-no-files-found: error
           retention-days: 14
+
+      # ‏הקובץ העדכני תמיד כאן: Releases ⟵ mobile-latest. התג זז לקומיט
+      # ‏הזה, והקובץ הקודם מוחלף — לא נערמים.
+      - name: Publish as the rolling mobile-latest release
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release delete mobile-latest --cleanup-tag --yes --repo "$GITHUB_REPOSITORY" || true
+          gh release create mobile-latest metavchim-*.apk \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --prerelease \
+            --title "אפליקציה לנייד — APK עדכני (${GITHUB_SHA::7})" \
+            --notes "נבנה אוטומטית מ-main בקומיט ${GITHUB_SHA}. מתקינים ישירות על אנדרואיד (חתום במפתח דיבאג; לא לחנות). כתובת השרת הצרובה: https://app.metavchim.co.il — ניתנת לשינוי ב„הגדרות מתקדמות” במסך ההתחברות."

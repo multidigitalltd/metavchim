@@ -132,6 +132,7 @@ export * from "./logic/recruitment-ad.js";
 export * from "./logic/subscription-offer.js";
 export * from "./logic/number-rental.js";
 export * from "./logic/login-return.js";
+export * from "./logic/mobile-auth.js";
 export * from "./logic/email-card-tag.js";
 export * from "./logic/property-pitch.js";
 export * from "./logic/email-domain.js";

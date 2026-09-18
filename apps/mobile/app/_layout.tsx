@@ -35,7 +35,8 @@ function Gate() {
   const { user, offline, refresh } = useAuth();
   const segments = useSegments();
   const router = useRouter();
-  const inLogin = segments[0] === "login";
+  // ‏גם החזרה מ-Google היא חלק מההתחברות — לא מקפיצים ממנה למסך ההתחברות
+  const inLogin = segments[0] === "login" || segments[0] === "auth";
   const inChangePassword = segments[0] === "change-password";
 
   useEffect(() => {
@@ -89,6 +90,7 @@ function Gate() {
     >
       <Stack.Screen name="index" options={{ headerShown: false }} />
       <Stack.Screen name="login" options={{ headerShown: false }} />
+      <Stack.Screen name="auth/google" options={{ headerShown: false }} />
       <Stack.Screen
         name="change-password"
         options={{ title: "החלפת סיסמה", headerBackVisible: false, gestureEnabled: false }}

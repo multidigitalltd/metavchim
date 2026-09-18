@@ -1,0 +1,163 @@
+import { describe, expect, it, vi } from "vitest";
+import { UnauthorizedException } from "@nestjs/common";
+import { MOBILE_GOOGLE_RETURN_URL } from "@metavchim/shared";
+import type { Request, Response } from "express";
+
+vi.mock("../../config/env", () => ({
+  loadEnv: () => ({ WEB_ORIGIN: "https://app.test", COOKIE_SECURE: true }),
+}));
+
+import { AuthController } from "./auth.controller";
+
+/**
+ * ‎**החזרה מ-Google לאפליקציה לנייד — קוד, לא עוגייה.**
+ *
+ * ‏אותו סבב OAuth משרת את הדפדפן ואת האפליקציה, ונבדל רק בסיום:
+ * ‏לדפדפן עוגיית Session והפניה למסך, לאפליקציה הפניה לסכימה שלה עם
+ * ‏קוד חד-פעמי. הבדיקות כאן נועלות את ההבדל הזה — שסיום לנייד אינו
+ * ‏מנפיק Session ואינו כותב עוגייה, ושהמרת הקוד היא מה שמנפיק אותו.
+ */
+
+const USER = {
+  id: "U",
+  tenantId: "T",
+  name: "n",
+  email: "agent@office.test",
+  role: "agent",
+  mustChangePassword: false,
+  passwordChangedAt: new Date(0),
+};
+
+function controllerWith(over: {
+  identity?: { email: string; emailVerified: boolean };
+  loginError?: Error;
+}) {
+  const issueSession = vi.fn(async () => ({
+    token: "T".repeat(43),
+    expiresAt: new Date("2030-01-01T00:00:00Z"),
+    user: USER,
+  }));
+  const handoff = { issue: vi.fn(async () => "C".repeat(43)), redeem: vi.fn(async () => USER.email) };
+  const auth = {
+    issueSession,
+    loginWithVerifiedEmail: vi.fn(async () => {
+      if (over.loginError) throw over.loginError;
+      return USER;
+    }),
+  };
+  const google = {
+    authorizationUrl: vi.fn(async () => "https://accounts.google.test/auth"),
+    exchangeCode: vi.fn(async () => over.identity ?? { email: USER.email, emailVerified: true }),
+  };
+  const controller = new AuthController(
+    auth as never,
+    {} as never,
+    {} as never,
+    {} as never,
+    google as never,
+    handoff as never,
+    { createFromVerifiedIdentity: vi.fn(async () => null) } as never,
+  );
+  return { controller, auth, handoff, google };
+}
+
+function response() {
+  const res = {
+    cookie: vi.fn(),
+    clearCookie: vi.fn(),
+    redirect: vi.fn(),
+  };
+  return res as unknown as Response & typeof res;
+}
+
+function request(over: { query?: Record<string, string>; cookies?: Record<string, string> }): Request {
+  return {
+    query: over.query ?? {},
+    cookies: over.cookies ?? {},
+    ip: "10.0.0.1",
+    headers: { "user-agent": "metavchim-mobile" },
+  } as unknown as Request;
+}
+
+describe("google/start", () => {
+  it("client=mobile נרשם כמקטע רביעי בעוגייה; בלי — רק state ו-nonce", async () => {
+    const { controller } = controllerWith({});
+    const res = response();
+    await controller.googleStart(request({ query: { client: "mobile" } }), res);
+    const value = (res.cookie.mock.calls[0] as [string, string])[1];
+    expect(value.split(".")).toHaveLength(4);
+    expect(value.endsWith("..mobile")).toBe(true);
+
+    const web = response();
+    await controller.googleStart(request({}), web);
+    expect((web.cookie.mock.calls[0] as [string, string])[1].split(".")).toHaveLength(2);
+  });
+});
+
+describe("google/callback לנייד", () => {
+  const cookies = { mv_oauth: "S.N..mobile" };
+
+  it("מפנה לסכימה של האפליקציה עם קוד — בלי Session ובלי עוגייה", async () => {
+    const { controller, auth, handoff } = controllerWith({});
+    const res = response();
+    await controller.googleCallback(request({ query: { code: "g", state: "S" }, cookies }), res);
+    expect(handoff.issue).toHaveBeenCalledWith(USER.email);
+    expect(res.redirect).toHaveBeenCalledWith(`${MOBILE_GOOGLE_RETURN_URL}?code=${"C".repeat(43)}`);
+    expect(auth.issueSession).not.toHaveBeenCalled();
+    expect(res.cookie).not.toHaveBeenCalled();
+  });
+
+  it("כישלון חוזר לאפליקציה עם אותה סיבה כמו ב-web", async () => {
+    const unknown = controllerWith({
+      loginError: new UnauthorizedException("החשבון לא קיים במערכת — פנו למנהל המשרד"),
+    });
+    const res = response();
+    await unknown.controller.googleCallback(request({ query: { code: "g", state: "S" }, cookies }), res);
+    expect(res.redirect).toHaveBeenCalledWith(`${MOBILE_GOOGLE_RETURN_URL}?error=unknown`);
+
+    const unverified = controllerWith({ identity: { email: USER.email, emailVerified: false } });
+    const res2 = response();
+    await unverified.controller.googleCallback(request({ query: { code: "g", state: "S" }, cookies }), res2);
+    expect(res2.redirect).toHaveBeenCalledWith(`${MOBILE_GOOGLE_RETURN_URL}?error=unverified`);
+
+    const badState = controllerWith({});
+    const res3 = response();
+    await badState.controller.googleCallback(request({ query: { code: "g", state: "X" }, cookies }), res3);
+    expect(res3.redirect).toHaveBeenCalledWith(`${MOBILE_GOOGLE_RETURN_URL}?error=failed`);
+  });
+
+  it("הדפדפן לא השתנה: עוגייה והפניה למסך", async () => {
+    const { controller, auth } = controllerWith({});
+    const res = response();
+    await controller.googleCallback(
+      request({ query: { code: "g", state: "S" }, cookies: { mv_oauth: "S.N" } }),
+      res,
+    );
+    expect(auth.issueSession).toHaveBeenCalledTimes(1);
+    expect(res.cookie).toHaveBeenCalledWith("mv_session", "T".repeat(43), expect.anything());
+    expect(res.redirect).toHaveBeenCalledWith("https://app.test/");
+  });
+});
+
+describe("google/exchange", () => {
+  it("ממיר את הקוד ל-Session בגוף — עם הכתובת מאומתת מחדש מול החשבון", async () => {
+    const { controller, auth, handoff } = controllerWith({});
+    const result = await controller.googleExchange({ code: "C".repeat(43) }, request({}));
+    expect(handoff.redeem).toHaveBeenCalledWith("C".repeat(43));
+    expect(auth.loginWithVerifiedEmail).toHaveBeenCalledWith(USER.email);
+    expect(auth.issueSession).toHaveBeenCalledWith(USER, { ip: "10.0.0.1", userAgent: "metavchim-mobile" });
+    expect(result).toEqual({
+      user: USER,
+      session: { token: "T".repeat(43), expiresAt: "2030-01-01T00:00:00.000Z" },
+    });
+  });
+
+  it("קוד שפג או שכבר נוצל — 401, ובלי Session", async () => {
+    const { controller, auth, handoff } = controllerWith({});
+    handoff.redeem.mockRejectedValueOnce(new UnauthorizedException("פג"));
+    await expect(controller.googleExchange({ code: "C".repeat(43) }, request({}))).rejects.toBeInstanceOf(
+      UnauthorizedException,
+    );
+    expect(auth.issueSession).not.toHaveBeenCalled();
+  });
+});

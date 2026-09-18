@@ -4,6 +4,7 @@ import type { Capability } from "@metavchim/shared";
 import { ApiError, apiGet, apiPost, setUnauthorizedListener } from "./api";
 import { clearCacheScope, setCacheScope } from "./cache";
 import { loadApiOrigin } from "./config";
+import { redeemOnce } from "./google-login";
 import {
   readPushStatus,
   registerDevicePush,
@@ -47,6 +48,11 @@ interface AuthState {
   offline: boolean;
   login(email: string, password: string): Promise<LoginOutcome>;
   verifyOtp(otpToken: string, code: string): Promise<void>;
+  /**
+   * ‏המרת הקוד שחזר מ-Google (ראו `lib/google-login`) ל-Session.
+   * ‏חד-פעמי לכל קוד — קריאה חוזרת מקבלת את אותה תוצאה.
+   */
+  loginWithGoogle(code: string): Promise<void>;
   logout(): Promise<void>;
   refresh(): Promise<void>;
   /**
@@ -189,6 +195,15 @@ export function AuthProvider({ children }: PropsWithChildren) {
     [adopt],
   );
 
+  const loginWithGoogle = useCallback(
+    (code: string) =>
+      redeemOnce(code, async () => {
+        const result = await apiPost<LoginResponse>("/auth/google/exchange", { code });
+        await adopt(result);
+      }),
+    [adopt],
+  );
+
   const logout = useCallback(async () => {
     // המכשיר יוצא מרשימת הפוש לפני שה-Session נסגר — אחרת ההסרה
     // כבר אינה מורשית, והמכשיר ממשיך לקבל התראות של חשבון שהתנתק
@@ -218,13 +233,14 @@ export function AuthProvider({ children }: PropsWithChildren) {
       offline,
       login,
       verifyOtp,
+      loginWithGoogle,
       logout,
       refresh,
       changePassword,
       pushStatus,
       enablePush,
     }),
-    [user, offline, login, verifyOtp, logout, refresh, changePassword, pushStatus, enablePush],
+    [user, offline, login, verifyOtp, loginWithGoogle, logout, refresh, changePassword, pushStatus, enablePush],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

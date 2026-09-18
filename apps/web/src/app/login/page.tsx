@@ -4,7 +4,7 @@ import { Suspense, useEffect, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@metavchim/ui";
-import { afterLoginTarget, withLoginReturn } from "@metavchim/shared";
+import { afterLoginTarget, googleLoginErrorText, withLoginReturn } from "@metavchim/shared";
 import { API_BASE, apiGet, apiPost, ApiError } from "@/lib/api";
 import { resyncA11yForUser } from "@/lib/a11y-sync";
 import { clearSessionCache } from "@/lib/session-cache";
@@ -21,14 +21,6 @@ type LoginResponse =
   | { user: { mustChangePassword: boolean } }
   | { otpRequired: true; otpToken: string };
 
-/** שגיאות חזרה מ-Google — הודעה מדויקת בלי לחשוף פרטי מערכת. */
-const GOOGLE_ERRORS: Record<string, string> = {
-  unknown: "החשבון לא קיים במערכת — בקשו ממנהל המשרד להוסיף אתכם",
-  unverified: "כתובת האימייל אינה מאומתת אצל Google",
-  /* תקרת פתיחת החשבונות מהכתובת הזו — חסימה לזמן קצוב, לא תקלה */
-  busy: "נפתחו כבר כמה חשבונות מהכתובת הזו — נסו שוב בעוד שעה או פנו אלינו",
-  failed: "ההתחברות עם Google נכשלה — נסו שוב או התחברו עם סיסמה",
-};
 
 /*
  * לאן ממשיכים אחרי התחברות — `afterLoginTarget` ורשימת ההיתר שלה
@@ -43,7 +35,7 @@ function LoginForm() {
   const nextTarget = afterLoginTarget(params.get("next"));
   const googleError = params.get("googleError");
   const [error, setError] = useState<string | null>(
-    googleError ? (GOOGLE_ERRORS[googleError] ?? GOOGLE_ERRORS["failed"]!) : null,
+    googleError ? googleLoginErrorText(googleError) : null,
   );
   const [submitting, setSubmitting] = useState(false);
   const [otpToken, setOtpToken] = useState<string | null>(null);
