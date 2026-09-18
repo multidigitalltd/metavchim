@@ -31,22 +31,25 @@ on:
         required: true
         default: "https://app.metavchim.co.il"
 
-# ‏Release אחד מתגלגל — שתי ריצות במקביל היו דורסות זו את זו. הריצה
-# ‏החדשה מבטלת את הקודמת: הקומיט האחרון הוא מה שרוצים ב-Release, וריצה
-# ‏שנתקעה (ראו למטה) לא צריכה לחסום את זו שאחריה עד התקרה.
-concurrency:
-  group: mobile-apk
-  cancel-in-progress: true
+# ‏הבידוד בין ריצות יושב על המשרות ולא על ה-workflow (ראו למטה): הבנייה
+# ‏ניתנת לביטול בידי ריצה חדשה, הפרסום — לא.
 
 jobs:
   apk:
     runs-on: ubuntu-latest
+    # ‏ריצת push חדשה מבטלת בנייה קודמת: הקומיט האחרון הוא מה שרוצים
+    # ‏ב-Release, וריצה תקועה לא חוסמת את הבאה עד התקרה. ריצה ידנית
+    # ‏(כתובת API אחרת) יושבת בקבוצה משלה — היא לא מבטלת בנייה של main
+    # ‏ואינה מתבטלת בגללה (ביקורת Codex).
+    concurrency:
+      group: ${{ github.event_name == 'push' && 'mobile-apk' || 'mobile-apk-manual' }}
+      cancel-in-progress: ${{ github.event_name == 'push' }}
     # ‏ה-C++ של React Native (worklets, reanimated) נבנה לכל ארכיטקטורה
     # ‏מחדש — ולכן ארכיטקטורה אחת ומטמון Gradle. עם זיכרון מספיק (למטה)
     # ‏הבנייה כולה היא כ-15–25 דקות; התקרה משאירה מרווח ולא יותר.
     timeout-minutes: 60
     permissions:
-      contents: write
+      contents: read
     steps:
       - uses: actions/checkout@v4
 
@@ -119,10 +122,27 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  # ‏הפרסום במשרה נפרדת שאינה מתבטלת: `gh release delete` ואז `create`
+  # ‏אינם אטומיים, וביטול באמצע היה משאיר את `mobile-latest` מחוק עד
+  # ‏שריצה הבאה מצליחה — אם היא מצליחה (ביקורת Codex). קבוצה משלה,
+  # ‏בלי ביטול; ריצות ממתינות זו לזו.
+  publish:
+    if: github.event_name == 'push'
+    needs: apk
+    runs-on: ubuntu-latest
+    concurrency:
+      group: mobile-apk-publish
+      cancel-in-progress: false
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: metavchim-${{ github.sha }}
+
       # ‏הקובץ העדכני תמיד כאן: Releases ⟵ mobile-latest. התג זז לקומיט
       # ‏הזה, והקובץ הקודם מוחלף — לא נערמים.
       - name: Publish as the rolling mobile-latest release
-        if: github.event_name == 'push'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
