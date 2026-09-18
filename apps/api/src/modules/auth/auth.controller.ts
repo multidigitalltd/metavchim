@@ -368,10 +368,15 @@ export class AuthController {
   @Post("web-session")
   @Throttle({ default: { ttl: 60_000, limit: 30 } })
   @HttpCode(200)
-  async webSession(@Req() req: Request): Promise<{ code: string }> {
+  async webSession(@Req() req: Request): Promise<{ code: string; webOrigin: string }> {
     const token = sessionTokenOf(req);
     if (token === null) throw new UnauthorizedException();
-    return { code: await this.handoff.issueWebSession(token) };
+    /*
+     * ‏גם המקור של ה-web: בייצור הוא זהה ל-API (Caddy), אבל בפיתוח
+     * ‏ה-API ב-3001 וה-web ב-3000 — והאפליקציה מכירה רק את ה-API.
+     * ‏הנחיתה מפנה ל-`WEB_ORIGIN`, וה-WebView חייב לדעת שזה „שלנו”.
+     */
+    return { code: await this.handoff.issueWebSession(token), webOrigin: loadEnv().WEB_ORIGIN };
   }
 
   /**

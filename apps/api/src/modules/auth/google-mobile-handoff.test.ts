@@ -181,7 +181,7 @@ describe("web-session — ה-Session של האפליקציה אל הדפדפן �
     const { controller, handoff } = controllerWith({});
     const result = await controller.webSession(request({ bearer: "T".repeat(43) }));
     expect(handoff.issueWebSession).toHaveBeenCalledWith("T".repeat(43));
-    expect(result).toEqual({ code: "W".repeat(43) });
+    expect(result).toEqual({ code: "W".repeat(43), webOrigin: "https://app.test" });
   });
 
   it("הנחיתה שמה את אותו טוקן בעוגייה, מסמנת embedded, ומפנה לנתיב", async () => {

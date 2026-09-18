@@ -25,13 +25,17 @@ import { colors } from "@/theme";
  * ‏של ה-WebView ומסכים נוספים נפתחים ישירות.
  */
 
-/** ‏למי כבר נמסר Session לדפדפן המוטמע — מזהה המשתמש, או `null`. */
-let handedOffFor: string | null = null;
+/**
+ * ‏למי כבר נמסר Session לדפדפן המוטמע — מזהה המשתמש, ומקור ה-web שהשרת
+ * ‏החזיר. בייצור מקור ה-web הוא מקור ה-API (Caddy), אבל בפיתוח ה-API
+ * ‏ב-3001 וה-web ב-3000 — והאפליקציה מכירה מעצמה רק את ה-API.
+ */
+let handedOff: { userId: string; webOrigin: string } | null = null;
 
-/** ‏קישורים שיוצאים מהאפליקציה: חיוג, וואטסאפ, מייל, וכל מארח אחר. */
-function isExternal(url: string, origin: string): boolean {
+/** ‏קישורים שיוצאים מהאפליקציה: חיוג, וואטסאפ, מייל, וכל מארח שאינו שלנו. */
+function isExternal(url: string, origins: readonly string[]): boolean {
   if (url.startsWith("about:")) return false;
-  return !url.startsWith(`${origin}/`) && url !== origin;
+  return !origins.some((origin) => url === origin || url.startsWith(`${origin}/`));
 }
 
 export default function WebScreen() {
@@ -39,34 +43,45 @@ export default function WebScreen() {
   const { user, refresh } = useAuth();
   const { refreshCounts } = useShell();
   const origin = apiOrigin();
+  const [webOrigin, setWebOrigin] = useState<string>(handedOff?.webOrigin ?? origin);
   const webview = useRef<WebView>(null);
   const [initialUrl, setInitialUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [canGoBack, setCanGoBack] = useState(false);
   const [attempt, setAttempt] = useState(0);
 
-  // ‏הנתיב במערכת: המקטעים אחרי `/web`, והפרמטרים הנוספים כמחרוזת שאילתה
+  /*
+   * ‏הנתיב במערכת: המקטעים אחרי `/web`, הפרמטרים הנוספים כמחרוזת שאילתה,
+   * ‏והעוגן — ש-expo-router חושף כפרמטר בשם `#` — חוזר למקומו בסוף,
+   * ‏אחרי השאילתה (`/settings#virtual-numbers`, ולא `?%23=…`).
+   */
   const segments = Array.isArray(params.path) ? params.path : params.path ? [params.path] : [];
   const pathname = segments.length === 1 && segments[0] === "home" ? "/" : `/${segments.join("/")}`;
   const query = Object.entries(params)
-    .filter(([key, value]) => key !== "path" && typeof value === "string")
+    .filter(([key, value]) => key !== "path" && key !== "#" && typeof value === "string")
     .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value as string)}`)
     .join("&");
-  const target = `${pathname}${query ? `?${query}` : ""}`;
+  const hash = typeof params["#"] === "string" && params["#"] !== "" ? `#${params["#"]}` : "";
+  const target = `${pathname}${query ? `?${query}` : ""}${hash}`;
   const title = webScreenTitle(pathname);
 
   useEffect(() => {
     let cancelled = false;
     setError(null);
     setInitialUrl(null);
-    if (user && handedOffFor === user.id) {
-      setInitialUrl(`${origin}${target}`);
+    if (user && handedOff?.userId === user.id) {
+      setWebOrigin(handedOff.webOrigin);
+      setInitialUrl(`${handedOff.webOrigin}${target}`);
       return;
     }
-    apiPost<{ code: string }>("/auth/web-session", {})
-      .then(({ code }) => {
+    apiPost<{ code: string; webOrigin?: string }>("/auth/web-session", {})
+      .then(({ code, webOrigin: served }) => {
         if (cancelled) return;
-        if (user) handedOffFor = user.id;
+        // ‏שרת ישן שאינו מחזיר מקור — הנחת הייצור: אותו מקור כמו ה-API
+        const web = (served ?? origin).replace(/\/+$/u, "");
+        if (user) handedOff = { userId: user.id, webOrigin: web };
+        setWebOrigin(web);
+        // ‏הנחיתה היא נתיב של ה-API; היא מפנה משם למקור של ה-web
         setInitialUrl(`${origin}/api/v1/auth/web-session/${code}?next=${encodeURIComponent(target)}`);
       })
       .catch((err: unknown) => {
@@ -97,15 +112,15 @@ export default function WebScreen() {
        * ‏המסך, ביטול ממכשיר אחר, תפוגה). האפליקציה בודקת בעצמה:
        * ‏`refresh` מקבל 401 ומנקה, והשומר מציג את מסך ההתחברות שלה.
        */
-      if (state.url.startsWith(`${origin}/login`)) {
-        handedOffFor = null;
+      if (state.url.startsWith(`${webOrigin}/login`)) {
+        handedOff = null;
         void refresh();
         return;
       }
       // ‏פעולה במסך web (קליטת ליד, סימון משימה) — התגים במגירה מתעדכנים
       if (!state.loading) refreshCounts();
     },
-    [origin, refresh, refreshCounts],
+    [webOrigin, refresh, refreshCounts],
   );
 
   return (
@@ -134,7 +149,7 @@ export default function WebScreen() {
           )}
           onNavigationStateChange={onNavigation}
           onShouldStartLoadWithRequest={(request) => {
-            if (isExternal(request.url, origin)) {
+            if (isExternal(request.url, [origin, webOrigin])) {
               void Linking.openURL(request.url).catch(() => undefined);
               return false;
             }
