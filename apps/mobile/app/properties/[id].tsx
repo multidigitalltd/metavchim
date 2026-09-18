@@ -1,6 +1,9 @@
 import { StyleSheet, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { PROPERTY_READINESS_LABELS, propertyAddressOr } from "@metavchim/shared";
+import {
+  PROPERTY_READINESS_LABELS,
+  propertyAddressOr,
+} from "@metavchim/shared";
 import { apiGet, apiList } from "@/lib/api";
 import { can, useAuth } from "@/lib/auth";
 import type { MatchRow, PropertyDetail } from "@/lib/dtos";
@@ -47,23 +50,36 @@ export default function PropertyScreen() {
   const { user } = useAuth();
   const canTasks = can(user, "calendar.manage");
   const canEdit = can(user, "properties.edit");
-  const query = useQuery(async () => {
-    const property = await apiGet<PropertyDetail>(`/properties/${id}`);
-    // ההתאמות נטענות בנפרד: כישלון שלהן אינו מסתיר את הנכס
-    const matches = await apiGet<PropertyMatch[]>(`/properties/${id}/matches`)
-      .then((rows) => apiList(rows, "matches"))
-      .catch(() => null);
-    return { property, matches };
-  }, [id], { cacheKey: `property:${id}` });
+  const query = useQuery(
+    async () => {
+      const property = await apiGet<PropertyDetail>(`/properties/${id}`);
+      // ההתאמות נטענות בנפרד: כישלון שלהן אינו מסתיר את הנכס
+      const matches = await apiGet<PropertyMatch[]>(`/properties/${id}/matches`)
+        .then((rows) => apiList(rows, "matches"))
+        .catch(() => null);
+      return { property, matches };
+    },
+    [id],
+    { cacheKey: `property:${id}` },
+  );
 
   if (query.loading && query.data === null) return <Loading />;
   if (query.data === null) {
-    return <ErrorState message={query.error ?? "הנכס לא נטען"} onRetry={query.reload} />;
+    return (
+      <ErrorState
+        message={query.error ?? "הנכס לא נטען"}
+        onRetry={query.reload}
+      />
+    );
   }
 
   const { property: p, matches } = query.data;
   const address = propertyAddressOr(
-    { street: p.street, houseNumber: p.houseNumber, neighborhood: p.neighborhood },
+    {
+      street: p.street,
+      houseNumber: p.houseNumber,
+      neighborhood: p.neighborhood,
+    },
     p.city ?? "ללא כתובת",
   );
   const facts: [string, string][] = [
@@ -73,7 +89,11 @@ export default function PropertyScreen() {
     ["שטח", p.areaSqm === undefined ? "" : `${p.areaSqm} מ״ר`],
     [
       "קומה",
-      p.floor === undefined ? "" : p.totalFloors === undefined ? `${p.floor}` : `${p.floor} מתוך ${p.totalFloors}`,
+      p.floor === undefined
+        ? ""
+        : p.totalFloors === undefined
+          ? `${p.floor}`
+          : `${p.floor} מתוך ${p.totalFloors}`,
     ],
     [
       "יש",
@@ -90,18 +110,25 @@ export default function PropertyScreen() {
   ];
 
   return (
-    <Screen title={address} refreshing={query.refreshing} onRefresh={() => void query.refresh()}>
-      
+    <Screen
+      title={address}
+      refreshing={query.refreshing}
+      onRefresh={() => void query.refresh()}
+    >
       <CacheNotice query={query} />
       <Card>
         <View style={styles.headRow}>
           <Text variant="heading" style={styles.grow}>
             {address}
           </Text>
-          <Pill tone={propertyStatusTone(p.status)}>{propertyStatusLabel(p.status)}</Pill>
+          <Pill tone={propertyStatusTone(p.status)}>
+            {propertyStatusLabel(p.status)}
+          </Pill>
         </View>
         {p.city ? <Text variant="muted">{p.city}</Text> : null}
-        <Text variant="title">{formatPrice(p.priceAgorot) || "מחיר לא צוין"}</Text>
+        <Text variant="title">
+          {formatPrice(p.priceAgorot) || "מחיר לא צוין"}
+        </Text>
         {p.marketingTitle ? <Text>{p.marketingTitle}</Text> : null}
         {p.agentName ? <Text variant="small">מטפל: {p.agentName}</Text> : null}
         {canEdit ? (
@@ -118,7 +145,23 @@ export default function PropertyScreen() {
             onPress={() =>
               router.push({
                 pathname: "/tasks/new",
-                params: { entityType: "property", entityId: p.id, label: address },
+                params: {
+                  entityType: "property",
+                  entityId: p.id,
+                  label: address,
+                },
+              })
+            }
+          />
+        ) : null}
+        {canTasks ? (
+          <Button
+            title="קביעת סיור"
+            kind="ghost"
+            onPress={() =>
+              router.push({
+                pathname: "/calendar/new",
+                params: { propertyId: p.id, where: address, kind: "viewing" },
               })
             }
           />
@@ -140,7 +183,8 @@ export default function PropertyScreen() {
         <Card>
           <Text variant="label">מוכנות {p.readinessScore}%</Text>
           <Text variant="muted">
-            חסר: {p.missingFields.map(readinessLabel).join(", ") || "פרטים"}. ההשלמה — מהמחשב.
+            חסר: {p.missingFields.map(readinessLabel).join(", ") || "פרטים"}.
+            ההשלמה — מהמחשב.
           </Text>
         </Card>
       ) : null}
@@ -151,7 +195,10 @@ export default function PropertyScreen() {
           <Card>
             <Text variant="title">{p.ownerContact.name}</Text>
             <Text variant="muted">{p.ownerContact.phone}</Text>
-            <ContactActions phone={p.ownerContact.phone} name={p.ownerContact.name} />
+            <ContactActions
+              phone={p.ownerContact.phone}
+              name={p.ownerContact.name}
+            />
           </Card>
         </>
       ) : p.ownerRedacted ? (
@@ -170,7 +217,9 @@ export default function PropertyScreen() {
       <SectionTitle count={matches?.length}>לקוחות מתאימים</SectionTitle>
       {matches === null ? (
         <Card>
-          <Text variant="muted">ההתאמות לא נטענו — משכו למטה כדי לנסות שוב.</Text>
+          <Text variant="muted">
+            ההתאמות לא נטענו — משכו למטה כדי לנסות שוב.
+          </Text>
         </Card>
       ) : matches.length === 0 ? (
         <Card>
@@ -187,7 +236,9 @@ export default function PropertyScreen() {
               <>
                 <Pill tone="primary">{`${Math.round(m.score)}%`}</Pill>
                 {m.buyerMaturity ? (
-                  <Pill tone={maturityTone(m.buyerMaturity)}>{maturityLabel(m.buyerMaturity)}</Pill>
+                  <Pill tone={maturityTone(m.buyerMaturity)}>
+                    {maturityLabel(m.buyerMaturity)}
+                  </Pill>
                 ) : null}
               </>
             }
@@ -201,6 +252,10 @@ export default function PropertyScreen() {
 const styles = StyleSheet.create({
   headRow: { flexDirection: "row", alignItems: "flex-start", gap: space.sm },
   grow: { flex: 1 },
-  factRow: { flexDirection: "row", justifyContent: "space-between", gap: space.md },
+  factRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    gap: space.md,
+  },
   factValue: { flex: 1, textAlign: "left" },
 });

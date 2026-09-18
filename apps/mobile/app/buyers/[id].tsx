@@ -43,17 +43,26 @@ export default function BuyerScreen() {
   const { user } = useAuth();
   const canTasks = can(user, "calendar.manage");
   const canEdit = can(user, "buyers.edit");
-  const query = useQuery(async () => {
-    const buyer = await apiGet<BuyerDetail>(`/buyers/${id}`);
-    const matches = await apiGet<MatchRow[]>(`/buyers/${id}/matches`)
-      .then((rows) => apiList(rows, "matches"))
-      .catch(() => null);
-    return { buyer, matches };
-  }, [id], { cacheKey: `buyer:${id}` });
+  const query = useQuery(
+    async () => {
+      const buyer = await apiGet<BuyerDetail>(`/buyers/${id}`);
+      const matches = await apiGet<MatchRow[]>(`/buyers/${id}/matches`)
+        .then((rows) => apiList(rows, "matches"))
+        .catch(() => null);
+      return { buyer, matches };
+    },
+    [id],
+    { cacheKey: `buyer:${id}` },
+  );
 
   if (query.loading && query.data === null) return <Loading />;
   if (query.data === null) {
-    return <ErrorState message={query.error ?? "הלקוח לא נטען"} onRetry={query.reload} />;
+    return (
+      <ErrorState
+        message={query.error ?? "הלקוח לא נטען"}
+        onRetry={query.reload}
+      />
+    );
   }
 
   const { buyer: b, matches } = query.data;
@@ -87,18 +96,27 @@ export default function BuyerScreen() {
   ];
 
   return (
-    <Screen title={b.contact.name} refreshing={query.refreshing} onRefresh={() => void query.refresh()}>
-      
+    <Screen
+      title={b.contact.name}
+      refreshing={query.refreshing}
+      onRefresh={() => void query.refresh()}
+    >
       <CacheNotice query={query} />
       <Card>
         <View style={styles.headRow}>
           <Text variant="heading" style={styles.grow}>
             {b.contact.name}
           </Text>
-          <Pill tone={maturityTone(b.maturity)}>{maturityLabel(b.maturity)}</Pill>
+          <Pill tone={maturityTone(b.maturity)}>
+            {maturityLabel(b.maturity)}
+          </Pill>
         </View>
         <Text variant="muted">
-          {[b.contact.phone, buyerSourceLabel(b.source), b.agentName ? `מטפל: ${b.agentName}` : null]
+          {[
+            b.contact.phone,
+            buyerSourceLabel(b.source),
+            b.agentName ? `מטפל: ${b.agentName}` : null,
+          ]
             .filter(Boolean)
             .join(" · ")}
         </Text>
@@ -117,7 +135,27 @@ export default function BuyerScreen() {
             onPress={() =>
               router.push({
                 pathname: "/tasks/new",
-                params: { entityType: "buyer", entityId: b.id, label: b.contact.name },
+                params: {
+                  entityType: "buyer",
+                  entityId: b.id,
+                  label: b.contact.name,
+                },
+              })
+            }
+          />
+        ) : null}
+        {canTasks ? (
+          <Button
+            title="קביעת פגישה"
+            kind="ghost"
+            onPress={() =>
+              router.push({
+                pathname: "/calendar/new",
+                params: {
+                  buyerId: b.id,
+                  label: b.contact.name,
+                  phone: b.contact.phone,
+                },
               })
             }
           />
@@ -139,7 +177,9 @@ export default function BuyerScreen() {
       <SectionTitle count={matches?.length}>נכסים מתאימים</SectionTitle>
       {matches === null ? (
         <Card>
-          <Text variant="muted">ההתאמות לא נטענו — משכו למטה כדי לנסות שוב.</Text>
+          <Text variant="muted">
+            ההתאמות לא נטענו — משכו למטה כדי לנסות שוב.
+          </Text>
         </Card>
       ) : matches.length === 0 ? (
         <Card>
@@ -150,12 +190,16 @@ export default function BuyerScreen() {
           <Row
             key={m.id}
             title={m.property.title ?? m.property.address}
-            subtitle={[m.property.address, m.explanation].filter(Boolean).join(" · ")}
+            subtitle={[m.property.address, m.explanation]
+              .filter(Boolean)
+              .join(" · ")}
             onPress={() => router.push(`/properties/${m.propertyId}`)}
             trailing={
               <>
                 <Pill tone="primary">{`${Math.round(m.score)}%`}</Pill>
-                <Text variant="small">{formatPrice(m.property.priceAgorot)}</Text>
+                <Text variant="small">
+                  {formatPrice(m.property.priceAgorot)}
+                </Text>
               </>
             }
           />
@@ -168,6 +212,10 @@ export default function BuyerScreen() {
 const styles = StyleSheet.create({
   headRow: { flexDirection: "row", alignItems: "flex-start", gap: space.sm },
   grow: { flex: 1 },
-  factRow: { flexDirection: "row", justifyContent: "space-between", gap: space.md },
+  factRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    gap: space.md,
+  },
   factValue: { flex: 1, textAlign: "left" },
 });

@@ -14,8 +14,8 @@ Expo (React Native) בתוך המונוריפו. צרכן של אותו API כמ
 | נכסים · נכס | פרטים, מוכנות ומה חסר, בעל הנכס, לקוחות מתאימים, משימה |
 | לקוחות · לקוח | דרישות ומימון, נכסים מתאימים, משימה |
 | משימות · משימה חדשה | הדליים של לוח המשימות (באיחור, היום, השבוע…), שלי / כל המשרד, פתוחות / בוצעו, „בוצע” בלחיצה; מועד מהיר בשעון ישראל, עדיפות, קישור לישות |
-| יומן | לפי ימים עם התאריך העברי; השבוע / השבוע הבא / לתיעוד (סיורים שהתקיימו בלי תוצאה); „התקיימה”, ביטול; פגישה חדשה ועריכה — במסך הפגישה של המערכת |
-| התאמות | לפי נכס ← קונים או לפי קונה ← נכסים, סף התאמה, ציון והסבר, „לא רלוונטי” עם סיבה, הצעה בוואטסאפ; `?property=` מכרטיס הנכס |
+| יומן · פגישה חדשה · פגישה | לפי ימים עם התאריך העברי; השבוע / השבוע הבא / לתיעוד (סיורים שהתקיימו בלי תוצאה); פגישה חדשה בלי בורר תאריכים (יום ושעה בשעון ישראל, משך, קישור מהכרטיס, הודעת וואטסאפ ללקוח מוכנה); מסך הפגישה: תיעוד תוצאה ומשוב למוכר לסיור, דחייה, ביטול, קפיצה לליד/לקונה/לנכס; העלאת הקלטה ועריכת כותרת — במערכת |
+| התאמות | לפי נכס ← קונים או לפי קונה ← נכסים, סף התאמה, ציון והסבר, „לא רלוונטי” עם סיבה, הצעה בוואטסאפ או במייל; `?property=` מכרטיס הנכס |
 | התראות · Push | רשימה, סימון כנקרא; התראות פוש למכשיר (Expo) עם ניווט לישות |
 | האפליקציה | מי מחובר, הפרופיל (במערכת), **ערכת נושא** (בהיר / כהה / אוטומטי), התראות הפוש, התנתקות, גרסה |
 | **כל שאר המערכת** | דשבורד (מסך הבית), שיחות, הצעות, תיבת מייל, שת"פים, דוחות, פורום, המנטור, ניהול משרד, הקמה, פלטפורמה — **ה-web עצמו, מוטמע** באפליקציה (ראו „איך זה מתחבר”) |
@@ -151,12 +151,13 @@ APNs key בחשבון ה-EAS (מוגדר ב-`eas credentials`), ועבור Andro
 app/                 ניתוב לפי קבצים (expo-router)
   _layout.tsx        RTL, גופנים, AuthProvider, ShellProvider, שומר הכניסה, המגירה, לחיצה על התראה
   login.tsx  forgot-password.tsx  change-password.tsx  auth/google.tsx
-  today.tsx  voice.tsx  notifications.tsx  app-settings.tsx  calendar.tsx  matches.tsx
+  today.tsx  voice.tsx  notifications.tsx  app-settings.tsx  matches.tsx
   leads/  properties/  buyers/   index (רשימה) · [id] · new / edit
   tasks/  index (הלוח) · new
+  calendar.tsx  calendar/  new · [id] (תיעוד, דחייה, ביטול)
   web/[...path].tsx  כל מסך של המערכת — ה-web מוטמע
 src/lib/             api, auth, google-login, session-store, push, cache, use-query, nav, shell, theme, fonts, recorder, agent, format, labels, dtos
-src/components/      Text, Screen (TopBar), Drawer, AuthShell, Logo, Card, Pill, Button, Field, Row, Chips, States, ProposalCard, CacheNotice
+src/components/      Text, Screen (TopBar), Drawer, AuthShell, Logo, Card, Pill, Button, Field, Row, Chips, WhenPicker, States, ProposalCard, CacheNotice
 src/theme.ts         טוקני העיצוב — עותק של globals.css בשתי הערכות (נאכף ב-verify:theme), המעטפת הכהה, סולם הטיפוגרפיה
 src/lib/theme.tsx    ThemeProvider (בהיר/כהה/אוטומטי), useTheme/useColors, makeStyles, הגשר לערכה ב-WebView
 assets/fonts/        Almoni — המרה של woff2 מה-web ל-ttf
@@ -171,7 +172,6 @@ scripts/             make-icons.mjs (האייקונים מלוגו המערכת,
 
 ## מה עוד לא
 
-- **מסכים נייטיביים נוספים** — כל מה שאינו נייטיבי מוצג מה-web ועובד. פגישה חדשה,
-  דחייה ותיעוד תוצאה של סיור נפתחים במסך הפגישה של המערכת (מוטמע); הצעה במייל —
-  ממסך ההצעות של המערכת.
+- **מסכים נייטיביים נוספים** — כל מה שאינו נייטיבי מוצג מה-web ועובד. העלאת הקלטה
+  לפגישה ועריכת הכותרת/ההערות שלה — במסך העריכה של המערכת (מוטמע).
 - הורדת קבצים מתוך מסך web מוטמע (ייצוא, PDF) נפתחת בדפדפן המכשיר.

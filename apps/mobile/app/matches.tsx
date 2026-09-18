@@ -111,7 +111,7 @@ function groupMatches(
  * ‏ההתאמות — מסך 4 באפיון, כמו `/matches` ב-web: לפי נכס ← קונים או
  * ‏לפי קונה ← נכסים, סף התאמה, ציון והסבר לכל שורה. „לא רלוונטי”
  * ‏עם סיבה (זה מה שמכייל את המשקלים), ו„הצעה בוואטסאפ” — יצירת
- * ‏ההצעה ופתיחת wa.me עם ההודעה המוכנה, כמו ב-web. „‎?property=”
+ * ‏ההצעה ופתיחת wa.me עם ההודעה המוכנה, או במייל — כמו ב-web. „‎?property=”
  * ‏מגיע מ„N קונים מתאימים” בכרטיס הנכס.
  */
 export default function MatchesScreen() {
@@ -169,6 +169,27 @@ export default function MatchesScreen() {
     const offer = await apiPost<OfferInfo>("/offers", { matchId: match.id });
     setOffers((prev) => ({ ...prev, [match.id]: offer }));
     return offer;
+  }
+
+  async function sendEmail(match: MatchRow) {
+    setBusy(match.id);
+    try {
+      const offer = await ensureOffer(match);
+      const { sentTo } = await apiPost<{ sentTo: string }>(
+        `/offers/${offer.id}/email`,
+        {},
+      );
+      Alert.alert("ההצעה נשלחה במייל", `נשלחה אל ${sentTo}`);
+    } catch (err: unknown) {
+      Alert.alert(
+        "ההצעה לא נשלחה",
+        err instanceof ApiError && err.status === 403
+          ? "אין הרשאה לשלוח הצעות מהחשבון הזה."
+          : errorMessage(err, "לקונה אין כתובת מייל, או שהשליחה נכשלה"),
+      );
+    } finally {
+      setBusy(null);
+    }
   }
 
   async function sendWhatsApp(match: MatchRow) {
@@ -287,7 +308,7 @@ export default function MatchesScreen() {
                   <Pill tone={scoreTone(m.score)}>{`${m.score}%`}</Pill>
                 }
               >
-                {canManage || canWhatsApp ? (
+                {canManage || canOffer ? (
                   <View style={styles.actions}>
                     {canWhatsApp ? (
                       <Button
@@ -299,6 +320,17 @@ export default function MatchesScreen() {
                         busy={busy === m.id}
                         onPress={() => void sendWhatsApp(m)}
                         accessibilityHint={`יוצר הצעה ל${title} ופותח את וואטסאפ עם ההודעה`}
+                      />
+                    ) : null}
+                    {canOffer ? (
+                      <Button
+                        title="במייל"
+                        kind="ghost"
+                        small
+                        busy={busy === m.id && !canWhatsApp}
+                        disabled={busy === m.id}
+                        onPress={() => void sendEmail(m)}
+                        accessibilityHint={`יוצר הצעה ל${title} ושולח אותה במייל לקונה`}
                       />
                     ) : null}
                     {canManage ? (
