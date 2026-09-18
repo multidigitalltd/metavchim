@@ -60,7 +60,8 @@ function Gate({ fontsReady }: { fontsReady: boolean }) {
     } else if (user.billingOnly === true) {
       if (!inBilling) router.replace("/web/settings/billing");
     } else if (inAuth || inChangePassword) {
-      router.replace("/today");
+      // ‏מסך הבית — הדשבורד של המערכת, כמו ב-web
+      router.replace("/web/home");
     }
   }, [fontsReady, user, offline, inAuth, inChangePassword, inBilling, router]);
 

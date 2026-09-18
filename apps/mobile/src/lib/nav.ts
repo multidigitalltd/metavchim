@@ -52,6 +52,7 @@ export interface NavItem {
 }
 
 export const NAV_ITEMS: readonly NavItem[] = [
+  /* ‏מסך הבית של האפליקציה — הדשבורד של המערכת (בקשת המשתמש) */
   { href: "/", label: "דשבורד", icon: "grid-outline" },
   { href: "/today", label: "היום", icon: "sunny-outline", native: "/today" },
   { href: "/properties", label: "נכסים", icon: "home-outline", native: "/properties", modules: ["properties"], count: (s) => s.properties },

@@ -124,7 +124,7 @@ export default function WebScreen() {
   );
 
   return (
-    <Screen title={title} scroll={false} flush>
+    <Screen title={title} scroll={false} flush root={pathname === "/"}>
       {error ? (
         <ErrorState message={error} onRetry={() => setAttempt((n) => n + 1)} />
       ) : initialUrl === null ? (
