@@ -17,7 +17,14 @@ import {
 import { Throttle } from "@nestjs/throttler";
 import type { Request, Response } from "express";
 import { z } from "zod";
-import { afterLoginTarget, IdSchema, safeLoginReturnPath } from "@metavchim/shared";
+import {
+  afterLoginTarget,
+  IdSchema,
+  MOBILE_HANDOFF_CODE_PATTERN,
+  mobileGoogleReturnUrl,
+  safeLoginReturnPath,
+  type MobileGoogleError,
+} from "@metavchim/shared";
 import { loadEnv } from "../../config/env";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { AnyAuthenticated, BillingAllowed, Public } from "../../common/auth.decorators";
@@ -33,6 +40,7 @@ import { GoogleAuthService } from "./google-auth.service";
 import { SignupService } from "../signup/signup.service";
 import { LoginOtpService } from "./login-otp.service";
 import { LoginThrottleService } from "./login-throttle.service";
+import { MobileHandoffService } from "./mobile-handoff.service";
 import { PasswordResetService } from "./password-reset.service";
 
 /** ‏השם חי ב-`common/session-token.ts`; מיוצא מכאן לצרכנים הקיימים. */
@@ -111,6 +119,9 @@ type LoginResult =
 
 const ForgotPasswordSchema = z.object({ email: z.string().email().max(254) }).strict();
 
+/** ‏הקוד שהאפליקציה קיבלה בכתובת החזרה מ-Google (ראו `mobile-handoff.service.ts`). */
+const GoogleExchangeSchema = z.object({ code: z.string().regex(MOBILE_HANDOFF_CODE_PATTERN) }).strict();
+
 const ResetPasswordSchema = z
   .object({
     token: z.string().regex(/^[A-Za-z0-9_-]{43}$/u),
@@ -150,6 +161,7 @@ export class AuthController {
     private readonly otp: LoginOtpService,
     private readonly passwordReset: PasswordResetService,
     private readonly google: GoogleAuthService,
+    private readonly handoff: MobileHandoffService,
     /*
      * ‏רק לפתיחת משרד חינמי לכתובת Google שאין לה חשבון. הכניסה
      * ‏עצמה נשארת ב-`AuthService`.
@@ -178,8 +190,16 @@ export class AuthController {
   @Get("google/start")
   async googleStart(@Req() req: Request, @Res() res: Response): Promise<void> {
     const { state, nonce } = GoogleAuthService.newHandshake();
-    const next = safeLoginReturnPath((req.query as Record<string, unknown>)["next"]);
-    res.cookie(OAUTH_COOKIE, `${state}.${nonce}${next === null ? "" : `.${next}`}`, {
+    const query = req.query as Record<string, unknown>;
+    const next = safeLoginReturnPath(query["next"]);
+    /*
+     * ‏מי פתח את הסבב — הדפדפן או האפליקציה לנייד — נוסע גם הוא
+     * ‏בעוגייה, כמקטע רביעי. הסיום שונה לגמרי (ראו `googleCallback`),
+     * ‏והאפליקציה אינה יכולה להגיד זאת בחזרה: את החזרה עושה Google.
+     */
+    const client = query["client"] === "mobile" ? "mobile" : "web";
+    const handshake = [state, nonce, next ?? "", client === "mobile" ? "mobile" : ""].join(".").replace(/\.+$/u, "");
+    res.cookie(OAUTH_COOKIE, handshake, {
       httpOnly: true,
       secure: loadEnv().COOKIE_SECURE,
       // lax ולא strict: העוגייה חייבת להישלח בחזרה מהניווט של Google
@@ -193,6 +213,11 @@ export class AuthController {
   /**
    * שלב 2 — חזרה מ-Google. בסיום מפנים תמיד למסך של האפליקציה
    * (הצלחה או שגיאה), כי זה ניווט של הדפדפן ולא קריאת API.
+   *
+   * ‏לאפליקציה לנייד הסיום אחר: במקום עוגייה והפניה למסך ב-web —
+   * ‏הפניה לכתובת עם הסכימה של האפליקציה, ובה קוד חד-פעמי שהאפליקציה
+   * ‏ממירה ל-Session ב-`google/exchange`. גם הכישלון חוזר לשם, עם
+   * ‏אותן סיבות שמסך ההתחברות ב-web מכיר.
    */
   @Public()
   @Get("google/callback")
@@ -203,20 +228,24 @@ export class AuthController {
     res.clearCookie(OAUTH_COOKIE, { path: "/" }); // חד-פעמי בכל מקרה
 
     /*
-     * שלושת החלקים מופרדים בנקודה, ואף אחד מהם אינו יכול להכיל
-     * אותה: state ו-nonce הם base64url, ורשימת ההיתר של יעד החזרה
-     * אינה מתירה נקודה. נתיב שנכנס בכל זאת ייחתך כאן ואז ייפול
-     * בבדיקה החוזרת — כלומר ליעד ברירת המחדל, לא ליעד זר.
+     * ארבעת החלקים מופרדים בנקודה, ואף אחד מהם אינו יכול להכיל
+     * אותה: state ו-nonce הם base64url, רשימת ההיתר של יעד החזרה
+     * אינה מתירה נקודה, והמקטע הרביעי הוא `mobile` או ריק. נתיב
+     * שנכנס בכל זאת ייחתך כאן ואז ייפול בבדיקה החוזרת — כלומר ליעד
+     * ברירת המחדל, לא ליעד זר.
      */
-    const [expectedState, expectedNonce, returnPath] = (handshake ?? "").split(".");
+    const [expectedState, expectedNonce, returnPath, client] = (handshake ?? "").split(".");
+    const mobile = client === "mobile";
     const target = afterLoginTarget(returnPath);
     /*
      * גם כישלון חוזר עם היעד: מי שניסה עם Google ונדחה מנסה מיד
      * אחר כך עם סיסמה, ואם היעד נשמט כאן הלינק אבד באותה מידה.
      */
-    const loginError = (reason: string): string =>
-      `${webOrigin}/login?googleError=${reason}` +
-      (target === "/" ? "" : `&next=${encodeURIComponent(target)}`);
+    const loginError = (reason: MobileGoogleError): string =>
+      mobile
+        ? mobileGoogleReturnUrl({ kind: "error", error: reason })
+        : `${webOrigin}/login?googleError=${reason}` +
+          (target === "/" ? "" : `&next=${encodeURIComponent(target)}`);
     const code = query["code"];
 
     if (query["error"] !== undefined || !code || !expectedState || !expectedNonce) {
@@ -259,6 +288,14 @@ export class AuthController {
         if (created === null) throw error;
         user = created;
       }
+      if (mobile) {
+        /*
+         * ‏לא Session — קוד. ה-Session ייוולד בבקשה של האפליקציה
+         * ‏עצמה (`googleExchange`), ולא בדפדפן שהאפליקציה פתחה.
+         */
+        res.redirect(mobileGoogleReturnUrl({ kind: "code", code: await this.handoff.issue(user.email) }));
+        return;
+      }
       const { token, expiresAt } = await this.auth.issueSession(user, {
         ip: req.ip,
         userAgent: req.headers["user-agent"],
@@ -281,6 +318,29 @@ export class AuthController {
        */
       res.redirect(loginError(isRateLimited(error) ? "busy" : "failed"));
     }
+  }
+
+  /**
+   * ‏שלב 3, לנייד בלבד — המרת הקוד מכתובת החזרה ל-Session בגוף
+   * ‏התשובה, כמו `login` עם `client: "mobile"`. הכתובת נבדקת שוב מול
+   * ‏המשתמש (קיים, פעיל, המשרד רשאי לעבוד): הקוד הוכיח בעלות על
+   * ‏הכתובת לפני פחות מדקה, לא יותר מזה.
+   */
+  @Public()
+  @Post("google/exchange")
+  @Throttle({ default: { ttl: 60_000, limit: 10 } })
+  @HttpCode(200)
+  async googleExchange(
+    @Body(new ZodValidationPipe(GoogleExchangeSchema)) body: z.infer<typeof GoogleExchangeSchema>,
+    @Req() req: Request,
+  ): Promise<LoginResult> {
+    const email = await this.handoff.redeem(body.code);
+    const user = await this.auth.loginWithVerifiedEmail(email);
+    const { token, expiresAt } = await this.auth.issueSession(user, {
+      ip: req.ip,
+      userAgent: req.headers["user-agent"],
+    });
+    return { user, session: { token, expiresAt: expiresAt.toISOString() } };
   }
 
   private setSessionCookie(res: Response, token: string, expiresAt: Date): void {

@@ -1,23 +1,62 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { KeyboardAvoidingView, Platform, StyleSheet, View } from "react-native";
+import { useLocalSearchParams } from "expo-router";
+import { googleLoginErrorText } from "@metavchim/shared";
 import { apiConfigured, apiOrigin, isValidApiOrigin, setApiOrigin, BUILT_IN_API_ORIGIN } from "@/lib/config";
 import { useAuth } from "@/lib/auth";
-import { errorMessage } from "@/lib/api";
+import { apiGet, errorMessage } from "@/lib/api";
+import { openGoogleSignIn } from "@/lib/google-login";
 import { Button, Card, Field, Screen, Text } from "@/components";
 import { colors, space } from "@/theme";
 
 /**
- * ‏מסך ההתחברות — אימייל וסיסמה, ושלב שני של קוד אימייל כשהשרת דורש.
- * ‏אותם שני נתיבי API כמו ב-web, עם `client: "mobile"` (ראו `lib/auth`).
+ * ‏מסך ההתחברות — אימייל וסיסמה, ושלב שני של קוד אימייל כשהשרת דורש;
+ * ‏ו„התחברות עם Google” כשהחיבור מוגדר בשרת (`/auth/providers`, כמו
+ * ‏ב-web). אותם נתיבי API כמו ב-web, עם `client: "mobile"` (ראו
+ * ‏`lib/auth` ו-`lib/google-login`).
  */
 export default function LoginScreen() {
-  const { login, verifyOtp } = useAuth();
+  const { login, verifyOtp, loginWithGoogle } = useAuth();
+  const { googleError } = useLocalSearchParams<{ googleError?: string }>();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [otpToken, setOtpToken] = useState<string | null>(null);
   const [code, setCode] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(
+    googleError === undefined ? null : googleLoginErrorText(googleError),
+  );
   const [busy, setBusy] = useState(false);
+  const [googleBusy, setGoogleBusy] = useState(false);
+  const [googleEnabled, setGoogleEnabled] = useState(false);
+
+  // הכפתור מוצג רק כשהחיבור מוגדר בפועל — אחרת הוא היה מוביל לשגיאה
+  useEffect(() => {
+    let cancelled = false;
+    apiGet<{ google: boolean }>("/auth/providers")
+      .then((res) => {
+        if (!cancelled) setGoogleEnabled(res.google === true);
+      })
+      .catch(() => {
+        if (!cancelled) setGoogleEnabled(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function withGoogle() {
+    setError(null);
+    setGoogleBusy(true);
+    try {
+      const outcome = await openGoogleSignIn();
+      if (outcome.kind === "code") await loginWithGoogle(outcome.code);
+      else if (outcome.kind === "error") setError(googleLoginErrorText(outcome.error));
+    } catch (err: unknown) {
+      setError(errorMessage(err, googleLoginErrorText("failed")));
+    } finally {
+      setGoogleBusy(false);
+    }
+  }
   const [advanced, setAdvanced] = useState(false);
   const [server, setServer] = useState(apiOrigin());
   const [serverNote, setServerNote] = useState<string | null>(null);
@@ -115,7 +154,17 @@ export default function LoginScreen() {
                 onSubmitEditing={() => void submit()}
                 error={error}
               />
-              <Button title="התחברות" onPress={() => void submit()} busy={busy} />
+              <Button title="התחברות" onPress={() => void submit()} busy={busy} disabled={googleBusy} />
+              {googleEnabled ? (
+                <Button
+                  title="התחברות עם Google"
+                  kind="secondary"
+                  onPress={() => void withGoogle()}
+                  busy={googleBusy}
+                  disabled={busy}
+                  accessibilityHint="נפתח דפדפן לבחירת חשבון Google"
+                />
+              ) : null}
             </>
           ) : (
             <>

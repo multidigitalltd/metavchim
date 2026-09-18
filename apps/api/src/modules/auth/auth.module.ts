@@ -6,6 +6,7 @@ import { AuthService } from "./auth.service";
 import { GoogleAuthService } from "./google-auth.service";
 import { LoginOtpService } from "./login-otp.service";
 import { LoginThrottleService } from "./login-throttle.service";
+import { MobileHandoffService } from "./mobile-handoff.service";
 import { PasswordResetService } from "./password-reset.service";
 
 @Global()
@@ -26,6 +27,7 @@ import { PasswordResetService } from "./password-reset.service";
     GoogleAuthService,
     LoginOtpService,
     LoginThrottleService,
+    MobileHandoffService,
     PasswordResetService,
   ],
   /*

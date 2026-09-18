@@ -41,7 +41,7 @@
 
 | מסך | מקור ב-API | מה עושים |
 |-----|-----------|----------|
-| התחברות · החלפת סיסמה | `POST /auth/login`, `/auth/login/verify`, `/auth/change-password` | אימייל+סיסמה, קוד אימייל כשמופעל; סיסמה זמנית חייבת להתחלף לפני הכול |
+| התחברות · החלפת סיסמה | `POST /auth/login`, `/auth/login/verify`, `/auth/google/start?client=mobile` → `google/exchange`, `/auth/change-password` | אימייל+סיסמה, קוד אימייל כשמופעל, Google (קוד חד-פעמי במקום עוגייה — `shared/logic/mobile-auth.ts`); סיסמה זמנית חייבת להתחלף לפני הכול |
 | היום | `/leads?open=true&order=oldest`, `/leads?requiresHuman=true`, `/appointments`, `/tasks`, `/notifications` | תור המענה מהשרת (הוותיק ראשון), הפגישות של היום, המשימות שלי (סימון „בוצע”) |
 | לידים · ליד חדש · ליד | `/leads` (סינון במסד), `POST /leads`, `/leads/:id`, `PATCH :id/status`, `POST :id/notes` | קליטה מהירה; חיוג, וואטסאפ, סטטוס, ציר זמן והערה |
 | קול | `/voice-intakes/transcribe`, `/agent/help`, `/agent/interpret`, `/agent/execute`, `/agent/conversation/turn` | הסוכן האישי: הקלטה → תמלול → הצעה לאישור → ביצוע, עם אותם כללים כמו ב-web |
@@ -59,11 +59,12 @@
 - **בנייה לחנויות** 🟡 — `eas.json` עם שלושה פרופילים וכתובת API לכל אחד; `eas init`
   ו-`eas credentials` נעשים פעם אחת בחשבון הארגון (ראו `apps/mobile/README.md`).
 - **אייקונים** 🟡 — נוצרים מקוד בצבעי המערכת (`scripts/make-icons.mjs`); חבילת מיתוג מחליפה.
+- **APK עדכני תמיד** ✅ — ה-workflow „Mobile APK” רץ על כל מיזוג ל-main שנוגע באפליקציה
+  או ב-shared ומחליף את הקובץ ב-Release המתגלגל `mobile-latest`; הקומיט מוצג במסך „עוד”.
+  עדכון-באוויר של ה-JS (EAS Update) יתאפשר אחרי `eas init`.
 
 ### מה **אינו** בשלב הזה
 
-- ⬜ **עריכה** של נכס וקונה — הטפסים המלאים נשארים ב-web; מהנייד יוצרים ליד ומשימה,
-  ומעדכנים דרך הסוכן („תעדכן את המחיר של…”).
 - ⬜ **גופן Almoni** — ה-web טוען woff2, ו-RN דורש ttf/otf; עד להמרה, גופן המערכת.
 - ⬜ שערי ניגודיות וטיפוגרפיה ייעודיים לנייד — הטוקנים נאכפים מול ה-CSS, שם השערים כבר רצים.
 

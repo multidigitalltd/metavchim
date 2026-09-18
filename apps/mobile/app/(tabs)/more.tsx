@@ -9,6 +9,9 @@ import type { PushStatus } from "@/lib/push";
 import { Button, Card, Row, Screen, Text } from "@/components";
 import { space } from "@/theme";
 
+/** ‏הקומיט שממנו נבנה הקובץ — נצרב ב-workflow; ריק בבנייה מקומית. */
+const BUILD_SHA = process.env["EXPO_PUBLIC_BUILD_SHA"] ?? "";
+
 const PUSH_TEXT: Record<PushStatus, string> = {
   registered: "פועלות במכשיר הזה — ליד חדש, פגישה ומשימה מגיעים גם כשהאפליקציה סגורה.",
   undetermined: "עדיין לא הופעלו במכשיר הזה.",
@@ -78,7 +81,8 @@ export default function MoreScreen() {
       <Button title="התנתקות" kind="danger" onPress={confirmLogout} style={styles.logout} />
 
       <Text variant="small" style={styles.meta}>
-        גרסה {Constants.expoConfig?.version ?? "?"} · שרת {apiOrigin() || "לא הוגדר"}
+        גרסה {Constants.expoConfig?.version ?? "?"}
+        {BUILD_SHA ? ` (${BUILD_SHA.slice(0, 7)})` : ""} · שרת {apiOrigin() || "לא הוגדר"}
       </Text>
     </Screen>
   );
