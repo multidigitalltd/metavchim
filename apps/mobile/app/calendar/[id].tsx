@@ -15,9 +15,15 @@ import {
   jerusalemWallParts,
   resolveJerusalemWall,
 } from "@metavchim/shared";
-import { apiGet, apiPatch, apiPost, errorMessage } from "@/lib/api";
+import { apiGet, apiPatch, apiPost, apiUpload, errorMessage } from "@/lib/api";
 import { can, useAuth } from "@/lib/auth";
 import type { AppointmentRow } from "@/lib/dtos";
+import {
+  ensureMicrophone,
+  startRecording,
+  stopRecording,
+  useVoiceRecorder,
+} from "@/lib/recorder";
 import { useShell } from "@/lib/shell";
 import { useQuery } from "@/lib/use-query";
 import {
@@ -89,15 +95,15 @@ const DAY_FMT = new Intl.DateTimeFormat("he-IL", {
   year: "numeric",
 });
 
-type Panel = "none" | "document" | "reschedule";
+type Panel = "none" | "document" | "reschedule" | "edit";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
  * ‏מסך הפגישה — מה שהיומן ב-web עושה בשורה: תיעוד התוצאה (לסיור גם
  * ‏המשוב למוכר בשלוש הקשות), דחייה למועד חדש (שומרת את מונה הדחיות
- * ‏ואת הקישורים), ביטול, וקפיצה לליד / לקונה / לנכס. העלאת הקלטה
- * ‏ועריכת הכותרת נשארות במסך העריכה של המערכת.
+ * ‏ואת הקישורים), ביטול, עריכת כותרת והערות, הקלטת הפגישה (נשמרת
+ * ‏כשיחה ומתומללת, כשהתמלול כלול), וקפיצה לליד / לקונה / לנכס.
  */
 export default function AppointmentScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -127,6 +133,14 @@ export default function AppointmentScreen() {
   const [time, setTime] = useState("");
   const [duration, setDuration] = useState("60");
   const [reason, setReason] = useState("");
+  // ‏עריכה — כותרת והערות
+  const [editTitle, setEditTitle] = useState("");
+  const [editNotes, setEditNotes] = useState("");
+  // ‏הקלטת הפגישה — נשמרת כשיחה ומתומללת באותו צינור (כשהתמלול כלול)
+  const recorder = useVoiceRecorder();
+  const [recording, setRecording] = useState<
+    "idle" | "recording" | "uploading"
+  >("idle");
 
   if (query.loading && query.data === null) return <Loading />;
   if (query.data === null)
@@ -217,6 +231,75 @@ export default function AppointmentScreen() {
       setError(errorMessage(err, "הדחייה נכשלה"));
     } finally {
       setBusy(false);
+    }
+  }
+
+  function openEdit() {
+    setEditTitle(a.title ?? "");
+    setEditNotes(a.notes ?? "");
+    setError(null);
+    setPanel("edit");
+  }
+
+  async function submitEdit() {
+    setBusy(true);
+    setError(null);
+    try {
+      // ‏ריק = מחיקה מכוונת (`null`), כמו בעריכה ב-web
+      await apiPatch(`/appointments/${a.id}`, {
+        title: editTitle.trim() === "" ? null : editTitle.trim(),
+        notes: editNotes.trim() === "" ? null : editNotes.trim(),
+      });
+      setPanel("none");
+      await query.refresh();
+    } catch (err: unknown) {
+      setError(errorMessage(err, "השינויים לא נשמרו"));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function toggleRecording() {
+    if (recording === "recording") {
+      setRecording("uploading");
+      try {
+        const uri = await stopRecording(recorder);
+        if (uri === null) throw new Error("no recording");
+        const form = new FormData();
+        // ‏ב-React Native קובץ ב-FormData הוא `{ uri, name, type }`, לא Blob
+        form.append("file", {
+          uri,
+          name: "meeting.m4a",
+          type: "audio/m4a",
+        } as unknown as Blob);
+        await apiUpload<{ callId: string; status: string }>(
+          `/appointments/${a.id}/recording`,
+          form,
+          180_000,
+        );
+        Alert.alert(
+          "ההקלטה נשמרה",
+          "היא תתומלל ותסוכם כמו שיחה — הסיכום יופיע בכרטיס הלקוח.",
+        );
+      } catch (err: unknown) {
+        Alert.alert(
+          "ההקלטה לא נשמרה",
+          errorMessage(err, "נסו שוב כשיש חיבור לשרת"),
+        );
+      } finally {
+        setRecording("idle");
+      }
+      return;
+    }
+    if (!(await ensureMicrophone())) {
+      Alert.alert("אין הרשאת מיקרופון", "יש לאפשר מיקרופון בהגדרות המכשיר.");
+      return;
+    }
+    try {
+      await startRecording(recorder);
+      setRecording("recording");
+    } catch {
+      Alert.alert("ההקלטה לא התחילה", "נסו שוב.");
     }
   }
 
@@ -362,13 +445,41 @@ export default function AppointmentScreen() {
               busy={busy}
               onPress={() => void submitDocument()}
             />
-            {hasFeature("transcription") ? (
-              <Button
-                title="העלאת הקלטה של הפגישה (במערכת)"
-                kind="text"
-                onPress={() => router.push(`/web/calendar/${a.id}/edit`)}
-              />
-            ) : null}
+            <Button
+              title="ביטול"
+              kind="ghost"
+              onPress={() => setPanel("none")}
+            />
+          </Card>
+        </>
+      ) : null}
+
+      {panel === "edit" ? (
+        <>
+          <SectionTitle>עריכה</SectionTitle>
+          <Card>
+            <Field
+              label="כותרת"
+              value={editTitle}
+              onChangeText={setEditTitle}
+              maxLength={200}
+              placeholder={KIND_LABELS[a.kind] ?? a.kind}
+            />
+            <Field
+              label="הערות"
+              value={editNotes}
+              onChangeText={setEditNotes}
+              multiline
+              numberOfLines={3}
+              maxLength={2000}
+              style={styles.multiline}
+              error={error}
+            />
+            <Button
+              title="שמירה"
+              busy={busy}
+              onPress={() => void submitEdit()}
+            />
             <Button
               title="ביטול"
               kind="ghost"
@@ -417,12 +528,25 @@ export default function AppointmentScreen() {
         </>
       ) : null}
 
-      {canManage ? (
-        <Button
-          title="עריכת הפגישה במערכת"
-          kind="text"
-          onPress={() => router.push(`/web/calendar/${a.id}/edit`)}
-        />
+      {canManage && panel === "none" ? (
+        <View style={styles.actions}>
+          {hasFeature("transcription") && a.status !== "cancelled" ? (
+            <Button
+              title={
+                recording === "recording"
+                  ? "■ סיום ההקלטה ושמירה"
+                  : recording === "uploading"
+                    ? "שומר את ההקלטה…"
+                    : "● הקלטת הפגישה"
+              }
+              kind={recording === "recording" ? "danger" : "ghost"}
+              busy={recording === "uploading"}
+              onPress={() => void toggleRecording()}
+              accessibilityHint="ההקלטה נשמרת כשיחה ומתומללת"
+            />
+          ) : null}
+          <Button title="עריכת כותרת והערות" kind="text" onPress={openEdit} />
+        </View>
       ) : null}
     </Screen>
   );
