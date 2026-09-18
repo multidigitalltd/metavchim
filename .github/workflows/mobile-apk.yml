@@ -39,7 +39,10 @@ concurrency:
 jobs:
   apk:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # ‏הריצה הראשונה, בלי מטמון, נחתכה ב-45 דקות באמצע Gradle. ה-C++ של
+    # ‏React Native (worklets, reanimated) נבנה לכל ארכיטקטורה מחדש —
+    # ‏ולכן ארכיטקטורה אחת, מטמון Gradle, ותקרה שמשאירה מרווח.
+    timeout-minutes: 90
     permissions:
       contents: write
     steps:
@@ -57,6 +60,11 @@ jobs:
           distribution: temurin
           java-version: 17
 
+      # ‏מטמון ל-`~/.gradle` ולתוצרי הבנייה — הריצה השנייה קצרה בהרבה
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: ${{ github.event_name != 'push' }}
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
@@ -68,8 +76,9 @@ jobs:
         working-directory: apps/mobile
         run: npx expo prebuild --platform android --no-install
 
-      # ‏שתי ארכיטקטורות הטלפונים בלבד — בלי x86 של אמולטורים, שמכפיל
-      # ‏את גודל הקובץ. APK אוניברסלי לבדיקות היה 110MB; כך כ-60MB.
+      # ‏arm64 בלבד — כל טלפון אנדרואיד מהשנים האחרונות; armv7 היה מכפיל
+      # ‏את זמן הקומפילציה של ה-C++ (וזה מה שחצה את התקרה בריצה הראשונה).
+      # ‏בלי x86 של אמולטורים. APK אוניברסלי לבדיקות היה 110MB; כך ~22MB.
       - name: Build release APK
         working-directory: apps/mobile/android
         env:
@@ -80,7 +89,7 @@ jobs:
         # ‏R8, כיווץ משאבים ואריזת ספריות נייטיב דחוסה — 22MB במקום 110MB.
         run: >-
           ./gradlew assembleRelease --no-daemon
-          -PreactNativeArchitectures=arm64-v8a,armeabi-v7a
+          -PreactNativeArchitectures=arm64-v8a
           -Pandroid.enableMinifyInReleaseBuilds=true
           -Pandroid.enableShrinkResourcesInReleaseBuilds=true
           -Pexpo.useLegacyPackaging=true
