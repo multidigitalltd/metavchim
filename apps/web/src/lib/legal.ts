@@ -59,7 +59,7 @@ export const LEGAL: LegalDetails = {
   /** תמיכה ופניות כלליות. */
   supportEmail: "support@metavchim.co.il",
   /** תאריך העדכון האחרון של המסמכים — לעדכן בכל שינוי מהותי. */
-  updatedAt: "17 באוגוסט 2026",
+  updatedAt: "19 בספטמבר 2026",
   productName: "מתווכים",
 };
 

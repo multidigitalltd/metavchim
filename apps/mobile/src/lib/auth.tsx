@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import type { PropsWithChildren } from "react";
 import type { Capability } from "@metavchim/shared";
 import { ApiError, apiGet, apiPost, setUnauthorizedListener } from "./api";
-import { clearCacheScope, setCacheScope } from "./cache";
+import { clearCacheScope, clearLastCacheScope, setCacheScope } from "./cache";
 import { loadApiOrigin } from "./config";
 import { deviceSecured } from "./device-lock";
 import { redeemOnce } from "./google-login";
@@ -100,7 +100,9 @@ export function AuthProvider({ children }: PropsWithChildren) {
       setUser(me);
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) {
+        // ‏Session שפג — גם המטמון של מי שהחזיק אותו יורד מהמכשיר
         await clearSessionToken();
+        await clearLastCacheScope();
         setOffline(false);
         setUser(null);
         return;
@@ -148,9 +150,11 @@ export function AuthProvider({ children }: PropsWithChildren) {
 
   useEffect(() => {
     setUnauthorizedListener(() => {
-      void clearSessionToken().then(() => setUser(null));
+      // ‏ניתוק ממכשיר אחר או תפוגה באמצע עבודה — הטוקן והמטמון יורדים יחד
+      void clearSessionToken()
+        .then(() => clearLastCacheScope())
+        .then(() => setUser(null));
     });
-    // הזהות שפגה — המטמון שלה נמחק כשמזהה המשתמש ייצא מהמרחב (ראו למעלה)
     return () => setUnauthorizedListener(null);
   }, []);
 

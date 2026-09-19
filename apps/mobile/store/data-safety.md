@@ -26,7 +26,8 @@
 | Personal info | Address | ✔ | ✘ | ✘ | App functionality | כתובות נכסים |
 | Messages | Other in-app messages | ✔ | ✘ | ✘ | App functionality | הערות, סיכומי שיחות, הצעות שנשלחו |
 | Audio | Voice or sound recordings | ✔ | ✘ | ✘ | App functionality | הסוכן הקולי (נמחק אחרי התמלול) והקלטת פגישה (נשמרת בכרטיס) — רק בלחיצה על „הקלטה” |
-| Photos and videos | Photos | ✔ | ✘ | ✘ | App functionality | תמונות נכס שהמשתמש מעלה מהגלריה (בכרטיס הנכס המוטמע) |
+| Photos and videos | Photos | ✔ | ✘ | ✘ | App functionality | תמונות נכס שהמשתמש מעלה מהגלריה (בכרטיס הנכס המוטמע), ותמונות שמצורפות למייל בתיבה המוטמעת |
+| Photos and videos | Videos | ✔ | ✘ | ✘ | App functionality | סרטונים (MP4/MOV/WebM) שהמשתמש מצרף למייל בתיבת המייל המוטמעת (`/inbox`) — רק כשמצרפים |
 | App activity | App interactions | ✘ | ✘ | — | — | אין אנליטיקה; אין SDK צד שלישי |
 | App info and performance | Crash logs | ✘ | ✘ | — | — | אין Crashlytics/Sentry |
 | Device or other IDs | Device or other IDs | ✔ | ✘ | ✘ | App functionality | טוקן הפוש של Expo + דגם המכשיר (`POST /notifications/push/device`) — רק אחרי הפעלת התראות |
@@ -34,7 +35,7 @@
 | Contacts | Contacts | ✘ | ✘ | — | — | אין גישה לאנשי הקשר של המכשיר; חיוג/וואטסאפ פותחים אפליקציה חיצונית |
 | Financial info | — | ✘ | ✘ | — | — | אין תשלומים באפליקציה |
 | Health and fitness | — | ✘ | ✘ | — | — | |
-| Calendar | — | ✘ | ✘ | — | — | היומן הוא של המערכת, לא של המכשיר |
+| Calendar | Calendar events | ✔ | ✘ | ✘ | App functionality | פגישות וסיורים שהמשתמש קובע במערכת (סוג, מועד, משך, כותרת, הערות, קישור ללקוח ולנכס — `POST /appointments`). אין קריאה או כתיבה ליומן של **המכשיר** |
 | Files and docs | Files and docs | ✔ | ✘ | ✘ | App functionality | מסמכים שמועלים לכרטיס נכס (מוטמע) |
 | Web browsing | — | ✘ | ✘ | — | — | ה-WebView מציג רק את app.metavchim.co.il |
 
@@ -42,7 +43,7 @@
 
 - טוקן ה-Session — ב-Keystore/Keychain (`expo-secure-store`).
 - טוקן הפוש — Keystore.
-- מטמון לא-מקוון של הרשימות האחרונות (AsyncStorage), במרחב לפי משתמש; נמחק בהתנתקות.
+- מטמון לא-מקוון של הרשימות האחרונות (AsyncStorage), במרחב לפי משתמש; נמחק בכל יציאה — התנתקות, החלפת סיסמה, וגם Session שפג או נותק ממכשיר אחר (`clearLastCacheScope`).
 - בחירת ערכת נושא.
 
 ## הרשאות Android (Policy → App content → Permissions declaration)
