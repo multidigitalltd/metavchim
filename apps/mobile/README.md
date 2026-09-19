@@ -100,6 +100,14 @@ Development Build (`eas build --profile development`).
 ← סטטוס והערה (בכרטיס המוטמע), נכס חדש ← הכרטיס המלא, לקוח חדש ← הכרטיס המלא, משימה מכרטיס, „קול” (הקלטה
 ותמלול דורשים שירות תמלול פעיל בשרת), התראות, מצב טיסה (המטמון), התנתקות.
 
+## הרישום בחנות
+
+`store/` מחזיק את מה שמקלידים ב-Play Console: `listing.md` (שם, תיאור קצר ומלא,
+קטגוריה, אנשי קשר, מה לצלם — מגבלות התווים נבדקות ב-`node scripts/check-listing.mjs`),
+`data-safety.md` (תשובות טופס Data safety והרשאות, מהקוד בפועל) ו-`feature-graphic.png`
+(1024×500, נוצר מהלוגו ומהגופן ב-`node scripts/make-feature-graphic.mjs`). מדיניות
+הפרטיות באתר (`/privacy`) מכסה גם את האפליקציה (מזהה פוש, בדיקת נעילה, מטמון).
+
 ## בנייה לחנויות (EAS)
 
 חד-פעמי, בחשבון Expo של הארגון:
@@ -179,7 +187,8 @@ src/components/      Text, Screen (TopBar), Drawer, AuthShell, Logo, Card, Pill,
 src/theme.ts         טוקני העיצוב — עותק של globals.css בשתי הערכות (נאכף ב-verify:theme), המעטפת הכהה, סולם הטיפוגרפיה
 src/lib/theme.tsx    ThemeProvider (בהיר/כהה/אוטומטי), useTheme/useColors, makeStyles, הגשר לערכה ב-WebView
 assets/fonts/        Almoni — המרה של woff2 מה-web ל-ttf
-scripts/             make-icons.mjs (האייקונים מלוגו המערכת, sharp), verify-theme.mjs (שער הטוקנים)
+scripts/             make-icons.mjs (האייקונים מלוגו המערכת, sharp), make-feature-graphic.mjs (תמונת הנושא לחנות), check-listing.mjs (מגבלות הרישום), verify-theme.mjs (שער הטוקנים)
+store/               listing.md · data-safety.md · feature-graphic.png — הרישום בחנות
 ```
 
 ## איכות

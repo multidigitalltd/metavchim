@@ -11,11 +11,20 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
  */
 
 const PREFIX = "mv-cache";
+/**
+ * ‏המרחב האחרון שנכתב אליו — נשמר גם באחסון, כי בהפעלה קרה עם Session
+ * ‏שפג הזהות אינה ידועה (‎`/auth/me` מחזיר 401 לפני שיש משתמש), ובכל
+ * ‏זאת המטמון של מי שיצא חייב להימחק (ביקורת Codex).
+ */
+const LAST_SCOPE_KEY = `${PREFIX}:last-scope`;
 let scope: string | null = null;
 
 /** ‏נקבע כשהזהות ידועה; בלי מרחב אין קריאה ואין כתיבה. */
 export function setCacheScope(userId: string | null): void {
   scope = userId;
+  if (userId !== null) {
+    AsyncStorage.setItem(LAST_SCOPE_KEY, userId).catch(() => undefined);
+  }
 }
 
 function fullKey(key: string): string | null {
@@ -57,6 +66,21 @@ export async function clearCacheScope(userId: string): Promise<void> {
     const keys = await AsyncStorage.getAllKeys();
     const mine = keys.filter((key) => key.startsWith(`${PREFIX}:${userId}:`));
     await Promise.all(mine.map((key) => AsyncStorage.removeItem(key)));
+    await AsyncStorage.removeItem(LAST_SCOPE_KEY);
+  } catch {
+    // אין מה למחוק
+  }
+}
+
+/**
+ * ‏מחיקת המרחב של מי שהיה מחובר אחרון — ליציאה שאינה התנתקות יזומה:
+ * ‏Session שפג, שנותק ממכשיר אחר, או שהסיסמה הוחלפה. הזהות עצמה כבר
+ * ‏אינה ידועה (או אינה נחוצה) — המרחב האחרון הוא מה שנמחק.
+ */
+export async function clearLastCacheScope(): Promise<void> {
+  try {
+    const last = await AsyncStorage.getItem(LAST_SCOPE_KEY);
+    if (last !== null) await clearCacheScope(last);
   } catch {
     // אין מה למחוק
   }
