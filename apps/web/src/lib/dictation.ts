@@ -191,7 +191,6 @@ export interface DictationState {
  */
 export function useDictation(
   onAppend: (text: string, isInterim: boolean) => void,
-  opts: { browserOnly?: boolean } = {},
 ): DictationState {
   const [browserReady, setBrowserReady] = useState(false);
   /**
@@ -208,6 +207,16 @@ export function useDictation(
    */
   const [detected, setDetected] = useState(false);
   const [serverReady, setServerReady] = useState(false);
+  /**
+   * ‎**אותו ערך, לקריאה מתוך callbacks ממוזכרים.**
+   *
+   * ‏נוסח הודעת השגיאה תלוי בשאלה אם יש תמלול בשרת ליפול אליו,
+   * ‏והיא נשאלת בתוך `onerror` של המנוע — סגור שנוצר פעם אחת. קריאה
+   * ‏ישירה מה-state הייתה מחזירה תמיד את הערך שלפני שבדיקת הזמינות
+   * ‏חזרה מהשרת, כלומר „אין שרת” גם כשיש.
+   */
+  const serverReadyRef = useRef(false);
+  serverReadyRef.current = serverReady;
   const [recording, setRecording] = useState<DictationMode | null>(null);
   const [transcribing, setTranscribing] = useState(false);
   /**
@@ -323,9 +332,24 @@ export function useDictation(
      */
     disposedRef.current = false;
     setBrowserReady(getSpeechRecognition() !== null);
-    setDetected(true);
     void checkServerAvailability().then((ok) => {
-      if (!disposedRef.current) setServerReady(ok && canRecordAudio());
+      if (disposedRef.current) return;
+      setServerReady(ok && canRecordAudio());
+      /*
+       * ‎**„נבדק” נדלק אחרי **שתי** הבדיקות, ולא אחרי הראשונה.**
+       *
+       * ‏הוא ישב מעל השורה הזו, וזה הספיק כל עוד הצרכן היחיד שלו
+       * ‏שאל רק על מנוע הדפדפן — שנבדק באופן סינכרוני. מרגע שאותו
+       * ‏צרכן שואל גם על השרת, „נבדק” לבדו הפך להכרזה מוקדמת:
+       * ‏בדפדפן בלי זיהוי מקומי הוא נדלק מיד בעוד `serverReady`
+       * ‏עדיין `false`, והמסך הספיק לומר „אין הכתבה — אפשר להקליד”
+       * ‏לפני שהתשובה על השרת חזרה. בקשה איטית מותירה את ההודעה
+       * ‏השקרית הזו על המסך שניות (ביקורת Codex).
+       *
+       * ‏זה בדיוק מה שהתיעוד של `detected` אמר מלכתחילה: „מסך
+       * ‏שמכריז על השני צריך להמתין לזה”.
+       */
+      setDetected(true);
     });
   }, []);
 
@@ -401,7 +425,7 @@ export function useDictation(
       browserTokenRef.current = 0;
       busyRef.current = false;
       setRecording(null);
-      setError(dictationErrorMessage(event?.error, opts.browserOnly === true));
+      setError(dictationErrorMessage(event?.error, !serverReadyRef.current));
       if (dictationShouldFallBack(event?.error)) setBrowserFailed(true);
     };
     recognitionRef.current = recognition;
@@ -413,21 +437,26 @@ export function useDictation(
       sessions.end(token);
       retireBrowser();
       busyRef.current = false;
-      setError(dictationErrorMessage(undefined, opts.browserOnly === true));
+      setError(dictationErrorMessage(undefined, !serverReadyRef.current));
       // מנוע שלא עלה בכלל הוא בדיוק המקרה שבשבילו הנפילה קיימת
       setBrowserFailed(true);
       return;
     }
     setRecording("browser");
     /*
-     * ‎`opts.browserOnly` נקרא כאן פעמיים — הוא קובע את נוסח הודעת
-     * השגיאה. בלעדיו הסגור מחזיק את הערך שהיה בזמן שהפונקציה
-     * נוצרה, והמשתמש היה מקבל את ההודעה השגויה לאחר שינוי המצב.
+     * ‎**נוסח ההודעה נגזר מ„יש לאן ליפול”, ולא מדגל שמסופק מבחוץ.**
      *
-     * הערך עצמו ולא האובייקט: `opts` נבנה מחדש בכל רינדור, ואילו
-     * בוליאני יציב — כלומר התלות אינה גורמת ליצירה מחדש מיותרת.
+     * ‏קודם ישב כאן `opts.browserOnly` — דגל שהרכיב העביר, ושאמר
+     * ‏„בחלון הסוכן אין נפילה”. זה היה נכון רק כל עוד הנפילה נחסמה
+     * ‏שם בקוד; ברגע שהיא נפתחה, הדגל הפך למקור אמת שני שיכול
+     * ‏לסתור את הראשון. הזמינות של השרת ידועה כאן, וזו השאלה
+     * ‏האמיתית.
+     *
+     * ‎`ref` ולא `state`: הפונקציה ממוזכרת, וקריאה מ-state הייתה
+     * ‏מקפיאה את הערך שהיה ברגע היצירה — כלומר `false` שנקבע לפני
+     * ‏שבדיקת הזמינות חזרה.
      */
-  }, [retireBrowser, opts.browserOnly]);
+  }, [retireBrowser]);
 
   /** מצב ההמתנה נכתב לשניהם יחד — ה-state לתצוגה, ה-ref ללוגיקה. */
   const markPending = useCallback((value: boolean): void => {

@@ -190,9 +190,29 @@ describe("dictationErrorMessage", () => {
 
   /* קודים שאינם תלויים במצב — אותה הודעה בשניהם, ובלי הפניה לכפתור. */
   it("שגיאות שאינן קשורות למנוע אינן משתנות בין המצבים", () => {
-    for (const code of ["not-allowed", "service-not-allowed", "audio-capture", "no-speech"]) {
+    for (const code of ["not-allowed", "audio-capture", "no-speech"]) {
       expect(dictationErrorMessage(code, true), code).toBe(dictationErrorMessage(code, false));
     }
+  });
+
+  /*
+   * ‎**ההודעה שהאשימה את המיקרופון בטעות.**
+   *
+   * ‏`service-not-allowed` קיבל את נוסח `not-allowed` — „הדפדפן חסם
+   * ‏את המיקרופון — אשרו גישה”. בטלפון זה שלח את המתווך להגדרות
+   * ‏האתר לתקן הרשאה שמעולם לא נדחתה, ולא רמז שיש דרך שעובדת.
+   */
+  it("„השירות אינו זמין” אינו מאשים את המיקרופון", () => {
+    const message = dictationErrorMessage("service-not-allowed", false);
+    expect(message).not.toContain("מיקרופון");
+    expect(message).toContain("יעבור לשרת");
+    expect(message).not.toBe(dictationErrorMessage("not-allowed", false));
+  });
+
+  it("„השירות אינו זמין” בלי שרת זמין מציע להקליד ואינו מבטיח שרת", () => {
+    const message = dictationErrorMessage("service-not-allowed", true);
+    expect(message).not.toContain("שרת");
+    expect(message).toContain("להקליד");
   });
 });
 
@@ -208,9 +228,40 @@ describe("נפילה מהדפדפן לשרת", () => {
      * השרת מקליט מאותו מיקרופון: הרשאה שנדחתה ומכשיר בלי מיקרופון
      * ייכשלו שם באותה מידה, ומעבר אליהם רק מחליף הודעת שגיאה.
      */
-    for (const code of ["not-allowed", "service-not-allowed", "audio-capture", "no-speech", "aborted"]) {
+    for (const code of ["not-allowed", "audio-capture", "no-speech", "aborted"]) {
       expect(dictationShouldFallBack(code), code).toBe(false);
     }
+  });
+
+  /*
+   * ‎**התסריט המלא של הנייד, ולא רק הערך שהשתנה.**
+   *
+   * ‏הבדיקה הקודמת הצמידה את `service-not-allowed` ל-`not-allowed`,
+   * ‏ולכן היא **עברה בירוק** בדיוק כשההכתבה בטלפון הייתה מתה. מה
+   * ‏שנשבר שם אינו ערך בודד אלא הרצף: בנייד הבנאי קיים, המנוע נכשל
+   * ‏עם הקוד הזה, ואם אין נפילה — הלחיצה הבאה חוזרת לאותו מנוע.
+   */
+  it("„השירות אינו זמין” מפיל לשרת — זהו כשל של השירות ולא של המיקרופון", () => {
+    expect(dictationShouldFallBack("service-not-allowed")).toBe(true);
+  });
+
+  it("בטלפון: מנוע קיים שנכשל בשירות מגיע לשרת בלחיצה הבאה", () => {
+    // הבנאי קיים בספארי ובאנדרואיד, ולכן הלחיצה הראשונה היא בדפדפן
+    const first = dictationMode({
+      browserReady: true,
+      serverReady: true,
+      browserFailed: false,
+    });
+    expect(first).toBe("browser");
+
+    // המנוע נכשל עם `service-not-allowed` — וזה מה שמדליק את הדגל
+    const failed = dictationShouldFallBack("service-not-allowed");
+    expect(failed).toBe(true);
+
+    // ‏ולכן הלחיצה הבאה אינה חוזרת לאותו מנוע מת
+    expect(
+      dictationMode({ browserReady: true, serverReady: true, browserFailed: failed }),
+    ).toBe("server");
   });
 
   it("ברירת המחדל היא הדפדפן — הטקסט מופיע בו תוך כדי הדיבור", () => {
