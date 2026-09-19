@@ -1,4 +1,5 @@
 import { useRouter } from "expo-router";
+import { routeFor } from "@/lib/nav";
 import { apiPost } from "@/lib/api";
 import { useShell } from "@/lib/shell";
 import { BuyerForm, Screen } from "@/components";
@@ -18,7 +19,7 @@ export default function NewBuyerScreen() {
         onSubmit={async (body) => {
           const created = await apiPost<{ id: string }>("/buyers", body);
           refreshCounts();
-          router.replace(`/buyers/${created.id}`);
+          router.replace(routeFor(`/buyers/${created.id}`));
         }}
       />
     </Screen>

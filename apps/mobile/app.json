@@ -35,6 +35,12 @@
       "expo-secure-store",
       "expo-localization",
       [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "האפליקציה בודקת שהמכשיר נעול כדי לשמור אותך מחובר."
+        }
+      ],
+      [
         "expo-notifications",
         {
           "icon": "./assets/notification-icon.png",

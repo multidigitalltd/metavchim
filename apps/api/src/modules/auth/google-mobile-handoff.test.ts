@@ -156,10 +156,19 @@ describe("google/callback לנייד", () => {
 describe("google/exchange", () => {
   it("ממיר את הקוד ל-Session בגוף — עם הכתובת מאומתת מחדש מול החשבון", async () => {
     const { controller, auth, handoff } = controllerWith({});
-    const result = await controller.googleExchange({ code: "C".repeat(43) }, request({}));
+    const result = await controller.googleExchange(
+      { code: "C".repeat(43), persistent: true },
+      request({}),
+    );
     expect(handoff.redeemGoogle).toHaveBeenCalledWith("C".repeat(43));
     expect(auth.getUserForSession).toHaveBeenCalledWith(USER.id);
-    expect(auth.issueSession).toHaveBeenCalledWith(USER, { ip: "10.0.0.1", userAgent: "metavchim-mobile" });
+    /* ‏Session של האפליקציה — וגם הבקשה ל-Session מתמשך (מכשיר נעול) עוברת הלאה */
+    expect(auth.issueSession).toHaveBeenCalledWith(USER, {
+      ip: "10.0.0.1",
+      userAgent: "metavchim-mobile",
+      client: "mobile",
+      persistent: true,
+    });
     expect(result).toEqual({
       user: USER,
       session: { token: "T".repeat(43), expiresAt: "2030-01-01T00:00:00.000Z" },

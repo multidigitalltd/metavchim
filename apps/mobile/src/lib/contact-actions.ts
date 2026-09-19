@@ -2,20 +2,10 @@ import { Alert, Linking } from "react-native";
 import { canReceiveWhatsapp, whatsappLink } from "@metavchim/shared";
 
 /**
- * ‏הפעולות שהמתווך עושה עם טלפון ביד: חיוג ווואטסאפ.
- *
- * ‏שתיהן יוצאות מהאפליקציה אל אפליקציית הטלפון / וואטסאפ של המכשיר —
- * ‏המערכת אינה שולחת דבר מעצמה, כמו ב-web (docs/README, עיקרון 8).
+ * ‏וואטסאפ ללקוח — יוצא מהאפליקציה אל וואטסאפ של המכשיר: המערכת אינה
+ * ‏שולחת דבר מעצמה, כמו ב-web (docs/README, עיקרון 8). חיוג וואטסאפ
+ * ‏מתוך הכרטיסים הם של ה-web המוטמע.
  */
-export async function callPhone(phone: string): Promise<void> {
-  const url = `tel:${phone.replace(/[^\d+]/gu, "")}`;
-  try {
-    await Linking.openURL(url);
-  } catch {
-    Alert.alert("אי אפשר לחייג מהמכשיר הזה");
-  }
-}
-
 export async function openWhatsapp(phone: string, message = ""): Promise<void> {
   if (!canReceiveWhatsapp(phone)) {
     Alert.alert("המספר אינו נייד ישראלי", "וואטסאפ נשלח רק למספר נייד.");

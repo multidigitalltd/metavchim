@@ -4,6 +4,7 @@ import type { Capability } from "@metavchim/shared";
 import { ApiError, apiGet, apiPost, setUnauthorizedListener } from "./api";
 import { clearCacheScope, setCacheScope } from "./cache";
 import { loadApiOrigin } from "./config";
+import { deviceSecured } from "./device-lock";
 import { redeemOnce } from "./google-login";
 import {
   readPushStatus,
@@ -170,11 +171,16 @@ export function AuthProvider({ children }: PropsWithChildren) {
     [refresh],
   );
 
+  /*
+   * ‏`persistent` — בקשה ל-Session של 30 יום שמתגלגל בפעילות, במקום
+   * ‏12 שעות: רק כשהמכשיר עצמו נעול (ראו `lib/device-lock`). ההחלטה
+   * ‏נשלחת עם כל דרך התחברות, והשרת מכבד אותה רק מהאפליקציה.
+   */
   const login = useCallback(
     async (email: string, password: string): Promise<LoginOutcome> => {
       const result = await apiPost<LoginResponse | { otpRequired: true; otpToken: string }>(
         "/auth/login",
-        { email, password, client: "mobile" },
+        { email, password, client: "mobile", persistent: await deviceSecured() },
       );
       if ("otpRequired" in result) return { kind: "otp", otpToken: result.otpToken };
       await adopt(result);
@@ -189,6 +195,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
         otpToken,
         code,
         client: "mobile",
+        persistent: await deviceSecured(),
       });
       await adopt(result);
     },
@@ -198,7 +205,10 @@ export function AuthProvider({ children }: PropsWithChildren) {
   const loginWithGoogle = useCallback(
     (code: string) =>
       redeemOnce(code, async () => {
-        const result = await apiPost<LoginResponse>("/auth/google/exchange", { code });
+        const result = await apiPost<LoginResponse>("/auth/google/exchange", {
+          code,
+          persistent: await deviceSecured(),
+        });
         await adopt(result);
       }),
     [adopt],

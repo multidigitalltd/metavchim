@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { Alert, View } from "react-native";
 import { useRouter } from "expo-router";
+import { routeFor } from "@/lib/nav";
 import {
   compareTasks,
   jerusalemDayRange,
@@ -245,7 +246,7 @@ export default function TodayScreen() {
                     key={lead.id}
                     title={lead.contact.name}
                     subtitle={waiting ? `ממתין ${waiting.label}` : undefined}
-                    onPress={() => router.push(`/leads/${lead.id}`)}
+                    onPress={() => router.push(routeFor(`/leads/${lead.id}`))}
                     trailing={
                       lead.requiresHuman ? (
                         <Pill tone="danger">דורש טיפול</Pill>

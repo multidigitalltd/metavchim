@@ -626,7 +626,7 @@ describe("‏שער: אין דחיפה בלי צנזורה", () => {
     const payload = WORKERS.indexOf("pushPayload(notification)");
     expect(payload, "מטען הדחיפה נעלם").toBeGreaterThan(0);
     /* ‏והנייד מקבל את אותו מטען, לא בנייה משלו מהשורה הגולמית */
-    expect(WORKERS).toMatch(/expoPushMessage\(device\.token, message\)/u);
+    expect(WORKERS).toMatch(/expoPushMessage\(device\.token, message, badge\)/u);
     expect(
       WORKERS.search(/const notification = redactNotification\(raw,/u),
       "המטען נבנה לפני הצנזורה",

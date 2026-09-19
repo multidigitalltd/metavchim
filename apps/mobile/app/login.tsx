@@ -12,6 +12,7 @@ import {
 } from "@/lib/config";
 import { useAuth } from "@/lib/auth";
 import { apiGet, errorMessage } from "@/lib/api";
+import { deviceSecured } from "@/lib/device-lock";
 import { openGoogleSignIn } from "@/lib/google-login";
 import { AuthShell } from "@/components/AuthShell";
 import { Button, Card, Field, Text } from "@/components";
@@ -48,6 +49,17 @@ export default function LoginScreen() {
   );
   const [server, setServer] = useState(apiOrigin());
   const [serverNote, setServerNote] = useState<string | null>(null);
+  // ‏מכשיר בלי נעילה — ההתחברות נשמרת 12 שעות בלבד, והמסך אומר זאת מראש
+  const [unlockedDevice, setUnlockedDevice] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    void deviceSecured().then((secured) => {
+      if (!cancelled) setUnlockedDevice(!secured);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // הכפתור מוצג רק כשהחיבור מוגדר בפועל — אחרת הוא היה מוביל לשגיאה
   useEffect(() => {
@@ -183,6 +195,12 @@ export default function LoginScreen() {
             kind="text"
             onPress={() => router.push("/forgot-password")}
           />
+          {unlockedDevice ? (
+            <Text variant="small" style={styles.lockNote}>
+              במכשיר בלי נעילת מסך ההתחברות נשמרת ל‑12 שעות. עם קוד, תבנית
+              או טביעת אצבע במכשיר — נשארים מחוברים.
+            </Text>
+          ) : null}
         </View>
       ) : (
         <View style={styles.stack}>
@@ -244,6 +262,7 @@ const useStyles = makeStyles((t) => {
   const c = t.colors;
   return {
     stack: { gap: 14 },
+    lockNote: { color: c.textMuted, textAlign: "center" },
     advanced: { marginTop: space.xl, borderColor: c.warning },
   };
 });

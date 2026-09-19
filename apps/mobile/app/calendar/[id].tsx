@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { Alert, StyleSheet, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { routeFor } from "@/lib/nav";
 import {
   JERUSALEM_TZ,
   VIEWING_CONDITION_FEEDBACK,
@@ -356,21 +357,21 @@ export default function AppointmentScreen() {
         <Row
           title="הליד"
           chevron
-          onPress={() => router.push(`/leads/${a.leadId}`)}
+          onPress={() => router.push(routeFor(`/leads/${a.leadId}`))}
         />
       ) : null}
       {a.buyerId ? (
         <Row
           title="הלקוח"
           chevron
-          onPress={() => router.push(`/buyers/${a.buyerId}`)}
+          onPress={() => router.push(routeFor(`/buyers/${a.buyerId}`))}
         />
       ) : null}
       {a.propertyId ? (
         <Row
           title="הנכס"
           chevron
-          onPress={() => router.push(`/properties/${a.propertyId}`)}
+          onPress={() => router.push(routeFor(`/properties/${a.propertyId}`))}
         />
       ) : null}
 

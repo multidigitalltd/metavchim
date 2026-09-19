@@ -58,6 +58,12 @@ describe("expoPushMessage", () => {
       priority: "high",
     });
   });
+
+  it("המונה על האייקון נוסע רק כשנמסר — שרת בלי מונה אינו מאפס את האייקון", () => {
+    const payload = { title: "ליד חדש", body: "", url: "/leads/01ABC", tag: "lead_new:01ABC" };
+    expect(expoPushMessage("ExponentPushToken[abcdefghij]", payload, 3).badge).toBe(3);
+    expect("badge" in expoPushMessage("ExponentPushToken[abcdefghij]", payload)).toBe(false);
+  });
 });
 
 describe("chunkExpoPush", () => {

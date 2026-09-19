@@ -1,4 +1,5 @@
 import { useRouter } from "expo-router";
+import { routeFor } from "@/lib/nav";
 import { apiPost } from "@/lib/api";
 import { useShell } from "@/lib/shell";
 import { PropertyForm, Screen } from "@/components";
@@ -19,7 +20,7 @@ export default function NewPropertyScreen() {
           const created = await apiPost<{ id: string }>("/properties", body);
           refreshCounts();
           // ‏`replace` ולא `push`: חזרה מהכרטיס לא צריכה לחזור לטופס שנשלח
-          router.replace(`/properties/${created.id}`);
+          router.replace(routeFor(`/properties/${created.id}`));
         }}
       />
     </Screen>

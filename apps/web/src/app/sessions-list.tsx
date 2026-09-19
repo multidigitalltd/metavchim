@@ -40,6 +40,8 @@ export interface SessionRow {
   expiresAt: string;
   current: boolean;
   supportAdminEmail: string | null;
+  /** ‏דפדפן או האפליקציה לנייד; שרת ישן אינו שולח — דפדפן */
+  client?: "web" | "mobile";
 }
 
 /**
@@ -50,7 +52,16 @@ export interface SessionRow {
  * באורך 300 תווים אינה עונה על זה, ושם מדויק של גרסת דפדפן —
  * גם הוא לא.
  */
-export function describeDevice(userAgent: string | null): string {
+export function describeDevice(userAgent: string | null, client?: "web" | "mobile"): string {
+  /*
+   * ‏האפליקציה לנייד אינה דפדפן: ה-User-Agent שלה הוא של ספריית הרשת
+   * ‏(okhttp / CFNetwork), ופענוח לפי דפדפן היה מציג „מכשיר לא ידוע”.
+   */
+  if (client === "mobile") {
+    return /iPhone|iPad|iOS|Darwin|CFNetwork/u.test(userAgent ?? "")
+      ? "האפליקציה לנייד · iPhone"
+      : "האפליקציה לנייד · Android";
+  }
   if (!userAgent) return "מכשיר לא ידוע";
   const ua = userAgent;
   const platform = /iPhone|iPad/u.test(ua)
@@ -186,7 +197,7 @@ export function SessionsList({ userId = null, userName }: Props): React.JSX.Elem
             >
               <span className="min-w-0">
                 <span className="block text-[length:var(--type-body-sm)] font-semibold">
-                  {describeDevice(row.userAgent)}
+                  {describeDevice(row.userAgent, row.client)}
                   {row.current ? (
                     <span
                       className="mv-pill mr-2 text-[length:var(--type-caption)]"

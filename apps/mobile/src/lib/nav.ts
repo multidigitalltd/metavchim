@@ -256,10 +256,6 @@ export function webScreenTitle(path: string): string {
 export function routeFor(href: string): string {
   const [path, query] = href.split("?", 2);
   const clean = path ?? "/";
-  const entity = /^\/(leads|properties|buyers)\/([A-Za-z0-9]{26})$/u.exec(
-    clean,
-  );
-  if (entity) return clean;
   const item = NAV_ITEMS.find((i) => i.href === clean);
   // ‏השאילתה נשארת גם במסך נייטיב — „17 קונים מתאימים” מגיע ל-`/matches?property=…`
   if (item?.native) return `${item.native}${query ? `?${query}` : ""}`;
