@@ -8,13 +8,15 @@
       "developmentClient": true,
       "distribution": "internal",
       "env": {
-        "EXPO_PUBLIC_API_URL": "http://192.168.1.10:3001"
+        "EXPO_PUBLIC_API_URL": "http://192.168.1.10:3001",
+        "EXPO_PUBLIC_ALLOW_API_OVERRIDE": "1"
       }
     },
     "preview": {
       "distribution": "internal",
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://app.metavchim.co.il"
+        "EXPO_PUBLIC_API_URL": "https://app.metavchim.co.il",
+        "EXPO_PUBLIC_ALLOW_API_OVERRIDE": "1"
       }
     },
     "production": {

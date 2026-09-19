@@ -10,7 +10,7 @@ import { THEME_LABELS, useTheme, type ThemeChoice } from "@/lib/theme";
 import { space } from "@/theme";
 
 /** ‏הקומיט שממנו נבנה הקובץ — נצרב ב-workflow; ריק בבנייה מקומית. */
-const BUILD_SHA = process.env["EXPO_PUBLIC_BUILD_SHA"] ?? "";
+const BUILD_SHA = process.env.EXPO_PUBLIC_BUILD_SHA ?? "";
 
 const THEME_OPTIONS: readonly { key: ThemeChoice; label: string }[] = (
   ["light", "dark", "auto"] as const

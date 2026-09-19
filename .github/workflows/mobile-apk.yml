@@ -104,6 +104,8 @@ jobs:
           EXPO_PUBLIC_API_URL: ${{ inputs.api_url || 'https://app.metavchim.co.il' }}
           # ‏מוצג במסך „עוד” — כדי לדעת איזה קומיט מותקן על המכשיר
           EXPO_PUBLIC_BUILD_SHA: ${{ github.sha }}
+          # ‏APK לבדיקות — „הגדרות מתקדמות” להחלפת שרת קיימות; בבניית החנות (EAS production) לא
+          EXPO_PUBLIC_ALLOW_API_OVERRIDE: "1"
         # ‏R8, כיווץ משאבים ואריזת ספריות נייטיב דחוסה — 22MB במקום 110MB.
         run: >-
           ./gradlew assembleRelease --no-daemon

@@ -70,6 +70,7 @@ Development Build (`eas build --profile development`).
    pnpm --filter @metavchim/shared build
    cd apps/mobile && npx expo prebuild --platform android --no-install
    cd android && EXPO_PUBLIC_API_URL=https://app.metavchim.co.il \
+     EXPO_PUBLIC_ALLOW_API_OVERRIDE=1 \
      ./gradlew assembleRelease -PreactNativeArchitectures=arm64-v8a \
        -Pandroid.enableMinifyInReleaseBuilds=true \
        -Pandroid.enableShrinkResourcesInReleaseBuilds=true \
@@ -79,7 +80,7 @@ Development Build (`eas build --profile development`).
 
 ה-APK חתום במפתח הדיבאג של התבנית — מתאים לבדיקות, לא לחנות. כתובת השרת
 צרובה ואינה מוצגת; **לבדיקות מול שרת אחר** — לחיצה ארוכה (שנייה וחצי) על הלוגו
-במסך ההתחברות פותחת „הגדרות מתקדמות”; ריק חוזר לכתובת הצרובה. פוש נייטיב דורש מזהה פרויקט EAS (ראו למטה); בלעדיו האפליקציה מדווחת
+במסך ההתחברות פותחת „הגדרות מתקדמות”; ריק חוזר לכתובת הצרובה. זה קיים רק בבניות בדיקה (`EXPO_PUBLIC_ALLOW_API_OVERRIDE=1` — ה-APK מה-CI ופרופילי `development`/`preview`); בבניית החנות (`production`) אין דריסה, וגם דריסה ישנה מאותו מכשיר נמחקת. פוש נייטיב דורש מזהה פרויקט EAS (ראו למטה); בלעדיו האפליקציה מדווחת
 „לא זמין בסביבה הזו”, וכל השאר עובד.
 
 **„האפליקציה לא נותנת להתחבר”** — כמעט תמיד השרת שהאפליקציה מדברת איתו עדיין
