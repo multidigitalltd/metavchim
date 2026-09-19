@@ -150,7 +150,43 @@ function mentionsTenant(node: ts.Node, source: ts.SourceFile): boolean {
   return found;
 }
 
-function violationsIn(file: string, guarded: Map<string, string>): Violation[] {
+/** ‎`$queryRaw` וחבריו — SQL שנכתב ביד ואינו עובר דרך שם מודל. */
+function isRawCall(name: string): boolean {
+  return name.startsWith("$") && name.includes("Raw");
+}
+
+/**
+ * ‎**גם SQL גולמי — הפרצה שהגרסה הראשונה של השער פספסה.**
+ *
+ * ‏הסורק למעלה מחפש שם של מודל (`prisma.subscription`), ולכן
+ * ‎``tx.$queryRaw`SELECT id FROM subscriptions WHERE …` `` עוברת
+ * ‏אותו בשלום: אין בה שם מודל, יש בה מחרוזת. זו אינה צורה
+ * ‏תיאורטית — `funnel-enrollment.service.ts` נועלת כך את שורת
+ * ‏המנוי, והיום עם `tenant_id` בתנאי. הסרת התנאי לא הייתה מורגשת
+ * ‏(ביקורת Codex).
+ *
+ * ‎`rls-access.test.ts` כבר עושה בדיוק את זה לטבלאות שתחת RLS.
+ */
+function rawViolations(
+  node: ts.Node,
+  source: ts.SourceFile,
+  file: string,
+  tables: Set<string>,
+): Violation[] {
+  const text = node.getText(source);
+  const hit = [...tables].find((table) => new RegExp(`\\b${table}\\b`, "u").test(text));
+  if (hit === undefined) return [];
+  // ‏התנאי נכתב ב-SQL, ולכן `tenant_id` ולא `tenantId`
+  if (/\btenant_id\b/u.test(text)) return [];
+  const { line } = source.getLineAndCharacterOfPosition(node.getStart(source));
+  return [{ file, line: line + 1, accessor: hit, op: "$queryRaw" }];
+}
+
+function violationsIn(
+  file: string,
+  guarded: Map<string, string>,
+  tables: Set<string>,
+): Violation[] {
   const text = readFileSync(file, "utf8");
   if (!text.includes("prisma") && !text.includes("tx.")) return [];
 
@@ -172,6 +208,10 @@ function violationsIn(file: string, guarded: Map<string, string>): Violation[] {
         }
       }
     }
+    /* ‏תבנית מתויגת (``$queryRaw`…` ``) וגם קריאה רגילה */
+    if (ts.isTaggedTemplateExpression(node) && ts.isPropertyAccessExpression(node.tag)) {
+      if (isRawCall(node.tag.name.text)) found.push(...rawViolations(node, source, file, tables));
+    }
     ts.forEachChild(node, visit);
   };
   ts.forEachChild(source, visit);
@@ -183,8 +223,11 @@ function violationsIn(file: string, guarded: Map<string, string>): Violation[] {
 const OUTSIDE = tenantScopedOutsideRls(PRISMA_DIR);
 const BY_TABLE = accessorsByTable(PRISMA_DIR, { requireTenantId: true });
 const GUARDED = new Map<string, string>();
+/** ‏שמות הטבלאות השמורות — לסריקת ה-SQL הגולמי, שאינה מכירה מודלים. */
+const GUARDED_TABLES = new Set<string>();
 for (const table of OUTSIDE) {
   if (NOT_TENANT_SCOPED_BY_NATURE[table] !== undefined) continue;
+  GUARDED_TABLES.add(table);
   const accessor = BY_TABLE.get(table);
   if (accessor !== undefined) GUARDED.set(accessor, table);
 }
@@ -196,7 +239,7 @@ function rel(file: string, root: string): string {
 function scan(root: string): Violation[] {
   return sourceFiles(root)
     .filter((file) => CROSS_TENANT_BY_DESIGN[rel(file, root)] === undefined)
-    .flatMap((file) => violationsIn(file, GUARDED));
+    .flatMap((file) => violationsIn(file, GUARDED, GUARDED_TABLES));
 }
 
 describe("רשימת הטבלאות שמחוץ ל-RLS", () => {
@@ -215,6 +258,30 @@ describe("רשימת הטבלאות שמחוץ ל-RLS", () => {
     for (const table of ["properties", "contacts", "buyers", "offers"]) {
       expect(OUTSIDE.has(table), `${table} תחת RLS ואינה שייכת לכאן`).toBe(false);
     }
+  });
+
+  /*
+   * ‎**טבלה בלי מאפיין תואם — כישלון, לא דילוג.**
+   *
+   * ‏הגרסה הראשונה עשתה `if (accessor !== undefined)` והמשיכה
+   * ‏הלאה. `telephony_webhook_hits` שונה ל-`webhook_hits`, הגזירה
+   * ‏החזירה את השם הישן, ההתאמה נכשלה — וכל הקריאות ל-`webhookHit`
+   * ‏יצאו מהשמירה **בלי שדבר האדים** (ביקורת Codex). זו בדיוק
+   * ‏התקלה שערכת הבדיקות מזהירה מפניה בתיעוד שלה.
+   */
+  it("כל טבלה שמורה מזוהה למאפיין ב-Prisma", () => {
+    const orphans = [...GUARDED_TABLES].filter((table) => !BY_TABLE.has(table));
+    expect(
+      orphans,
+      `טבלאות ללא מאפיין תואם — בדקו שינוי שם במיגרציות: ${orphans.join(", ")}`,
+    ).toEqual([]);
+  });
+
+  it("שינוי שם מטופל — הטבלה נשמרת בשמה הנוכחי", () => {
+    // ‏`telephony_webhook_hits` → `webhook_hits`
+    expect(OUTSIDE.has("webhook_hits")).toBe(true);
+    expect(OUTSIDE.has("telephony_webhook_hits")).toBe(false);
+    expect(GUARDED.has("webhookHit")).toBe(true);
   });
 
   it("תשתית האימות אינה נשמרת כאן — ובמפורש", () => {
@@ -279,6 +346,27 @@ describe("הבדיקה עצמה תופסת הפרה", () => {
     };
     ts.forEachChild(source, visit);
     expect(flagged).toBe(false);
+  });
+
+  it("מסמנת SQL גולמי בלי tenant_id, ומקבלת אותו איתו", () => {
+    const bad = `class S { run() { return tx.$queryRaw\`SELECT id FROM subscriptions\`; } }`;
+    const good = `class S { run() { return tx.$queryRaw\`SELECT id FROM subscriptions WHERE tenant_id = \${t}\`; } }`;
+    const scan = (code: string): number => {
+      const source = ts.createSourceFile("raw.ts", code, ts.ScriptTarget.ES2023, true);
+      let hits = 0;
+      const visit = (n: ts.Node): void => {
+        if (ts.isTaggedTemplateExpression(n) && ts.isPropertyAccessExpression(n.tag)) {
+          if (isRawCall(n.tag.name.text)) {
+            hits += rawViolations(n, source, "raw.ts", new Set(["subscriptions"])).length;
+          }
+        }
+        ts.forEachChild(n, visit);
+      };
+      ts.forEachChild(source, visit);
+      return hits;
+    };
+    expect(scan(bad)).toBe(1);
+    expect(scan(good)).toBe(0);
   });
 
   it("רואה סינון שנבנה בעוזר — הצורה שהפילה את הגרסה הראשונה", () => {

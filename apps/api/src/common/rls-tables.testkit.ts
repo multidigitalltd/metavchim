@@ -21,6 +21,37 @@ import { join } from "node:path";
 const TABLE = String.raw`"?(\w+)"?`;
 
 /**
+ * ‎**שינויי שם, לפי סדר המיגרציות.**
+ *
+ * ‏הגזירות כאן קוראות `CREATE TABLE`, והשם שנוצר אינו בהכרח השם
+ * ‏שקיים היום: `telephony_webhook_hits` שונה ל-`webhook_hits`. בלי
+ * ‏המיפוי הזה הגזירה מחזירה שם שאינו קיים עוד — הוא אינו נמצא
+ * ‏ב-`accessorsByTable`, **נופל בשקט**, והטבלה יוצאת מכל שמירה
+ * ‏(ביקורת Codex).
+ *
+ * ‏זו בדיוק התקלה שהתיעוד של הקובץ הזה כבר מזהיר מפניה: „שתיהן היו
+ * ‏ירוקות על טבלאות שלא נבדקו כלל”.
+ */
+function renames(sql: string): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const match of sql.matchAll(
+    new RegExp(String.raw`ALTER TABLE\s+(?:IF EXISTS\s+)?${TABLE}\s+RENAME TO\s+${TABLE}`, "gu"),
+  )) {
+    const from = match[1]!;
+    const to = match[2]!;
+    // ‏שרשרת: a→b ואז b→c פירושה a→c
+    for (const [key, value] of map) if (value === from) map.set(key, to);
+    map.set(from, to);
+  }
+  return map;
+}
+
+/** ‏השם שהטבלה נושאת **היום**, אחרי כל שינויי השם. */
+function currentName(table: string, sql: string): string {
+  return renames(sql).get(table) ?? table;
+}
+
+/**
  * כל ה-SQL של המיגרציות, **בסדר כרונולוגי**.
  *
  * ‎`readdirSync` אינו מבטיח סדר: הוא מחזיר את מה שמערכת הקבצים
@@ -52,21 +83,33 @@ export function rlsTables(prismaDir: string): Set<string> {
   const sql = migrationSql(prismaDir);
   const enabled = new Set<string>();
 
+  /*
+   * ‎**כל שם עובר דרך `currentName`** — כאן ובכל גזירה אחרת.
+   *
+   * ‏ב-PostgreSQL ה-RLS דבק ב**טבלה**, לא בשם: `mentor_goals` קיבלה
+   * ‏פוליסה ואז שונתה ל-`mentor_goals_legacy`, והפוליסה עברה איתה.
+   * ‏גזירה שמחזירה את השם הישן מייצרת סתירה בין שתי רשימות שמושוות
+   * ‏זו לזו — `tenantScopedOutsideRls` בודקת `rls.has(table)` — ואז
+   * ‏טבלה שיש עליה RLS מסווגת כאילו אין. זה בדיוק מה שקרה כשתיקנתי
+   * ‏צד אחד של ההשוואה בלבד.
+   */
   // הצורה המפורשת: ALTER TABLE x ENABLE ROW LEVEL SECURITY
   for (const match of sql.matchAll(
     new RegExp(String.raw`ALTER TABLE\s+${TABLE}\s+ENABLE ROW LEVEL SECURITY`, "gu"),
   )) {
-    enabled.add(match[1]!);
+    enabled.add(currentName(match[1]!, sql));
   }
   // הצורה בלולאה: FOREACH t IN ARRAY ARRAY[ 'a', 'b', … ]
   for (const block of sql.matchAll(/FOREACH\s+\w+\s+IN ARRAY ARRAY\[([^\]]+)\]/gu)) {
-    for (const name of block[1]!.matchAll(/'(\w+)'/gu)) enabled.add(name[1]!);
+    for (const name of block[1]!.matchAll(/'(\w+)'/gu)) {
+      enabled.add(currentName(name[1]!, sql));
+    }
   }
   // מה שבוטל במפורש אינו תחת RLS (outbox_events)
   for (const match of sql.matchAll(
     new RegExp(String.raw`ALTER TABLE\s+${TABLE}\s+DISABLE ROW LEVEL SECURITY`, "gu"),
   )) {
-    enabled.delete(match[1]!);
+    enabled.delete(currentName(match[1]!, sql));
   }
   return enabled;
 }
@@ -188,7 +231,7 @@ export function tenantScopedOutsideRls(prismaDir: string): Set<string> {
   for (const match of sql.matchAll(
     new RegExp(String.raw`CREATE TABLE\s+(?:IF NOT EXISTS\s+)?${TABLE}\s*\(([\s\S]*?)\n\);`, "gu"),
   )) {
-    const table = match[1]!;
+    const table = currentName(match[1]!, sql);
     if (rls.has(table)) continue;
     if (/^\s*"?tenant_id"?\s/mu.test(match[2]!)) found.add(table);
   }
