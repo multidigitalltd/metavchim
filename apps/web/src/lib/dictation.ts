@@ -332,9 +332,24 @@ export function useDictation(
      */
     disposedRef.current = false;
     setBrowserReady(getSpeechRecognition() !== null);
-    setDetected(true);
     void checkServerAvailability().then((ok) => {
-      if (!disposedRef.current) setServerReady(ok && canRecordAudio());
+      if (disposedRef.current) return;
+      setServerReady(ok && canRecordAudio());
+      /*
+       * ‎**„נבדק” נדלק אחרי **שתי** הבדיקות, ולא אחרי הראשונה.**
+       *
+       * ‏הוא ישב מעל השורה הזו, וזה הספיק כל עוד הצרכן היחיד שלו
+       * ‏שאל רק על מנוע הדפדפן — שנבדק באופן סינכרוני. מרגע שאותו
+       * ‏צרכן שואל גם על השרת, „נבדק” לבדו הפך להכרזה מוקדמת:
+       * ‏בדפדפן בלי זיהוי מקומי הוא נדלק מיד בעוד `serverReady`
+       * ‏עדיין `false`, והמסך הספיק לומר „אין הכתבה — אפשר להקליד”
+       * ‏לפני שהתשובה על השרת חזרה. בקשה איטית מותירה את ההודעה
+       * ‏השקרית הזו על המסך שניות (ביקורת Codex).
+       *
+       * ‏זה בדיוק מה שהתיעוד של `detected` אמר מלכתחילה: „מסך
+       * ‏שמכריז על השני צריך להמתין לזה”.
+       */
+      setDetected(true);
     });
   }, []);
 

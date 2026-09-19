@@ -282,6 +282,19 @@ export function VoiceRecorder({
   // שתי היכולות, בלי הכרעה ביניהן — ההכרעה היא של המשתמש בלחיצה
   const serverAvailable = serverStt && canRecordAudio;
   const browserAvailable = browserSupported;
+  /**
+   * ‎**אותו ערך, לקריאה מתוך ה-callbacks של מנוע הזיהוי.**
+   *
+   * ‎`recognition.onerror` נוצר ברגע `start()` ומחזיק את `serverAvailable`
+   * ‏שהיה **אז**. מי שלחץ על המיקרופון לפני שבדיקת זמינות התמלול
+   * ‏חזרה מהשרת לכד `false`; כשהבדיקה חזרה בחיוב והזיהוי נכשל
+   * ‏מאוחר יותר, המסך עדיין אמר „אפשר להקליד” במקום לומר
+   * ‏שהלחיצה הבאה תעבור לשרת (ביקורת Codex).
+   *
+   * ‎`useDictation` כבר מחזיק `ref` בדיוק לשם כך; כאן זה נשאר פתוח.
+   */
+  const serverAvailableRef = useRef(serverAvailable);
+  serverAvailableRef.current = serverAvailable;
 
   /** מצב ההמתנה נכתב לשניהם יחד — ה-state לתצוגה, ה-ref ללוגיקה. */
   function markPending(value: boolean): void {
@@ -693,7 +706,7 @@ export function VoiceRecorder({
       setFinishing(false);
       setActiveMode(null);
       if (dictationShouldFallBack(event?.error)) setBrowserFailed(true);
-      onError?.(dictationErrorMessage(event?.error, !serverAvailable));
+      onError?.(dictationErrorMessage(event?.error, !serverAvailableRef.current));
     };
     recognitionRef.current = recognition;
     browserTokenRef.current = token;
@@ -707,7 +720,7 @@ export function VoiceRecorder({
       setActiveMode(null);
       // מנוע שלא עלה בכלל הוא בדיוק המקרה שבשבילו הנפילה קיימת
       setBrowserFailed(true);
-      onError?.(dictationErrorMessage(undefined, !serverAvailable));
+      onError?.(dictationErrorMessage(undefined, !serverAvailableRef.current));
       return;
     }
     setRecording(true);
