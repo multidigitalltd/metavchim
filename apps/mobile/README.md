@@ -70,6 +70,7 @@ Development Build (`eas build --profile development`).
    pnpm --filter @metavchim/shared build
    cd apps/mobile && npx expo prebuild --platform android --no-install
    cd android && EXPO_PUBLIC_API_URL=https://app.metavchim.co.il \
+     EXPO_PUBLIC_ALLOW_API_OVERRIDE=1 \
      ./gradlew assembleRelease -PreactNativeArchitectures=arm64-v8a \
        -Pandroid.enableMinifyInReleaseBuilds=true \
        -Pandroid.enableShrinkResourcesInReleaseBuilds=true \

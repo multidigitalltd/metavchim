@@ -18,15 +18,12 @@ import * as SecureStore from "expo-secure-store";
  * ‏צריכה לדבר עם שום שרת מלבד הייצור. הדגל `EXPO_PUBLIC_ALLOW_API_OVERRIDE=1`
  * ‏נצרב רק בפרופילי הבדיקה וב-workflow של ה-APK.
  */
-const BUILT_IN = (process.env["EXPO_PUBLIC_API_URL"] ?? "").replace(
-  /\/+$/u,
-  "",
-);
+const BUILT_IN = (process.env.EXPO_PUBLIC_API_URL ?? "").replace(/\/+$/u, "");
 const OVERRIDE_KEY = "mv_api_origin";
 
 /** ‏האם „הגדרות מתקדמות” קיימות בבנייה הזו. */
 export const API_OVERRIDE_ALLOWED =
-  process.env["EXPO_PUBLIC_ALLOW_API_OVERRIDE"] === "1";
+  process.env.EXPO_PUBLIC_ALLOW_API_OVERRIDE === "1";
 
 let origin = BUILT_IN;
 
