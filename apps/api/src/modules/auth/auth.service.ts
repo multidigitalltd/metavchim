@@ -293,6 +293,18 @@ export class AuthService {
     const persistent = isPersistentSession(client, meta.persistent ?? false);
     const expiresAt = new Date(Date.now() + sessionTtlMs(persistent));
 
+    /*
+     * ‏**מכשיר נייד אחד לחשבון — נאכף כאן, בשרת.** שער „חיבור אחד
+     * ‏לחשבון” ב-web אינו סופר Sessions של האפליקציה, ו-`client` הוא
+     * ‏הצהרה של הלקוח — לכן ההצהרה אינה פטור אלא כניסה למשבצת אחת:
+     * ‏התחברות חדשה מהאפליקציה (או ממי שמתחזה לה) מנתקת את הטלפון
+     * ‏הקודם. חשבון משותף בין שני טלפונים מנתק את עצמו בלופ, בדיוק
+     * ‏כמו שני דפדפנים מול השער (ביקורת Codex).
+     */
+    if (client === "mobile") {
+      await this.prisma.session.deleteMany({ where: { userId: user.id, client: "mobile" } });
+    }
+
     await this.prisma.session.create({
       data: {
         id: ulid(),

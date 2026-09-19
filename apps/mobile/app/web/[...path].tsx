@@ -31,11 +31,20 @@ import {
  */
 
 /**
- * ‏למי כבר נמסר Session לדפדפן המוטמע — מזהה המשתמש, ומקור ה-web שהשרת
- * ‏החזיר. בייצור מקור ה-web הוא מקור ה-API (Caddy), אבל בפיתוח ה-API
- * ‏ב-3001 וה-web ב-3000 — והאפליקציה מכירה מעצמה רק את ה-API.
+ * ‏למי כבר נמסר Session לדפדפן המוטמע — מזהה המשתמש, מקור ה-web שהשרת
+ * ‏החזיר, ומתי. בייצור מקור ה-web הוא מקור ה-API (Caddy), אבל בפיתוח
+ * ‏ה-API ב-3001 וה-web ב-3000 — והאפליקציה מכירה מעצמה רק את ה-API.
  */
-let handedOff: { userId: string; webOrigin: string } | null = null;
+let handedOff: { userId: string; webOrigin: string; at: number } | null = null;
+
+/**
+ * ‏המסירה חוזרת על עצמה אחרי כמה שעות גם באותו תהליך. העוגייה נכתבת
+ * ‏עם התפוגה של ה-Session **ברגע המסירה**, אבל Session מתמשך מוארך
+ * ‏בשרת בכל פעילות — ותהליך שחי שבועות היה מגיע ליום שבו העוגייה
+ * ‏פגה וה-Session חי. מסירה מחודשת היא קריאה אחת והפניה אחת, והיא
+ * ‏כותבת את העוגייה מחדש עם התפוגה העדכנית (ביקורת Codex).
+ */
+const HANDOFF_MAX_AGE_MS = 6 * 60 * 60 * 1000;
 
 /** ‏קישורים שיוצאים מהאפליקציה: חיוג, וואטסאפ, מייל, וכל מארח שאינו שלנו. */
 function isExternal(url: string, origins: readonly string[]): boolean {
@@ -98,7 +107,11 @@ export default function WebScreen() {
     let cancelled = false;
     setError(null);
     setInitialUrl(null);
-    if (user && handedOff?.userId === user.id) {
+    if (
+      user &&
+      handedOff?.userId === user.id &&
+      Date.now() - handedOff.at < HANDOFF_MAX_AGE_MS
+    ) {
       setWebOrigin(handedOff.webOrigin);
       setInitialUrl(`${handedOff.webOrigin}${target}`);
       return;
@@ -108,7 +121,7 @@ export default function WebScreen() {
         if (cancelled) return;
         // ‏שרת ישן שאינו מחזיר מקור — הנחת הייצור: אותו מקור כמו ה-API
         const web = (served ?? origin).replace(/\/+$/u, "");
-        if (user) handedOff = { userId: user.id, webOrigin: web };
+        if (user) handedOff = { userId: user.id, webOrigin: web, at: Date.now() };
         setWebOrigin(web);
         // ‏הנחיתה היא נתיב של ה-API; היא מפנה משם למקור של ה-web
         setInitialUrl(
