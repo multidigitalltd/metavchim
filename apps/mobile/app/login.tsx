@@ -4,6 +4,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { googleLoginErrorText } from "@metavchim/shared";
 import {
   apiConfigured,
+  API_OVERRIDE_ALLOWED,
   apiOrigin,
   isValidApiOrigin,
   setApiOrigin,
@@ -41,7 +42,10 @@ export default function LoginScreen() {
   const [busy, setBusy] = useState(false);
   const [googleBusy, setGoogleBusy] = useState(false);
   const [googleEnabled, setGoogleEnabled] = useState(false);
-  const [advanced, setAdvanced] = useState(!apiConfigured());
+  // ‏„הגדרות מתקדמות” — רק בבניות בדיקה; בחנות אין דרך להחליף שרת
+  const [advanced, setAdvanced] = useState(
+    API_OVERRIDE_ALLOWED && !apiConfigured(),
+  );
   const [server, setServer] = useState(apiOrigin());
   const [serverNote, setServerNote] = useState<string | null>(null);
 
@@ -131,7 +135,9 @@ export default function LoginScreen() {
           ? "נכנסים עם החשבון שמנהל המשרד פתח לך."
           : `שלחנו קוד בן 6 ספרות לכתובת ${email.trim()}.`
       }
-      onBrandLongPress={() => setAdvanced((v) => !v)}
+      onBrandLongPress={
+        API_OVERRIDE_ALLOWED ? () => setAdvanced((v) => !v) : undefined
+      }
     >
       {otpToken === null ? (
         <View style={styles.stack}>
