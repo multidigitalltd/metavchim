@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { FlatList, View } from "react-native";
 import { useRouter } from "expo-router";
+import { routeFor } from "@/lib/nav";
 import { propertyAddressOr } from "@metavchim/shared";
 import { apiGet, apiList } from "@/lib/api";
 import { can, useAuth } from "@/lib/auth";
@@ -135,7 +136,7 @@ export default function PropertiesScreen() {
               <Row
                 title={address}
                 subtitle={details}
-                onPress={() => router.push(`/properties/${p.id}`)}
+                onPress={() => router.push(routeFor(`/properties/${p.id}`))}
                 trailing={
                   <>
                     <Text variant="body" style={styles.price}>

@@ -2920,6 +2920,20 @@ async function processPushSweep(): Promise<void> {
     for (const [userId, recipients] of byUser) {
       const subs = recipients.web;
       const caps = pushCaps.get(userId) ?? new Set<Capability>();
+      /*
+       * ‏המונה על אייקון האפליקציה — כמה התראות שלא נקראו יש לנמען הזה
+       * ‏(שלו ושל המשרד), כולל אלה שנדחפות עכשיו: הן כבר במסד. נספר
+       * ‏פעם אחת לנמען ולא להודעה; iOS מציג את המספר האחרון שהגיע.
+       */
+      const badge =
+        recipients.devices.length === 0
+          ? undefined
+          : await prisma.$transaction(async (tx) => {
+              await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenant.id}, true)`;
+              return tx.notification.count({
+                where: { tenantId: tenant.id, OR: [{ userId: null }, { userId }], readAt: null },
+              });
+            });
       const viewer: NotificationViewer = {
         allowed: await visibleContactIdSet(tenant.id, userId, caps),
         userId,
@@ -2934,7 +2948,10 @@ async function processPushSweep(): Promise<void> {
         const payload = JSON.stringify(message);
 
         for (const device of recipients.devices) {
-          expoQueue.push({ deviceId: device.id, message: expoPushMessage(device.token, message) });
+          expoQueue.push({
+            deviceId: device.id,
+            message: expoPushMessage(device.token, message, badge),
+          });
         }
 
         for (const sub of subs) {

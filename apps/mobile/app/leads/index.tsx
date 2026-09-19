@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { FlatList, View } from "react-native";
 import { useRouter } from "expo-router";
+import { routeFor } from "@/lib/nav";
 import { compareLeadsByUrgency, leadWaiting } from "@metavchim/shared";
 import { apiGet, apiList } from "@/lib/api";
 import { can, useAuth } from "@/lib/auth";
@@ -148,7 +149,7 @@ export default function LeadsScreen() {
               <Row
                 title={lead.contact.name}
                 subtitle={subtitleParts.join(" · ")}
-                onPress={() => router.push(`/leads/${lead.id}`)}
+                onPress={() => router.push(routeFor(`/leads/${lead.id}`))}
                 trailing={
                   <>
                     <Pill

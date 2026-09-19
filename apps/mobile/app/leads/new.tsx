@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { KeyboardAvoidingView, Platform, StyleSheet } from "react-native";
 import { useRouter } from "expo-router";
+import { routeFor } from "@/lib/nav";
 import {
   LEAD_INTENT_LABELS,
   LEAD_SOURCE_LABELS,
@@ -61,7 +62,7 @@ export default function NewLeadScreen() {
         ...(summary.trim() ? { summary: summary.trim() } : {}),
       });
       // ‏`replace` ולא `push`: חזרה מהכרטיס לא צריכה לחזור לטופס שנשלח
-      router.replace(`/leads/${created.id}`);
+      router.replace(routeFor(`/leads/${created.id}`));
     } catch (err: unknown) {
       setError(errorMessage(err, "הליד לא נשמר — נסו שוב"));
       setBusy(false);

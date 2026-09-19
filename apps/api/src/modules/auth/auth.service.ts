@@ -12,8 +12,12 @@ import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PrismaService } from "../../core/prisma.service";
 import type { RequestContext } from "../../common/tenant-context";
 import { WhatsAppLinkService } from "../messaging/whatsapp-link.service";
-
-const SESSION_TTL_MS = 1000 * 60 * 60 * 12; // 12 שעות; Refresh בפעילות
+import {
+  isPersistentSession,
+  renewedExpiry,
+  sessionTtlMs,
+  type SessionClient,
+} from "../../common/session-lifetime";
 
 /** חיבור פתוח כפי שהוא מוצג — בלי הטוקן ובלי ה-hash שלו. */
 export interface SessionInfo {
@@ -26,6 +30,8 @@ export interface SessionInfo {
   current: boolean;
   /** לא null = חיבור של התמיכה בהסכמת המשרד, ולא של המשתמש */
   supportAdminEmail: string | null;
+  /** ‏דפדפן או האפליקציה לנייד — שער „חיבור אחד לחשבון” סופר רק דפדפנים */
+  client: SessionClient;
 }
 
 export interface AuthenticatedUser {
@@ -271,13 +277,21 @@ export class AuthService {
     };
   }
 
-  /** יצירת Session למשתמש שכבר אומת (סיסמה, ואם מופעל — גם קוד אימייל). */
+  /**
+   * יצירת Session למשתמש שכבר אומת (סיסמה, ואם מופעל — גם קוד אימייל).
+   *
+   * ‏`client` הוא מי נושא את הטוקן (עוגייה / Bearer), ו-`persistent` —
+   * ‏בקשת האפליקציה ל-Session ארוך ומתגלגל, שמתקבלת רק ממנה (ראו
+   * ‏`session-lifetime.ts`). דפדפן שמבקש מקבל את 12 השעות הרגילות.
+   */
   async issueSession(
     user: ValidatedUser,
-    meta: { ip?: string; userAgent?: string },
+    meta: { ip?: string; userAgent?: string; client?: SessionClient; persistent?: boolean },
   ): Promise<{ token: string; expiresAt: Date; user: AuthenticatedUser }> {
     const token = randomBytes(32).toString("base64url");
-    const expiresAt = new Date(Date.now() + SESSION_TTL_MS);
+    const client = meta.client ?? "web";
+    const persistent = isPersistentSession(client, meta.persistent ?? false);
+    const expiresAt = new Date(Date.now() + sessionTtlMs(persistent));
 
     await this.prisma.session.create({
       data: {
@@ -285,6 +299,8 @@ export class AuthService {
         userId: user.id,
         tokenHash: AuthService.hashToken(token),
         expiresAt,
+        client,
+        persistent,
         ipAddress: meta.ip ?? null,
         userAgent: meta.userAgent?.slice(0, 300) ?? null,
         // החותמת שנלכדה באימות — לא הערך העדכני. אם הסיסמה שונתה
@@ -551,6 +567,7 @@ export class AuthService {
       current: currentHash !== null && row.tokenHash === currentHash,
       /* חיבור של התמיכה, לא של המשתמש — מסומן במפורש */
       supportAdminEmail: row.supportAdminEmail,
+      client: row.client === "mobile" ? "mobile" : "web",
     }));
   }
 
@@ -656,6 +673,17 @@ export class AuthService {
         session.user.tenant.supportAccessUntil.getTime() <= Date.now())
     ) {
       return null;
+    }
+    /*
+     * ‏Session מתמשך של האפליקציה — הפעילות מזיזה את התפוגה קדימה,
+     * ‏לכל היותר פעם ביום (`renewedExpiry`). הכתיבה אינה מעכבת את
+     * ‏הבקשה ואינה מפילה אותה: הארכה שנכשלה תקרה בבקשה הבאה.
+     */
+    const renewed = renewedExpiry(session, new Date());
+    if (renewed !== null) {
+      void this.prisma.session
+        .update({ where: { id: session.id }, data: { expiresAt: renewed } })
+        .catch(() => undefined);
     }
     /*
      * חריגי ההרשאה של המשתמש נטענים בכל בקשה, ולא נצרבים ב-Session.

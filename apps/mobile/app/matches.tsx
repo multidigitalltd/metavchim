@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { Alert, Linking, SectionList, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { routeFor } from "@/lib/nav";
 import {
   DISMISS_REASONS,
   DISMISS_REASON_LABEL,
@@ -277,7 +278,7 @@ export default function MatchesScreen() {
                     title={section.sub || "לכרטיס"}
                     kind="text"
                     small
-                    onPress={() => router.push(section.href as string)}
+                    onPress={() => router.push(routeFor(section.href as string))}
                   />
                 ) : section.sub ? (
                   <Text variant="small">{section.sub}</Text>
@@ -303,7 +304,7 @@ export default function MatchesScreen() {
               <Row
                 title={title}
                 subtitle={m.explanation}
-                onPress={href === null ? undefined : () => router.push(href)}
+                onPress={href === null ? undefined : () => router.push(routeFor(href))}
                 trailing={
                   <Pill tone={scoreTone(m.score)}>{`${m.score}%`}</Pill>
                 }

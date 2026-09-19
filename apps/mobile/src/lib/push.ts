@@ -32,16 +32,26 @@ const TOKEN_KEY = "mv_device_push_token";
 /*
  * ‏איך מוצגת התראה כשהאפליקציה פתוחה. ברירת המחדל של המערכת היא
  * ‏להסתיר, וליד חדש שמגיע בזמן שהמתווך בכרטיס אחר הוא בדיוק מה
- * ‏שצריך להיראות.
+ * ‏שצריך להיראות. המונה על האייקון מתעדכן לפי מה שהשרת שלח
+ * ‏(`badge` בהודעה), והמעטפת מיישרת אותו לפי הלא-נקראות בכל רענון.
  */
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldShowBanner: true,
     shouldShowList: true,
     shouldPlaySound: true,
-    shouldSetBadge: false,
+    shouldSetBadge: true,
   }),
 });
+
+/**
+ * ‏המונה על אייקון האפליקציה — ההתראות שלא נקראו. iOS מציג מספר;
+ * ‏באנדרואיד המשגר מחליט (נקודה או מספר), ומשגרים שאינם תומכים
+ * ‏מתעלמים בשקט. כישלון אינו מעניין אף מסך.
+ */
+export function syncBadge(unread: number): void {
+  void Notifications.setBadgeCountAsync(Math.max(0, unread)).catch(() => undefined);
+}
 
 function projectId(): string | undefined {
   const fromConfig = (Constants.expoConfig?.extra as { eas?: { projectId?: string } } | undefined)
@@ -57,6 +67,8 @@ async function ensureAndroidChannel(): Promise<void> {
     importance: Notifications.AndroidImportance.MAX,
     sound: "default",
     vibrationPattern: [0, 250, 250, 250],
+    // ‏ההתראות שבמגש נספרות על האייקון במשגרים שתומכים בכך
+    showBadge: true,
   });
 }
 

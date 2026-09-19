@@ -57,11 +57,18 @@ export interface ExpoPushMessage {
   /** ערוץ ההתראות באנדרואיד; בלעדיו ההתראה אינה מוצגת מ-Android 8 */
   channelId: "default";
   priority: "high";
+  /**
+   * ‏המונה על האייקון — כמה התראות שלא נקראו יש לנמען **אחרי** זו.
+   * ‏iOS מציג אותו ישירות; באנדרואיד המערכת סופרת את ההתראות שבמגש
+   * ‏בעצמה, והאפליקציה מיישרת את המונה לפי השרת בכל פתיחה.
+   */
+  badge?: number;
 }
 
 export function expoPushMessage(
   token: string,
   payload: { title: string; body: string; url: string; tag: string },
+  badge?: number,
 ): ExpoPushMessage {
   return {
     to: token,
@@ -71,6 +78,7 @@ export function expoPushMessage(
     sound: "default",
     channelId: "default",
     priority: "high",
+    ...(badge === undefined ? {} : { badge }),
   };
 }
 

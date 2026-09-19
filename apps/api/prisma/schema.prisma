@@ -332,6 +332,12 @@ model Session {
   /// לא null = Session של תמיכה: חי רק בתוך חלון ההסכמה של המשרד,
   /// והביטול הורג אותו בבקשה הבאה. הערך הוא מי מהתמיכה נכנס.
   supportAdminEmail String?   @map("support_admin_email") @db.VarChar(254)
+  /// web | mobile — מי נושא את הטוקן (עוגייה או Bearer). שער „חיבור אחד לחשבון”
+  /// ב-web סופר רק דפדפנים: הטלפון של אותו אדם אינו „חיבור נוסף”.
+  client            String    @default("web") @db.VarChar(10)
+  /// Session ארוך ומתגלגל (30 יום מהפעילות האחרונה) — רק לאפליקציה,
+  /// ורק כשהמכשיר עצמו נעול (נעילת מסך / ביומטריה). ראו session-lifetime.ts.
+  persistent        Boolean   @default(false)
   createdAt         DateTime  @default(now()) @map("created_at")
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)

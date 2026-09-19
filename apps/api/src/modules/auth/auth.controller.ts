@@ -62,11 +62,19 @@ const OAUTH_TTL_MS = 10 * 60 * 1000;
  */
 const ClientSchema = z.enum(["web", "mobile"]).default("web");
 
+/**
+ * ‏בקשת האפליקציה ל-Session ארוך ומתגלגל (30 יום) במקום 12 שעות —
+ * ‏כשהמכשיר עצמו נעול. השרת מכבד אותה רק מ-`client: "mobile"`
+ * ‏(`session-lifetime.ts`); בגוף של דפדפן היא מתעלמת.
+ */
+const PersistentSchema = z.boolean().default(false);
+
 const LoginSchema = z
   .object({
     email: z.string().email().max(254),
     password: z.string().min(8).max(200),
     client: ClientSchema,
+    persistent: PersistentSchema,
   })
   .strict();
 
@@ -106,6 +114,7 @@ const VerifyOtpSchema = z
     otpToken: z.string().regex(/^[A-Za-z0-9_-]{32}$/u),
     code: z.string().regex(/^\d{6}$/u),
     client: ClientSchema,
+    persistent: PersistentSchema,
   })
   .strict();
 
@@ -129,7 +138,9 @@ function safeInternalPath(next: unknown): string {
 }
 
 /** ‏הקוד שהאפליקציה קיבלה בכתובת החזרה מ-Google (ראו `mobile-handoff.service.ts`). */
-const GoogleExchangeSchema = z.object({ code: z.string().regex(MOBILE_HANDOFF_CODE_PATTERN) }).strict();
+const GoogleExchangeSchema = z
+  .object({ code: z.string().regex(MOBILE_HANDOFF_CODE_PATTERN), persistent: PersistentSchema })
+  .strict();
 
 const ResetPasswordSchema = z
   .object({
@@ -348,6 +359,8 @@ export class AuthController {
     const { token, expiresAt } = await this.auth.issueSession(user, {
       ip: req.ip,
       userAgent: req.headers["user-agent"],
+      client: "mobile",
+      persistent: body.persistent,
     });
     return { user, session: { token, expiresAt: expiresAt.toISOString() } };
   }
@@ -471,6 +484,8 @@ export class AuthController {
     const { token, expiresAt, user } = await this.auth.issueSession(validated, {
       ip: req.ip,
       userAgent: req.headers["user-agent"],
+      client: body.client,
+      persistent: body.persistent,
     });
     return this.deliverSession(res, body.client, user, token, expiresAt);
   }
@@ -514,6 +529,8 @@ export class AuthController {
     const { token, expiresAt, user: sessionUser } = await this.auth.issueSession(user, {
       ip: req.ip,
       userAgent: req.headers["user-agent"],
+      client: body.client,
+      persistent: body.persistent,
     });
     return this.deliverSession(res, body.client, sessionUser, token, expiresAt);
   }

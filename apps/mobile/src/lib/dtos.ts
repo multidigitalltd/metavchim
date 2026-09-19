@@ -17,25 +17,6 @@ export interface LeadRow {
   createdAt: string;
 }
 
-export interface LeadDetail extends LeadRow {
-  contact: {
-    id: string;
-    name: string;
-    phone: string;
-    email?: string;
-    sharedTabu: boolean;
-  };
-  requiresHumanReason?: string;
-  summary?: string;
-}
-
-export interface TimelineItem {
-  id: string;
-  kind: string;
-  content: string;
-  createdAt: string;
-}
-
 export interface PropertyRow {
   id: string;
   city?: string;

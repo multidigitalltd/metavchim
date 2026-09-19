@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { FlatList, View } from "react-native";
 import { useRouter } from "expo-router";
+import { routeFor } from "@/lib/nav";
 import { apiGet, apiList } from "@/lib/api";
 import { can, useAuth } from "@/lib/auth";
 import type { BuyerRow } from "@/lib/dtos";
@@ -118,7 +119,7 @@ export default function BuyersScreen() {
               ]
                 .filter(Boolean)
                 .join(" · ")}
-              onPress={() => router.push(`/buyers/${b.id}`)}
+              onPress={() => router.push(routeFor(`/buyers/${b.id}`))}
               trailing={
                 <Pill tone={maturityTone(b.maturity)}>
                   {maturityLabel(b.maturity)}

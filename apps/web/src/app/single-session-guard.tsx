@@ -41,6 +41,13 @@ import { describeDevice, type SessionRow } from "./sessions-list";
  * חיבור תמיכה (supportAdminEmail) אינו מקפיץ את השער: הוא נפתח
  * בהסכמה מפורשת מהמסך של המשתמש עצמו, מוגבל לשעה, ומסומן בנפרד
  * ברשימת החיבורים.
+ *
+ * ‏גם **האפליקציה לנייד** (`client: "mobile"`) אינה נספרת: הטלפון
+ * ‏של אותו אדם ליד המחשב שלו הוא שימוש רגיל, לא שיתוף מנוי — ושער
+ * ‏שמנתק את האפליקציה בכל כניסה מהמשרד היה מלמד את המשתמש שהיא
+ * ‏„מתנתקת כל פעם”. הכלל נשאר „דפדפן אחד”: חיבור נוסף מ**דפדפן**
+ * ‏עדיין מקפיץ את השער, וניתוק החיבורים מהאפליקציה עצמו נשאר
+ * ‏במסך „החיבורים שלי”.
  */
 export function SingleSessionGuard(): React.JSX.Element | null {
   const [others, setOthers] = useState<SessionRow[] | null>(null);
@@ -61,7 +68,7 @@ export function SingleSessionGuard(): React.JSX.Element | null {
         const current = sessions.find((row) => row.current);
         if (current !== undefined && current.supportAdminEmail !== null) return;
         const foreign = sessions.filter(
-          (row) => !row.current && row.supportAdminEmail === null,
+          (row) => !row.current && row.supportAdminEmail === null && row.client !== "mobile",
         );
         if (foreign.length > 0) setOthers(foreign);
       })
@@ -138,7 +145,7 @@ export function SingleSessionGuard(): React.JSX.Element | null {
               className="flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2.5"
               style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}
             >
-              <span className="text-[length:var(--type-body-sm)] font-semibold">{describeDevice(row.userAgent)}</span>
+              <span className="text-[length:var(--type-body-sm)] font-semibold">{describeDevice(row.userAgent, row.client)}</span>
               <span className="text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
                 התחברות: {formatDateTime(row.createdAt)}
                 {row.ipAddress !== null ? (

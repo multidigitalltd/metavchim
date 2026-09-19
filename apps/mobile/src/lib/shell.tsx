@@ -1,14 +1,21 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type PropsWithChildren } from "react";
+import { AppState } from "react-native";
+import * as Notifications from "expo-notifications";
 import { apiGet } from "./api";
 import { useAuth } from "./auth";
 import type { NavSummary } from "./nav";
+import { syncBadge } from "./push";
 
 /**
  * ‏מצב המעטפת — המגירה, מוני הניווט והפעמון — משותף לכל המסכים.
  *
- * ‏הסיכום (`/nav/summary`) והלא-נקראות מתרעננים כל דקה ובכל פתיחה
- * ‏של המגירה: פעולה במסך אחד (קליטת ליד) צריכה להשתקף בתג כשעוברים
+ * ‏הסיכום (`/nav/summary`) והלא-נקראות מתרעננים כל דקה, בכל פתיחה
+ * ‏של המגירה, בכל חזרה של האפליקציה לחזית ובכל התראה שמגיעה בזמן
+ * ‏שהיא פתוחה: פעולה במסך אחד (קליטת ליד) צריכה להשתקף בתג כשעוברים
  * ‏הלאה, בלי Polling צפוף. כישלון אינו מאפס תג שכבר הוצג.
+ *
+ * ‏הלא-נקראות הן גם המונה על אייקון האפליקציה (`syncBadge`): מה
+ * ‏שהפעמון מראה בפנים, האייקון מראה בחוץ — ואפס כשמתנתקים.
  */
 interface ShellState {
   drawerOpen: boolean;
@@ -37,7 +44,10 @@ export function ShellProvider({ children }: PropsWithChildren) {
       .then(setSummary)
       .catch(() => undefined);
     apiGet<{ unreadCount: number }>("/notifications?limit=1")
-      .then((r) => setUnread(r.unreadCount))
+      .then((r) => {
+        setUnread(r.unreadCount);
+        syncBadge(r.unreadCount);
+      })
       .catch(() => undefined);
   }, [ready]);
 
@@ -45,11 +55,22 @@ export function ShellProvider({ children }: PropsWithChildren) {
     if (!ready) {
       setSummary(null);
       setUnread(0);
+      syncBadge(0);
       return;
     }
     refreshCounts();
     const timer = setInterval(refreshCounts, REFRESH_MS);
-    return () => clearInterval(timer);
+    // ‏חזרה לחזית — המונים מתרעננים מיד, לא בדקה הבאה
+    const appState = AppState.addEventListener("change", (state) => {
+      if (state === "active") refreshCounts();
+    });
+    // ‏התראה שהגיעה בזמן שהאפליקציה פתוחה — הפעמון והאייקון מתעדכנים מיד
+    const received = Notifications.addNotificationReceivedListener(() => refreshCounts());
+    return () => {
+      clearInterval(timer);
+      appState.remove();
+      received.remove();
+    };
   }, [ready, refreshCounts]);
 
   const openDrawer = useCallback(() => {
