@@ -5,7 +5,9 @@ import {
   appendDictated,
   collectDictation,
   createDictationSessions,
+  dictationErrorMessage,
   dictationMode,
+  dictationShouldFallBack,
 } from "@metavchim/shared";
 import {
   extensionForAudioType,
@@ -65,7 +67,15 @@ interface SpeechRecognitionLike {
   stop: () => void;
   onresult: ((event: { results: ArrayLike<DictationResultSegment | undefined> }) => void) | null;
   onend: (() => void) | null;
-  onerror: (() => void) | null;
+  /*
+   * ‎**קוד השגיאה, שעד כה נזרק.**
+   *
+   * ‏החתימה הייתה `() => void`, ולכן המסך לא יכול היה להבדיל בין
+   * ‏„המשתמש לא דיבר” ל„שירות הזיהוי חסום” — וכל כשל קיבל את אותו
+   * ‏משפט ואת אותה החלטה. הכלל המשותף (`dictationShouldFallBack`)
+   * ‏אינו יכול לרוץ בלי הקוד הזה.
+   */
+  onerror: ((event: { error?: string }) => void) | null;
 }
 
 function getSpeechRecognition(): (new () => SpeechRecognitionLike) | null {
@@ -664,19 +674,26 @@ export function VoiceRecorder({
       setFinishing(false);
       setActiveMode(null);
     };
-    recognition.onerror = () => {
+    /*
+     * ‎**אותו כלל שחל על שדות הטקסט, ולא כלל שני שנכתב כאן.**
+     *
+     * ‏כאן ישבו שני משפטי שגיאה כתובים ביד וההחלטה „כל כשל מפיל
+     * ‏לשרת”. שתי הכפילויות עלו במחיר: הודעה אחת לכל הסיבות, ונפילה
+     * ‏לשרת גם כשהמיקרופון עצמו נדחה — שם הוא יידחה שוב, והמסך
+     * ‏הבטיח „לחצו שוב, והתמלול יעבור לשרת” על דרך שאינה קיימת.
+     *
+     * ‎`dictationShouldFallBack` ו-`dictationErrorMessage` הם מקור
+     * ‏אחד לשתי ההכרעות, והם מכוסים בבדיקות בחבילה המשותפת.
+     */
+    recognition.onerror = (event) => {
       if (!sessions.end(token)) return;
       retireRecognition();
       busyRef.current = false;
       setRecording(false);
       setFinishing(false);
       setActiveMode(null);
-      setBrowserFailed(true);
-      onError?.(
-        serverAvailable
-          ? "זיהוי הדיבור בדפדפן נכשל — לחצו שוב, והתמלול יעבור לשרת"
-          : "זיהוי הדיבור נכשל — אפשר להקליד במקום",
-      );
+      if (dictationShouldFallBack(event?.error)) setBrowserFailed(true);
+      onError?.(dictationErrorMessage(event?.error, !serverAvailable));
     };
     recognitionRef.current = recognition;
     browserTokenRef.current = token;
@@ -688,12 +705,9 @@ export function VoiceRecorder({
       retireRecognition();
       busyRef.current = false;
       setActiveMode(null);
+      // מנוע שלא עלה בכלל הוא בדיוק המקרה שבשבילו הנפילה קיימת
       setBrowserFailed(true);
-      onError?.(
-        serverAvailable
-          ? "זיהוי הדיבור בדפדפן נכשל — לחצו שוב, והתמלול יעבור לשרת"
-          : "זיהוי הדיבור נכשל — אפשר להקליד במקום",
-      );
+      onError?.(dictationErrorMessage(undefined, !serverAvailable));
       return;
     }
     setRecording(true);
