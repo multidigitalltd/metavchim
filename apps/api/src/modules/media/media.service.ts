@@ -608,10 +608,25 @@ export class MediaService {
    * הפלטפורמה, בעוד דף החזרה כבר אמר „לא הושלם” (ביקורת Codex).
    * רק הזמנה שממתינה נכשלת: הודעת כישלון מאוחרת אינה מבטלת
    * הזמנה ששולמה.
+   *
+   * **ורק כשאין דף תשלום חי.** אחרי „המשך לתשלום” הדף הישן מסומן
+   * `superseded` ועדיין ניתן לדחייה אצל הסולק; דחייה שלו שהייתה
+   * מכשילה את ההזמנה הייתה אומרת ללקוח שהניסיון **הנוכחי** נכשל,
+   * בעוד הדף החדש פתוח וממתין (ביקורת Codex). דף ממתין = ההזמנה
+   * ממשיכה; הכישלון נשאר על שורת התשלום הישנה בלבד.
    */
   async markFailed(orderId: string): Promise<void> {
+    const order = await this.prisma.mediaOrder.findUnique({
+      where: { id: orderId },
+      select: { tenantId: true, status: true },
+    });
+    if (order === null || order.status !== "pending_payment") return;
+    const live = await this.prisma.payment.count({
+      where: { tenantId: order.tenantId, mediaOrderId: orderId, status: "pending" },
+    });
+    if (live > 0) return;
     const failed = await this.prisma.mediaOrder.updateMany({
-      where: { id: orderId, status: "pending_payment" },
+      where: { tenantId: order.tenantId, id: orderId, status: "pending_payment" },
       data: { status: "failed" },
     });
     // רק על מעבר אמיתי — הודעת כישלון חוזרת מהסולק אינה מייל נוסף
@@ -629,12 +644,44 @@ export class MediaService {
     }
   }
 
-  /** תשלום שנתפס בלי הזמנה חיה — כסף בלי שירות, לעין אנושית. */
+  /**
+   * תשלום שנתפס בלי הזמנה חיה — כסף בלי שירות, לעין אנושית.
+   *
+   * הזמנה שכבר שולמה אינה בהכרח „כפילות רגילה”: שתי הודעות של
+   * קארדקום על **אותו** תשלום נעצרות אצל `apply` בשקט, אבל אחרי
+   * „המשך לתשלום” יש להזמנה שני דפים חיים, ואפשר לשלם בשניהם. אז
+   * התשלום השני נתפס כ„שולם”, ההזמנה כבר שולמה — והלקוח חויב פעמיים
+   * על מודעה אחת. שקט כאן היה משאיר אותו כך (ביקורת Codex). לכן:
+   * ההזמנה שולמה על ידי **תשלום אחר** ⟵ חיוב כפול, לזיכוי.
+   */
   async reportOrphanPayment(paymentId: string, orderId: string | null): Promise<void> {
     const order =
       orderId === null ? null : await this.prisma.mediaOrder.findUnique({ where: { id: orderId } });
-    // כפילות רגילה (הזמנה כבר שולמה) — שקט; רק מצב שדורש טיפול מדווח
-    if (order !== null && order.status === "paid") return;
+    if (order !== null && order.status === "paid") {
+      const paid = await this.prisma.payment.findMany({
+        where: { tenantId: order.tenantId, mediaOrderId: order.id, status: "paid" },
+        select: { id: true },
+      });
+      // אותו תשלום שנתפס פעמיים — שקט
+      if (!paid.some((p) => p.id !== paymentId)) return;
+      this.logger.error(`חיוב כפול על הזמנת מדיה ${order.id}: תשלום ${paymentId} נוסף על הזמנה ששולמה`);
+      await this.admins.notify({
+        subject: `[רכש מדיה] חיוב כפול — ${order.outletName} — ${order.officeName} — לזיכוי`,
+        heading: "הלקוח חויב פעמיים על הזמנה אחת",
+        badge: { label: "חיוב כפול — לזיכוי", tone: "danger" },
+        paragraphs: [
+          `ההזמנה ${order.productName} ב${order.outletName} של ${order.officeName} כבר שולמה, ותשלום נוסף (${paymentId}) נתפס עליה — כנראה דף תשלום ישן שנשאר פתוח אחרי „המשך לתשלום”.`,
+          "המודעה אחת, הכסף פעמיים. יש לזכות את התשלום הנוסף אצל קארדקום ולעדכן את הלקוח.",
+        ],
+        details: [
+          { label: "משרד", value: order.officeName },
+          { label: "תשלום לזיכוי", value: paymentId },
+          { label: "איש קשר", value: `${order.contactName}, ${order.contactPhone}` },
+        ],
+        button: { label: "להזמנות המדיה", url: `${loadEnv().WEB_ORIGIN}/platform?tab=media` },
+      });
+      return;
+    }
     this.logger.error(`תשלום ${paymentId} על הזמנת מדיה ${orderId ?? "ללא מזהה"} נתפס בלי הזמנה חיה`);
     await this.admins.notify({
       subject: "תשלום על הזמנת מדיה בלי הזמנה חיה",
