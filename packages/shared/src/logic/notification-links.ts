@@ -120,6 +120,9 @@ function targetFor(entityType: string, entityId: string): Target | null {
       return { href: "/settings/integrations", needs: ["settings.manage"] };
     case "virtual_number":
       return { href: "/settings#virtual-numbers", needs: ["settings.manage"] };
+    // הזמנות המדיה פתוחות לכל משתמש במשרד — אין יכולת נדרשת
+    case "media_order":
+      return { href: "/media/orders" };
     default:
       return null;
   }

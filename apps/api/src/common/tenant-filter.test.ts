@@ -83,6 +83,11 @@ const CROSS_TENANT_BY_DESIGN: Record<string, string> = {
     "‏מזהה המקום מגיע מ-`payment.seatId` אחרי אימות מול קארדקום — לא מהמשתמש",
   "modules/messaging/whatsapp-bot.service.ts":
     "‏מזהה החיבור מגיע מה-dispatcher של וובהוק Meta — לא מהמשתמש",
+  "modules/media/media.service.ts":
+    "‏מזהה ההזמנה מגיע מ-`payment.mediaOrderId` אחרי אימות מול קארדקום, או מכתיבה של אותו משרד — לא מהמשתמש; נתיבי המשרד מסננים לפי tenantId במפורש",
+  "modules/media/media-admin.service.ts": "מסך בעל הפלטפורמה — רואה את הזמנות כל המשרדים בהגדרה",
+  "modules/media/media-closing-reminder.service.ts":
+    "סורק תזכורות סגירת גיליון — עובר על ההזמנות הממתינות של כל המשרדים; ההתראה נכתבת בתוך withExplicitTenant",
 };
 
 /**

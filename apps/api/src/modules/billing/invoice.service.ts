@@ -167,6 +167,7 @@ export class InvoiceService implements OnModuleInit, OnModuleDestroy {
     planCode: string | null;
     billingCycle: string | null;
     creditsPurchased: number | null;
+    mediaOrderId: string | null;
   }): Promise<string> {
     const purpose: InvoicePurpose =
       payment.purpose === "credits"
@@ -175,7 +176,26 @@ export class InvoiceService implements OnModuleInit, OnModuleDestroy {
           ? "number_rental"
           : payment.purpose === "whatsapp_seat"
             ? "whatsapp_seat"
-            : "subscription";
+            : payment.purpose === "media_order"
+              ? "media_order"
+              : "subscription";
+    /*
+     * שם המדיה והמוצר מצולמים על ההזמנה — המסמך נוקב במה שנקנה,
+     * לא ב„פרסום” סתמי. ההזמנה נקראת לפי המזהה שעל שורת התשלום.
+     */
+    let mediaProduct: string | undefined;
+    if (purpose === "media_order" && payment.mediaOrderId !== null) {
+      const order = await this.prisma.mediaOrder.findUnique({
+        where: { id: payment.mediaOrderId },
+        select: { outletName: true, productName: true, quantity: true },
+      });
+      if (order !== null) {
+        mediaProduct =
+          order.quantity > 1
+            ? `${order.outletName} — ${order.productName} ×${order.quantity}`
+            : `${order.outletName} — ${order.productName}`;
+      }
+    }
     let planLabel: string | undefined;
     if (purpose === "subscription" && payment.planCode) {
       const plan = (await this.plans.all()).find((item) => item.code === payment.planCode);
@@ -186,6 +206,7 @@ export class InvoiceService implements OnModuleInit, OnModuleDestroy {
       planLabel,
       billingCycle: payment.billingCycle === "yearly" ? "yearly" : "monthly",
       credits: payment.creditsPurchased ?? undefined,
+      mediaProduct,
     }).slice(0, 200);
   }
 
