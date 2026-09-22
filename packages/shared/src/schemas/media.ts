@@ -1,6 +1,7 @@
 import { z } from "zod";
 import {
   MAX_MEDIA_COMMISSION_PERCENT,
+  MEDIA_IMAGE_KINDS,
   MEDIA_ORDER_BRIEF_MAX,
   MEDIA_ORDER_MAX_QUANTITY,
   MEDIA_OUTLET_KINDS,
@@ -62,6 +63,10 @@ export const MediaOutletUpsertSchema = z
     contactEmail: z.union([z.string().trim().email().max(254), z.literal("")]).default(""),
     contactPhone: z.union([PhoneInputSchema, z.literal("")]).default(""),
     commissionPercent: z.number().int().min(0).max(MAX_MEDIA_COMMISSION_PERCENT),
+    /** "יום שני 12:00 לגיליון של אותו שבוע" — הכלל במילים. */
+    closingText: z.string().trim().max(200).default(""),
+    /** ‏מועד הסגירה הקרוב, ISO ב-UTC. `null` = אין מועד ידוע. */
+    nextClosingAt: z.string().datetime({ offset: true }).nullable().default(null),
     active: z.boolean().default(true),
     sortOrder: z.number().int().min(0).max(1000).default(0),
   })
@@ -97,6 +102,29 @@ export const MediaProductUpsertSchema = z
     }
   });
 export type MediaProductUpsert = z.infer<typeof MediaProductUpsertSchema>;
+
+/** ‏כיתוב וסדר לתמונה שכבר הועלתה; הקובץ עצמו מגיע כ-multipart. */
+export const MediaImagePatchSchema = z
+  .object({
+    kind: z.enum(MEDIA_IMAGE_KINDS).optional(),
+    caption: z.string().trim().max(200).optional(),
+    sortOrder: z.number().int().min(0).max(1000).optional(),
+  })
+  .strict();
+export type MediaImagePatch = z.infer<typeof MediaImagePatchSchema>;
+
+/**
+ * ‏רישום העברה למדיה — כל ההזמנות ששולמו וטרם הועברו, יחד. הסכום
+ * ‏מחושב בשרת מההזמנות ולא נשלח: רישום שסכומו אינו סך ההזמנות
+ * ‏אינו רישום של דבר.
+ */
+export const MediaSettlementCreateSchema = z
+  .object({
+    reference: z.string().trim().max(120).default(""),
+    note: z.string().trim().max(500).default(""),
+  })
+  .strict();
+export type MediaSettlementCreate = z.infer<typeof MediaSettlementCreateSchema>;
 
 export const MediaProductPatchSchema = z
   .object({

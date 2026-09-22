@@ -73,6 +73,50 @@ export const MEDIA_ORDER_STATUS_LABEL: Record<MediaOrderStatus, string> = {
   cancelled: "בוטל",
 };
 
+/** ‏תמונות של מדיה: `cover` — לוגו/שער אחד; `sample` — דוגמאות מודעה. */
+export const MEDIA_IMAGE_KINDS = ["cover", "sample"] as const;
+export type MediaImageKind = (typeof MEDIA_IMAGE_KINDS)[number];
+
+/** כמה דוגמאות מודעה למדיה — מספיק להראות, לא גלריה. */
+export const MEDIA_IMAGES_MAX = 8;
+
+/** ‏כמה זמן לפני סגירת הגיליון נשלחת התזכורת למשרד עם הזמנה ממתינה. */
+export const MEDIA_CLOSING_REMINDER_HOURS = 24;
+
+/**
+ * ‏מצב סגירת הגיליון לתצוגה — מה שהכרטיס והעמוד אומרים ליד המועד.
+ *
+ * - `none` — אין מועד ידוע.
+ * - `open` — יש זמן.
+ * - `soon` — פחות מ-48 שעות: הכרטיס מזהיר, והתזכורת יוצאת ב-24.
+ * - `closed` — המועד עבר ובעל הפלטפורמה טרם עדכן לגיליון הבא.
+ */
+export type MediaClosingState = "none" | "open" | "soon" | "closed";
+
+export function mediaClosingState(nextClosingAt: Date | null, now: Date): MediaClosingState {
+  if (nextClosingAt === null) return "none";
+  const msLeft = nextClosingAt.getTime() - now.getTime();
+  if (msLeft <= 0) return "closed";
+  if (msLeft <= 48 * 60 * 60 * 1000) return "soon";
+  return "open";
+}
+
+/**
+ * ‏האם הגיע הזמן לתזכורת על הגיליון הזה: המועד בעתיד, בתוך חלון
+ * ‏התזכורת, ועדיין לא נשלחה תזכורת **למועד הזה** (מועד שהתעדכן
+ * ‏לגיליון הבא מקבל תזכורת חדשה).
+ */
+export function mediaClosingReminderDue(input: {
+  nextClosingAt: Date | null;
+  remindedForClosingAt: Date | null;
+  now: Date;
+}): boolean {
+  if (input.nextClosingAt === null) return false;
+  const msLeft = input.nextClosingAt.getTime() - input.now.getTime();
+  if (msLeft <= 0 || msLeft > MEDIA_CLOSING_REMINDER_HOURS * 60 * 60 * 1000) return false;
+  return input.remindedForClosingAt?.getTime() !== input.nextClosingAt.getTime();
+}
+
 /** ברירת המחדל לעמלת התיווך של הפלטפורמה על הזמנת מדיה, באחוזים. */
 export const DEFAULT_MEDIA_COMMISSION_PERCENT = 10;
 

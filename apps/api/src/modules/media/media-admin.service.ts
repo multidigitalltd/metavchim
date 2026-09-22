@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from "@nestjs/comm
 import { ulid } from "ulid";
 import {
   MEDIA_ORDER_STATUS_LABEL,
+  type MediaImageKind,
   type MediaOrderStatus,
   type MediaOutletKind,
   type MediaOutletPatch,
@@ -9,6 +10,7 @@ import {
   type MediaProductKind,
   type MediaProductPatch,
   type MediaProductUpsert,
+  type MediaSettlementCreate,
 } from "@metavchim/shared";
 import { PrismaService } from "../../core/prisma.service";
 
@@ -34,6 +36,13 @@ export interface AdminMediaProduct {
   sortOrder: number;
 }
 
+export interface AdminMediaImage {
+  id: string;
+  kind: MediaImageKind;
+  caption: string;
+  sortOrder: number;
+}
+
 export interface AdminMediaOutlet {
   id: string;
   slug: string;
@@ -49,9 +58,27 @@ export interface AdminMediaOutlet {
   contactEmail: string;
   contactPhone: string;
   commissionPercent: number;
+  closingText: string;
+  /** ISO ב-UTC; המסך מציג ועורך בשעת קיר ישראלית. */
+  nextClosingAt: string | null;
   active: boolean;
   sortOrder: number;
   products: AdminMediaProduct[];
+  images: AdminMediaImage[];
+  /** חלקה של המדיה בהזמנות ששולמו וטרם הועברו — היתרה לתשלום. */
+  owedAgorot: number;
+  owedOrders: number;
+}
+
+export interface AdminMediaSettlement {
+  id: string;
+  outletId: string;
+  outletName: string;
+  amountAgorot: number;
+  orderCount: number;
+  reference: string;
+  note: string;
+  createdAt: Date;
 }
 
 export interface AdminMediaOrder {
@@ -76,6 +103,8 @@ export interface AdminMediaOrder {
   brief: string;
   notifiedAt: Date | null;
   paidAt: Date | null;
+  /** ההעברה למדיה שההזמנה נכללה בה; ריק = טרם הועבר. */
+  settlementId: string | null;
   createdAt: Date;
 }
 
@@ -86,8 +115,30 @@ export class MediaAdminService {
   async outlets(): Promise<AdminMediaOutlet[]> {
     const rows = await this.prisma.mediaOutlet.findMany({
       orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
-      include: { products: { orderBy: [{ sortOrder: "asc" }, { name: "asc" }] } },
+      include: {
+        products: { orderBy: [{ sortOrder: "asc" }, { name: "asc" }] },
+        images: { orderBy: [{ kind: "asc" }, { sortOrder: "asc" }, { createdAt: "asc" }] },
+      },
     });
+    /*
+     * היתרה לתשלום — סכום פחות עמלה על כל הזמנה ששולמה וטרם הועברה.
+     * מחושב בשאילתה אחת לכל המדיות, לא אחת לכל שורה.
+     */
+    const owed = await this.prisma.mediaOrder.groupBy({
+      by: ["outletId"],
+      where: { status: "paid", settlementId: null },
+      _sum: { amountAgorot: true, commissionAgorot: true },
+      _count: { _all: true },
+    });
+    const owedByOutlet = new Map(
+      owed.map((o) => [
+        o.outletId,
+        {
+          agorot: (o._sum.amountAgorot ?? 0) - (o._sum.commissionAgorot ?? 0),
+          orders: o._count._all,
+        },
+      ]),
+    );
     return rows.map((row) => ({
       id: row.id,
       slug: row.slug,
@@ -103,8 +154,18 @@ export class MediaAdminService {
       contactEmail: row.contactEmail,
       contactPhone: row.contactPhone,
       commissionPercent: row.commissionPercent,
+      closingText: row.closingText,
+      nextClosingAt: row.nextClosingAt?.toISOString() ?? null,
       active: row.active,
       sortOrder: row.sortOrder,
+      images: row.images.map((img) => ({
+        id: img.id,
+        kind: img.kind as MediaImageKind,
+        caption: img.caption,
+        sortOrder: img.sortOrder,
+      })),
+      owedAgorot: owedByOutlet.get(row.id)?.agorot ?? 0,
+      owedOrders: owedByOutlet.get(row.id)?.orders ?? 0,
       products: row.products.map((p) => ({
         id: p.id,
         name: p.name,
@@ -122,7 +183,10 @@ export class MediaAdminService {
   async createOutlet(input: MediaOutletUpsert, updatedBy: string): Promise<{ id: string }> {
     await this.assertSlugFree(input.slug, null);
     const id = ulid();
-    await this.prisma.mediaOutlet.create({ data: { id, ...input, updatedBy } });
+    const { nextClosingAt, ...rest } = input;
+    await this.prisma.mediaOutlet.create({
+      data: { id, ...rest, nextClosingAt: closingDate(nextClosingAt), updatedBy },
+    });
     return { id };
   }
 
@@ -130,7 +194,79 @@ export class MediaAdminService {
     const existing = await this.prisma.mediaOutlet.findUnique({ where: { id }, select: { id: true } });
     if (existing === null) throw new NotFoundException("המדיה לא נמצאה");
     if (patch.slug !== undefined) await this.assertSlugFree(patch.slug, id);
-    await this.prisma.mediaOutlet.update({ where: { id }, data: { ...patch, updatedBy } });
+    const { nextClosingAt, ...rest } = patch;
+    await this.prisma.mediaOutlet.update({
+      where: { id },
+      data: {
+        ...rest,
+        ...(nextClosingAt === undefined ? {} : { nextClosingAt: closingDate(nextClosingAt) }),
+        updatedBy,
+      },
+    });
+  }
+
+  /**
+   * רישום העברה למדיה — כל ההזמנות ששולמו וטרם הועברו, יחד.
+   *
+   * הסכום מחושב מההזמנות **בתוך הטרנזקציה** שמסמנת אותן, ולא נשלח
+   * מהמסך: רישום שסכומו אינו סך ההזמנות אינו רישום של דבר. שני
+   * רישומים במקביל אינם כוללים את אותה הזמנה פעמיים — העדכון
+   * המותנה `settlement_id IS NULL` תופס כל הזמנה פעם אחת, והסכום
+   * נגזר ממה שנתפס בפועל.
+   */
+  async settle(
+    outletId: string,
+    input: MediaSettlementCreate,
+    createdBy: string,
+  ): Promise<{ id: string; amountAgorot: number; orderCount: number }> {
+    const outlet = await this.prisma.mediaOutlet.findUnique({
+      where: { id: outletId },
+      select: { id: true },
+    });
+    if (outlet === null) throw new NotFoundException("המדיה לא נמצאה");
+    const id = ulid();
+    return this.prisma.$transaction(async (tx) => {
+      const claimed = await tx.mediaOrder.updateMany({
+        where: { outletId, status: "paid", settlementId: null },
+        data: { settlementId: id },
+      });
+      if (claimed.count === 0) throw new BadRequestException("אין הזמנות ששולמו וממתינות להעברה");
+      const sums = await tx.mediaOrder.aggregate({
+        where: { settlementId: id },
+        _sum: { amountAgorot: true, commissionAgorot: true },
+      });
+      const amountAgorot = (sums._sum.amountAgorot ?? 0) - (sums._sum.commissionAgorot ?? 0);
+      await tx.mediaSettlement.create({
+        data: {
+          id,
+          outletId,
+          amountAgorot,
+          orderCount: claimed.count,
+          reference: input.reference,
+          note: input.note,
+          createdBy,
+        },
+      });
+      return { id, amountAgorot, orderCount: claimed.count };
+    });
+  }
+
+  async settlements(): Promise<AdminMediaSettlement[]> {
+    const rows = await this.prisma.mediaSettlement.findMany({
+      orderBy: { createdAt: "desc" },
+      take: 100,
+      include: { outlet: { select: { name: true } } },
+    });
+    return rows.map((row) => ({
+      id: row.id,
+      outletId: row.outletId,
+      outletName: row.outlet.name,
+      amountAgorot: row.amountAgorot,
+      orderCount: row.orderCount,
+      reference: row.reference,
+      note: row.note,
+      createdAt: row.createdAt,
+    }));
   }
 
   async createProduct(outletId: string, input: MediaProductUpsert): Promise<{ id: string }> {
@@ -200,6 +336,7 @@ export class MediaAdminService {
       brief: row.brief,
       notifiedAt: row.notifiedAt,
       paidAt: row.paidAt,
+      settlementId: row.settlementId,
       createdAt: row.createdAt,
     }));
   }
@@ -211,4 +348,9 @@ export class MediaAdminService {
     });
     if (taken !== null) throw new BadRequestException("כבר קיימת מדיה עם הכתובת הזו");
   }
+}
+
+/** ‏ISO מהסכימה ⟵ `Date`; `null` נשאר `null` (אין מועד ידוע). */
+function closingDate(iso: string | null): Date | null {
+  return iso === null ? null : new Date(iso);
 }

@@ -3086,16 +3086,67 @@ model MediaOutlet {
   /// עמלת התיווך של הפלטפורמה על הזמנה בתשלום, באחוזים. נצרבת על
   /// ההזמנה ברגע היצירה — שינוי חל על הזמנות חדשות בלבד.
   commissionPercent Int       @default(10) @map("commission_percent")
+  /// כלל סגירת הגיליון במילים: "יום שני 12:00 לגיליון של אותו שבוע".
+  closingText       String    @default("") @map("closing_text") @db.VarChar(200)
+  /// מועד סגירת הגיליון הקרוב. ריק = אין מועד ידוע. בעל הפלטפורמה
+  /// מעדכן אחרי כל סגירה; המסך מציג "נסגר בעוד יומיים" ומזהיר.
+  nextClosingAt     DateTime? @map("next_closing_at")
+  /// לאיזה מועד סגירה כבר נשלחה התזכורת — כדי שלא תישלח פעמיים על
+  /// אותו גיליון, ותישלח שוב כשהמועד מתעדכן לגיליון הבא.
+  remindedForClosingAt DateTime? @map("reminded_for_closing_at")
   active            Boolean   @default(true)
   sortOrder         Int       @default(0) @map("sort_order")
   createdAt         DateTime  @default(now()) @map("created_at")
   updatedAt         DateTime  @updatedAt @map("updated_at")
   updatedBy         String?   @map("updated_by") @db.Char(26)
 
-  products MediaProduct[]
+  products    MediaProduct[]
+  images      MediaOutletImage[]
+  settlements MediaSettlement[]
 
   @@index([active, sortOrder])
   @@map("media_outlets")
+}
+
+/// תמונה של מדיה — לוגו/שער או דוגמת מודעה. הקובץ ב-S3, כמו תמונות
+/// הנכסים; השורה כאן היא הסדר והכיתוב. קטלוג של הפלטפורמה, בלי דייר.
+model MediaOutletImage {
+  id          String   @id @db.Char(26)
+  outletId    String   @map("outlet_id") @db.Char(26)
+  /// cover | sample
+  kind        String   @default("sample") @db.VarChar(10)
+  s3Key       String   @map("s3_key") @db.VarChar(512)
+  contentType String   @default("image/jpeg") @map("content_type") @db.VarChar(80)
+  caption     String   @default("") @db.VarChar(200)
+  sortOrder   Int      @default(0) @map("sort_order")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  outlet MediaOutlet @relation(fields: [outletId], references: [id], onDelete: Cascade)
+
+  @@index([outletId, kind, sortOrder])
+  @@map("media_outlet_images")
+}
+
+/// התחשבנות מול המדיה — **רישום** של העברה ששולמה למגזין, לא העברה
+/// בנקאית. בעל הפלטפורמה מסמן אילו הזמנות ששולמו הועברו למדיה,
+/// עם אסמכתה; ההזמנות מקבלות `settlement_id`, והיתרה לתשלום למדיה
+/// היא מה שנשאר בלי. בלי דייר, כמו שאר הקטלוג.
+model MediaSettlement {
+  id           String   @id @db.Char(26)
+  outletId     String   @map("outlet_id") @db.Char(26)
+  /// סך חלקה של המדיה בהזמנות שנכללו (הסכום פחות העמלה), נטו באגורות
+  amountAgorot Int      @map("amount_agorot")
+  orderCount   Int      @map("order_count")
+  /// אסמכתת ההעברה — מספר העברה, תאריך, מה שמזהה אותה בבנק
+  reference    String   @default("") @db.VarChar(120)
+  note         String   @default("") @db.VarChar(500)
+  createdBy    String?  @map("created_by") @db.Char(26)
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  outlet MediaOutlet @relation(fields: [outletId], references: [id])
+
+  @@index([outletId, createdAt])
+  @@map("media_settlements")
 }
 
 /// מוצר במדיה — "רבע עמוד", "עמוד שער", "באנר שבועי".
@@ -3169,6 +3220,10 @@ model MediaOrder {
   /// מתי ההזמנה נשלחה בפועל לאיש הקשר של המדיה. ריק = טרם נשלחה.
   notifiedAt        DateTime? @map("notified_at")
   paidAt            DateTime? @map("paid_at")
+  /// ההעברה למדיה שההזמנה נכללה בה. ריק = חלקה של המדיה טרם הועבר.
+  settlementId      String?   @map("settlement_id") @db.Char(26)
+  /// תזכורת "הגיליון נסגר מחר" שנשלחה על ההזמנה הממתינה — פעם אחת
+  closingReminderAt DateTime? @map("closing_reminder_at")
   createdBy         String?   @map("created_by") @db.Char(26)
   createdAt         DateTime  @default(now()) @map("created_at")
   updatedAt         DateTime  @updatedAt @map("updated_at")
@@ -3176,6 +3231,7 @@ model MediaOrder {
   @@index([tenantId, createdAt])
   @@index([status, createdAt])
   @@index([outletId, createdAt])
+  @@index([outletId, status, settlementId])
   @@map("media_orders")
 }
 

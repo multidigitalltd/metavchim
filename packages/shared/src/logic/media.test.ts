@@ -6,6 +6,8 @@ import {
   MEDIA_ORDER_MAX_QUANTITY,
   MEDIA_PRODUCT_PRICE_MAX_AGOROT,
   isMediaSlug,
+  mediaClosingReminderDue,
+  mediaClosingState,
   mediaOrderTotals,
   resolveMediaCommissionPercent,
 } from "./media.js";
@@ -67,6 +69,34 @@ describe("mediaOrderTotals", () => {
     expect(mediaOrderTotals({ unitPriceAgorot: 100, quantity: 999, commissionPercent: 10 }).quantity).toBe(
       MEDIA_ORDER_MAX_QUANTITY,
     );
+  });
+});
+
+describe("mediaClosingState / mediaClosingReminderDue", () => {
+  const now = new Date("2026-09-22T09:00:00.000Z");
+  const hours = (h: number) => new Date(now.getTime() + h * 60 * 60 * 1000);
+
+  it("בלי מועד — none; רחוק — open; בתוך יומיים — soon; עבר — closed", () => {
+    expect(mediaClosingState(null, now)).toBe("none");
+    expect(mediaClosingState(hours(100), now)).toBe("open");
+    expect(mediaClosingState(hours(30), now)).toBe("soon");
+    expect(mediaClosingState(hours(-1), now)).toBe("closed");
+  });
+
+  it("התזכורת יוצאת פעם אחת לגיליון, ושוב כשהמועד מתעדכן", () => {
+    const closing = hours(20);
+    expect(mediaClosingReminderDue({ nextClosingAt: closing, remindedForClosingAt: null, now })).toBe(true);
+    expect(mediaClosingReminderDue({ nextClosingAt: closing, remindedForClosingAt: closing, now })).toBe(false);
+    const next = hours(20 + 7 * 24);
+    expect(mediaClosingReminderDue({ nextClosingAt: next, remindedForClosingAt: closing, now })).toBe(false);
+    expect(
+      mediaClosingReminderDue({ nextClosingAt: next, remindedForClosingAt: closing, now: hours(7 * 24) }),
+    ).toBe(true);
+  });
+
+  it("מועד שעבר או רחוק מדי — אין תזכורת", () => {
+    expect(mediaClosingReminderDue({ nextClosingAt: hours(-2), remindedForClosingAt: null, now })).toBe(false);
+    expect(mediaClosingReminderDue({ nextClosingAt: hours(40), remindedForClosingAt: null, now })).toBe(false);
   });
 });
 

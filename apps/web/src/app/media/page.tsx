@@ -3,8 +3,9 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { MEDIA_OUTLET_KIND_LABEL, type MediaOutletKind } from "@metavchim/shared";
-import { apiGet, apiList } from "@/lib/api";
+import { apiGet, apiList, mediaSrc } from "@/lib/api";
 import { formatPrice } from "@/lib/format";
+import { ClosingBadge } from "./closing-badge";
 import { useRequireAuth } from "@/lib/use-auth";
 import { IconGlobe, IconList } from "../icons";
 import { LoadError } from "../load-error";
@@ -31,6 +32,8 @@ interface OutletCard {
   productCount: number;
   priceFromAgorot: number | null;
   hasLeadProducts: boolean;
+  nextClosingAt: string | null;
+  coverImageId: string | null;
 }
 
 export default function MediaCatalogPage(): React.JSX.Element | null {
@@ -87,9 +90,21 @@ export default function MediaCatalogPage(): React.JSX.Element | null {
         <ul className="m-0 grid list-none gap-3 p-0 sm:grid-cols-2">
           {items.map((outlet) => (
             <li key={outlet.id} className="mv-card mv-card--pad flex flex-col">
-              <span className="mv-pill mv-domain-blue self-start">
-                {MEDIA_OUTLET_KIND_LABEL[outlet.kind] ?? outlet.kind}
-              </span>
+              {outlet.coverImageId ? (
+                // ‏השער — עיצוב, לא מידע: השם והסוג כתובים מתחת
+                <img
+                  src={mediaSrc(`media/${outlet.slug}/images/${outlet.coverImageId}`)}
+                  alt=""
+                  className="mb-3 h-36 w-full rounded-xl object-cover"
+                  loading="lazy"
+                />
+              ) : null}
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="mv-pill mv-domain-blue">
+                  {MEDIA_OUTLET_KIND_LABEL[outlet.kind] ?? outlet.kind}
+                </span>
+                <ClosingBadge nextClosingAt={outlet.nextClosingAt} compact />
+              </div>
               <h2 className="m-0 mt-2 text-[length:var(--type-card-title)] font-extrabold leading-snug">
                 <Link href={`/media/${outlet.slug}`} className="no-underline hover:underline">
                   {outlet.name}

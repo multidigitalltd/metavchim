@@ -60,6 +60,10 @@ export interface MediaOutletCard {
   priceFromAgorot: number | null;
   /** יש מוצר הפניה — "פנייה לנציג" כאפשרות. */
   hasLeadProducts: boolean;
+  /** מועד סגירת הגיליון הקרוב, ISO — ריק כשאין. */
+  nextClosingAt: string | null;
+  /** מזהה תמונת השער, לכרטיס — ריק כשאין. */
+  coverImageId: string | null;
 }
 
 export interface MediaProductRow {
@@ -84,6 +88,10 @@ export interface MediaOutletDetail {
   highlights: string[];
   /** יש למי לשלוח את ההזמנה. בלי זה ההזמנה מגיעה למנהלי הפלטפורמה בלבד. */
   hasContact: boolean;
+  closingText: string;
+  nextClosingAt: string | null;
+  /** לוגו/שער ודוגמאות מודעה — מוגשות ב-`/media/:slug/images/:id`. */
+  images: { id: string; kind: "cover" | "sample"; caption: string }[];
   products: MediaProductRow[];
   /** הסליקה מוגדרת במערכת — בלעדיה מוצרים בתשלום מוצגים בלי כפתור. */
   checkoutAvailable: boolean;
@@ -136,6 +144,7 @@ export class MediaService {
           where: { active: true },
           select: { kind: true, priceAgorot: true },
         },
+        images: { where: { kind: "cover" }, orderBy: { sortOrder: "asc" }, take: 1, select: { id: true } },
       },
     });
     return outlets.map((outlet) => {
@@ -153,6 +162,8 @@ export class MediaService {
         productCount: outlet.products.length,
         priceFromAgorot: paid.length === 0 ? null : Math.min(...paid),
         hasLeadProducts: outlet.products.some((p) => p.kind === "lead"),
+        nextClosingAt: outlet.nextClosingAt?.toISOString() ?? null,
+        coverImageId: outlet.images[0]?.id ?? null,
       };
     });
   }
@@ -166,6 +177,7 @@ export class MediaService {
           where: { active: true },
           orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
         },
+        images: { orderBy: [{ kind: "asc" }, { sortOrder: "asc" }, { createdAt: "asc" }] },
       },
     });
     if (outlet === null) throw new NotFoundException("המדיה לא נמצאה");
@@ -185,6 +197,13 @@ export class MediaService {
       frequency: outlet.frequency,
       highlights: outlet.highlights,
       hasContact: outlet.contactEmail !== "",
+      closingText: outlet.closingText,
+      nextClosingAt: outlet.nextClosingAt?.toISOString() ?? null,
+      images: outlet.images.map((img) => ({
+        id: img.id,
+        kind: img.kind === "cover" ? "cover" : "sample",
+        caption: img.caption,
+      })),
       products: outlet.products.map((p) => ({
         id: p.id,
         name: p.name,

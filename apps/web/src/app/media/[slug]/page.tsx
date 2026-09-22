@@ -11,8 +11,9 @@ import {
   type MediaOutletKind,
   type MediaProductKind,
 } from "@metavchim/shared";
-import { apiGet, apiPost, ApiError } from "@/lib/api";
+import { apiGet, apiPost, ApiError, mediaSrc } from "@/lib/api";
 import { formatPrice } from "@/lib/format";
+import { ClosingBadge } from "../closing-badge";
 import { can, useRequireAuth } from "@/lib/use-auth";
 import { ActionToast, type ToastState } from "../../action-toast";
 import { ConfirmDialog } from "../../confirm-dialog";
@@ -57,6 +58,9 @@ interface OutletDetail {
   frequency: string;
   highlights: string[];
   hasContact: boolean;
+  closingText: string;
+  nextClosingAt: string | null;
+  images: { id: string; kind: "cover" | "sample"; caption: string }[];
   products: ProductRow[];
   checkoutAvailable: boolean;
   vatPercent: number;
@@ -106,6 +110,8 @@ export default function MediaOutletPage(): React.JSX.Element | null {
   if (outlet === null) return <p aria-live="polite">טוען…</p>;
 
   const mayPay = can(user, "billing.manage");
+  const cover = outlet.images.find((img) => img.kind === "cover") ?? null;
+  const samples = outlet.images.filter((img) => img.kind === "sample");
 
   return (
     // div ולא main — העטיפה של AppShell היא ה-main landmark היחיד
@@ -115,14 +121,24 @@ export default function MediaOutletPage(): React.JSX.Element | null {
       </Link>
 
       <header className="mv-card mv-card--pad mb-4">
-        <span className="mv-pill mv-domain-blue">{MEDIA_OUTLET_KIND_LABEL[outlet.kind] ?? outlet.kind}</span>
+        {cover ? (
+          <img
+            src={mediaSrc(`media/${outlet.slug}/images/${cover.id}`)}
+            alt={cover.caption || `${outlet.name} — שער`}
+            className="mb-4 max-h-64 w-full rounded-xl object-cover"
+          />
+        ) : null}
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="mv-pill mv-domain-blue">{MEDIA_OUTLET_KIND_LABEL[outlet.kind] ?? outlet.kind}</span>
+          <ClosingBadge nextClosingAt={outlet.nextClosingAt} />
+        </div>
         <h1 className="m-0 mt-2 text-2xl font-extrabold">{outlet.name}</h1>
         {outlet.tagline ? (
           <p className="m-0 mt-1 text-[length:var(--type-body)]" style={{ color: "var(--color-text-soft)" }}>
             {outlet.tagline}
           </p>
         ) : null}
-        {outlet.reachText || outlet.frequency ? (
+        {outlet.reachText || outlet.frequency || outlet.closingText ? (
           <div className="mt-4 flex flex-wrap gap-3">
             {outlet.reachText ? (
               <div className="rounded-xl px-4 py-3" style={{ background: "var(--color-primary-soft)" }}>
@@ -140,9 +156,49 @@ export default function MediaOutletPage(): React.JSX.Element | null {
                 <span className="block font-extrabold">{outlet.frequency}</span>
               </div>
             ) : null}
+            {outlet.closingText ? (
+              <div className="rounded-xl px-4 py-3" style={{ background: "var(--color-bg)" }}>
+                <span className="block text-[length:var(--type-caption)] font-bold" style={{ color: "var(--color-text-muted)" }}>
+                  סגירת גיליון
+                </span>
+                <span className="block font-extrabold">{outlet.closingText}</span>
+              </div>
+            ) : null}
           </div>
         ) : null}
       </header>
+
+      {samples.length > 0 ? (
+        <section className="mv-card mv-card--pad mb-4" aria-labelledby="media-samples">
+          <h2 id="media-samples" className="m-0 text-[length:var(--type-card-title)] font-extrabold">
+            דוגמאות מודעה
+          </h2>
+          <ul className="m-0 mt-3 grid list-none grid-cols-2 gap-3 p-0 sm:grid-cols-3 lg:grid-cols-4">
+            {samples.map((img) => (
+              <li key={img.id} className="m-0">
+                <a
+                  href={mediaSrc(`media/${outlet.slug}/images/${img.id}`)}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="block overflow-hidden rounded-xl"
+                >
+                  <img
+                    src={mediaSrc(`media/${outlet.slug}/images/${img.id}`)}
+                    alt={img.caption || "דוגמת מודעה"}
+                    className="aspect-[3/4] w-full object-cover"
+                    loading="lazy"
+                  />
+                </a>
+                {img.caption ? (
+                  <p className="m-0 mt-1 text-[length:var(--type-caption-lg)]" style={{ color: "var(--color-text-muted)" }}>
+                    {img.caption}
+                  </p>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
 
       <div className="grid gap-4 md:grid-cols-2">
         <section className="mv-card mv-card--pad" aria-labelledby="media-about">

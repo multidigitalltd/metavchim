@@ -1,7 +1,9 @@
 import { Module } from "@nestjs/common";
 import { MediaAdminController } from "./media-admin.controller";
 import { MediaAdminService } from "./media-admin.service";
+import { MediaClosingReminderService } from "./media-closing-reminder.service";
 import { MediaController } from "./media.controller";
+import { MediaImagesService } from "./media-images.service";
 import { MediaService } from "./media.service";
 
 /**
@@ -14,7 +16,7 @@ import { MediaService } from "./media.service";
  */
 @Module({
   controllers: [MediaController, MediaAdminController],
-  providers: [MediaService, MediaAdminService],
+  providers: [MediaService, MediaAdminService, MediaImagesService, MediaClosingReminderService],
   exports: [MediaService],
 })
 export class MediaModule {}

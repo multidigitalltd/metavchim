@@ -6,16 +6,21 @@ import {
   MAX_MEDIA_COMMISSION_PERCENT,
   MEDIA_OUTLET_KINDS,
   MEDIA_OUTLET_KIND_LABEL,
+  MEDIA_IMAGES_MAX,
+  MEDIA_IMAGE_KINDS,
   MEDIA_PRODUCT_KINDS,
   MEDIA_PRODUCT_KIND_LABEL,
+  jerusalemWallIsoToUtc,
+  jerusalemWallParts,
+  type MediaImageKind,
   type MediaOrderStatus,
   type MediaOutletKind,
   type MediaProductKind,
 } from "@metavchim/shared";
-import { apiDelete, apiGet, apiList, apiPatch, apiPost, ApiError } from "@/lib/api";
+import { API_BASE, apiDelete, apiGet, apiList, apiPatch, apiPost, ApiError, mediaSrc } from "@/lib/api";
 import { formatDateTime, formatPrice, shekelsToAgorot } from "@/lib/format";
 import { ConfirmDialog } from "../confirm-dialog";
-import { IconGlobe, IconList, IconPlus, IconTrash } from "../icons";
+import { IconBanknote, IconGlobe, IconList, IconPlus, IconTrash } from "../icons";
 import { LoadError } from "../load-error";
 import { Notice } from "../notice";
 
@@ -51,6 +56,13 @@ interface AdminProduct {
   sortOrder: number;
 }
 
+interface AdminImage {
+  id: string;
+  kind: MediaImageKind;
+  caption: string;
+  sortOrder: number;
+}
+
 interface AdminOutlet {
   id: string;
   slug: string;
@@ -66,9 +78,25 @@ interface AdminOutlet {
   contactEmail: string;
   contactPhone: string;
   commissionPercent: number;
+  closingText: string;
+  nextClosingAt: string | null;
   active: boolean;
   sortOrder: number;
   products: AdminProduct[];
+  images: AdminImage[];
+  owedAgorot: number;
+  owedOrders: number;
+}
+
+interface AdminSettlement {
+  id: string;
+  outletId: string;
+  outletName: string;
+  amountAgorot: number;
+  orderCount: number;
+  reference: string;
+  note: string;
+  createdAt: string;
 }
 
 interface AdminOrder {
@@ -92,6 +120,7 @@ interface AdminOrder {
   brief: string;
   notifiedAt: string | null;
   paidAt: string | null;
+  settlementId: string | null;
   createdAt: string;
 }
 
@@ -111,9 +140,25 @@ function shekelsValue(agorot: number | null): string {
   return agorot === null ? "" : String(agorot / 100);
 }
 
+const IMAGE_KIND_LABEL: Record<MediaImageKind, string> = { cover: "שער / לוגו", sample: "דוגמת מודעה" };
+
+/**
+ * ‏שעת קיר ישראלית משני שדות ⟵ ISO ב-UTC; ריק ⟵ null (אין מועד).
+ * ‏אותה המרה כמו בתאריכי הניסיון של המשרדים — המסך מציג ועורך
+ * ‏בשעון ירושלים, השרת שומר UTC.
+ */
+function closingIso(form: FormData): string | null {
+  const date = text(form, "closingDate");
+  if (date === "") return null;
+  const time = text(form, "closingTime") || "12:00";
+  return jerusalemWallIsoToUtc(`${date}T${time}:00.000`).toISOString();
+}
+
 export function MediaSection(): React.JSX.Element {
   const [outlets, setOutlets] = useState<AdminOutlet[] | null>(null);
   const [orders, setOrders] = useState<AdminOrder[] | null>(null);
+  const [settlements, setSettlements] = useState<AdminSettlement[] | null>(null);
+  const [settling, setSettling] = useState<AdminOutlet | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -129,6 +174,9 @@ export function MediaSection(): React.JSX.Element {
       ),
       apiGet<{ orders: AdminOrder[] }>("/platform/media/orders").then((res) =>
         setOrders(apiList(res.orders, "orders")),
+      ),
+      apiGet<{ settlements: AdminSettlement[] }>("/platform/media/settlements").then((res) =>
+        setSettlements(apiList(res.settlements, "settlements")),
       ),
     ]).catch(() => setLoadFailed(true));
   }, []);
@@ -189,6 +237,8 @@ export function MediaSection(): React.JSX.Element {
           contactEmail: text(form, "contactEmail"),
           contactPhone: text(form, "contactPhone"),
           commissionPercent: Number(text(form, "commissionPercent")),
+          closingText: text(form, "closingText"),
+          nextClosingAt: closingIso(form),
           active: form.get("active") === "on",
           sortOrder: Number(text(form, "sortOrder") || "0"),
         }),
@@ -228,6 +278,48 @@ export function MediaSection(): React.JSX.Element {
           sortOrder: Number(text(form, "sortOrder") || "0"),
         }),
       `✓ ${product.name} נשמר`,
+    );
+  }
+
+  function uploadImage(event: FormEvent<HTMLFormElement>, outlet: AdminOutlet): void {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const element = event.currentTarget;
+    const file = form.get("file");
+    if (!(file instanceof File) || file.size === 0) {
+      setError("בחרו קובץ תמונה");
+      return;
+    }
+    void run(async () => {
+      const body = new FormData();
+      body.append("file", file);
+      body.append("kind", text(form, "kind") || "sample");
+      const caption = text(form, "caption");
+      if (caption !== "") body.append("caption", caption);
+      // multipart — בלי Content-Type ידני; הדפדפן קובע את ה-boundary
+      const res = await fetch(`${API_BASE}/platform/media/outlets/${outlet.id}/images`, {
+        method: "POST",
+        credentials: "include",
+        body,
+      });
+      if (!res.ok) {
+        const payload = (await res.json().catch(() => null)) as { message?: string } | null;
+        throw new ApiError(res.status, payload?.message ?? "ההעלאה נכשלה");
+      }
+      element.reset();
+    }, "✓ התמונה הועלתה");
+  }
+
+  function saveImage(event: FormEvent<HTMLFormElement>, image: AdminImage): void {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    void run(
+      () =>
+        apiPatch(`/platform/media/images/${image.id}`, {
+          caption: text(form, "caption"),
+          sortOrder: Number(text(form, "sortOrder") || "0"),
+        }),
+      "✓ הכיתוב נשמר",
     );
   }
 
@@ -286,6 +378,11 @@ export function MediaSection(): React.JSX.Element {
                       {outlet.commissionPercent}%
                       {outlet.active ? "" : " · מוסתרת"}
                     </span>
+                    {outlet.owedOrders > 0 ? (
+                      <button type="button" className="mv-btn-soft" onClick={() => setSettling(outlet)}>
+                        לתשלום למדיה: {formatPrice(outlet.owedAgorot)} ({outlet.owedOrders} הזמנות)
+                      </button>
+                    ) : null}
                     {outlet.contactEmail === "" ? (
                       <span className="mv-pill mv-domain-amber">בלי איש קשר — ההזמנות מגיעות רק אליכם</span>
                     ) : (
@@ -359,6 +456,27 @@ export function MediaSection(): React.JSX.Element {
                             </label>
                           </div>
                         </fieldset>
+                        <fieldset className="m-0 rounded-lg border p-3" style={{ borderColor: "var(--color-row-border)" }}>
+                          <legend className="px-1 text-sm font-bold">סגירת גיליון</legend>
+                          <div className="grid gap-3 sm:grid-cols-[2fr_1fr_1fr]">
+                            <label>
+                              <span className="mb-1 block text-sm font-medium">הכלל במילים</span>
+                              <input name="closingText" defaultValue={outlet.closingText} maxLength={200} placeholder="יום שני 12:00 לגיליון של אותו שבוע" className={inputClass} style={inputStyle} />
+                            </label>
+                            <label>
+                              <span className="mb-1 block text-sm font-medium">המועד הקרוב — תאריך</span>
+                              <input name="closingDate" type="date" dir="ltr" defaultValue={outlet.nextClosingAt ? jerusalemWallParts(new Date(outlet.nextClosingAt)).date : ""} className={inputClass} style={inputStyle} />
+                            </label>
+                            <label>
+                              <span className="mb-1 block text-sm font-medium">שעה (ישראל)</span>
+                              <input name="closingTime" type="time" dir="ltr" defaultValue={outlet.nextClosingAt ? jerusalemWallParts(new Date(outlet.nextClosingAt)).time : "12:00"} className={inputClass} style={inputStyle} />
+                            </label>
+                          </div>
+                          <p className="m-0 mt-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
+                            יממה לפני המועד נשלחת תזכורת למשרדים שיש להם הזמנה שממתינה לתשלום. אחרי
+                            הסגירה מעדכנים כאן את הגיליון הבא; תאריך ריק = בלי מועד ובלי תזכורת.
+                          </p>
+                        </fieldset>
                         <div className="flex flex-wrap items-end gap-3">
                           <label style={{ width: "140px" }}>
                             <span className="mb-1 block text-sm font-medium">עמלת תיווך %</span>
@@ -374,6 +492,70 @@ export function MediaSection(): React.JSX.Element {
                           </label>
                           <Button type="submit" disabled={busy}>שמירת המדיה</Button>
                         </div>
+                      </form>
+
+                      <h3 className="mb-2 mt-5 text-[length:var(--type-body)] font-bold">תמונות</h3>
+                      <p className="mb-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
+                        שער אחד (מוצג בכרטיס ובראש העמוד) ועד {MEDIA_IMAGES_MAX} דוגמאות מודעה. JPEG, PNG או WebP עד
+                        10MB; התמונה מכווצת ונשמרת בלי נתוני EXIF. העלאת שער חדש מחליפה את הקודם.
+                      </p>
+                      {outlet.images.length > 0 ? (
+                        <ul className="m-0 mb-3 grid list-none gap-3 p-0 sm:grid-cols-2 lg:grid-cols-4">
+                          {outlet.images.map((image) => (
+                            <li key={image.id} className="m-0 rounded-lg border p-2" style={{ borderColor: "var(--color-row-border)" }}>
+                              <img
+                                src={mediaSrc(`media/${outlet.slug}/images/${image.id}`)}
+                                alt={image.caption || IMAGE_KIND_LABEL[image.kind]}
+                                className="mb-2 aspect-[4/3] w-full rounded object-cover"
+                                loading="lazy"
+                              />
+                              <span className={`mv-pill ${image.kind === "cover" ? "mv-domain-blue" : "mv-domain-neutral"}`}>
+                                {IMAGE_KIND_LABEL[image.kind]}
+                              </span>
+                              <form onSubmit={(e) => saveImage(e, image)} className="mt-2 grid gap-2">
+                                <input name="caption" defaultValue={image.caption} maxLength={200} placeholder="כיתוב" aria-label="כיתוב" className={inputClass} style={inputStyle} />
+                                <div className="flex items-end gap-2">
+                                  <label style={{ width: "80px" }}>
+                                    <span className="mb-1 block text-sm font-medium">סדר</span>
+                                    <input name="sortOrder" type="number" min={0} max={1000} step={1} defaultValue={image.sortOrder} className={inputClass} style={inputStyle} />
+                                  </label>
+                                  <Button type="submit" variant="secondary" disabled={busy}>שמירה</Button>
+                                  <button
+                                    type="button"
+                                    className="mv-btn-plain mv-btn-plain--danger ms-auto"
+                                    disabled={busy}
+                                    aria-label="מחיקת התמונה"
+                                    title="מחיקת התמונה"
+                                    onClick={() => void run(() => apiDelete(`/platform/media/images/${image.id}`), "✓ התמונה נמחקה")}
+                                  >
+                                    <IconTrash s={14} />
+                                  </button>
+                                </div>
+                              </form>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : null}
+                      <form onSubmit={(e) => uploadImage(e, outlet)} className="mb-2 flex flex-wrap items-end gap-2 rounded-lg border border-dashed p-3" style={{ borderColor: "var(--color-row-border)" }}>
+                        <label className="grow" style={{ minWidth: "200px" }}>
+                          <span className="mb-1 block text-sm font-medium">תמונה חדשה</span>
+                          <input name="file" type="file" accept="image/jpeg,image/png,image/webp" required className={inputClass} style={inputStyle} />
+                        </label>
+                        <label>
+                          <span className="mb-1 block text-sm font-medium">סוג</span>
+                          <select name="kind" defaultValue="sample" className={inputClass} style={inputStyle}>
+                            {MEDIA_IMAGE_KINDS.map((kind) => (
+                              <option key={kind} value={kind}>{IMAGE_KIND_LABEL[kind]}</option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="grow" style={{ minWidth: "160px" }}>
+                          <span className="mb-1 block text-sm font-medium">כיתוב</span>
+                          <input name="caption" maxLength={200} className={inputClass} style={inputStyle} />
+                        </label>
+                        <Button type="submit" variant="secondary" disabled={busy}>
+                          <IconPlus s={14} /> העלאה
+                        </Button>
                       </form>
 
                       <h3 className="mb-2 mt-5 text-[length:var(--type-body)] font-bold">מוצרים</h3>
@@ -536,6 +718,7 @@ export function MediaSection(): React.JSX.Element {
                   <th className="p-2 text-start">עמלה / תמורה על הפניה</th>
                   <th className="p-2 text-start">איש קשר</th>
                   <th className="p-2 text-start">נשלח לנציג</th>
+                  <th className="p-2 text-start">הועבר למדיה</th>
                 </tr>
               </thead>
               <tbody>
@@ -582,6 +765,9 @@ export function MediaSection(): React.JSX.Element {
                           ? "—"
                           : "לא נשלח"}
                     </td>
+                    <td className="p-2 whitespace-nowrap">
+                      {order.kind !== "paid" || order.status !== "paid" ? "—" : order.settlementId ? "הועבר" : "ממתין"}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -589,6 +775,78 @@ export function MediaSection(): React.JSX.Element {
           </div>
         )}
       </section>
+
+      <section
+        className="mb-6 rounded-xl border p-4"
+        style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
+        aria-labelledby="media-settlements-heading"
+      >
+        <h2 id="media-settlements-heading" className="mb-1 text-lg font-semibold">
+          <IconBanknote s={16} /> העברות למדיה
+        </h2>
+        <p className="mb-3 text-sm" style={{ color: "var(--color-text-muted)" }}>
+          רישום של מה שהועבר למדיה — לא העברה בנקאית. כל מדיה עם הזמנות ששולמו וטרם הועברו
+          מציגה למעלה כפתור „לתשלום למדיה” עם היתרה (הסכום פחות העמלה); לוחצים, מקלידים אסמכתה,
+          וההזמנות מסומנות כהועברו.
+        </p>
+        {loadFailed ? null : settlements === null ? (
+          <p aria-live="polite">טוען…</p>
+        ) : settlements.length === 0 ? (
+          <p style={{ color: "var(--color-text-muted)" }}>עדיין לא נרשמו העברות.</p>
+        ) : (
+          <ul className="m-0 list-none p-0">
+            {settlements.map((s) => (
+              <li key={s.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t py-2 text-sm" style={{ borderColor: "var(--color-row-border)" }}>
+                <span className="whitespace-nowrap">{formatDateTime(s.createdAt)}</span>
+                <span className="font-bold">{s.outletName}</span>
+                <span>{formatPrice(s.amountAgorot)} · {s.orderCount} הזמנות</span>
+                {s.reference ? <span dir="ltr">{s.reference}</span> : null}
+                {s.note ? <span style={{ color: "var(--color-text-muted)" }}>{s.note}</span> : null}
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <ConfirmDialog
+        open={settling !== null}
+        title={settling ? `רישום העברה — ${settling.name}` : ""}
+        confirmLabel="רישום ההעברה"
+        busy={busy}
+        busyLabel="רושמים…"
+        onConfirm={() => {
+          if (settling === null) return;
+          const outlet = settling;
+          const reference = (document.getElementById("settle-reference") as HTMLInputElement | null)?.value ?? "";
+          const note = (document.getElementById("settle-note") as HTMLTextAreaElement | null)?.value ?? "";
+          void run(
+            () => apiPost(`/platform/media/outlets/${outlet.id}/settlements`, { reference: reference.trim(), note: note.trim() }),
+            `✓ נרשמה העברה ל${outlet.name}`,
+          ).then(() => setSettling(null));
+        }}
+        onClose={() => {
+          if (!busy) setSettling(null);
+        }}
+      >
+        {settling ? (
+          <>
+            <p className="m-0 mb-3">
+              כל ההזמנות ששולמו וטרם הועברו — {settling.owedOrders} הזמנות, {formatPrice(settling.owedAgorot)} (אחרי
+              העמלה) — יסומנו כהועברו. הסכום מחושב בשרת מההזמנות עצמן.
+            </p>
+            <div className="grid gap-3">
+              <label>
+                <span className="mb-1 block text-sm font-bold">אסמכתה</span>
+                <input id="settle-reference" className="mv-field" dir="ltr" maxLength={120} placeholder="מספר העברה / תאריך" />
+              </label>
+              <label>
+                <span className="mb-1 block text-sm font-bold">הערה</span>
+                <textarea id="settle-note" className="mv-field" rows={2} maxLength={500} />
+              </label>
+            </div>
+          </>
+        ) : null}
+      </ConfirmDialog>
 
       <ConfirmDialog
         open={deleting !== null}

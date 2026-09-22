@@ -1,14 +1,18 @@
-import { Body, Controller, Get, Param, Post } from "@nestjs/common";
+import { Body, Controller, Get, Param, Post, Req, Res, type StreamableFile } from "@nestjs/common";
+import type { Request, Response } from "express";
 import { z } from "zod";
 import {
+  IdSchema,
   MEDIA_SLUG_PATTERN,
   MediaOrderCreateSchema,
   type MediaOrderCreate,
   type MediaOrderStatus,
 } from "@metavchim/shared";
 import { AnyAuthenticated, RequireCapability } from "../../common/auth.decorators";
+import { objectResponse } from "../../common/object-response";
 import { TenantContext } from "../../common/tenant-context";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
+import { MediaImagesService } from "./media-images.service";
 import {
   MediaService,
   orderContext,
@@ -31,11 +35,16 @@ import {
  *   המשרד משלם.
  */
 const SlugSchema = z.string().trim().min(2).max(60).regex(MEDIA_SLUG_PATTERN);
+const SlugParam = new ZodValidationPipe(SlugSchema);
+const IdParam = new ZodValidationPipe(IdSchema);
 const OrderBody = new ZodValidationPipe(MediaOrderCreateSchema);
 
 @Controller("media")
 export class MediaController {
-  constructor(private readonly media: MediaService) {}
+  constructor(
+    private readonly media: MediaService,
+    private readonly images: MediaImagesService,
+  ) {}
 
   @Get()
   @AnyAuthenticated()
@@ -55,8 +64,23 @@ export class MediaController {
 
   @Get(":slug")
   @AnyAuthenticated()
-  outlet(@Param("slug", new ZodValidationPipe(SlugSchema)) slug: string): Promise<MediaOutletDetail> {
+  outlet(@Param("slug", SlugParam) slug: string): Promise<MediaOutletDetail> {
     return this.media.outlet(slug);
+  }
+
+  /**
+   * תמונה של מדיה — שער או דוגמת מודעה. מוזרמת דרך ה-API כמו תמונות
+   * הנכסים (אין כתובות חתומות); `private` כי היא למחוברים בלבד.
+   */
+  @Get(":slug/images/:imageId")
+  @AnyAuthenticated()
+  async image(
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+    @Param("slug", SlugParam) slug: string,
+    @Param("imageId", IdParam) imageId: string,
+  ): Promise<StreamableFile | undefined> {
+    return objectResponse(req, res, await this.images.getRaw(slug, imageId), "private");
   }
 
   /** הפניה — בלי תשלום. */
