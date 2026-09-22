@@ -101,6 +101,8 @@ export interface MediaOutletDetail {
 
 export interface MediaOrderRow {
   id: string;
+  /** אפשר להמשיך לתשלום או לבטל — ממתינה או נכשלה, בתשלום. */
+  canResume: boolean;
   outletName: string;
   outletSlug: string | null;
   productName: string;
@@ -231,6 +233,7 @@ export class MediaService {
     const slugById = new Map(slugs.map((s) => [s.id, s.slug]));
     return rows.map((row) => ({
       id: row.id,
+      canResume: row.kind === "paid" && (row.status === "pending_payment" || row.status === "failed"),
       outletName: row.outletName,
       outletSlug: slugById.get(row.outletId) ?? null,
       productName: row.productName,
@@ -390,15 +393,143 @@ export class MediaService {
       });
     });
 
-    const { amountAgorot, vatPercent } = await this.vat.charge(totals.amountAgorot);
+    const paymentId = await this.openPaymentPage(ctx, {
+      id: orderId,
+      outletName: product.outlet.name,
+      productName: product.name,
+      quantity: totals.quantity,
+      amountAgorot: totals.amountAgorot,
+      contactName: input.contactName,
+      contactEmail: input.contactEmail,
+      contactPhone: input.contactPhone,
+    });
+    return { orderId, paymentId: paymentId.paymentId, url: paymentId.url };
+  }
+
+  /**
+   * המשך לתשלום — דף תשלום חדש להזמנה שממתינה (או שנכשלה).
+   *
+   * זה מה שהתזכורת „הגיליון נסגר מחר” מובילה אליו: המשרד שהתחיל
+   * ולא סיים אינו צריך להזמין מחדש. ההזמנה, המחיר והעמלה נשארים
+   * כפי שנצרבו; רק דף התשלום חדש, והקודם מסומן `superseded`.
+   * הזמנה שנכשלה חוזרת ל„ממתינה” — כישלון בכרטיס אינו ביטול.
+   */
+  async resumeCheckout(
+    ctx: OrderContext,
+    orderId: string,
+  ): Promise<{ orderId: string; paymentId: string; url: string }> {
+    if (!(await this.cardcom.isConfigured())) {
+      throw new BadRequestException("הסליקה טרם הופעלה במערכת — פנו אלינו");
+    }
+    const order = await this.prisma.mediaOrder.findFirst({
+      where: { id: orderId, tenantId: ctx.tenantId },
+    });
+    if (order === null) throw new NotFoundException("ההזמנה לא נמצאה");
+    if (order.kind !== "paid" || !["pending_payment", "failed"].includes(order.status)) {
+      throw new BadRequestException("ההזמנה הזו אינה ממתינה לתשלום");
+    }
+    await this.prisma.withTenant(async (tx) => {
+      await tx.payment.updateMany({
+        where: { tenantId: ctx.tenantId, mediaOrderId: order.id, status: "pending" },
+        data: { status: "superseded", failureReason: "נפתח דף תשלום חדש במקומו" },
+      });
+      await tx.mediaOrder.updateMany({
+        where: { tenantId: ctx.tenantId, id: order.id },
+        data: { status: "pending_payment" },
+      });
+      await this.audit.record(tx, {
+        action: "media.order_resumed",
+        entityType: "media_order",
+        entityId: order.id,
+      });
+    });
+    const page = await this.openPaymentPage(ctx, order);
+    return { orderId: order.id, paymentId: page.paymentId, url: page.url };
+  }
+
+  /**
+   * ביטול הזמנה שממתינה לתשלום — **לא** מוחקת: דף התשלום שנשאר פתוח
+   * מסומן `superseded`, ואם ישולם בכל זאת, `apply` יתפוס אותו וההזמנה
+   * תיסגר כשולמה (ראו `settleWithin`). הפניה ששולחה אינה ניתנת לביטול
+   * מכאן — היא כבר אצל הנציג.
+   */
+  async cancel(ctx: OrderContext, orderId: string): Promise<void> {
+    const order = await this.prisma.mediaOrder.findFirst({
+      where: { id: orderId, tenantId: ctx.tenantId },
+      select: { id: true, status: true },
+    });
+    if (order === null) throw new NotFoundException("ההזמנה לא נמצאה");
+    if (order.status !== "pending_payment" && order.status !== "failed") {
+      throw new BadRequestException("אפשר לבטל רק הזמנה שממתינה לתשלום");
+    }
+    await this.prisma.withTenant(async (tx) => {
+      await tx.mediaOrder.updateMany({
+        where: { tenantId: ctx.tenantId, id: order.id },
+        data: { status: "cancelled" },
+      });
+      await tx.payment.updateMany({
+        where: { tenantId: ctx.tenantId, mediaOrderId: order.id, status: "pending" },
+        data: { status: "superseded", failureReason: "ההזמנה בוטלה" },
+      });
+      await this.audit.record(tx, {
+        action: "media.order_cancelled",
+        entityType: "media_order",
+        entityId: order.id,
+      });
+    });
+  }
+
+  /**
+   * שליחה חוזרת לנציג — ממסך הפלטפורמה, להזמנה ששולמה או הפניה
+   * שנשלחה. המקרה הרגיל: איש הקשר הוגדר אחרי שההזמנה כבר הגיעה.
+   * מפתחות האידמפוטנטיות מונעים כפילות: מייל שכבר יצא לא יוצא שוב,
+   * ומייל שנכשל או שלא היה למי לשלוח — כן.
+   */
+  async resendNotification(orderId: string): Promise<{ notified: boolean }> {
+    const order = await this.prisma.mediaOrder.findUnique({
+      where: { id: orderId },
+      select: { id: true, status: true, tenantId: true },
+    });
+    if (order === null) throw new NotFoundException("ההזמנה לא נמצאה");
+    if (order.status !== "paid" && order.status !== "referred") {
+      throw new BadRequestException("שולחים לנציג רק הזמנה ששולמה או הפניה");
+    }
+    await this.notify(order.id);
+    const fresh = await this.prisma.mediaOrder.findFirst({
+      where: { id: order.id, tenantId: order.tenantId },
+      select: { notifiedAt: true },
+    });
+    return { notified: fresh?.notifiedAt !== null && fresh?.notifiedAt !== undefined };
+  }
+
+  /**
+   * שורת תשלום ודף תשלום להזמנה — המשותף להזמנה חדשה ולהמשך תשלום.
+   *
+   * השורה נכתבת לפני הפנייה לסולק: כסף בלי שורה גרוע משורה בלי כסף.
+   * המחירון נטו; מה שנשלח לסולק הוא מה שבאמת יירד מהכרטיס, ולכן
+   * המע"מ נוסף כאן — פעם אחת.
+   */
+  private async openPaymentPage(
+    ctx: OrderContext,
+    order: {
+      id: string;
+      outletName: string;
+      productName: string;
+      quantity: number;
+      amountAgorot: number;
+      contactName: string;
+      contactEmail: string;
+      contactPhone: string;
+    },
+  ): Promise<{ paymentId: string; url: string }> {
+    const { amountAgorot, vatPercent } = await this.vat.charge(order.amountAgorot);
     const paymentId = ulid();
-    // השורה נכתבת לפני הפנייה לסולק: כסף בלי שורה גרוע משורה בלי כסף
     await this.prisma.payment.create({
       data: {
         id: paymentId,
         tenantId: ctx.tenantId,
         purpose: "media_order",
-        mediaOrderId: orderId,
+        mediaOrderId: order.id,
         amountAgorot,
         vatPercent,
         status: "pending",
@@ -409,9 +540,9 @@ export class MediaService {
 
     const origin = loadEnv().WEB_ORIGIN;
     const productName =
-      totals.quantity > 1
-        ? `${product.outlet.name} — ${product.name} ×${totals.quantity}`
-        : `${product.outlet.name} — ${product.name}`;
+      order.quantity > 1
+        ? `${order.outletName} — ${order.productName} ×${order.quantity}`
+        : `${order.outletName} — ${order.productName}`;
     try {
       const page = await this.cardcom.createPaymentPage({
         reference: paymentId,
@@ -422,20 +553,20 @@ export class MediaService {
         webhookUrl: `${origin}/api/v1/webhooks/cardcom`,
         // רכישה חד-פעמית — אין חידוש, ולכן אין טוקן לשמור
         createToken: false,
-        payer: await this.payer(ctx, input),
+        payer: await this.payer(ctx, order),
       });
       await this.prisma.payment.update({
         where: { id: paymentId },
         data: { lowProfileId: page.lowProfileId },
       });
-      return { orderId, paymentId, url: page.url };
+      return { paymentId, url: page.url };
     } catch (error) {
       await this.prisma.payment.update({
         where: { id: paymentId },
         data: { status: "failed", failureReason: "פתיחת דף התשלום נכשלה" },
       });
       await this.prisma.mediaOrder.updateMany({
-        where: { tenantId: ctx.tenantId, id: orderId },
+        where: { tenantId: ctx.tenantId, id: order.id },
         data: { status: "failed" },
       });
       throw error;
@@ -657,8 +788,11 @@ export class MediaService {
     return tenant;
   }
 
-  /** מי משלם — פרטי המזמין מהטופס, על שם המשרד. */
-  private async payer(ctx: OrderContext, input: MediaOrderCreate): Promise<Payer> {
+  /** מי משלם — פרטי המזמין שעל ההזמנה, על שם המשרד. */
+  private async payer(
+    ctx: OrderContext,
+    input: { contactName: string; contactEmail: string; contactPhone: string },
+  ): Promise<Payer> {
     const tenant = await this.prisma.tenant.findUnique({
       where: { id: ctx.tenantId },
       select: { name: true },

@@ -88,6 +88,15 @@ interface AdminOutlet {
   owedOrders: number;
 }
 
+interface AdminTotals {
+  paidOrders: number;
+  paidAgorot: number;
+  commissionAgorot: number;
+  owedAgorot: number;
+  referrals: number;
+  referralFeesAgorot: number;
+}
+
 interface AdminSettlement {
   id: string;
   outletId: string;
@@ -157,6 +166,7 @@ function closingIso(form: FormData): string | null {
 export function MediaSection(): React.JSX.Element {
   const [outlets, setOutlets] = useState<AdminOutlet[] | null>(null);
   const [orders, setOrders] = useState<AdminOrder[] | null>(null);
+  const [totals, setTotals] = useState<AdminTotals | null>(null);
   const [settlements, setSettlements] = useState<AdminSettlement[] | null>(null);
   const [settling, setSettling] = useState<AdminOutlet | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
@@ -172,9 +182,10 @@ export function MediaSection(): React.JSX.Element {
       apiGet<{ outlets: AdminOutlet[] }>("/platform/media").then((res) =>
         setOutlets(apiList(res.outlets, "outlets")),
       ),
-      apiGet<{ orders: AdminOrder[] }>("/platform/media/orders").then((res) =>
-        setOrders(apiList(res.orders, "orders")),
-      ),
+      apiGet<{ orders: AdminOrder[]; totals: AdminTotals }>("/platform/media/orders").then((res) => {
+        setOrders(apiList(res.orders, "orders"));
+        setTotals(res.totals);
+      }),
       apiGet<{ settlements: AdminSettlement[] }>("/platform/media/settlements").then((res) =>
         setSettlements(apiList(res.settlements, "settlements")),
       ),
@@ -701,6 +712,21 @@ export function MediaSection(): React.JSX.Element {
           מה הוזמן, האם נשלח לנציג, ומה העמלה שנרשמה. הזמנה בתשלום שלא נשלחה — הנציג לא קיבל
           מייל (אין כתובת, או שהשליחה נכשלה) ויש להעביר ידנית.
         </p>
+        {totals !== null && (totals.paidOrders > 0 || totals.referrals > 0) ? (
+          <dl className="m-0 mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+            {[
+              ["שולם במערכת", `${formatPrice(totals.paidAgorot)} · ${totals.paidOrders} הזמנות`],
+              ["עמלות הפלטפורמה", formatPrice(totals.commissionAgorot)],
+              ["טרם הועבר למדיות", formatPrice(totals.owedAgorot)],
+              ["הפניות", `${totals.referrals} · תמורה ${formatPrice(totals.referralFeesAgorot)}`],
+            ].map(([label, value]) => (
+              <div key={label} className="rounded-xl px-4 py-3" style={{ background: "var(--color-bg)" }}>
+                <dt className="m-0 text-sm font-bold" style={{ color: "var(--color-text-muted)" }}>{label}</dt>
+                <dd className="m-0 mt-1 font-extrabold">{value}</dd>
+              </div>
+            ))}
+          </dl>
+        ) : null}
         {loadFailed ? null : orders === null ? (
           <p aria-live="polite">טוען…</p>
         ) : orders.length === 0 ? (
@@ -764,6 +790,21 @@ export function MediaSection(): React.JSX.Element {
                         : order.status === "pending_payment" || order.status === "failed" || order.status === "cancelled"
                           ? "—"
                           : "לא נשלח"}
+                      {order.status === "paid" || order.status === "referred" ? (
+                        <button
+                          type="button"
+                          className="mv-btn-plain ms-2"
+                          disabled={busy}
+                          onClick={() =>
+                            void run(
+                              () => apiPost(`/platform/media/orders/${order.id}/notify`, {}),
+                              order.notifiedAt ? "✓ נשלח שוב למי שטרם קיבל" : "✓ נשלח לנציג",
+                            )
+                          }
+                        >
+                          {order.notifiedAt ? "שליחה חוזרת" : "שליחה לנציג"}
+                        </button>
+                      ) : null}
                     </td>
                     <td className="p-2 whitespace-nowrap">
                       {order.kind !== "paid" || order.status !== "paid" ? "—" : order.settlementId ? "הועבר" : "ממתין"}

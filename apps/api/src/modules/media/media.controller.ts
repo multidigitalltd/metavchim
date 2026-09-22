@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Req, Res, type StreamableFile } from "@nestjs/common";
+import { Body, Controller, Get, HttpCode, Param, Post, Req, Res, type StreamableFile } from "@nestjs/common";
 import type { Request, Response } from "express";
 import { z } from "zod";
 import {
@@ -97,5 +97,21 @@ export class MediaController {
     @Body(OrderBody) body: MediaOrderCreate,
   ): Promise<{ orderId: string; paymentId: string; url: string }> {
     return this.media.startCheckout(orderContext(), body);
+  }
+
+  /** המשך לתשלום — דף תשלום חדש להזמנה שממתינה או שנכשלה. */
+  @Post("orders/:id/checkout")
+  @RequireCapability("billing.manage")
+  resume(@Param("id", IdParam) id: string): Promise<{ orderId: string; paymentId: string; url: string }> {
+    return this.media.resumeCheckout(orderContext(), id);
+  }
+
+  /** ביטול הזמנה שממתינה לתשלום. */
+  @Post("orders/:id/cancel")
+  @HttpCode(200)
+  @RequireCapability("billing.manage")
+  async cancel(@Param("id", IdParam) id: string): Promise<{ ok: true }> {
+    await this.media.cancel(orderContext(), id);
+    return { ok: true };
   }
 }

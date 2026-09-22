@@ -83,6 +83,8 @@ function harness(options: { cardcom?: boolean; mail?: boolean; contactEmail?: st
       ),
     findUnique: async ({ where }: { where: { id: string } }) =>
       orders.find((o) => o["id"] === where.id) ?? null,
+    findFirst: async ({ where }: { where: { id: string; tenantId: string } }) =>
+      orders.find((o) => o["id"] === where.id && o["tenantId"] === where.tenantId) ?? null,
     update: async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
       const row = orders.find((o) => o["id"] === where.id);
       if (row) Object.assign(row, data);
@@ -124,14 +126,15 @@ function harness(options: { cardcom?: boolean; mail?: boolean; contactEmail?: st
       where,
       data,
     }: {
-      where: { tenantId: string; mediaOrderId: { in: string[] }; status: string };
+      where: { tenantId: string; mediaOrderId: string | { in: string[] }; status: string };
       data: Record<string, unknown>;
     }) => {
+      const ids = typeof where.mediaOrderId === "string" ? [where.mediaOrderId] : where.mediaOrderId.in;
       let count = 0;
       for (const row of payments) {
         if (
           row["tenantId"] === where.tenantId &&
-          where.mediaOrderId.in.includes(row["mediaOrderId"] as string) &&
+          ids.includes(row["mediaOrderId"] as string) &&
           row["status"] === where.status
         ) {
           Object.assign(row, data);
@@ -387,5 +390,63 @@ describe("MediaService — הזמנה בתשלום", () => {
       h.service.createReferral({ tenantId: TENANT, userId: ME }, { ...ORDER, productId: LEAD }),
     );
     expect(await h.service.settleWithin(h.tx as never, orderId, new Date())).toBeNull();
+  });
+});
+
+describe("MediaService — המשך לתשלום, ביטול ושליחה חוזרת", () => {
+  it("המשך לתשלום פותח דף חדש על אותה הזמנה, והקודם מסומן superseded", async () => {
+    const h = harness();
+    const first = await asOwner(() =>
+      h.service.startCheckout({ tenantId: TENANT, userId: ME }, { ...ORDER, productId: PAID }),
+    );
+    const resumed = await asOwner(() => h.service.resumeCheckout({ tenantId: TENANT, userId: ME }, first.orderId));
+    expect(resumed.orderId).toBe(first.orderId);
+    expect(resumed.paymentId).not.toBe(first.paymentId);
+    expect(h.orders).toHaveLength(1);
+    expect(h.orders[0]?.["status"]).toBe("pending_payment");
+    expect(h.payments.find((p) => p["id"] === first.paymentId)?.["status"]).toBe("superseded");
+    expect(h.payments.find((p) => p["id"] === resumed.paymentId)?.["amountAgorot"]).toBe(212_400);
+  });
+
+  it("הזמנה שנכשלה חוזרת ל„ממתינה” בהמשך לתשלום; הזמנה ששולמה — לא", async () => {
+    const h = harness();
+    const { orderId } = await asOwner(() =>
+      h.service.startCheckout({ tenantId: TENANT, userId: ME }, { ...ORDER, productId: PAID }),
+    );
+    await h.service.markFailed(orderId);
+    await asOwner(() => h.service.resumeCheckout({ tenantId: TENANT, userId: ME }, orderId));
+    expect(h.orders[0]?.["status"]).toBe("pending_payment");
+    await h.service.settleWithin(h.tx as never, orderId, new Date());
+    await expect(
+      asOwner(() => h.service.resumeCheckout({ tenantId: TENANT, userId: ME }, orderId)),
+    ).rejects.toThrow(/אינה ממתינה/u);
+  });
+
+  it("ביטול — ההזמנה מבוטלת ודף התשלום superseded; משרד אחר אינו יכול", async () => {
+    const h = harness();
+    const { orderId, paymentId } = await asOwner(() =>
+      h.service.startCheckout({ tenantId: TENANT, userId: ME }, { ...ORDER, productId: PAID }),
+    );
+    await expect(
+      h.service.cancel({ tenantId: "01OTHERTENANT0000000000A0", userId: ME }, orderId),
+    ).rejects.toThrow(/לא נמצאה/u);
+    await asOwner(() => h.service.cancel({ tenantId: TENANT, userId: ME }, orderId));
+    expect(h.orders[0]?.["status"]).toBe("cancelled");
+    expect(h.payments.find((p) => p["id"] === paymentId)?.["status"]).toBe("superseded");
+    expect(h.audits).toContain("media.order_cancelled");
+  });
+
+  it("שליחה חוזרת — רק להזמנה ששולמה או הפניה, ובלי כפילות למי שכבר קיבל", async () => {
+    const h = harness();
+    const { orderId } = await asOwner(() =>
+      h.service.createReferral({ tenantId: TENANT, userId: ME }, { ...ORDER, productId: LEAD }),
+    );
+    expect(h.sent).toHaveLength(2);
+    expect((await h.service.resendNotification(orderId)).notified).toBe(true);
+    // ‏המדומה כאן אינו זוכר מפתחות — במערכת האמיתית זיכרון השליחה עוצר את הכפילות
+    const pending = await asOwner(() =>
+      h.service.startCheckout({ tenantId: TENANT, userId: ME }, { ...ORDER, productId: PAID }),
+    );
+    await expect(h.service.resendNotification(pending.orderId)).rejects.toThrow(/רק הזמנה ששולמה/u);
   });
 });
