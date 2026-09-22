@@ -52,7 +52,8 @@ function harness(options: { cardcom?: boolean; mail?: boolean; contactEmail?: st
       outletId: OUTLET,
       name: "כריכה — מהדורה מיוחדת",
       kind: "paid",
-      priceAgorot: 10_000_000,
+      // ‏מעל תקרת הסכימה — מוצר שנוצר לפני התקרה. השרת בודק בכל מקרה.
+      priceAgorot: 20_000_000,
       active: true,
       outlet: { name: "מגזין טאבו", slug: "tabu-magazine", commissionPercent: 10 },
     },
