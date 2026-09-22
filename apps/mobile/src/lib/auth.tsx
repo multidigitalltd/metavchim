@@ -3,6 +3,7 @@ import type { PropsWithChildren } from "react";
 import type { Capability } from "@metavchim/shared";
 import { ApiError, apiGet, apiPost, setUnauthorizedListener } from "./api";
 import { clearCacheScope, clearLastCacheScope, setCacheScope } from "./cache";
+import { startNotificationPolling, stopNotificationPolling } from "./background-notify";
 import { loadApiOrigin } from "./config";
 import { deviceSecured } from "./device-lock";
 import { redeemOnce } from "./google-login";
@@ -150,6 +151,17 @@ export function AuthProvider({ children }: PropsWithChildren) {
     };
   }, [ready]);
 
+  /*
+   * ‏בלי פוש אמיתי (אין מזהה פרויקט / Firebase, או שהמשתמש עוד לא
+   * ‏אישר) — סריקת הרקע מביאה את ההתראות במקומו (ראו
+   * ‏`background-notify.ts`). כשהפוש נרשם — הסריקה מוסרת.
+   */
+  useEffect(() => {
+    if (!ready || pushStatus === null) return;
+    if (pushStatus === "registered") void stopNotificationPolling({ forget: false });
+    else void startNotificationPolling();
+  }, [ready, pushStatus]);
+
   const enablePush = useCallback(async (): Promise<PushStatus> => {
     const status = await registerDevicePush({ prompt: true });
     setPushStatus(status);
@@ -234,6 +246,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
     // המכשיר יוצא מרשימת הפוש לפני שה-Session נסגר — אחרת ההסרה
     // כבר אינה מורשית, והמכשיר ממשיך לקבל התראות של חשבון שהתנתק
     await unregisterDevicePush();
+    await stopNotificationPolling({ forget: true });
     // הניתוק בשרת הוא הדבר החשוב: טוקן שנמחק רק מהמכשיר ממשיך לחיות
     // עד התפוגה. אם השרת לא נגיש — המכשיר נמחק בכל מקרה.
     await apiPost("/auth/logout", {}).catch(() => undefined);

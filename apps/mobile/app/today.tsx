@@ -233,7 +233,7 @@ export default function TodayScreen() {
                 <Button
                   title="+ ליד חדש"
                   kind="ghost"
-                  onPress={() => router.push("/leads/new")}
+                  onPress={() => router.push(routeFor("/leads/new"))}
                 />
               ) : null}
               {data.waitingLeads.length === 0 &&

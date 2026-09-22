@@ -119,6 +119,7 @@
       "expo-router",
       "expo-secure-store",
       "expo-localization",
+      "expo-background-task",
       [
         "expo-local-authentication",
         {

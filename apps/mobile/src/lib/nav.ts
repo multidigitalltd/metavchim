@@ -251,6 +251,7 @@ const CARD_TITLES: readonly [pattern: RegExp, title: string][] = [
   [/^\/buyers\/[A-Za-z0-9]{26}(\/|$)/u, "לקוח"],
   [/^\/properties\/new(\/|$)/u, "נכס חדש"],
   [/^\/buyers\/new(\/|$)/u, "לקוח חדש"],
+  [/^\/leads\/new(\/|$)/u, "ליד חדש"],
 ];
 
 export function webScreenTitle(path: string): string {
