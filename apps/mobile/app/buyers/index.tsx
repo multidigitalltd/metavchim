@@ -4,7 +4,7 @@ import { useRouter } from "expo-router";
 import { routeFor } from "@/lib/nav";
 import { apiGet, apiList } from "@/lib/api";
 import { can, useAuth } from "@/lib/auth";
-import type { BuyerRow } from "@/lib/dtos";
+import type { BuyerDetail, BuyerRow } from "@/lib/dtos";
 import { formatBudget } from "@/lib/format";
 import { dealTypeLabel, maturityLabel, maturityTone } from "@/lib/labels";
 import { useQuery } from "@/lib/use-query";
@@ -55,13 +55,37 @@ export default function BuyersScreen() {
     const timer = setTimeout(() => setNeedle(next), 300);
     return () => clearTimeout(timer);
   }, [search]);
+  /*
+   * ‏הבשלות הנבחרת עוברת לשרת לפני התקרה (ביקורת Codex), והחיפוש רץ
+   * ‏בשני מקורות: `q=` של הרשימה (ערים, הערות, סיכומים) ו-`/search`
+   * ‏של המערכת — היחיד שמחפש **בשם** (השם מוצפן, והחיפוש הכללי הולך
+   * ‏באינדקס העיוור). מי שנמצא רק בשם נשלף בכרטיסו, עד עשרה.
+   */
   const query = useQuery(
-    () =>
-      apiGet<{ items: BuyerRow[] }>(
-        `/buyers?limit=100${needle ? `&q=${encodeURIComponent(needle)}` : ""}`,
-      ).then((r) => apiList(r.items, "items")),
-    [needle],
-    needle ? {} : { cacheKey: "buyers" },
+    async () => {
+      const maturity = filter === "all" ? "" : `&maturity=${filter}`;
+      const q = needle ? `&q=${encodeURIComponent(needle)}` : "";
+      const listed = await apiGet<{ items: BuyerRow[] }>(
+        `/buyers?limit=100${maturity}${q}`,
+      ).then((r) => apiList(r.items, "items"));
+      if (!needle) return listed;
+      const seen = new Set(listed.map((b) => b.id));
+      const hits = await apiGet<{ buyers: { id: string; maturity: string }[] }>(
+        `/search?q=${encodeURIComponent(needle)}`,
+      )
+        .then((r) => apiList(r.buyers, "buyers"))
+        .catch(() => []);
+      const byName = await Promise.all(
+        hits
+          .filter((hit) => !seen.has(hit.id) && (filter === "all" || hit.maturity === filter))
+          .slice(0, 10)
+          .map((hit) => apiGet<BuyerDetail>(`/buyers/${hit.id}`).catch(() => null)),
+      );
+      // ‏מי שנמצא בשם — ראשון: זה מה שחיפשו
+      return [...byName.filter((b): b is BuyerDetail => b !== null), ...listed];
+    },
+    [needle, filter],
+    needle ? {} : { cacheKey: `buyers:${filter}` },
   );
 
   const rows = useMemo(() => {

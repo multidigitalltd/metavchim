@@ -70,13 +70,27 @@ export default function PropertiesScreen() {
     const timer = setTimeout(() => setNeedle(next), 300);
     return () => clearTimeout(timer);
   }, [search]);
+  /*
+   * ‏הסטטוס הנבחר עובר לשרת יחד עם החיפוש, לפני התקרה של 100: אחרת
+   * ‏נכס פעיל שמתאים לחיפוש היה נדחק מהעמוד בידי טיוטות ונכסים שנסגרו
+   * ‏(ביקורת Codex). „נסגרו” הם שני סטטוסים — שתי שאילתות.
+   */
+  const statuses =
+    filter === "all" ? [null] : filter === "closed" ? ["sold", "rented"] : [filter];
   const query = useQuery(
-    () =>
-      apiGet<{ items: PropertyRow[] }>(
-        `/properties?limit=100${needle ? `&q=${encodeURIComponent(needle)}` : ""}`,
-      ).then((r) => apiList(r.items, "items")),
-    [needle],
-    needle ? {} : { cacheKey: "properties" },
+    async () => {
+      const q = needle ? `&q=${encodeURIComponent(needle)}` : "";
+      const pages = await Promise.all(
+        statuses.map((status) =>
+          apiGet<{ items: PropertyRow[] }>(
+            `/properties?limit=100${status ? `&status=${status}` : ""}${q}`,
+          ).then((r) => apiList(r.items, "items")),
+        ),
+      );
+      return pages.flat();
+    },
+    [needle, filter],
+    needle ? {} : { cacheKey: `properties:${filter}` },
   );
 
   const rows = useMemo(() => {

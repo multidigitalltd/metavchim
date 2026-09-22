@@ -10,7 +10,7 @@ import { AppLockProvider, useAppLock } from "@/lib/app-lock";
 import { AuthProvider, useAuth } from "@/lib/auth";
 import { FONT_ASSETS } from "@/lib/fonts";
 import { routeForPushUrl } from "@/lib/push";
-import { ShellProvider } from "@/lib/shell";
+import { ShellProvider, useShell } from "@/lib/shell";
 import { Drawer, ErrorState, LockScreen } from "@/components";
 
 import { makeStyles, ThemeProvider, useColors, useTheme } from "@/lib/theme";
@@ -43,7 +43,12 @@ function Gate({ fontsReady }: { fontsReady: boolean }) {
   const c = useColors();
   const { user, offline, refresh } = useAuth();
   const { locked } = useAppLock();
+  const { closeDrawer } = useShell();
   const segments = useSegments();
+  // ‏מגירה שנשארה פתוחה ברקע נסגרת עם הנעילה — שם המשרד והתפריט אינם נראים מעל המסך הנעול
+  useEffect(() => {
+    if (locked) closeDrawer();
+  }, [locked, closeDrawer]);
   const router = useRouter();
   const inAuth =
     segments[0] === "login" ||

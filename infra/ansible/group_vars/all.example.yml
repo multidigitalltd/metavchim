@@ -17,3 +17,7 @@ compose_profiles: ""
 # מי רשאי להיכנס למסך /platform — כתובות מופרדות בפסיק, של משתמשים
 # שכבר קיימים במערכת. ריק = המסך כבוי, כלומר שרת שאי אפשר לנהל.
 platform_admin_emails: ""
+
+# Android App Links: SHA-256 של מפתח החתימה של האפליקציה (פסיקים בין כמה).
+# ריק = קישורי app.metavchim.co.il נפתחים בדפדפן ולא באפליקציה.
+android_app_links_sha256: ""

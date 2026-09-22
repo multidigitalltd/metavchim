@@ -1,4 +1,4 @@
-import { View } from "react-native";
+import { Modal, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useAppLock } from "@/lib/app-lock";
 import { useAuth } from "@/lib/auth";
@@ -9,7 +9,11 @@ import { Logo } from "./Logo";
 import { Text } from "./Text";
 
 /**
- * ‏מסך הנעילה — מעל כל מסך, עד שהמכשיר מאמת. הדיאלוג של המערכת נפתח
+ * ‏מסך הנעילה — מעל כל מסך, עד שהמכשיר מאמת. `Modal` ולא View מוחלט:
+ * ‏המגירה היא Modal נייטיבי שיושב מעל כל View רגיל, ומגירה שנשארה
+ * ‏פתוחה ברקע הייתה מציגה את שם המשרד והתפריט מעל הנעילה (ביקורת
+ * ‏Codex). Modal שנפתח אחרון יושב למעלה — וכפתור „חזרה” באנדרואיד
+ * ‏אינו סוגר אותו. הדיאלוג של המערכת נפתח
  * ‏מעצמו; הכפתור כאן למי שביטל אותו. „התנתקות” נשארת זמינה: מי שאינו
  * ‏מצליח לאמת (אצבע חבושה, מכשיר שהחליף ידיים) יכול לצאת ולהיכנס
  * ‏בסיסמה במקום להיתקע.
@@ -19,32 +23,27 @@ export function LockScreen() {
   const { unlock, authenticating } = useAppLock();
   const { logout } = useAuth();
   return (
-    <SafeAreaView style={styles.root} accessibilityViewIsModal>
-      <View style={styles.body}>
-        <Logo size={40} wordmark={34} />
-        <Text style={styles.text}>האפליקציה נעולה</Text>
-        <Text style={styles.muted}>אימות בטביעת אצבע, פנים או קוד המכשיר.</Text>
-        <Button
-          title="פתיחה"
-          onPress={() => void unlock()}
-          busy={authenticating}
-          style={styles.button}
-        />
-        <Button title="התנתקות" kind="text" onPress={() => void logout()} />
-      </View>
-    </SafeAreaView>
+    <Modal visible animationType="none" statusBarTranslucent onRequestClose={() => undefined}>
+      <SafeAreaView style={styles.root} accessibilityViewIsModal>
+        <View style={styles.body}>
+          <Logo size={40} wordmark={34} />
+          <Text style={styles.text}>האפליקציה נעולה</Text>
+          <Text style={styles.muted}>אימות בטביעת אצבע, פנים או קוד המכשיר.</Text>
+          <Button
+            title="פתיחה"
+            onPress={() => void unlock()}
+            busy={authenticating}
+            style={styles.button}
+          />
+          <Button title="התנתקות" kind="text" onPress={() => void logout()} />
+        </View>
+      </SafeAreaView>
+    </Modal>
   );
 }
 
 const useStyles = makeStyles(() => ({
-  root: {
-    position: "absolute",
-    top: 0,
-    right: 0,
-    bottom: 0,
-    left: 0,
-    backgroundColor: chrome.sidebarBg,
-  },
+  root: { flex: 1, backgroundColor: chrome.sidebarBg },
   body: {
     flex: 1,
     alignItems: "center",
