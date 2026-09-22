@@ -197,7 +197,7 @@ export function renderEmailHtml(content: EmailContent, productName = PRODUCT_NAM
     const colors = BADGE_COLORS[content.badge.tone ?? "info"];
     parts.push(
       `<p style="margin:0 0 12px;"><span style="display:inline-block;padding:4px 12px;border-radius:999px;` +
-        `font-size:13px;font-weight:700;letter-spacing:0.2px;background:${colors.bg};color:${colors.fg};">` +
+        `font-size:14px;font-weight:700;letter-spacing:0.2px;background:${colors.bg};color:${colors.fg};">` +
         `${escapeHtml(content.badge.label)}</span></p>`,
     );
   }
