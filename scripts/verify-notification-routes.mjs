@@ -525,10 +525,10 @@ for (const [url, sources] of anchored) {
   }
 }
 
-/* ============ 5. הקישור שהבוט שולח מגיע למסך שקיים ============ */
+/* ============ 5. כל קישור שהמערכת מוסרת לאדם מגיע למסך שקיים ============ */
 
 /**
- * ‎**„העמוד לא נמצא” על כל קישור שהסוכן מביא בוואטסאפ.**
+ * ‎**„העמוד לא נמצא” על קישור שהמערכת שלחה.**
  *
  * ‏כל תוצאה מ-`ExecuteService` יכולה לשאת `href`, והוא נשלח
  * ‏כשורת „👈 ‎<WEB_ORIGIN><href>”. אלה **מחרוזות**: שום טיפוס
@@ -541,32 +541,115 @@ for (const [url, sources] of anchored) {
  * ‏* ‎`/exclusivity` — „מעקב בלעדיות” הוא רצועה בראש `/properties`,
  * ‏  ולא מסך. „כמה בלעדיות נגמרות” הסתיים ב-404.
  *
- * ‏השער כאן ולא בקובץ נפרד: עץ הנתיבים כבר נקרא למעלה, וזה אותו
- * ‏כלל בדיוק — קישור שהמערכת מוסרת לאדם חייב לנחות על מסך קיים.
+ * ## ‏למה כל המקורות ולא קובץ אחד
  *
- * ‏תבנית (`/${'{'}kind{'}'}s/…`) מדולגת: המחרוזת לבדה אינה אומרת מה
- * ‏הערכים, וניחוש שלהם היה שער שנופל על קוד תקין.
+ * ‏הגרסה הקודמת סרקה את `execute.service.ts` **בלבד** — הקובץ שבו
+ * ‏התגלו שתי התקלות. אבל `href` אינו מבנה של הקובץ ההוא: הוא
+ * ‏מבנה של כל מה שמוסר קישור לאדם, ורשימת קבצים שנכתבה לפי
+ * ‏המקום שבו הבאג התגלה מכסה את העבר ולא את הכלל.
+ *
+ * ‏וכך `/properties/voice` ב-`onboarding.ts` — צעד „הנכסים
+ * ‏הראשונים” ברשימת הקליטה — חי מחוץ לשער. אין מסך כזה; המסך הוא
+ * ‏`/voice`, ו-`/properties/[id]` בולע את „voice” כמזהה נכס.
+ *
+ * ## ‏ולמה גם קישור עם ביטוי
+ *
+ * ‏הדילוג על `${...}` השאיר בחוץ את **רוב** הקישורים — וכל אחד
+ * ‏מהם הוא בדיוק הצורה שנשלחת. מזהה הוא מקטע אחד, ולכן הצבת
+ * ‏מציין מקום במקומו שואלת בדיוק את השאלה הנכונה: האם יש מסך
+ * ‏`[id]` מתחת לנתיב הזה. ‎`/buyers/${id}` עובר, ‎`/offers/${id}`
+ * ‏ייפול — וזה בדיוק הכשל מסעיף 1.
+ *
+ * ‏ביטוי ב**מקטע הראשון** עדיין מדולג: `/${kind}s/…` אינו נתיב
+ * ‏אלא משפחה של נתיבים, וניחוש הערכים היה שער שנופל על קוד תקין.
  */
-const AGENT_HREF_SOURCES = [
-  join(root, "apps/api/src/modules/agent/execute.service.ts"),
+const HREF_ROOTS = [
+  join(root, "apps/api/src"),
+  join(root, "apps/workers/src"),
+  join(root, "packages/shared/src"),
 ];
+
+function sourceFiles(dir) {
+  const found = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) found.push(...sourceFiles(full));
+    else if (/\.ts$/u.test(entry.name) && !/\.(test|int\.test)\.ts$/u.test(entry.name)) {
+      found.push(full);
+    }
+  }
+  return found;
+}
+
+/**
+ * ‏מזהה הוא מקטע אחד. החלפתו במציין מקום הופכת `/buyers/${b.id}`
+ * ‏ל-`/buyers/·` — נתיב שאפשר לשאול עליו אם יש לו מסך.
+ * ‎`null` = הביטוי במקטע הראשון, ואז אין מה לשאול.
+ */
+function concretePath(href) {
+  const path = href.split(/[?#]/u)[0] ?? "";
+  const segments = path.split("/").filter((s) => s !== "");
+  if (segments.length === 0) return "/";
+  if (segments[0].includes("${")) return null;
+  return `/${segments.map((s) => (s.includes("${") ? "·" : s)).join("/")}`;
+}
+
 let hrefsChecked = 0;
-for (const file of AGENT_HREF_SOURCES) {
-  const text = stripComments(readFileSync(file, "utf8"));
-  for (const match of text.matchAll(/href:\s*[^,\n]*?[`"](\/[^`"]*)[`"]/gu)) {
-    const href = match[1];
-    if (href.includes("${")) continue;
-    hrefsChecked += 1;
-    const path = href.split(/[?#]/u)[0];
-    if (!resolves(path)) {
-      errors.push(
-        `‏הסוכן שולח קישור ל-${href} (${file.slice(root.length + 1)}) — אין מסך כזה ב-apps/web/src/app`,
-      );
+for (const dir of HREF_ROOTS) {
+  for (const file of sourceFiles(dir)) {
+    const text = stripComments(readFileSync(file, "utf8"));
+    for (const match of text.matchAll(/href:\s*[^,\n]*?[`"](\/[^`"]*)[`"]/gu)) {
+      const href = match[1];
+      const path = concretePath(href);
+      if (path === null) continue;
+      hrefsChecked += 1;
+      if (!resolves(path)) {
+        errors.push(
+          `‏המערכת שולחת קישור ל-${href} (${file.slice(root.length + 1)}) — אין מסך כזה ב-apps/web/src/app`,
+        );
+      }
     }
   }
 }
 if (hrefsChecked === 0) {
-  errors.push("‏לא נמצא אף `href` בקטלוג הפעולות — הביטוי שסורק אותם כנראה התיישן");
+  errors.push("‏לא נמצא אף `href` במקורות — הביטוי שסורק אותם כנראה התיישן");
+}
+
+/* ======= 6. כפתור „פתח במערכת” — הבסיס והסיפא מרכיבים מסך קיים ======= */
+
+/**
+ * ‎**החצי שיושב אצל Meta.**
+ *
+ * ‏הכפתור אינו נושא כתובת מלאה: הוא נושא **סיפא** בלבד, ו-Meta
+ * ‏מדביקה אותה לכתובת בסיס שנרשמה בעורך התבניות שלה. הסיפא היא
+ * ‏נתיב **בלי לוכסן מוביל** (`properties/abc`), ולכן הבסיס חייב
+ * ‏להסתיים בלוכסן — ובסיס עם מקטע נוסף מייצר „העמוד לא נמצא” על
+ * ‏כל לחיצה.
+ *
+ * ‏את מה שנרשם ב-Meta אי אפשר לקרוא מכאן, אבל אפשר לקבע את החוזה:
+ * ‏הבסיס ש-`whatsappButtonUrlTemplate` מכתיב, עם הסיפא של כל ישות
+ * ‏בטבלה, חייב להרכיב בחזרה בדיוק את הנתיב שהתכוונו אליו — ואותו
+ * ‏נתיב חייב להיות מסך קיים. כך שני החצאים נבדקים יחד, ולא כל
+ * ‏אחד לבדו.
+ */
+const { whatsappDeepLinkSuffix, whatsappButtonUrlTemplate, whatsappButtonLandsOn } = await import(
+  join(root, "packages/shared/dist/logic/whatsapp-templates.js")
+);
+const BUTTON_ORIGIN = "https://app.example.com";
+const buttonBase = whatsappButtonUrlTemplate(BUTTON_ORIGIN);
+let buttonsChecked = 0;
+for (const entityType of entityTypes) {
+  const url = notificationUrl(note(entityType, "01HQ0000000000000000000001"));
+  const landed = whatsappButtonLandsOn(buttonBase, whatsappDeepLinkSuffix(url));
+  if (!landed.startsWith(`${BUTTON_ORIGIN}/`)) {
+    errors.push(`‏כפתור ${entityType} מרכיב ${landed} — אינו יושב מתחת למקור המערכת`);
+    continue;
+  }
+  buttonsChecked += 1;
+  const path = landed.slice(BUTTON_ORIGIN.length).split(/[?#]/u)[0];
+  if (!resolves(path)) {
+    errors.push(`‏כפתור ${entityType} מרכיב ${landed} — אין מסך כזה ב-apps/web/src/app`);
+  }
 }
 
 /* ==================== התוצאה ==================== */
@@ -578,5 +661,6 @@ if (errors.length > 0) {
 }
 console.log(
   `✓ ${entityTypes.length} ישויות בטבלה נוחתות על מסכים קיימים, ${written.size} סוגי התראות מכוסים, ` +
-    `${hrefsChecked} קישורים של הסוכן נוחתים על מסכים קיימים, ושתי מפות הניתוב מסכימות`,
+    `${hrefsChecked} קישורים ו-${buttonsChecked} כפתורי „פתח במערכת” נוחתים על מסכים קיימים, ` +
+    `ושתי מפות הניתוב מסכימות`,
 );

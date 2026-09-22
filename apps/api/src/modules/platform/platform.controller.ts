@@ -74,6 +74,9 @@ import {
   linkNeedsReverification,
   type PlanDefinition,
   type ServiceVersion,
+  whatsappButtonUrlTemplate,
+  whatsappButtonLandsOn,
+  whatsappDeepLinkSuffix,
 } from "@metavchim/shared";
 import { loadEnv } from "../../config/env";
 import { TaxTablesSchema, type TaxTables, type TaxTablesInput } from "@metavchim/shared";
@@ -2140,6 +2143,17 @@ export class PlatformController {
         notifyTemplateLang: string;
         /** התבנית נרשמה עם כפתור בכתובת דינמית — ראו את ההגדרה */
         notifyTemplateButton: boolean;
+        /**
+         * ‎**הכתובת שצריך לרשום ב-Meta לכפתור, מילה במילה, ולאן
+         * ‏היא נוחתת.** החצי הזה נקבע בעורך התבניות של Meta ולא
+         * ‏במאגר, ולכן המסך הציג עד היום תיאור שלו („כתובת הבסיס
+         * ‏ואחריה {{1}}”) ולא אותו. תיאור מזמין את הצורה השגויה —
+         * ‏בסיס בלי לוכסן, או בסיס עם מקטע נוסף — ואז כל לחיצה על
+         * ‏„פתח במערכת” נוחתת על „העמוד לא נמצא”.
+         */
+        notifyTemplateButtonUrl: string;
+        /** דוגמה מלאה: לאן נוחתת לחיצה בהתראה על נכס */
+        notifyTemplateButtonExample: string;
         /** התבנית נושאת שורה לכל עדכון; חסר/false = פירוט אחד */
         notifyTemplateLines: boolean;
         intakeTemplate: string;
@@ -2451,6 +2465,16 @@ export class PlatformController {
            */
           notifyTemplateButton:
             (await this.platformSettings.get("whatsappNotifyTemplateButton")) === "true",
+          /*
+           * ‏נגזר מ-`WEB_ORIGIN` ולא נשמר: ערך שמור הוא עותק שני
+           * ‏של מה שכבר ידוע, ושניים כאלה נפרדים ביום שהדומיין
+           * ‏משתנה.
+           */
+          notifyTemplateButtonUrl: whatsappButtonUrlTemplate(env.WEB_ORIGIN),
+          notifyTemplateButtonExample: whatsappButtonLandsOn(
+            whatsappButtonUrlTemplate(env.WEB_ORIGIN),
+            whatsappDeepLinkSuffix("/properties/01HQ0000000000000000000001"),
+          ),
           /*
            * ‎**ברירת המחדל היא הפירוט האחד**: זה מה שנרשם עד היום,
            * ומעבר שקט לשורות היה שולח חמישה שמות לתבנית שיש בה
