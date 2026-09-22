@@ -22,6 +22,7 @@
  * שתי הטענות למטה הן בדיוק שני הכשלים האלה.
  */
 import { readFileSync, readdirSync, statSync } from "node:fs";
+import ts from "typescript";
 import { join } from "node:path";
 
 const root = join(import.meta.dirname, "..");
@@ -536,32 +537,33 @@ for (const [url, sources] of anchored) {
  * ‏ב-`ENTITY_ROUTES` למעלה — ולכן בדיוק אותו כשל קרה שוב, בערוץ
  * ‏אחר:
  *
- * ‏* ‎`/analytics` — מסך הניתוח הוא `/reports`. „ביצועי הסוכנים”
- * ‏  הסתיים ב-404, בשתי התשובות.
- * ‏* ‎`/exclusivity` — „מעקב בלעדיות” הוא רצועה בראש `/properties`,
- * ‏  ולא מסך. „כמה בלעדיות נגמרות” הסתיים ב-404.
+ * ‏* ‎`/analytics` — מסך הניתוח הוא `/reports`.
+ * ‏* ‎`/exclusivity` — „מעקב בלעדיות” הוא רצועה בראש `/properties`.
+ * ‏* ‎`/properties/voice` — מסך ההקלטה הוא `/voice`.
  *
  * ## ‏למה כל המקורות ולא קובץ אחד
  *
- * ‏הגרסה הקודמת סרקה את `execute.service.ts` **בלבד** — הקובץ שבו
- * ‏התגלו שתי התקלות. אבל `href` אינו מבנה של הקובץ ההוא: הוא
- * ‏מבנה של כל מה שמוסר קישור לאדם, ורשימת קבצים שנכתבה לפי
- * ‏המקום שבו הבאג התגלה מכסה את העבר ולא את הכלל.
+ * ‏הגרסה הקודמת סרקה את `execute.service.ts` בלבד — הקובץ שבו
+ * ‏התגלו שתי התקלות הראשונות. אבל `href` אינו מבנה של הקובץ ההוא
+ * ‏אלא של כל מה שמוסר קישור לאדם, ורשימת קבצים שנכתבה לפי מקום
+ * ‏הגילוי מכסה את העבר ולא את הכלל — וכך `/properties/voice`
+ * ‏ב-`onboarding.ts` חי מחוץ לשער.
  *
- * ‏וכך `/properties/voice` ב-`onboarding.ts` — צעד „הנכסים
- * ‏הראשונים” ברשימת הקליטה — חי מחוץ לשער. אין מסך כזה; המסך הוא
- * ‏`/voice`, ו-`/properties/[id]` בולע את „voice” כמזהה נכס.
+ * ## ‏ולמה AST ולא רגקס
  *
- * ## ‏ולמה גם קישור עם ביטוי
+ * ‏שתי טעויות שהרגקס עשה, שתיהן אמיתיות (ביקורת Codex):
  *
- * ‏הדילוג על `${...}` השאיר בחוץ את **רוב** הקישורים — וכל אחד
- * ‏מהם הוא בדיוק הצורה שנשלחת. מזהה הוא מקטע אחד, ולכן הצבת
- * ‏מציין מקום במקומו שואלת בדיוק את השאלה הנכונה: האם יש מסך
- * ‏`[id]` מתחת לנתיב הזה. ‎`/buyers/${id}` עובר, ‎`/offers/${id}`
- * ‏ייפול — וזה בדיוק הכשל מסעיף 1.
+ * ‏**ענף אחד מתוך שניים.** ‎`href: k === "buyer" ? \x60/buyers/${id}\x60 :
+ * ‎\x60/leads/${id}\x60` — הרגקס עוצר בערך המצוטט הראשון, ולכן שגיאת
+ * ‏כתיב בנתיב הליד הייתה עוברת. ה-AST פותח שלשה, `??` וסוגריים,
+ * ‏ובודק כל ענף.
  *
- * ‏ביטוי ב**מקטע הראשון** עדיין מדולג: `/${kind}s/…` אינו נתיב
- * ‏אלא משפחה של נתיבים, וניחוש הערכים היה שער שנופל על קוד תקין.
+ * ‏**מקטע מילולי שמסתתר מתחת לנתיב דינמי.** ‎`resolves` מקבלת
+ * ‏`[id]` כתואם לכל ערך, ולכן `/properties/voice` **עבר** — הוא
+ * ‏„מתאים” ל-`/properties/[id]`. זה בדיוק הכשל: האפליקציה תקרא
+ * ‏„voice” כמזהה נכס ותראה „הנכס לא נמצא”. מקטע שנכתב כמילה
+ * ‏חייב אפוא לפגוש מקטע מילולי; רק מקטע שנולד מביטוי רשאי לפגוש
+ * ‏`[id]`.
  */
 const HREF_ROOTS = [
   join(root, "apps/api/src"),
@@ -574,45 +576,91 @@ function sourceFiles(dir) {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const full = join(dir, entry.name);
     if (entry.isDirectory()) found.push(...sourceFiles(full));
-    else if (/\.ts$/u.test(entry.name) && !/\.(test|int\.test)\.ts$/u.test(entry.name)) {
-      found.push(full);
-    }
+    else if (/\.ts$/u.test(entry.name) && !/\.test\.ts$/u.test(entry.name)) found.push(full);
   }
   return found;
 }
 
+/** ‏מציין מקום למקטע שנולד מביטוי — הוא ולא מילה הוא שרשאי לפגוש `[id]`. */
+const HOLE = "\u0000";
+
 /**
- * ‏מזהה הוא מקטע אחד. החלפתו במציין מקום הופכת `/buyers/${b.id}`
- * ‏ל-`/buyers/·` — נתיב שאפשר לשאול עליו אם יש לו מסך.
- * ‎`null` = הביטוי במקטע הראשון, ואז אין מה לשאול.
+ * ‏כל ערך מילולי שהביטוי יכול להניב. שלשה, `??` וסוגריים נפתחים;
+ * ‏ביטוי בתוך תבנית הופך ל-`HOLE`. כל מה שאינו כזה מוחזר ריק —
+ * ‏ניחוש ערכים היה שער שנופל על קוד תקין.
  */
-function concretePath(href) {
-  const path = href.split(/[?#]/u)[0] ?? "";
+function literalPaths(node) {
+  if (ts.isParenthesizedExpression(node)) return literalPaths(node.expression);
+  if (ts.isConditionalExpression(node)) {
+    return [...literalPaths(node.whenTrue), ...literalPaths(node.whenFalse)];
+  }
+  if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken) {
+    return [...literalPaths(node.left), ...literalPaths(node.right)];
+  }
+  if (ts.isStringLiteralLike(node)) return [node.text];
+  if (ts.isNoSubstitutionTemplateLiteral(node)) return [node.text];
+  if (ts.isTemplateExpression(node)) {
+    let out = node.head.text;
+    for (const span of node.templateSpans) out += HOLE + span.literal.text;
+    return [out];
+  }
+  return [];
+}
+
+/**
+ * ‏האם הנתיב נוחת על מסך. מקטע מילולי חייב לפגוש מקטע מילולי;
+ * ‏מקטע שנולד מביטוי רשאי לפגוש גם `[id]`.
+ */
+function resolvesStrict(path) {
   const segments = path.split("/").filter((s) => s !== "");
-  if (segments.length === 0) return "/";
-  if (segments[0].includes("${")) return null;
-  return `/${segments.map((s) => (s.includes("${") ? "·" : s)).join("/")}`;
+  return appRoutes.some(
+    (route) =>
+      route.length === segments.length &&
+      route.every((seg, i) => {
+        const given = segments[i];
+        if (/^\[.+\]$/u.test(seg)) return given.includes(HOLE);
+        return seg === given;
+      }),
+  );
 }
 
 let hrefsChecked = 0;
 for (const dir of HREF_ROOTS) {
   for (const file of sourceFiles(dir)) {
-    const text = stripComments(readFileSync(file, "utf8"));
-    for (const match of text.matchAll(/href:\s*[^,\n]*?[`"](\/[^`"]*)[`"]/gu)) {
-      const href = match[1];
-      const path = concretePath(href);
-      if (path === null) continue;
-      hrefsChecked += 1;
-      if (!resolves(path)) {
-        errors.push(
-          `‏המערכת שולחת קישור ל-${href} (${file.slice(root.length + 1)}) — אין מסך כזה ב-apps/web/src/app`,
-        );
+    const text = readFileSync(file, "utf8");
+    if (!text.includes("href")) continue;
+    const source = ts.createSourceFile(file, text, ts.ScriptTarget.ES2023, true);
+    const visit = (node) => {
+      if (
+        (ts.isPropertyAssignment(node) || ts.isJsxAttribute(node)) &&
+        node.name !== undefined &&
+        (ts.isIdentifier(node.name) || ts.isStringLiteralLike(node.name)) &&
+        node.name.text === "href" &&
+        node.initializer !== undefined
+      ) {
+        for (const raw of literalPaths(node.initializer)) {
+          if (!raw.startsWith("/")) continue;
+          const path = raw.split(/[?#]/u)[0] ?? "";
+          /* ‏ביטוי במקטע הראשון אינו נתיב אלא משפחה של נתיבים */
+          const first = path.split("/").filter((s) => s !== "")[0];
+          if (first !== undefined && first.includes(HOLE)) continue;
+          hrefsChecked += 1;
+          if (!resolvesStrict(path)) {
+            const { line } = source.getLineAndCharacterOfPosition(node.getStart(source));
+            const shown = path.replaceAll(HOLE, "${…}");
+            errors.push(
+              `‏המערכת שולחת קישור ל-${shown} (${file.slice(root.length + 1)}:${line + 1}) — אין מסך כזה`,
+            );
+          }
+        }
       }
-    }
+      ts.forEachChild(node, visit);
+    };
+    ts.forEachChild(source, visit);
   }
 }
 if (hrefsChecked === 0) {
-  errors.push("‏לא נמצא אף `href` במקורות — הביטוי שסורק אותם כנראה התיישן");
+  errors.push("‏לא נמצא אף `href` במקורות — הסורק כנראה התיישן");
 }
 
 /* ======= 6. כפתור „פתח במערכת” — הבסיס והסיפא מרכיבים מסך קיים ======= */
