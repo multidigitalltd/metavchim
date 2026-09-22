@@ -66,6 +66,12 @@ interface AuthState {
   pushStatus: PushStatus | null;
   /** ‏הפעלה מתוך לחיצה — כאן מותר לבקש את ההרשאה מהמשתמש. */
   enablePush(): Promise<PushStatus>;
+  /**
+   * ‏למה המשתמש במסך ההתחברות: `"expired"` — ה-Session פג או נותק
+   * ‏ממכשיר אחר (מסך ההתחברות אומר זאת, במקום להיראות כאילו
+   * ‏האפליקציה „שכחה”); `null` — התנתקות יזומה או הפעלה ראשונה.
+   */
+  signedOutReason: "expired" | null;
 }
 
 const AuthContext = createContext<AuthState | null>(null);
@@ -79,6 +85,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
   const [user, setUser] = useState<AuthUser | null | undefined>(undefined);
   const [offline, setOffline] = useState(false);
   const [pushStatus, setPushStatus] = useState<PushStatus | null>(null);
+  const [signedOutReason, setSignedOutReason] = useState<"expired" | null>(null);
 
   // מרחב המטמון הוא המשתמש: בלי זהות אין מטמון, ומשתמש אחר — מרחב אחר
   useEffect(() => {
@@ -104,6 +111,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
         await clearSessionToken();
         await clearLastCacheScope();
         setOffline(false);
+        setSignedOutReason("expired");
         setUser(null);
         return;
       }
@@ -153,7 +161,10 @@ export function AuthProvider({ children }: PropsWithChildren) {
       // ‏ניתוק ממכשיר אחר או תפוגה באמצע עבודה — הטוקן והמטמון יורדים יחד
       void clearSessionToken()
         .then(() => clearLastCacheScope())
-        .then(() => setUser(null));
+        .then(() => {
+          setSignedOutReason("expired");
+          setUser(null);
+        });
     });
     return () => setUnauthorizedListener(null);
   }, []);
@@ -170,6 +181,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
         throw new ApiError(502, "השרת לא החזיר Session לאפליקציה — יש לעדכן את השרת");
       }
       await writeSessionToken(response.session.token);
+      setSignedOutReason(null);
       await refresh();
     },
     [refresh],
@@ -229,6 +241,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
     // נתוני המשרד לא נשארים על מכשיר שהתנתק ממנו
     const leaving = user?.id;
     if (leaving) await clearCacheScope(leaving);
+    setSignedOutReason(null);
     setUser(null);
   }, [user?.id]);
 
@@ -253,8 +266,9 @@ export function AuthProvider({ children }: PropsWithChildren) {
       changePassword,
       pushStatus,
       enablePush,
+      signedOutReason,
     }),
-    [user, offline, login, verifyOtp, loginWithGoogle, logout, refresh, changePassword, pushStatus, enablePush],
+    [user, offline, login, verifyOtp, loginWithGoogle, logout, refresh, changePassword, pushStatus, enablePush, signedOutReason],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

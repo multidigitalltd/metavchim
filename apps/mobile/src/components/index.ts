@@ -16,3 +16,4 @@ export { WhenPicker, DURATIONS } from "./WhenPicker";
 export { LinkPicker, type PickOption } from "./LinkPicker";
 export { PropertyForm } from "./PropertyForm";
 export { BuyerForm } from "./BuyerForm";
+export { LockScreen } from "./LockScreen";

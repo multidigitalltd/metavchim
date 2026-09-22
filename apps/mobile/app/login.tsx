@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { View } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { googleLoginErrorText } from "@metavchim/shared";
 import {
@@ -28,9 +29,11 @@ import { makeStyles } from "@/lib/theme";
  * ‏כתובת השרת אינה מוצגת: היא צרובה בבנייה. „הגדרות מתקדמות” — לבדיקות
  * ‏מול שרת אחר — נפתחות בלחיצה ארוכה על הלוגו, ואינן חלק מהמסך.
  */
+const LAST_EMAIL_KEY = "mv-last-email";
+
 export default function LoginScreen() {
   const styles = useStyles();
-  const { login, verifyOtp, loginWithGoogle } = useAuth();
+  const { login, verifyOtp, loginWithGoogle, signedOutReason } = useAuth();
   const router = useRouter();
   const { googleError } = useLocalSearchParams<{ googleError?: string }>();
   const [email, setEmail] = useState("");
@@ -51,6 +54,17 @@ export default function LoginScreen() {
   const [serverNote, setServerNote] = useState<string | null>(null);
   // ‏מכשיר בלי נעילה — ההתחברות נשמרת 12 שעות בלבד, והמסך אומר זאת מראש
   const [unlockedDevice, setUnlockedDevice] = useState(false);
+  /*
+   * ‏האימייל האחרון שהתחבר — נזכר במכשיר (הוא אינו סוד, וכך ההתחברות
+   * ‏מחדש אחרי תפוגה היא הקלדת סיסמה בלבד). הסיסמה לעולם לא נשמרת.
+   */
+  useEffect(() => {
+    AsyncStorage.getItem(LAST_EMAIL_KEY)
+      .then((stored) => {
+        if (stored) setEmail((current) => (current === "" ? stored : current));
+      })
+      .catch(() => undefined);
+  }, []);
   useEffect(() => {
     let cancelled = false;
     void deviceSecured().then((secured) => {
@@ -96,6 +110,7 @@ export default function LoginScreen() {
     setBusy(true);
     try {
       const outcome = await login(email.trim().toLowerCase(), password);
+      void AsyncStorage.setItem(LAST_EMAIL_KEY, email.trim().toLowerCase()).catch(() => undefined);
       if (outcome.kind === "otp") {
         setOtpToken(outcome.otpToken);
         setCode("");
@@ -153,6 +168,13 @@ export default function LoginScreen() {
     >
       {otpToken === null ? (
         <View style={styles.stack}>
+          {signedOutReason === "expired" ? (
+            <Card style={styles.expired}>
+              <Text variant="small" style={styles.expiredText}>
+                החיבור מהמכשיר הזה פג או נותק — יש להתחבר מחדש.
+              </Text>
+            </Card>
+          ) : null}
           <Field
             label="אימייל"
             value={email}
@@ -263,6 +285,8 @@ const useStyles = makeStyles((t) => {
   return {
     stack: { gap: 14 },
     lockNote: { color: c.textMuted, textAlign: "center" },
+    expired: { backgroundColor: c.warningBg, borderColor: c.warning },
+    expiredText: { color: c.warning },
     advanced: { marginTop: space.xl, borderColor: c.warning },
   };
 });

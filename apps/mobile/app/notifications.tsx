@@ -102,6 +102,7 @@ export default function NotificationsScreen() {
           title={n.title}
           subtitle={n.body}
           onPress={() => void open(n)}
+          tone={n.readAt ? undefined : "new"}
           trailing={
             <Text variant="small" style={n.readAt ? undefined : styles.unread}>
               {formatWhen(n.createdAt, now)}

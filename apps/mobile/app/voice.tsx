@@ -15,6 +15,7 @@ import type {
   HistoryTurn,
   Proposal,
 } from "@/lib/agent";
+import { successFeedback, tapFeedback } from "@/lib/haptics";
 import { routeForPushUrl } from "@/lib/push";
 import {
   ensureMicrophone,
@@ -133,6 +134,7 @@ export default function VoiceScreen() {
       params: Record<string, unknown>,
       refs: AgentHistoryRef[],
     ) => {
+      successFeedback();
       push({
         role: "agent",
         kind: "result",
@@ -228,6 +230,7 @@ export default function VoiceScreen() {
 
   async function toggleRecording() {
     if (phase === "recording") {
+      tapFeedback();
       setPhase("transcribing");
       try {
         const uri = await stopRecording(recorder);
@@ -266,6 +269,7 @@ export default function VoiceScreen() {
     }
     try {
       await startRecording(recorder);
+      tapFeedback();
       setPhase("recording");
     } catch {
       Alert.alert("ההקלטה לא התחילה", "נסו שוב, או הקלידו למטה.");

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { FlatList, View } from "react-native";
 import { useRouter } from "expo-router";
 import { routeFor } from "@/lib/nav";
@@ -42,31 +42,45 @@ export default function BuyersScreen() {
   const { user } = useAuth();
   const [filter, setFilter] = useState<Filter>("all");
   const [search, setSearch] = useState("");
+  /*
+   * ‏החיפוש רץ בשרת (`q=`), לא רק על 100 השורות שנטענו: משרד עם 400
+   * ‏נכסים היה מקבל „לא נמצא” על נכס שפשוט אינו בעמוד הראשון. השאילתה
+   * ‏יוצאת אחרי הפסקת הקלדה קצרה, ורק מ-2 תווים; הסינון המקומי נשאר
+   * ‏למה שכבר על המסך. בלי חיפוש הרשימה נשמרת במטמון לצפייה בלי רשת.
+   */
+  const [needle, setNeedle] = useState("");
+  useEffect(() => {
+    const trimmed = search.trim();
+    const next = trimmed.length >= 2 ? trimmed : "";
+    const timer = setTimeout(() => setNeedle(next), 300);
+    return () => clearTimeout(timer);
+  }, [search]);
   const query = useQuery(
     () =>
-      apiGet<{ items: BuyerRow[] }>("/buyers?limit=100").then((r) =>
-        apiList(r.items, "items"),
-      ),
-    [],
-    { cacheKey: "buyers" },
+      apiGet<{ items: BuyerRow[] }>(
+        `/buyers?limit=100${needle ? `&q=${encodeURIComponent(needle)}` : ""}`,
+      ).then((r) => apiList(r.items, "items")),
+    [needle],
+    needle ? {} : { cacheKey: "buyers" },
   );
 
   const rows = useMemo(() => {
-    const needle = search.trim();
+    // ‏כשהשרת חיפש — התוצאות שלו הן התשובה (הוא מחפש גם בהערות ובסיכומים)
+    const local = needle === "" ? search.trim() : "";
     return (query.data ?? [])
       .filter((b) => filter === "all" || b.maturity === filter)
       .filter(
         (b) =>
-          needle === "" ||
-          b.contact.name.includes(needle) ||
-          b.requirements.cities.some((c) => c.includes(needle)),
+          local === "" ||
+          b.contact.name.includes(local) ||
+          b.requirements.cities.some((c) => c.includes(local)),
       )
       .sort(
         (a, b) =>
           MATURITY_ORDER.indexOf(a.maturity) -
           MATURITY_ORDER.indexOf(b.maturity),
       );
-  }, [query.data, filter, search]);
+  }, [query.data, filter, search, needle]);
 
   return (
     <Screen

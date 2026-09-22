@@ -242,8 +242,21 @@ const EXTRA_TITLES: readonly [prefix: string, title: string][] = [
   ["/office", "המשרד שלנו"],
 ];
 
+/** ‏כרטיס של ישות — הכותרת היא הישות, לא הרשימה שממנה הגיעו. */
+const CARD_TITLES: readonly [pattern: RegExp, title: string][] = [
+  [/^\/leads\/[A-Za-z0-9]{26}(\/|$)/u, "ליד"],
+  [/^\/properties\/[A-Za-z0-9]{26}\/edit(\/|$)/u, "עריכת נכס"],
+  [/^\/properties\/[A-Za-z0-9]{26}(\/|$)/u, "נכס"],
+  [/^\/buyers\/[A-Za-z0-9]{26}\/edit(\/|$)/u, "עריכת לקוח"],
+  [/^\/buyers\/[A-Za-z0-9]{26}(\/|$)/u, "לקוח"],
+  [/^\/properties\/new(\/|$)/u, "נכס חדש"],
+  [/^\/buyers\/new(\/|$)/u, "לקוח חדש"],
+];
+
 export function webScreenTitle(path: string): string {
   const clean = path.split("?")[0] ?? path;
+  const card = CARD_TITLES.find(([pattern]) => pattern.test(clean));
+  if (card) return card[1];
   const extra = EXTRA_TITLES.find(([prefix]) => clean.startsWith(prefix));
   return extra?.[1] ?? navLabelFor(clean) ?? "מתווכים";
 }

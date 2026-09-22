@@ -81,6 +81,8 @@
   או ב-shared ומחליף את הקובץ ב-Release המתגלגל `mobile-latest`; הקומיט מוצג במסך „עוד”.
   עדכון-באוויר של ה-JS (EAS Update) יתאפשר אחרי `eas init`.
 
+| נעילת האפליקציה · קישורים עמוקים | `expo-local-authentication` (`authenticateAsync`), `app/+native-intent.ts`, `app/+not-found.tsx`, `/.well-known/assetlinks.json` ב-web | נעילה של מערכת ההפעלה בפתיחה ואחרי דקה ברקע (מתג, רק במכשיר נעול); כל קישור חיצוני ופנימי עובר `routeFor` — App Links באנדרואיד כשטביעת האצבע מוגדרת (`ANDROID_APP_LINKS_SHA256`) |
+
 ### מה **אינו** בשלב הזה
 
 - ✅ **מצב כהה** — הערכה הכהה (`--dk-*`) ב-`src/theme.ts`, `ThemeProvider` עם

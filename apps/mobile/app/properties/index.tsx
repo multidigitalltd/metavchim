@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { FlatList, View } from "react-native";
 import { useRouter } from "expo-router";
 import { routeFor } from "@/lib/nav";
@@ -57,26 +57,40 @@ export default function PropertiesScreen() {
   const { user } = useAuth();
   const [filter, setFilter] = useState<Filter>("active");
   const [search, setSearch] = useState("");
+  /*
+   * ‏החיפוש רץ בשרת (`q=`), לא רק על 100 השורות שנטענו: משרד עם 400
+   * ‏נכסים היה מקבל „לא נמצא” על נכס שפשוט אינו בעמוד הראשון. השאילתה
+   * ‏יוצאת אחרי הפסקת הקלדה קצרה, ורק מ-2 תווים; הסינון המקומי נשאר
+   * ‏למה שכבר על המסך. בלי חיפוש הרשימה נשמרת במטמון לצפייה בלי רשת.
+   */
+  const [needle, setNeedle] = useState("");
+  useEffect(() => {
+    const trimmed = search.trim();
+    const next = trimmed.length >= 2 ? trimmed : "";
+    const timer = setTimeout(() => setNeedle(next), 300);
+    return () => clearTimeout(timer);
+  }, [search]);
   const query = useQuery(
     () =>
-      apiGet<{ items: PropertyRow[] }>("/properties?limit=100").then((r) =>
-        apiList(r.items, "items"),
-      ),
-    [],
-    { cacheKey: "properties" },
+      apiGet<{ items: PropertyRow[] }>(
+        `/properties?limit=100${needle ? `&q=${encodeURIComponent(needle)}` : ""}`,
+      ).then((r) => apiList(r.items, "items")),
+    [needle],
+    needle ? {} : { cacheKey: "properties" },
   );
 
   const rows = useMemo(() => {
-    const needle = search.trim();
+    // ‏כשהשרת חיפש — התוצאות שלו הן התשובה (הוא מחפש גם במה שאין כאן)
+    const local = needle === "" ? search.trim() : "";
     return (query.data ?? []).filter(
       (p) =>
         matches(filter, p.status) &&
-        (needle === "" ||
+        (local === "" ||
           [p.city, p.neighborhood, p.street].some(
-            (part) => part?.includes(needle) ?? false,
+            (part) => part?.includes(local) ?? false,
           )),
     );
-  }, [query.data, filter, search]);
+  }, [query.data, filter, search, needle]);
 
   return (
     <Screen
