@@ -10,6 +10,7 @@ import {
 } from "@metavchim/shared";
 import { apiGet, apiList, apiPatch, errorMessage } from "@/lib/api";
 import type { AppointmentRow } from "@/lib/dtos";
+import { successFeedback } from "@/lib/haptics";
 import { makeStyles } from "@/lib/theme";
 import { useQuery } from "@/lib/use-query";
 import {
@@ -143,6 +144,7 @@ export default function CalendarScreen() {
     setBusy(appointment.id);
     try {
       await apiPatch(`/appointments/${appointment.id}`, { status });
+      successFeedback();
       await query.refresh();
     } catch (err: unknown) {
       Alert.alert("הפגישה לא עודכנה", errorMessage(err));

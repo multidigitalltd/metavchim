@@ -11,6 +11,8 @@ import { apiGet, apiList, apiPatch, errorMessage } from "@/lib/api";
 import { can, useAuth } from "@/lib/auth";
 import type { AppointmentRow, LeadRow, TaskRow } from "@/lib/dtos";
 import { formatWhen } from "@/lib/format";
+import { successFeedback } from "@/lib/haptics";
+import { askForPush } from "@/lib/push-prompt";
 import { useQuery } from "@/lib/use-query";
 import {
   Button,
@@ -169,6 +171,7 @@ export default function TodayScreen() {
     setDoneBusy(task.id);
     try {
       await apiPatch(`/tasks/${task.id}`, { status: "done" });
+      successFeedback();
       await query.refresh();
     } catch (err: unknown) {
       Alert.alert("המשימה לא סומנה", errorMessage(err));
@@ -205,7 +208,7 @@ export default function TodayScreen() {
           <Button
             title="הפעלת התראות"
             kind="secondary"
-            onPress={() => void enablePush()}
+            onPress={() => void askForPush(enablePush)}
           />
         </Card>
       ) : null}

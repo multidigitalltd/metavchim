@@ -101,12 +101,19 @@ export default function WebScreen() {
       ? `#${params["#"]}`
       : "";
   const target = `${pathname}${query ? `?${query}` : ""}${hash}`;
-  const title = webScreenTitle(pathname);
+  /*
+   * ‏הכותרת עוקבת אחרי העמוד: מכרטיס ליד לכרטיס הנכס שלו הניווט
+   * ‏קורה בתוך ה-WebView, והכותרת של האפליקציה חייבת לזוז איתו —
+   * ‏אחרת „ליד” כתוב מעל נכס.
+   */
+  const [livePath, setLivePath] = useState<string | null>(null);
+  const title = webScreenTitle(livePath ?? pathname);
 
   useEffect(() => {
     let cancelled = false;
     setError(null);
     setInitialUrl(null);
+    setLivePath(null);
     if (
       user &&
       handedOff?.userId === user.id &&
@@ -164,6 +171,15 @@ export default function WebScreen() {
   const onNavigation = useCallback(
     (state: WebViewNavigation) => {
       setCanGoBack(state.canGoBack);
+      if (state.url.startsWith(`${webOrigin}/`)) {
+        try {
+          const next = new URL(state.url).pathname;
+          // ‏נחיתת המסירה יושבת על ה-API (אותו מקור בייצור) — אינה עמוד
+          if (!next.startsWith("/api/")) setLivePath(next);
+        } catch {
+          // ‏כתובת שאינה ניתנת לניתוח — הכותרת נשארת
+        }
+      }
       /*
        * ‏ה-web הפנה למסך ההתחברות — ה-Session נגמר (התנתקות מתוך
        * ‏המסך, ביטול ממכשיר אחר, תפוגה). האפליקציה בודקת בעצמה:
@@ -194,6 +210,7 @@ export default function WebScreen() {
           style={styles.web}
           sharedCookiesEnabled
           thirdPartyCookiesEnabled={false}
+          pullToRefreshEnabled
           allowsBackForwardNavigationGestures
           allowsInlineMediaPlayback
           mediaCapturePermissionGrantType="grant"

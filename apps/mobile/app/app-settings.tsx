@@ -1,10 +1,13 @@
-import { useState } from "react";
-import { Alert, Linking, StyleSheet } from "react-native";
+import { useEffect, useState } from "react";
+import { Alert, Linking, StyleSheet, Switch, View } from "react-native";
 import { useRouter } from "expo-router";
 import Constants from "expo-constants";
 import { ROLE_LABELS, type UserRole } from "@metavchim/shared";
+import { useAppLock } from "@/lib/app-lock";
 import { useAuth } from "@/lib/auth";
+import { deviceSecured } from "@/lib/device-lock";
 import type { PushStatus } from "@/lib/push";
+import { askForPush } from "@/lib/push-prompt";
 import { Button, Card, Chips, Row, Screen, Text } from "@/components";
 import { THEME_LABELS, useTheme, type ThemeChoice } from "@/lib/theme";
 import { space } from "@/theme";
@@ -34,22 +37,42 @@ export default function AppSettingsScreen() {
   const { user, logout, pushStatus, enablePush } = useAuth();
   const router = useRouter();
   const { choice, setChoice } = useTheme();
+  const { enabled: lockEnabled, setEnabled: setLockEnabled } = useAppLock();
   const [pushBusy, setPushBusy] = useState(false);
+  const [lockBusy, setLockBusy] = useState(false);
+  // ‏המתג מוצג רק במכשיר שיש בו נעילה — בלי נעילה אין מה להפעיל
+  const [secured, setSecured] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    void deviceSecured().then((value) => {
+      if (!cancelled) setSecured(value);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   async function turnOnPush() {
     setPushBusy(true);
     try {
-      const status = await enablePush();
-      if (status === "denied") {
-        Alert.alert("ההרשאה נחסמה", "יש לאפשר התראות בהגדרות המכשיר.", [
-          { text: "ביטול", style: "cancel" },
-          { text: "להגדרות", onPress: () => void Linking.openSettings() },
-        ]);
-      }
-    } catch {
-      Alert.alert("ההתראות לא הופעלו", "נסו שוב כשיש חיבור לשרת.");
+      await askForPush(enablePush);
     } finally {
       setPushBusy(false);
+    }
+  }
+
+  async function toggleLock(next: boolean) {
+    setLockBusy(true);
+    try {
+      const changed = await setLockEnabled(next);
+      if (next && !changed) {
+        Alert.alert(
+          "הנעילה לא הופעלה",
+          "צריך לאמת פעם אחת בטביעת אצבע, פנים או קוד המכשיר.",
+        );
+      }
+    } finally {
+      setLockBusy(false);
     }
   }
 
@@ -89,8 +112,27 @@ export default function AppSettingsScreen() {
         title="החיבורים הפתוחים שלי"
         subtitle="המכשירים שמחוברים לחשבון"
         chevron
-        onPress={() => router.push("/web/profile")}
+        onPress={() => router.push("/web/profile#sessions-heading")}
       />
+
+      {secured ? (
+        <Card>
+          <View style={styles.switchRow}>
+            <View style={styles.switchText}>
+              <Text variant="title">נעילת האפליקציה</Text>
+              <Text variant="muted">
+                טביעת אצבע, פנים או קוד המכשיר בכל פתיחה, ואחרי דקה ברקע.
+              </Text>
+            </View>
+            <Switch
+              value={lockEnabled === true}
+              disabled={lockBusy || lockEnabled === null}
+              onValueChange={(next) => void toggleLock(next)}
+              accessibilityLabel="נעילת האפליקציה"
+            />
+          </View>
+        </Card>
+      ) : null}
 
       <Card>
         <Text variant="title">ערכת נושא</Text>
@@ -139,6 +181,8 @@ export default function AppSettingsScreen() {
 }
 
 const styles = StyleSheet.create({
+  switchRow: { flexDirection: "row", alignItems: "center", gap: space.md },
+  switchText: { flex: 1, gap: 4 },
   logout: { marginTop: space.lg },
   meta: { textAlign: "center", marginTop: space.md },
 });

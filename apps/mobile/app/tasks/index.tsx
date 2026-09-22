@@ -12,6 +12,7 @@ import { apiGet, apiList, apiPatch, errorMessage } from "@/lib/api";
 import { can, useAuth } from "@/lib/auth";
 import type { TaskRow } from "@/lib/dtos";
 import { formatWhen } from "@/lib/format";
+import { successFeedback } from "@/lib/haptics";
 import { TASK_PRIORITY_TONE } from "@/lib/labels";
 import { routeFor } from "@/lib/nav";
 import { makeStyles } from "@/lib/theme";
@@ -104,6 +105,7 @@ export default function TasksScreen() {
     setBusy(task.id);
     try {
       await apiPatch(`/tasks/${task.id}`, { status: next });
+      successFeedback();
       await query.refresh();
     } catch (err: unknown) {
       Alert.alert(

@@ -19,6 +19,20 @@ Expo (React Native) בתוך המונוריפו. צרכן של אותו API כמ
 | התראות · Push | רשימה, סימון כנקרא; התראות פוש למכשיר (Expo) עם ניווט לישות; **מונה על אייקון האפליקציה** = הלא-נקראות (מהשרת בכל פוש, ומיושר בכל פתיחה וחזרה לחזית) |
 | האפליקציה | מי מחובר, הפרופיל (במערכת), **ערכת נושא** (בהיר / כהה / אוטומטי), התראות הפוש, התנתקות, גרסה |
 
+**נעילת האפליקציה** (מתג ב„האפליקציה”, רק במכשיר נעול): טביעת אצבע, פנים או קוד המכשיר
+בכל פתיחה ואחרי דקה ברקע (`src/lib/app-lock.tsx`, `LockScreen`). האימות הוא של מערכת
+ההפעלה; האפליקציה רק שואלת, ואינה רואה נתונים ביומטריים. מכשיר שהנעילה הוסרה ממנו מבטל
+את המתג במקום לנעול את הבעלים בחוץ.
+
+**קישורים עמוקים.** כל קישור של המערכת (`https://app.metavchim.co.il/leads/…`, הודעת וואטסאפ,
+מייל) נפתח באפליקציה דרך `app/+native-intent.ts` → `routeFor`: מסך נייטיבי כשיש, ואחרת ה-web
+המוטמע; `app/+not-found.tsx` עושה את אותו הדבר לניווט פנימי לנתיב בלי מסך. באנדרואיד
+ה-`intentFilters` ב-`app.json` (עם `autoVerify`) פותחים את הקישור בלי דיאלוג „לפתוח ב…” —
+בתנאי שה-web מגיש `/.well-known/assetlinks.json` עם טביעת האצבע של מפתח החתימה:
+משתנה הסביבה `ANDROID_APP_LINKS_SHA256` בקונטיינר ה-web (פסיקים בין כמה; `eas credentials`
+מציג את ה-SHA-256 של מפתח החנות, ול-APK מה-CI: `keytool -list -v -keystore …`). בלי המשתנה
+הקישורים נפתחים בדפדפן כמו קודם.
+
 **נשארים מחוברים.** במכשיר נעול (קוד, תבנית, טביעת אצבע או פנים — `expo-local-authentication`)
 ההתחברות מבקשת Session מתמשך: 30 יום שמתגלגלים בכל פעילות (`persistent: true` ב-`/auth/login`,
 `/auth/login/verify` ו-`/auth/google/exchange`; `apps/api/src/common/session-lifetime.ts`). במכשיר בלי
@@ -39,6 +53,12 @@ Expo (React Native) בתוך המונוריפו. צרכן של אותו API כמ
 
 מטמון לא-מקוון: כל רשימה נייטיבית נפתחת על מה שנטען בפעם הקודמת ומתרעננת;
 בלי רשת מוצגת שורת „אין חיבור — מוצג מה שנטען לפני X”.
+
+**עוד מה שיש:** חיפוש נכסים ולקוחות רץ בשרת (`q=`, אחרי הפסקת הקלדה) ולא רק על 100
+השורות שנטענו; מסך התחברות זוכר את האימייל האחרון ואומר כשהחיבור פג; כותרת המסך המוטמע
+עוקבת אחרי העמוד (מליד לנכס); משיכה לרענון גם במסכי ה-web; משוב מישושי (`expo-haptics`)
+כשמשהו *קרה* — משימה סומנה, פגישה עודכנה, הקלטה התחילה; קריסה של מסך מציגה הודעה
+בעברית עם „נסו שוב” (`ErrorBoundary` ב-`_layout.tsx`) ולא מסך אדום.
 
 ## הרצה מקומית
 
@@ -182,7 +202,7 @@ app/                 ניתוב לפי קבצים (expo-router)
   tasks/  index (הלוח) · new
   calendar.tsx  calendar/  new · [id] (תיעוד, דחייה, ביטול)
   web/[...path].tsx  כל מסך של המערכת — ה-web מוטמע
-src/lib/             api, auth, google-login, session-store, device-lock, push, cache, use-query, nav, shell, theme, fonts, recorder, agent, format, labels, dtos
+src/lib/             api, auth, google-login, session-store, device-lock, app-lock, push, push-prompt, haptics, cache, use-query, nav, shell, theme, fonts, recorder, agent, format, labels, dtos
 src/components/      Text, Screen (TopBar), Drawer, AuthShell, Logo, Card, Pill, Button, Field, Row, Chips, WhenPicker, LinkPicker, PropertyForm, BuyerForm, States, ProposalCard, CacheNotice
 src/theme.ts         טוקני העיצוב — עותק של globals.css בשתי הערכות (נאכף ב-verify:theme), המעטפת הכהה, סולם הטיפוגרפיה
 src/lib/theme.tsx    ThemeProvider (בהיר/כהה/אוטומטי), useTheme/useColors, makeStyles, הגשר לערכה ב-WebView

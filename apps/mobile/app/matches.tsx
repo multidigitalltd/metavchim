@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { Alert, Linking, SectionList, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { routeFor } from "@/lib/nav";
+import { tapFeedback } from "@/lib/haptics";
 import {
   DISMISS_REASONS,
   DISMISS_REASON_LABEL,
@@ -154,6 +155,7 @@ export default function MatchesScreen() {
     setBusy(match.id);
     try {
       await apiPatch(`/matches/${match.id}/dismiss`, { reason });
+      tapFeedback();
       await query.refresh();
       refreshCounts();
     } catch (err: unknown) {

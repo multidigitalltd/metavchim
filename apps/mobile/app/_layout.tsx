@@ -1,16 +1,17 @@
 import { useEffect, useRef } from "react";
-import { I18nManager } from "react-native";
-import { Stack, useRouter, useSegments } from "expo-router";
+import { I18nManager, Pressable, StyleSheet, Text as RNText, View } from "react-native";
+import { Stack, useRouter, useSegments, type ErrorBoundaryProps } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useFonts } from "expo-font";
 import * as SplashScreen from "expo-splash-screen";
 import * as Notifications from "expo-notifications";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
+import { AppLockProvider, useAppLock } from "@/lib/app-lock";
 import { AuthProvider, useAuth } from "@/lib/auth";
 import { FONT_ASSETS } from "@/lib/fonts";
 import { routeForPushUrl } from "@/lib/push";
-import { ShellProvider } from "@/lib/shell";
-import { Drawer, ErrorState } from "@/components";
+import { ShellProvider, useShell } from "@/lib/shell";
+import { Drawer, ErrorState, LockScreen } from "@/components";
 
 import { makeStyles, ThemeProvider, useColors, useTheme } from "@/lib/theme";
 
@@ -41,7 +42,13 @@ function Gate({ fontsReady }: { fontsReady: boolean }) {
   const styles = useStyles();
   const c = useColors();
   const { user, offline, refresh } = useAuth();
+  const { locked } = useAppLock();
+  const { closeDrawer } = useShell();
   const segments = useSegments();
+  // ‏מגירה שנשארה פתוחה ברקע נסגרת עם הנעילה — שם המשרד והתפריט אינם נראים מעל המסך הנעול
+  useEffect(() => {
+    if (locked) closeDrawer();
+  }, [locked, closeDrawer]);
   const router = useRouter();
   const inAuth =
     segments[0] === "login" ||
@@ -114,9 +121,60 @@ function Gate({ fontsReady }: { fontsReady: boolean }) {
         }}
       />
       <Drawer />
+      {locked ? <LockScreen /> : null}
     </>
   );
 }
+
+/**
+ * ‏קריסה של מסך — במקום המסך האדום של הספרייה: הודעה בעברית וכפתור
+ * ‏שמנסה שוב. הרכיב מוצג מחוץ לספקי הערכה והזהות (זה מה שקרס), ולכן
+ * ‏הוא עומד בפני עצמו, בצבעי הסרגל הכהה שאינם תלויים בערכה.
+ */
+export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
+  return (
+    <View style={boundary.root}>
+      <RNText style={boundary.title}>משהו השתבש</RNText>
+      <RNText style={boundary.text}>
+        המסך נתקל בשגיאה. אפשר לנסות שוב; אם זה חוזר — סגרו את האפליקציה ופתחו מחדש.
+      </RNText>
+      <RNText style={boundary.detail} numberOfLines={3}>
+        {error.message}
+      </RNText>
+      <Pressable
+        accessibilityRole="button"
+        onPress={() => void retry()}
+        style={({ pressed }) => [boundary.button, pressed && boundary.pressed]}
+      >
+        <RNText style={boundary.buttonText}>נסו שוב</RNText>
+      </Pressable>
+    </View>
+  );
+}
+
+const boundary = StyleSheet.create({
+  root: {
+    flex: 1,
+    backgroundColor: "#0b0e0c",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 32,
+    gap: 12,
+  },
+  title: { color: "#ffffff", fontSize: 22, fontWeight: "800", textAlign: "center" },
+  text: { color: "#e8ece8", fontSize: 16, textAlign: "center" },
+  detail: { color: "#8fa094", fontSize: 12, textAlign: "center" },
+  button: {
+    marginTop: 12,
+    backgroundColor: "#70ee91",
+    borderRadius: 12,
+    paddingHorizontal: 28,
+    minHeight: 48,
+    justifyContent: "center",
+  },
+  pressed: { opacity: 0.8 },
+  buttonText: { color: "#0b0e0c", fontSize: 16, fontWeight: "700" },
+});
 
 /** ‏שורת המצב לפי הערכה — טקסט כהה על הבהירה, בהיר על הכהה. */
 function ThemedStatusBar() {
@@ -132,10 +190,12 @@ export default function RootLayout() {
     <SafeAreaProvider>
       <ThemeProvider>
         <AuthProvider>
-          <ShellProvider>
-            <ThemedStatusBar />
-            <Gate fontsReady={fontsReady} />
-          </ShellProvider>
+          <AppLockProvider>
+            <ShellProvider>
+              <ThemedStatusBar />
+              <Gate fontsReady={fontsReady} />
+            </ShellProvider>
+          </AppLockProvider>
         </AuthProvider>
       </ThemeProvider>
     </SafeAreaProvider>

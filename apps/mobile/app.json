@@ -31,6 +31,88 @@
       },
       "blockedPermissions": [
         "android.permission.SYSTEM_ALERT_WINDOW"
+      ],
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "https",
+              "host": "app.metavchim.co.il",
+              "pathPrefix": "/leads"
+            },
+            {
+              "scheme": "https",
+              "host": "app.metavchim.co.il",
+              "pathPrefix": "/properties"
+            },
+            {
+              "scheme": "https",
+              "host": "app.metavchim.co.il",
+              "pathPrefix": "/buyers"
+            },
+            {
+              "scheme": "https",
+              "host": "app.metavchim.co.il",
+              "pathPrefix": "/matches"
+            },
+            {
+              "scheme": "https",
+              "host": "app.metavchim.co.il",
+              "pathPrefix": "/calendar"
+            },
+            {
+              "scheme": "https",
+              "host": "app.metavchim.co.il",
+              "pathPrefix": "/tasks"
+            },
+            {
+              "scheme": "https",
+              "host": "app.metavchim.co.il",
+              "pathPrefix": "/today"
+            },
+            {
+              "scheme": "https",
+              "host": "app.metavchim.co.il",
+              "pathPrefix": "/notifications"
+            },
+            {
+              "scheme": "https",
+              "host": "app.metavchim.co.il",
+              "pathPrefix": "/inbox"
+            },
+            {
+              "scheme": "https",
+              "host": "app.metavchim.co.il",
+              "pathPrefix": "/offers"
+            },
+            {
+              "scheme": "https",
+              "host": "app.metavchim.co.il",
+              "pathPrefix": "/profile"
+            },
+            {
+              "scheme": "https",
+              "host": "app.metavchim.co.il",
+              "pathPrefix": "/settings"
+            },
+            {
+              "scheme": "https",
+              "host": "app.metavchim.co.il",
+              "pathPrefix": "/voice"
+            },
+            {
+              "scheme": "https",
+              "host": "app.metavchim.co.il",
+              "pathPrefix": "/calls"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
+        }
       ]
     },
     "plugins": [

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { FlatList, View } from "react-native";
 import { useRouter } from "expo-router";
 import { routeFor } from "@/lib/nav";
@@ -57,26 +57,54 @@ export default function PropertiesScreen() {
   const { user } = useAuth();
   const [filter, setFilter] = useState<Filter>("active");
   const [search, setSearch] = useState("");
+  /*
+   * ‏החיפוש רץ בשרת (`q=`), לא רק על 100 השורות שנטענו: משרד עם 400
+   * ‏נכסים היה מקבל „לא נמצא” על נכס שפשוט אינו בעמוד הראשון. השאילתה
+   * ‏יוצאת אחרי הפסקת הקלדה קצרה, ורק מ-2 תווים; הסינון המקומי נשאר
+   * ‏למה שכבר על המסך. בלי חיפוש הרשימה נשמרת במטמון לצפייה בלי רשת.
+   */
+  const [needle, setNeedle] = useState("");
+  useEffect(() => {
+    const trimmed = search.trim();
+    const next = trimmed.length >= 2 ? trimmed : "";
+    const timer = setTimeout(() => setNeedle(next), 300);
+    return () => clearTimeout(timer);
+  }, [search]);
+  /*
+   * ‏הסטטוס הנבחר עובר לשרת יחד עם החיפוש, לפני התקרה של 100: אחרת
+   * ‏נכס פעיל שמתאים לחיפוש היה נדחק מהעמוד בידי טיוטות ונכסים שנסגרו
+   * ‏(ביקורת Codex). „נסגרו” הם שני סטטוסים — שתי שאילתות.
+   */
+  const statuses =
+    filter === "all" ? [null] : filter === "closed" ? ["sold", "rented"] : [filter];
   const query = useQuery(
-    () =>
-      apiGet<{ items: PropertyRow[] }>("/properties?limit=100").then((r) =>
-        apiList(r.items, "items"),
-      ),
-    [],
-    { cacheKey: "properties" },
+    async () => {
+      const q = needle ? `&q=${encodeURIComponent(needle)}` : "";
+      const pages = await Promise.all(
+        statuses.map((status) =>
+          apiGet<{ items: PropertyRow[] }>(
+            `/properties?limit=100${status ? `&status=${status}` : ""}${q}`,
+          ).then((r) => apiList(r.items, "items")),
+        ),
+      );
+      return pages.flat();
+    },
+    [needle, filter],
+    needle ? {} : { cacheKey: `properties:${filter}` },
   );
 
   const rows = useMemo(() => {
-    const needle = search.trim();
+    // ‏כשהשרת חיפש — התוצאות שלו הן התשובה (הוא מחפש גם במה שאין כאן)
+    const local = needle === "" ? search.trim() : "";
     return (query.data ?? []).filter(
       (p) =>
         matches(filter, p.status) &&
-        (needle === "" ||
+        (local === "" ||
           [p.city, p.neighborhood, p.street].some(
-            (part) => part?.includes(needle) ?? false,
+            (part) => part?.includes(local) ?? false,
           )),
     );
-  }, [query.data, filter, search]);
+  }, [query.data, filter, search, needle]);
 
   return (
     <Screen
