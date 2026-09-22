@@ -86,6 +86,7 @@ export * from "./logic/network-disclosure.js";
 export * from "./logic/network-reach.js";
 export * from "./logic/note-visibility.js";
 export * from "./logic/occupancy.js";
+export * from "./logic/web-origin.js";
 export * from "./logic/web-push.js";
 export * from "./logic/expo-push.js";
 export * from "./logic/whatsapp-buttons.js";
