@@ -4,6 +4,7 @@ import { MediaAdminService } from "./media-admin.service";
 import { MediaClosingReminderService } from "./media-closing-reminder.service";
 import { MediaController } from "./media.controller";
 import { MediaImagesService } from "./media-images.service";
+import { MediaMailService } from "./media-mail.service";
 import { MediaService } from "./media.service";
 
 /**
@@ -16,7 +17,13 @@ import { MediaService } from "./media.service";
  */
 @Module({
   controllers: [MediaController, MediaAdminController],
-  providers: [MediaService, MediaAdminService, MediaImagesService, MediaClosingReminderService],
+  providers: [
+    MediaService,
+    MediaAdminService,
+    MediaImagesService,
+    MediaMailService,
+    MediaClosingReminderService,
+  ],
   exports: [MediaService],
 })
 export class MediaModule {}

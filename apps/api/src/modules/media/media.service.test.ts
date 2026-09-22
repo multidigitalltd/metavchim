@@ -5,6 +5,7 @@ vi.mock("../../config/env", () => ({
   loadEnv: () => ({ WEB_ORIGIN: "https://app.test", PLATFORM_ADMIN_EMAILS: [] }),
 }));
 
+import { MediaMailService } from "./media-mail.service";
 import { MediaService } from "./media.service";
 
 /**
@@ -158,6 +159,8 @@ function harness(options: { cardcom?: boolean; mail?: boolean; contactEmail?: st
         contactName: "ר׳ נציג",
         contactEmail: options.contactEmail ?? "ads@tabu.example",
         contactPhone: "+972521234567",
+        closingText: "יום שני 12:00",
+        nextClosingAt: null,
       }),
       findMany: async () => [{ id: OUTLET, slug: "tabu-magazine" }],
     },
@@ -205,7 +208,7 @@ function harness(options: { cardcom?: boolean; mail?: boolean; contactEmail?: st
     prisma as never,
     cardcom as never,
     vat as never,
-    email as never,
+    new MediaMailService(email as never, admins as never),
     admins as never,
     audit as never,
   );
@@ -312,8 +315,10 @@ describe("MediaService — הזמנה בתשלום", () => {
       status: "pending",
       lowProfileId: `lp-${result.paymentId}`,
     });
-    expect(h.sent).toHaveLength(0);
-    expect(h.adminNotices).toHaveLength(0);
+    // ‏„ההזמנה נפתחה” — ללקוח ולמנהלים; לנציג המדיה עדיין לא
+    expect(h.sent.map((s) => s.to)).toEqual(["dana@office.example"]);
+    expect(h.sent[0]?.subject).toContain("נפתחה");
+    expect(h.adminNotices).toHaveLength(1);
   });
 
   it("דף תשלום קודם על אותו מוצר מתבטל ותשלומו מסומן superseded", async () => {
@@ -353,8 +358,10 @@ describe("MediaService — הזמנה בתשלום", () => {
     expect(await h.service.settleWithin(h.tx as never, orderId, now)).toBeNull();
 
     await h.service.notifyAfterPayment(orderId);
-    expect(h.sent.map((s) => s.to)).toEqual(["ads@tabu.example", "dana@office.example"]);
-    expect(h.sent[0]?.subject).toContain("הזמנת פרסום");
+    // ‏[נפתחה ללקוח] ואז [שולם: לנציג, ללקוח]
+    expect(h.sent.map((s) => s.to)).toEqual(["dana@office.example", "ads@tabu.example", "dana@office.example"]);
+    expect(h.sent[1]?.subject).toContain("הזמנת פרסום");
+    expect(h.sent[2]?.subject).toContain("התשלום התקבל");
     expect(h.orders[0]?.["notifiedAt"]).not.toBeNull();
   });
 
@@ -365,6 +372,11 @@ describe("MediaService — הזמנה בתשלום", () => {
     );
     await h.service.markFailedForPaymentPage(`lp-${paymentId}`);
     expect(h.orders[0]?.["status"]).toBe("failed");
+    // ‏הלקוח והמנהלים שומעים על הדחייה; דחייה חוזרת אינה מייל נוסף
+    expect(h.sent.at(-1)?.subject).toContain("לא הושלם");
+    const sentBefore = h.sent.length;
+    await h.service.markFailedForPaymentPage(`lp-${paymentId}`);
+    expect(h.sent).toHaveLength(sentBefore);
     // ‏ומאוחר יותר האישור כן מגיע (דף שנשאר פתוח) — ההזמנה נסגרת כשולמה
     expect(await h.service.settleWithin(h.tx as never, orderId, new Date())).toEqual({ tenantId: TENANT });
     await h.service.markFailed(orderId);
@@ -432,6 +444,8 @@ describe("MediaService — המשך לתשלום, ביטול ושליחה חוז
     ).rejects.toThrow(/לא נמצאה/u);
     await asOwner(() => h.service.cancel({ tenantId: TENANT, userId: ME }, orderId));
     expect(h.orders[0]?.["status"]).toBe("cancelled");
+    expect(h.sent.at(-1)?.subject).toContain("בוטלה");
+    expect(h.adminNotices.at(-1)).toContain("בוטל");
     expect(h.payments.find((p) => p["id"] === paymentId)?.["status"]).toBe("superseded");
     expect(h.audits).toContain("media.order_cancelled");
   });

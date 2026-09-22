@@ -1,4 +1,5 @@
 import { Injectable, Logger } from "@nestjs/common";
+import type { EmailContent } from "@metavchim/shared";
 
 import { loadEnv } from "../config/env";
 import { EmailService } from "./email.service";
@@ -59,6 +60,10 @@ export class PlatformAdminNotifierService {
     heading: string;
     paragraphs: readonly string[];
     button?: { label: string; url: string };
+    /** ‏תג מצב וכרטיס פרטים — אותה צורה כמו במייל ללקוח, ראו `EmailContent`. */
+    badge?: EmailContent["badge"];
+    details?: EmailContent["details"];
+    footnote?: string;
     /** כתובות נוספות — למשל כתובת התמיכה מהגדרות הפלטפורמה. */
     also?: readonly (string | null | undefined)[];
     /** תשובה שתחזור לתוך המערכת ולא לתיבה הפרטית של מי ששלח. */
@@ -94,6 +99,9 @@ export class PlatformAdminNotifierService {
             heading: notice.heading,
             paragraphs: [...notice.paragraphs],
             ...(notice.button === undefined ? {} : { button: notice.button }),
+            ...(notice.badge === undefined ? {} : { badge: notice.badge }),
+            ...(notice.details === undefined ? {} : { details: notice.details }),
+            ...(notice.footnote === undefined ? {} : { footnote: notice.footnote }),
           },
           {
             /*
