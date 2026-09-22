@@ -1,73 +1,156 @@
 "use client";
 
+import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
+import { MEDIA_OUTLET_KIND_LABEL, type MediaOutletKind } from "@metavchim/shared";
+import { apiGet, apiList, mediaSrc } from "@/lib/api";
+import { formatPrice } from "@/lib/format";
+import { ClosingBadge } from "./closing-badge";
 import { useRequireAuth } from "@/lib/use-auth";
-import { IconSparkle } from "../icons";
+import { IconGlobe, IconList } from "../icons";
+import { LoadError } from "../load-error";
 
 /**
- * רכש מדיה — עמוד "בקרוב" עד ההשקה.
+ * רכש מדיה — הארכיון.
  *
- * ## למה הלשונית קיימת לפני הפיצ'ר
+ * כרטיס לכל מדיה: מה היא, כמה היא מגיעה, ומאיפה המחירים מתחילים.
+ * הלחיצה מובילה לעמוד הפנימי, ושם ההזמנה. הארכיון עצמו אינו מוכר
+ * דבר — הוא אומר מה יש, ומי שרוצה נכנס.
  *
- * מתווך שרואה את הלשונית יודע מה מגיע, וביום ההשקה הוא כבר יודע
- * לאן להיכנס. אותו נימוק כמו ב„קונים - Kanko”: התג „בקרוב” אומר
- * את האמת, ולכן אין כאן הבטחה שנשברת בלחיצה.
- *
- * ## מה העמוד אומר, ומה הוא לא אומר
- *
- * משפט אחד וברור — שמכאן יהיה אפשר לנהל את הפרסומים במגוון מדיות.
- * בלי טופס, בלי „הירשמו לעדכון” (זה קיים בפורום, שם יש למה
- * להירשם), ובלי מחירים או מועדים שטרם נקבעו. רשימת המדיות היא
- * הכיוון, לא התחייבות לספקים.
+ * הקטלוג מגיע מהשרת ונערך במסך הפלטפורמה: מדיה חדשה מופיעה כאן
+ * בלי פריסה.
  */
-export default function MediaComingSoonPage() {
+
+interface OutletCard {
+  id: string;
+  slug: string;
+  name: string;
+  kind: MediaOutletKind;
+  tagline: string;
+  reachText: string;
+  frequency: string;
+  productCount: number;
+  priceFromAgorot: number | null;
+  hasLeadProducts: boolean;
+  nextClosingAt: string | null;
+  coverImageId: string | null;
+}
+
+export default function MediaCatalogPage(): React.JSX.Element | null {
   const { loading } = useRequireAuth();
+  const [items, setItems] = useState<OutletCard[] | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  const load = useCallback(() => {
+    setFailed(false);
+    setItems(null);
+    apiGet<{ outlets: OutletCard[] }>("/media")
+      .then((res) => setItems(apiList(res.outlets, "outlets")))
+      .catch(() => setFailed(true));
+  }, []);
+
+  useEffect(() => {
+    if (loading) return;
+    load();
+  }, [loading, load]);
+
   if (loading) return null;
 
   return (
     // div ולא main — העטיפה של AppShell היא ה-main landmark היחיד
     <div className="mv-page">
-      <section
-        className="mx-auto mt-10 max-w-xl rounded-2xl border p-8 text-center"
-        style={{
-          borderColor: "var(--color-primary-accent)",
-          background:
-            "linear-gradient(180deg, var(--color-primary-soft), var(--color-surface) 78%)",
-          boxShadow:
-            "0 10px 28px color-mix(in srgb, var(--color-primary) 10%, transparent)",
-        }}
-        aria-labelledby="media-heading"
-      >
-        <h1 id="media-heading" className="m-0 text-2xl font-extrabold">
-          רכש מדיה
-        </h1>
+      <header className="mv-hero mb-5">
+        <span className="mv-hero-icon" aria-hidden="true">
+          <IconGlobe s={26} />
+        </span>
+        <div className="min-w-0 flex-1">
+          <h1 className="m-0 text-2xl font-extrabold">רכש מדיה</h1>
+          <p className="m-0 mt-1" style={{ color: "var(--color-text-muted)" }}>
+            פרסום הנכסים והמשרד במגוון מדיות — במקום אחד, בלי לרוץ בין ספקים.
+            בוחרים מדיה, רואים מה כלול ומה החשיפה, ומזמינים.
+          </p>
+        </div>
+        <Link href="/media/orders" className="mv-btn-plain shrink-0">
+          <IconList s={15} /> ההזמנות שלנו
+        </Link>
+      </header>
 
-        {/* גדול ומודגש, בצבע הטקסט המלא — זה המסר של העמוד, לא הערת שוליים */}
-        <p className="m-0 mt-4 text-[length:var(--type-screen-title)] font-bold leading-relaxed">
-          בקרוב יהיה ניתן לנהל מכאן את הפרסומים שלכם במגוון מדיות —
-          במקום אחד, בלי לרוץ בין ספקים ובין ממשקים.
-        </p>
-
-        <p
-          className="mx-auto mt-5 inline-flex items-center gap-2 rounded-full px-4 py-1.5 text-[length:var(--type-body-sm)] font-bold"
-          style={{
-            background: "var(--color-primary-soft)",
-            color: "var(--color-primary)",
-          }}
-        >
-          <IconSparkle s={16} /> בקרוב
-        </p>
-
-        {/*
-          הרשימה מיישרת לימין בתוך כרטיס ממורכז: שורות שנקראות
-          כרשימה, ולא כטקסט שמרחף במרכז.
-        */}
-        <ul className="m-0 mt-6 list-none space-y-2.5 p-0 text-start text-[length:var(--type-button)] leading-relaxed">
-          <li>• קמפיינים ברשתות החברתיות ובמנועי החיפוש.</li>
-          <li>• פרסום בלוחות הנדל״ן ובאתרי הנכסים.</li>
-          <li>• מדיה מקומית — עיתונות, שילוט ודיוור לשכונה.</li>
-          <li>• מעקב אחרי מה שכל פרסום הביא בפועל, מול הלידים במערכת.</li>
+      {failed ? (
+        <LoadError message="לא הצלחנו לטעון את ארכיון המדיות" onRetry={load} />
+      ) : items === null ? (
+        <p aria-live="polite">טוען…</p>
+      ) : items.length === 0 ? (
+        <div className="mv-card mv-card--pad text-center">
+          <p className="m-0 font-bold">עדיין אין מדיות בארכיון</p>
+          <p className="m-0 mt-1" style={{ color: "var(--color-text-muted)" }}>
+            המדיות הראשונות בדרך. כשיתווספו, הן יופיעו כאן.
+          </p>
+        </div>
+      ) : (
+        <ul className="m-0 grid list-none gap-3 p-0 sm:grid-cols-2">
+          {items.map((outlet) => (
+            <li key={outlet.id} className="mv-card mv-card--pad flex flex-col">
+              {outlet.coverImageId ? (
+                // ‏השער — עיצוב, לא מידע: השם והסוג כתובים מתחת
+                <img
+                  src={mediaSrc(`media/${outlet.slug}/images/${outlet.coverImageId}`)}
+                  alt=""
+                  className="mb-3 h-36 w-full rounded-xl object-cover"
+                  loading="lazy"
+                />
+              ) : null}
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="mv-pill mv-domain-blue">
+                  {MEDIA_OUTLET_KIND_LABEL[outlet.kind] ?? outlet.kind}
+                </span>
+                <ClosingBadge nextClosingAt={outlet.nextClosingAt} compact />
+              </div>
+              <h2 className="m-0 mt-2 text-[length:var(--type-card-title)] font-extrabold leading-snug">
+                <Link href={`/media/${outlet.slug}`} className="no-underline hover:underline">
+                  {outlet.name}
+                </Link>
+              </h2>
+              {outlet.tagline ? (
+                <p className="m-0 mt-1.5 text-[length:var(--type-body-sm)]" style={{ color: "var(--color-text-soft)" }}>
+                  {outlet.tagline}
+                </p>
+              ) : null}
+              <dl className="m-0 mt-3 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[length:var(--type-body-sm)]">
+                {outlet.reachText ? (
+                  <>
+                    <dt className="m-0 font-bold">חשיפה</dt>
+                    <dd className="m-0">{outlet.reachText}</dd>
+                  </>
+                ) : null}
+                {outlet.frequency ? (
+                  <>
+                    <dt className="m-0 font-bold">תדירות</dt>
+                    <dd className="m-0">{outlet.frequency}</dd>
+                  </>
+                ) : null}
+                <dt className="m-0 font-bold">מוצרים</dt>
+                <dd className="m-0">
+                  {outlet.productCount === 0
+                    ? "טרם הוגדרו"
+                    : outlet.priceFromAgorot === null
+                      ? `${outlet.productCount} — לפי תיאום עם הנציג`
+                      : `${outlet.productCount} — החל מ-${formatPrice(outlet.priceFromAgorot)} + מע"מ`}
+                </dd>
+              </dl>
+              <div className="mt-auto flex flex-wrap items-center gap-2 pt-4">
+                <Link href={`/media/${outlet.slug}`} className="mv-btn-soft">
+                  לפרטים ולהזמנה
+                </Link>
+                {outlet.hasLeadProducts ? (
+                  <span className="text-[length:var(--type-caption-lg)]" style={{ color: "var(--color-text-muted)" }}>
+                    כולל פנייה לנציג
+                  </span>
+                ) : null}
+              </div>
+            </li>
+          ))}
         </ul>
-      </section>
+      )}
     </div>
   );
 }

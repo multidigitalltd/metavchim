@@ -210,3 +210,5 @@ export * from "./logic/activation-nudge.js";
 export * from "./logic/funnel.js";
 export * from "./logic/support-queue.js";
 export * from "./logic/support-reply.js";
+export * from "./logic/media.js";
+export * from "./schemas/media.js";

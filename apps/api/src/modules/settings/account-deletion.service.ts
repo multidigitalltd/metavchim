@@ -538,6 +538,11 @@ export class AccountDeletionService {
        */
       this.prisma.emailSendAttempt.deleteMany({ where: { tenantId } }),
       this.prisma.subscriptionOffer.deleteMany({ where: { tenantId } }),
+      /*
+       * הזמנות המדיה נמחקות: הן נושאות שם, טלפון ודוא"ל של מי שהזמין
+       * במשרד. הכסף עצמו נשאר ב-payments (חובת שמירה), בלי הפרטים.
+       */
+      this.prisma.mediaOrder.deleteMany({ where: { tenantId } }),
       this.prisma.subscription.deleteMany({ where: { tenantId } }),
       /*
        * המספרים השכורים **מבוטלים ולא נמחקים**: המספר עדיין תפוס

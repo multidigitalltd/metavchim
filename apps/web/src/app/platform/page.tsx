@@ -34,6 +34,7 @@ import { ReferralRevenueSection } from "./referral-revenue-section";
 import { Notice } from "../notice";
 import { EntityTabs, TabPanel, useEntityTab } from "../entity-tabs";
 import { FunnelCopySection } from "./funnel-copy-section";
+import { MediaSection } from "./media-section";
 
 /**
  * ניהול הפלטפורמה — הקמת משרדי תיווך חדשים בלי SSH. נגיש רק למנהלי
@@ -438,6 +439,7 @@ const PLATFORM_TABS = [
   { key: "pricing", label: "מסלולים ומחירים" },
   { key: "billing", label: "גבייה" },
   { key: "funnel", label: "נוסחי המרה" },
+  { key: "media", label: "רכש מדיה" },
   { key: "integrations", label: "חיבורים" },
   { key: "system", label: "מערכת" },
 ] as const;
@@ -724,6 +726,14 @@ export default function PlatformPage() {
           החשבוניות יושבות עם התשלומים ולא עם ההגדרה שמייצרת אותן.
         */}
         <InvoicesSection />
+      </TabPanel>
+
+      {/*
+        ‏לשונית משלה: הארכיון הוא תוכן שהפלטפורמה מוכרת, לא הגדרת
+        ‏ספק. מי שמוסיף מגזין לא מחפש אותו בין מפתחות ה-API.
+      */}
+      <TabPanel tab="media" active={tab}>
+        <MediaSection />
       </TabPanel>
 
       <TabPanel tab="integrations" active={tab}>
