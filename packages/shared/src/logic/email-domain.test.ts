@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  PRODUCT_NAME,
+  withSenderName,
   emailDomainDnsRecords,
   emailDomainRejectionReason,
   emailDomainStatus,
@@ -118,5 +120,31 @@ describe("emailDomainDnsRecords", () => {
     expect(records.map((r) => r.purpose)).toEqual(["dkim", "return_path"]);
     expect(records[0]).toMatchObject({ type: "TXT", verified: true });
     expect(records[1]).toMatchObject({ type: "CNAME", value: "pm.mtasv.net", verified: false });
+  });
+});
+
+/**
+ * ‎**„מאת: no_reply”.**
+ *
+ * ‏שורת „מאת” נשאה כתובת בלבד, ולכן לקוחות הדואר הציגו את החלק
+ * ‏שלפני ה-‎`@` — בזמן שגוף אותה הודעה אמר „מתווכים” (דיווח
+ * ‏המשתמש, עם צילום מהתיבה).
+ */
+describe("שם השולח בשורת „מאת”", () => {
+  it("כתובת בלבד מקבלת את שם המוצר", () => {
+    expect(withSenderName("no_reply@metavchim.co.il", PRODUCT_NAME)).toBe(
+      '"מתווכים" <no_reply@metavchim.co.il>',
+    );
+  });
+
+  /* ‏משרד שחיבר דומיין משלו — שמו כבר הורכב, ואסור להחליף אותו */
+  it("שולח שכבר נושא שם נשאר כפי שהוא", () => {
+    const office = formatSender("תיווך הבירה", "office@example.co.il");
+    expect(withSenderName(office, PRODUCT_NAME)).toBe(office);
+  });
+
+  it("‏הרכבה כפולה אינה קורית", () => {
+    const once = withSenderName("a@b.co.il", PRODUCT_NAME);
+    expect(withSenderName(once, PRODUCT_NAME)).toBe(once);
   });
 });
