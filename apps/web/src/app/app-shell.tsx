@@ -850,13 +850,8 @@ export function AppShell({ children }: { children: ReactNode }) {
           ICONS.mentor,
           <span className="mv-nav-ai">AI</span>,
         )}
-        {/* רכש מדיה — עמוד "בקרוב" עד ההשקה (בקשת המשתמש) */}
-        {navLink(
-          "/media",
-          "רכש מדיה",
-          ICONS.media,
-          <span className="mv-nav-soon">בקרוב</span>,
-        )}
+        {/* רכש מדיה — ארכיון המדיות והזמנות פרסום */}
+        {navLink("/media", "רכש מדיה", ICONS.media)}
         {/*
           „הדרכות” מפנה לתיעוד הציבורי ואינו מסך במערכת.
 

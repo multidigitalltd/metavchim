@@ -166,7 +166,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
     icon: "sparkles-outline",
     tag: "ai",
   },
-  { href: "/media", label: "רכש מדיה", icon: "megaphone-outline", tag: "soon" },
+  { href: "/media", label: "רכש מדיה", icon: "megaphone-outline" },
   { href: "/docs", label: "הדרכות", icon: "book-outline", external: true },
   {
     href: "/settings",

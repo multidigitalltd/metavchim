@@ -27,6 +27,7 @@ import { CryptoService } from "../../core/crypto.service";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import { VatService } from "../../core/vat.service";
+import { MediaService } from "../media/media.service";
 import { InvoiceService } from "./invoice.service";
 import { NumberRentalService } from "./number-rental.service";
 import { WhatsappSeatService } from "./whatsapp-seat.service";
@@ -88,6 +89,7 @@ export class BillingService {
     private readonly numberRentals: NumberRentalService,
     private readonly whatsappSeats: WhatsappSeatService,
     private readonly vat: VatService,
+    private readonly mediaOrders: MediaService,
   ) {}
 
   /** מצב המנוי של הדייר הנוכחי, כולל יצירה עצלה לדיירים ותיקים. */
@@ -722,7 +724,9 @@ export class BillingService {
      * **רק למנוי.** רכישת קרדיטים אינה נוגעת במנוי כלל, ויצירת שורת
      * מנוי בעקבותיה הייתה ממציאה מנוי למי שרק קנה קרדיטים.
      */
-    if (payment.purpose !== "credits") await this.ensureSubscription(payment.tenantId);
+    if (payment.purpose !== "credits" && payment.purpose !== "media_order") {
+      await this.ensureSubscription(payment.tenantId);
+    }
     /*
      * ההצעה שהתשלום מממש — נקראת לפני הטרנזקציה, כמו ensureSubscription.
      * הצעה שנעלמה (לא אמור לקרות — מבטלים, לא מוחקים) אינה עוצרת את
@@ -839,6 +843,18 @@ export class BillingService {
         return activated.periodEnd;
       }
 
+      /*
+       * הזמנת מדיה — רכישה חד-פעמית כמו קרדיטים: אין מנוי, אין
+       * טוקן, ואין תקופה. הסימון „שולם” באותה טרנזקציה; המייל
+       * לנציג המדיה הוא קריאת רשת ולכן רץ **אחרי** הטרנזקציה.
+       */
+      if (payment.purpose === "media_order") {
+        if (payment.mediaOrderId === null) return null;
+        const settled = await this.mediaOrders.settleWithin(tx, payment.mediaOrderId, now);
+        if (settled === null) return null;
+        return now;
+      }
+
       // מכאן והלאה — מנוי. בלי מסלול אין מה להפעיל.
       const planCode = payment.planCode;
       if (planCode === null) return null;
@@ -889,6 +905,9 @@ export class BillingService {
       if (payment.purpose === "whatsapp_seat") {
         await this.whatsappSeats.reportOrphanPayment(payment.id, payment.seatId);
       }
+      if (payment.purpose === "media_order") {
+        await this.mediaOrders.reportOrphanPayment(payment.id, payment.mediaOrderId);
+      }
       return { applied: false, status: "paid" };
     }
 
@@ -900,6 +919,14 @@ export class BillingService {
      */
     if (payment.purpose === "number_rental" && payment.rentalId !== null) {
       await this.numberRentals.provisionAfterPayment(payment.rentalId);
+    }
+    /*
+     * ההזמנה יוצאת לנציג המדיה רק עכשיו — אחרי שהתשלום נתפס. גם כאן
+     * קריאת רשת מחוץ לטרנזקציה, וכישלון בה אינו מפיל את הוובהוק:
+     * ההזמנה מסומנת שולמה, ומסך הפלטפורמה מראה שטרם נשלחה.
+     */
+    if (payment.purpose === "media_order" && payment.mediaOrderId !== null) {
+      await this.mediaOrders.notifyAfterPayment(payment.mediaOrderId);
     }
 
     /*
@@ -918,7 +945,9 @@ export class BillingService {
           ? `השכרת מספר שולמה: משרד ${payment.tenantId}, עד ${outcome.toISOString()}`
           : payment.purpose === "whatsapp_seat"
             ? `מקום לסוכן הוואטסאפ שולם: משרד ${payment.tenantId}, עד ${outcome.toISOString()}`
-            : `מנוי הופעל: משרד ${payment.tenantId}, מסלול ${payment.planCode}, עד ${outcome.toISOString()}`,
+            : payment.purpose === "media_order"
+              ? `הזמנת מדיה שולמה: משרד ${payment.tenantId}, הזמנה ${payment.mediaOrderId ?? ""}`
+              : `מנוי הופעל: משרד ${payment.tenantId}, מסלול ${payment.planCode}, עד ${outcome.toISOString()}`,
     );
     return { applied: true, status: "paid" };
   }

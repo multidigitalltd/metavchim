@@ -61,6 +61,7 @@ const RLS_EXEMPT: Readonly<Record<string, string>> = {
   subscription_offers: "הצעות מנוי בלינק — סליקה ברמת הפלטפורמה, כמו payments",
   rented_numbers: "השכרת מספרים מ-015 — מופעלת מהוובהוק ונסרקת חוצה-דיירים, כמו payments",
   whatsapp_seats: "מקום נוסף לסוכן — מופעל מהוובהוק ונסרק חוצה-דיירים, כמו payments",
+  media_orders: "הזמנת מדיה — מסומנת שולמה מהוובהוק ונקראת במסך הפלטפורמה חוצה-דיירים, כמו payments",
   // הנתיב הציבורי מקבל מפתח וממנו מגלה את הדייר
   lead_webhooks: "מפתח הקליטה הציבורי הוא מה שמזהה את הדייר",
   email_reply_tokens: "הטוקן שבכתובת ה-Reply-To הוא מה שמזהה את הדייר בתשובה נכנסת",

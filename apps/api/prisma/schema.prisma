@@ -2979,6 +2979,9 @@ model Payment {
   rentalId            String?   @map("rental_id") @db.Char(26)
   /// המקום לסוכן הוואטסאפ שהתשלום הזה משלם — ריק בכל תשלום אחר.
   seatId              String?   @map("seat_id") @db.Char(26)
+  /// הזמנת המדיה שהתשלום הזה משלם — ריק בכל תשלום אחר. מלא, הוא מה
+  /// שמפעיל בהצלחה את שליחת ההזמנה לאיש הקשר של המדיה.
+  mediaOrderId        String?   @map("media_order_id") @db.Char(26)
   /// שיעור המע"מ שלפיו נבנה **הסכום הזה**, באחוזים.
   ///
   /// המחירון נקוב נטו, והסכום שנגבה הוא נטו ועוד מע"מ. המסמך נבנה
@@ -3049,6 +3052,127 @@ model WhatsappSeat {
   /// וסריקה לפי תאריך בלבד הייתה קוראת גם את כל מה שנקנה
   @@index([origin, currentPeriodEnd])
   @@map("whatsapp_seats")
+}
+
+/// רכש מדיה — הארכיון. מגזין, לוח, שילוט: כל מדיה שאפשר לפרסם בה
+/// דרך המערכת, עם המוצרים שלה (`media_products`).
+///
+/// **בלי tenant_id ובלי RLS** — כמו plans ו-platform_settings: זה
+/// קטלוג של הפלטפורמה שכל המשרדים קוראים, ורק בעל הפלטפורמה כותב
+/// (PlatformAdminGuard). פרטי הקשר כאן הם של **נציג המדיה** — מי
+/// שמקבל את ההזמנות — ולא של לקוח קצה.
+model MediaOutlet {
+  id                String    @id @db.Char(26)
+  /// מה שמופיע בכתובת `/media/<slug>` — אותיות לטיניות קטנות ומקפים.
+  slug              String    @unique @db.VarChar(60)
+  name              String    @db.VarChar(120)
+  /// magazine | newspaper | digital | billboard | radio | other
+  kind              String    @default("magazine") @db.VarChar(20)
+  tagline           String    @default("") @db.VarChar(200)
+  /// מה המדיה ומה כלול — הטקסט הארוך בעמוד הפנימי.
+  description       String    @default("")
+  /// החשיפה — תפוצה, קהל, אזורים.
+  audience          String    @default("")
+  /// מספר אחד שנקרא בעין: "כ-40,000 עותקים בשבוע".
+  reachText         String    @default("") @map("reach_text") @db.VarChar(200)
+  frequency         String    @default("") @db.VarChar(120)
+  /// נקודות "מה כלול" — שורה לכל נקודה.
+  highlights        String[]  @default([])
+  /// איש הקשר שמקבל את ההזמנות. ריק = ההזמנה מגיעה למנהלי הפלטפורמה
+  /// בלבד, והמסך אומר זאת במפורש.
+  contactName       String    @default("") @map("contact_name") @db.VarChar(120)
+  contactEmail      String    @default("") @map("contact_email") @db.VarChar(254)
+  contactPhone      String    @default("") @map("contact_phone") @db.VarChar(20)
+  /// עמלת התיווך של הפלטפורמה על הזמנה בתשלום, באחוזים. נצרבת על
+  /// ההזמנה ברגע היצירה — שינוי חל על הזמנות חדשות בלבד.
+  commissionPercent Int       @default(10) @map("commission_percent")
+  active            Boolean   @default(true)
+  sortOrder         Int       @default(0) @map("sort_order")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+  updatedBy         String?   @map("updated_by") @db.Char(26)
+
+  products MediaProduct[]
+
+  @@index([active, sortOrder])
+  @@map("media_outlets")
+}
+
+/// מוצר במדיה — "רבע עמוד", "עמוד שער", "באנר שבועי".
+///
+/// שני סוגים: `paid` נסלק במערכת ומחירו נטו באגורות; `lead` הוא
+/// הפניה לנציג בלי סליקה, ו-`lead_fee_agorot` הוא מה שהנציג משלם
+/// לפלטפורמה על ההפניה — לרישום, לא לחיוב אוטומטי.
+/// מחוץ ל-RLS מאותה סיבה כמו המדיה שהוא שייך לה.
+model MediaProduct {
+  id            String   @id @db.Char(26)
+  outletId      String   @map("outlet_id") @db.Char(26)
+  name          String   @db.VarChar(120)
+  description   String   @default("") @db.VarChar(1000)
+  /// "רבע עמוד, צבע מלא, 9×13 ס"מ"
+  specs         String   @default("") @db.VarChar(200)
+  /// paid | lead
+  kind          String   @default("paid") @db.VarChar(10)
+  /// מחיר ליחידה נטו באגורות. ריק במוצר הפניה.
+  priceAgorot   Int?     @map("price_agorot")
+  leadFeeAgorot Int?     @map("lead_fee_agorot")
+  active        Boolean  @default(true)
+  sortOrder     Int      @default(0) @map("sort_order")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  outlet MediaOutlet @relation(fields: [outletId], references: [id], onDelete: Cascade)
+
+  @@index([outletId, active, sortOrder])
+  @@map("media_products")
+}
+
+/// הזמנת מדיה של משרד — **מחוץ ל-RLS, כמו payments ומאותה סיבה**:
+/// ההזמנה בתשלום מופעלת מהוובהוק של קארדקום, נתיב ציבורי בלי הקשר
+/// דייר, ובעל הפלטפורמה רואה את כל ההזמנות במסך אחד. פרטי הקשר כאן
+/// הם של מי שהזמין במשרד (סוכן/בעלים), לא של לקוח קצה. הסינון לפי
+/// דייר נאכף בשכבת האפליקציה, בכל שאילתה.
+///
+/// המחיר, הכמות והעמלה **מצולמים** ברגע ההזמנה: שינוי מחיר במסך
+/// הפלטפורמה חל על הזמנות חדשות בלבד, וההזמנה מספרת מה סוכם בה.
+model MediaOrder {
+  id                String    @id @db.Char(26)
+  tenantId          String    @map("tenant_id") @db.Char(26)
+  outletId          String    @map("outlet_id") @db.Char(26)
+  productId         String    @map("product_id") @db.Char(26)
+  /// paid | lead — צילום מהמוצר
+  kind              String    @db.VarChar(10)
+  /// pending_payment | paid | referred | failed | cancelled
+  status            String    @default("pending_payment") @db.VarChar(20)
+  /// צילומים לתצוגה — ההזמנה נקראת גם אחרי שהמוצר שונה או הוסר
+  outletName        String    @map("outlet_name") @db.VarChar(120)
+  productName       String    @map("product_name") @db.VarChar(120)
+  quantity          Int       @default(1)
+  /// נטו באגורות. אפס בהפניה.
+  unitPriceAgorot   Int       @default(0) @map("unit_price_agorot")
+  amountAgorot      Int       @default(0) @map("amount_agorot")
+  commissionPercent Int       @default(0) @map("commission_percent")
+  commissionAgorot  Int       @default(0) @map("commission_agorot")
+  /// התדריך — מה לפרסם, איזה נכס, הערות למעצב
+  brief             String    @default("") @db.VarChar(2000)
+  /// מי במשרד מנהל את המודעה — נציג המדיה חוזר אליו
+  contactName       String    @map("contact_name") @db.VarChar(120)
+  contactPhone      String    @map("contact_phone") @db.VarChar(20)
+  contactEmail      String    @map("contact_email") @db.VarChar(254)
+  /// שם המשרד ומספר הלקוח, מצולמים — מה שמופיע במייל לנציג
+  officeName        String    @map("office_name") @db.VarChar(120)
+  customerNo        Int?      @map("customer_no")
+  /// מתי ההזמנה נשלחה בפועל לאיש הקשר של המדיה. ריק = טרם נשלחה.
+  notifiedAt        DateTime? @map("notified_at")
+  paidAt            DateTime? @map("paid_at")
+  createdBy         String?   @map("created_by") @db.Char(26)
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  @@index([tenantId, createdAt])
+  @@index([status, createdAt])
+  @@index([outletId, createdAt])
+  @@map("media_orders")
 }
 
 /// השכרת מספר וירטואלי מחשבון 015 של הפלטפורמה — מחוץ ל-RLS, כמו
