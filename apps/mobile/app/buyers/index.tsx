@@ -116,7 +116,7 @@ export default function BuyersScreen() {
           <Button
             title="+ לקוח"
             kind="secondary"
-            onPress={() => router.push("/buyers/new")}
+            onPress={() => router.push(routeFor("/buyers/new"))}
           />
         ) : undefined
       }

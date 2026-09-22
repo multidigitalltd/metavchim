@@ -103,7 +103,7 @@ export default function LeadsScreen() {
           <Button
             title="+ ליד"
             kind="secondary"
-            onPress={() => router.push("/leads/new")}
+            onPress={() => router.push(routeFor("/leads/new"))}
           />
         ) : undefined
       }

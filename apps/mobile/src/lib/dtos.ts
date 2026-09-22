@@ -34,28 +34,6 @@ export interface PropertyRow {
   createdAt?: string;
 }
 
-export interface PropertyDetail extends PropertyRow {
-  dealType?: string;
-  areaSqm?: number;
-  floor?: number;
-  totalFloors?: number;
-  hasElevator?: boolean;
-  hasParking?: boolean;
-  hasBalcony?: boolean;
-  hasSafeRoom?: boolean;
-  hasStorage?: boolean;
-  sharedTabu?: boolean;
-  condition?: string;
-  facing?: string;
-  entryType?: string;
-  /** ‏ISO — רק ל-`on_date` / `from_date` */
-  entryDate?: string;
-  entryNote?: string;
-  internalNotes?: string;
-  marketingTitle?: string;
-  ownerContact?: { id: string; name: string; phone: string };
-  ownerRedacted?: boolean;
-}
 
 export interface BuyerRow {
   id: string;

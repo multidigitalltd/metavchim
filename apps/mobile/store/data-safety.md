@@ -44,7 +44,7 @@
 - טוקן ה-Session — ב-Keystore/Keychain (`expo-secure-store`).
 - טוקן הפוש — Keystore.
 - מטמון לא-מקוון של הרשימות האחרונות (AsyncStorage), במרחב לפי משתמש; נמחק בכל יציאה — התנתקות, החלפת סיסמה, וגם Session שפג או נותק ממכשיר אחר (`clearLastCacheScope`).
-- בחירת ערכת נושא.
+- בחירת ערכת נושא, מתג נעילת האפליקציה, ו„עד לאן הוצגו התראות” (חותמת זמן) לסריקת הרקע.
 
 ## הרשאות Android (Policy → App content → Permissions declaration)
 
@@ -55,6 +55,7 @@
 | USE_BIOMETRIC / USE_FINGERPRINT | בדיקה **האם** המכשיר נעול (קובע כמה זמן נשארים מחוברים), ואימות של מערכת ההפעלה כש„נעילת האפליקציה” מופעלת. הנתונים הביומטריים נשארים במערכת; האפליקציה מקבלת רק „הצליח / לא” | לא |
 | INTERNET, VIBRATE, FOREGROUND_SERVICE(_MEDIA_PLAYBACK), MODIFY_AUDIO_SETTINGS | רשת, רטט התראה, ניגון הקלטה ברקע (expo-audio) | לא |
 | READ/WRITE_EXTERNAL_STORAGE (עד API 32) | תבנית Expo; בחירת תמונה עוברת דרך בורר המערכת | לא |
+| RECEIVE_BOOT_COMPLETED / WAKE_LOCK (WorkManager) | סריקת ההתראות ברקע כשאין פוש (`expo-background-task`) | לא |
 
 `SYSTEM_ALERT_WINDOW` (תפריט הפיתוח של React Native) חסום ב-`app.json`
 (`android.blockedPermissions`) — אין לו מקום בבניית חנות.

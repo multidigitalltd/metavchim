@@ -116,7 +116,7 @@ export default function PropertiesScreen() {
           <Button
             title="+ נכס"
             kind="secondary"
-            onPress={() => router.push("/properties/new")}
+            onPress={() => router.push(routeFor("/properties/new"))}
           />
         ) : undefined
       }

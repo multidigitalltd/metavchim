@@ -7,6 +7,8 @@ import * as SplashScreen from "expo-splash-screen";
 import * as Notifications from "expo-notifications";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import { AppLockProvider, useAppLock } from "@/lib/app-lock";
+// ‏מגדיר את משימת הרקע של ההתראות ברמת המודול — חייב להיטען עם הכניסה
+import "@/lib/background-notify";
 import { AuthProvider, useAuth } from "@/lib/auth";
 import { FONT_ASSETS } from "@/lib/fonts";
 import { routeForPushUrl } from "@/lib/push";

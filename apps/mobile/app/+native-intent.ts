@@ -10,18 +10,42 @@ import { routeFor } from "@/lib/nav";
  *
  * ‏החזרה מ-Google (`metavchim://auth/google?code=…`) נשארת כמות שהיא:
  * ‏המסך `auth/google` הוא נייטיבי, ו-`routeFor` היה שולח אותו ל-web.
+ *
+ * ‏הפירוק הוא ביטוי רגולרי ולא `URL`: `URL` של הסביבה אינו מובטח
+ * ‏לפרק סכימה מותאמת (`metavchim://`) כמו סכימת רשת — ופירוק שנכשל
+ * ‏או מפרק אחרת היה שולח את החזרה מ-Google לעמוד web שאינו קיים.
  */
+
+/** ‏`scheme://host/path?query#hash` — כל חלק רשות מלבד הסכימה והמארח. */
+const WITH_SCHEME = /^([a-z][a-z0-9+.-]*):\/\/([^/?#]*)([^?#]*)(\?[^#]*)?(#.*)?$/iu;
+/** ‏נתיב בלי סכימה — `/leads/…?x=1`. */
+const BARE_PATH = /^([^?#]*)(\?[^#]*)?(#.*)?$/u;
+
+export function systemPathToRoute(path: string): string {
+  let pathname: string;
+  let rest: string;
+  const withScheme = WITH_SCHEME.exec(path);
+  if (withScheme) {
+    const [, scheme = "", host = "", p = "", search = "", hash = ""] = withScheme;
+    const lower = scheme.toLowerCase();
+    const web = lower === "https" || lower === "http";
+    // ‏סכימה של האפליקציה: `metavchim://auth/google` — המארח הוא המקטע הראשון של הנתיב
+    pathname = web ? p || "/" : `/${host}${p}`;
+    rest = `${search}${hash}`;
+  } else {
+    const bare = BARE_PATH.exec(path);
+    const [, p = "/", search = "", hash = ""] = bare ?? [];
+    pathname = p.startsWith("/") ? p : `/${p}`;
+    rest = `${search}${hash}`;
+  }
+  if (pathname.startsWith("/auth/")) return `${pathname}${rest}`;
+  if (pathname === "/" || pathname === "") return "/web/home";
+  return routeFor(`${pathname}${rest}`);
+}
+
 export function redirectSystemPath({ path }: { path: string; initial: boolean }): string {
   try {
-    const url = new URL(path, "https://app.metavchim.co.il");
-    // ‏סכימה של האפליקציה: `metavchim://auth/google` — המארח הוא המקטע הראשון
-    const pathname = url.protocol === "https:" || url.protocol === "http:"
-      ? url.pathname
-      : `/${url.host}${url.pathname}`;
-    const rest = `${url.search}${url.hash}`;
-    if (pathname.startsWith("/auth/")) return `${pathname}${rest}`;
-    if (pathname === "/" || pathname === "") return "/web/home";
-    return routeFor(`${pathname}${rest}`);
+    return systemPathToRoute(path);
   } catch {
     return "/web/home";
   }

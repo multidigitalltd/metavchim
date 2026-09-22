@@ -59,14 +59,14 @@
 |-----|-----------|----------|
 | התחברות · החלפת סיסמה | `POST /auth/login`, `/auth/login/verify`, `/auth/google/start?client=mobile` → `google/exchange`, `/auth/change-password` | אימייל+סיסמה, קוד אימייל כשמופעל, Google (קוד חד-פעמי במקום עוגייה — `shared/logic/mobile-auth.ts`); סיסמה זמנית חייבת להתחלף לפני הכול |
 | היום | `/leads?open=true&order=oldest`, `/leads?requiresHuman=true`, `/appointments`, `/tasks`, `/notifications` | תור המענה מהשרת (הוותיק ראשון), הפגישות של היום, המשימות שלי (סימון „בוצע”) |
-| לידים · ליד חדש | `/leads` (סינון במסד), `POST /leads` | רשימה וקליטה מהירה; **כרטיס הליד הוא ה-web המוטמע** (`/web/leads/:id`) — כל הפונקציות, בלי עותק חלקי |
+| לידים | `/leads` (סינון במסד) | רשימה; **ליד חדש וכרטיס הליד הם ה-web המוטמע** (`/web/leads/new`, `/web/leads/:id`) — כל הפונקציות, בלי עותק חלקי |
 | קול | `/voice-intakes/transcribe`, `/agent/help`, `/agent/interpret`, `/agent/execute`, `/agent/conversation/turn` | הסוכן האישי: הקלטה → תמלול → הצעה לאישור → ביצוע, עם אותם כללים כמו ב-web |
-| נכסים · נכס חדש | `/properties`, `POST /properties` | רשימה וקליטה (`PropertyForm`); **כרטיס הנכס הוא ה-web המוטמע** (`/web/properties/:id`): עריכה, תמונות, בדיקות, הצעות, בית פתוח, תמחור, ציר זמן |
-| לקוחות · לקוח חדש | `/buyers`, `POST /buyers` | רשימה וקליטה (`BuyerForm`); **כרטיס הלקוח הוא ה-web המוטמע** (`/web/buyers/:id`) |
+| נכסים | `/properties?q&status` | רשימה עם חיפוש בשרת; **נכס חדש וכרטיס הנכס הם ה-web המוטמע** (`/web/properties/new`, `/web/properties/:id`): הטופס המלא, עריכה, תמונות, בדיקות, הצעות, בית פתוח, תמחור, ציר זמן |
+| לקוחות | `/buyers?q&maturity`, `/search?q` (שם) | רשימה עם חיפוש בשרת; **לקוח חדש וכרטיס הלקוח הם ה-web המוטמע** (`/web/buyers/new`, `/web/buyers/:id`) |
 | משימות · משימה חדשה | `/tasks?status&assignee`, `PATCH :id`, `POST /tasks` | הדליים של `groupTasksByBucket` (shared), שלי / כל המשרד, „בוצע”; מועד מהיר (`quickDueOptions`, שעון ישראל), עדיפות, קישור לישות |
 | יומן · פגישה חדשה · פגישה | `/appointments?from&to`, `POST /appointments`, `/appointments/:id`, `PATCH :id`, `POST :id/reschedule` | אותו טווח כמו ה-web (שבועיים אחורה, שלושה קדימה, שעון ישראל), לפי ימים עם התאריך העברי, „לתיעוד”; פגישה חדשה בלי בורר תאריכים (`WhenPicker`: ימים ושעות בשעון ישראל, `resolveJerusalemWall`), הודעת וואטסאפ ללקוח מוכנה; תיעוד תוצאה + משוב למוכר (`VIEWING_*_FEEDBACK`), דחייה, ביטול, עריכת כותרת/הערות, הקלטת הפגישה (`POST :id/recording`, אותו מקליט של הסוכן הקולי) |
 | התאמות | `/matches?minScore&propertyId`, `PATCH :id/dismiss`, `POST /offers`, `POST /offers/:id/whatsapp`, `POST /offers/:id/email` | אותו קיבוץ כמו ה-web, סף, „לא רלוונטי” עם סיבה (`DISMISS_REASONS`), הצעה בוואטסאפ או במייל |
-| התראות · Push | `/notifications`, `PATCH :id/read`, `POST /notifications/push/device` | רשימה, ניווט לישות; **פוש נייטיב** דרך Expo Push, מאותה סריקה ואותו מטען מצונזר כמו הדפדפן |
+| התראות · Push | `/notifications`, `PATCH :id/read`, `POST /notifications/push/device` | רשימה, ניווט לישות; **פוש נייטיב** דרך Expo Push, מאותה סריקה ואותו מטען מצונזר כמו הדפדפן; **בלי פוש** — סריקת רקע (`expo-background-task`) כל ~15 דקות שמציגה התראות מקומיות ומיישרת את המונה, עד שהפוש נרשם |
 
 - **Push נייטיב** ✅ — טבלת `device_push_tokens` (RLS), רישום אידמפוטנטי לפי טוקן, שליחה
   מהעובד באצוות של 100 עם `DeviceNotRegistered` → מחיקה; ההסרה לפני התנתקות; לחיצה
