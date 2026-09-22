@@ -22,6 +22,7 @@
  * שתי הטענות למטה הן בדיוק שני הכשלים האלה.
  */
 import { readFileSync, readdirSync, statSync } from "node:fs";
+import ts from "typescript";
 import { join } from "node:path";
 
 const root = join(import.meta.dirname, "..");
@@ -525,10 +526,10 @@ for (const [url, sources] of anchored) {
   }
 }
 
-/* ============ 5. הקישור שהבוט שולח מגיע למסך שקיים ============ */
+/* ============ 5. כל קישור שהמערכת מוסרת לאדם מגיע למסך שקיים ============ */
 
 /**
- * ‎**„העמוד לא נמצא” על כל קישור שהסוכן מביא בוואטסאפ.**
+ * ‎**„העמוד לא נמצא” על קישור שהמערכת שלחה.**
  *
  * ‏כל תוצאה מ-`ExecuteService` יכולה לשאת `href`, והוא נשלח
  * ‏כשורת „👈 ‎<WEB_ORIGIN><href>”. אלה **מחרוזות**: שום טיפוס
@@ -536,37 +537,167 @@ for (const [url, sources] of anchored) {
  * ‏ב-`ENTITY_ROUTES` למעלה — ולכן בדיוק אותו כשל קרה שוב, בערוץ
  * ‏אחר:
  *
- * ‏* ‎`/analytics` — מסך הניתוח הוא `/reports`. „ביצועי הסוכנים”
- * ‏  הסתיים ב-404, בשתי התשובות.
- * ‏* ‎`/exclusivity` — „מעקב בלעדיות” הוא רצועה בראש `/properties`,
- * ‏  ולא מסך. „כמה בלעדיות נגמרות” הסתיים ב-404.
+ * ‏* ‎`/analytics` — מסך הניתוח הוא `/reports`.
+ * ‏* ‎`/exclusivity` — „מעקב בלעדיות” הוא רצועה בראש `/properties`.
+ * ‏* ‎`/properties/voice` — מסך ההקלטה הוא `/voice`.
  *
- * ‏השער כאן ולא בקובץ נפרד: עץ הנתיבים כבר נקרא למעלה, וזה אותו
- * ‏כלל בדיוק — קישור שהמערכת מוסרת לאדם חייב לנחות על מסך קיים.
+ * ## ‏למה כל המקורות ולא קובץ אחד
  *
- * ‏תבנית (`/${'{'}kind{'}'}s/…`) מדולגת: המחרוזת לבדה אינה אומרת מה
- * ‏הערכים, וניחוש שלהם היה שער שנופל על קוד תקין.
+ * ‏הגרסה הקודמת סרקה את `execute.service.ts` בלבד — הקובץ שבו
+ * ‏התגלו שתי התקלות הראשונות. אבל `href` אינו מבנה של הקובץ ההוא
+ * ‏אלא של כל מה שמוסר קישור לאדם, ורשימת קבצים שנכתבה לפי מקום
+ * ‏הגילוי מכסה את העבר ולא את הכלל — וכך `/properties/voice`
+ * ‏ב-`onboarding.ts` חי מחוץ לשער.
+ *
+ * ## ‏ולמה AST ולא רגקס
+ *
+ * ‏שתי טעויות שהרגקס עשה, שתיהן אמיתיות (ביקורת Codex):
+ *
+ * ‏**ענף אחד מתוך שניים.** ‎`href: k === "buyer" ? \x60/buyers/${id}\x60 :
+ * ‎\x60/leads/${id}\x60` — הרגקס עוצר בערך המצוטט הראשון, ולכן שגיאת
+ * ‏כתיב בנתיב הליד הייתה עוברת. ה-AST פותח שלשה, `??` וסוגריים,
+ * ‏ובודק כל ענף.
+ *
+ * ‏**מקטע מילולי שמסתתר מתחת לנתיב דינמי.** ‎`resolves` מקבלת
+ * ‏`[id]` כתואם לכל ערך, ולכן `/properties/voice` **עבר** — הוא
+ * ‏„מתאים” ל-`/properties/[id]`. זה בדיוק הכשל: האפליקציה תקרא
+ * ‏„voice” כמזהה נכס ותראה „הנכס לא נמצא”. מקטע שנכתב כמילה
+ * ‏חייב אפוא לפגוש מקטע מילולי; רק מקטע שנולד מביטוי רשאי לפגוש
+ * ‏`[id]`.
  */
-const AGENT_HREF_SOURCES = [
-  join(root, "apps/api/src/modules/agent/execute.service.ts"),
+const HREF_ROOTS = [
+  join(root, "apps/api/src"),
+  join(root, "apps/workers/src"),
+  join(root, "packages/shared/src"),
 ];
+
+function sourceFiles(dir) {
+  const found = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) found.push(...sourceFiles(full));
+    else if (/\.ts$/u.test(entry.name) && !/\.test\.ts$/u.test(entry.name)) found.push(full);
+  }
+  return found;
+}
+
+/** ‏מציין מקום למקטע שנולד מביטוי — הוא ולא מילה הוא שרשאי לפגוש `[id]`. */
+const HOLE = "\u0000";
+
+/**
+ * ‏כל ערך מילולי שהביטוי יכול להניב. שלשה, `??` וסוגריים נפתחים;
+ * ‏ביטוי בתוך תבנית הופך ל-`HOLE`. כל מה שאינו כזה מוחזר ריק —
+ * ‏ניחוש ערכים היה שער שנופל על קוד תקין.
+ */
+function literalPaths(node) {
+  if (ts.isParenthesizedExpression(node)) return literalPaths(node.expression);
+  if (ts.isConditionalExpression(node)) {
+    return [...literalPaths(node.whenTrue), ...literalPaths(node.whenFalse)];
+  }
+  if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken) {
+    return [...literalPaths(node.left), ...literalPaths(node.right)];
+  }
+  if (ts.isStringLiteralLike(node)) return [node.text];
+  if (ts.isNoSubstitutionTemplateLiteral(node)) return [node.text];
+  if (ts.isTemplateExpression(node)) {
+    let out = node.head.text;
+    for (const span of node.templateSpans) out += HOLE + span.literal.text;
+    return [out];
+  }
+  return [];
+}
+
+/**
+ * ‏האם הנתיב נוחת על מסך. מקטע מילולי חייב לפגוש מקטע מילולי;
+ * ‏מקטע שנולד מביטוי רשאי לפגוש גם `[id]`.
+ */
+function resolvesStrict(path) {
+  const segments = path.split("/").filter((s) => s !== "");
+  return appRoutes.some(
+    (route) =>
+      route.length === segments.length &&
+      route.every((seg, i) => {
+        const given = segments[i];
+        if (/^\[.+\]$/u.test(seg)) return given.includes(HOLE);
+        return seg === given;
+      }),
+  );
+}
+
 let hrefsChecked = 0;
-for (const file of AGENT_HREF_SOURCES) {
-  const text = stripComments(readFileSync(file, "utf8"));
-  for (const match of text.matchAll(/href:\s*[^,\n]*?[`"](\/[^`"]*)[`"]/gu)) {
-    const href = match[1];
-    if (href.includes("${")) continue;
-    hrefsChecked += 1;
-    const path = href.split(/[?#]/u)[0];
-    if (!resolves(path)) {
-      errors.push(
-        `‏הסוכן שולח קישור ל-${href} (${file.slice(root.length + 1)}) — אין מסך כזה ב-apps/web/src/app`,
-      );
-    }
+for (const dir of HREF_ROOTS) {
+  for (const file of sourceFiles(dir)) {
+    const text = readFileSync(file, "utf8");
+    if (!text.includes("href")) continue;
+    const source = ts.createSourceFile(file, text, ts.ScriptTarget.ES2023, true);
+    const visit = (node) => {
+      if (
+        (ts.isPropertyAssignment(node) || ts.isJsxAttribute(node)) &&
+        node.name !== undefined &&
+        (ts.isIdentifier(node.name) || ts.isStringLiteralLike(node.name)) &&
+        node.name.text === "href" &&
+        node.initializer !== undefined
+      ) {
+        for (const raw of literalPaths(node.initializer)) {
+          if (!raw.startsWith("/")) continue;
+          const path = raw.split(/[?#]/u)[0] ?? "";
+          /* ‏ביטוי במקטע הראשון אינו נתיב אלא משפחה של נתיבים */
+          const first = path.split("/").filter((s) => s !== "")[0];
+          if (first !== undefined && first.includes(HOLE)) continue;
+          hrefsChecked += 1;
+          if (!resolvesStrict(path)) {
+            const { line } = source.getLineAndCharacterOfPosition(node.getStart(source));
+            const shown = path.replaceAll(HOLE, "${…}");
+            errors.push(
+              `‏המערכת שולחת קישור ל-${shown} (${file.slice(root.length + 1)}:${line + 1}) — אין מסך כזה`,
+            );
+          }
+        }
+      }
+      ts.forEachChild(node, visit);
+    };
+    ts.forEachChild(source, visit);
   }
 }
 if (hrefsChecked === 0) {
-  errors.push("‏לא נמצא אף `href` בקטלוג הפעולות — הביטוי שסורק אותם כנראה התיישן");
+  errors.push("‏לא נמצא אף `href` במקורות — הסורק כנראה התיישן");
+}
+
+/* ======= 6. כפתור „פתח במערכת” — הבסיס והסיפא מרכיבים מסך קיים ======= */
+
+/**
+ * ‎**החצי שיושב אצל Meta.**
+ *
+ * ‏הכפתור אינו נושא כתובת מלאה: הוא נושא **סיפא** בלבד, ו-Meta
+ * ‏מדביקה אותה לכתובת בסיס שנרשמה בעורך התבניות שלה. הסיפא היא
+ * ‏נתיב **בלי לוכסן מוביל** (`properties/abc`), ולכן הבסיס חייב
+ * ‏להסתיים בלוכסן — ובסיס עם מקטע נוסף מייצר „העמוד לא נמצא” על
+ * ‏כל לחיצה.
+ *
+ * ‏את מה שנרשם ב-Meta אי אפשר לקרוא מכאן, אבל אפשר לקבע את החוזה:
+ * ‏הבסיס ש-`whatsappButtonUrlTemplate` מכתיב, עם הסיפא של כל ישות
+ * ‏בטבלה, חייב להרכיב בחזרה בדיוק את הנתיב שהתכוונו אליו — ואותו
+ * ‏נתיב חייב להיות מסך קיים. כך שני החצאים נבדקים יחד, ולא כל
+ * ‏אחד לבדו.
+ */
+const { whatsappDeepLinkSuffix, whatsappButtonUrlTemplate, whatsappButtonLandsOn } = await import(
+  join(root, "packages/shared/dist/logic/whatsapp-templates.js")
+);
+const BUTTON_ORIGIN = "https://app.example.com";
+const buttonBase = whatsappButtonUrlTemplate(BUTTON_ORIGIN);
+let buttonsChecked = 0;
+for (const entityType of entityTypes) {
+  const url = notificationUrl(note(entityType, "01HQ0000000000000000000001"));
+  const landed = whatsappButtonLandsOn(buttonBase, whatsappDeepLinkSuffix(url));
+  if (!landed.startsWith(`${BUTTON_ORIGIN}/`)) {
+    errors.push(`‏כפתור ${entityType} מרכיב ${landed} — אינו יושב מתחת למקור המערכת`);
+    continue;
+  }
+  buttonsChecked += 1;
+  const path = landed.slice(BUTTON_ORIGIN.length).split(/[?#]/u)[0];
+  if (!resolves(path)) {
+    errors.push(`‏כפתור ${entityType} מרכיב ${landed} — אין מסך כזה ב-apps/web/src/app`);
+  }
 }
 
 /* ==================== התוצאה ==================== */
@@ -578,5 +709,6 @@ if (errors.length > 0) {
 }
 console.log(
   `✓ ${entityTypes.length} ישויות בטבלה נוחתות על מסכים קיימים, ${written.size} סוגי התראות מכוסים, ` +
-    `${hrefsChecked} קישורים של הסוכן נוחתים על מסכים קיימים, ושתי מפות הניתוב מסכימות`,
+    `${hrefsChecked} קישורים ו-${buttonsChecked} כפתורי „פתח במערכת” נוחתים על מסכים קיימים, ` +
+    `ושתי מפות הניתוב מסכימות`,
 );

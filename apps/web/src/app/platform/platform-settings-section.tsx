@@ -179,6 +179,8 @@ interface PlatformSettings {
       notifyTemplateLang?: string;
       /** התבנית נרשמה עם כפתור בכתובת דינמית; חסר = בלי כפתור */
       notifyTemplateButton?: boolean;
+      notifyTemplateButtonUrl?: string;
+      notifyTemplateButtonExample?: string;
       /** התבנית נושאת שורה לכל עדכון; חסר = פירוט אחד */
       notifyTemplateLines?: boolean;
       intakeTemplate?: string;
@@ -2202,14 +2204,39 @@ export function PlatformSettingsSection({
                 key={`nbtn-${String(settings.whatsapp.assistant.notifyTemplateButton)}`}
                 defaultChecked={settings.whatsapp.assistant.notifyTemplateButton ?? false}
               />
-              <span>
-                לתבנית יש כפתור „פתח במערכת” בכתובת דינמית{" "}
-                <span className="font-normal">
-                  (כתובת הבסיס של המערכת ואחריה ‎{"{{1}}"}‎ — הלחיצה נוחתת על
-                  הכרטיס עצמו ולא על דף הבית)
-                </span>
-              </span>
+              <span>לתבנית יש כפתור „פתח במערכת” בכתובת דינמית</span>
             </label>
+            {/*
+              ‎**הכתובת עצמה, לא תיאור שלה.**
+
+              ‏כאן נכתב „כתובת הבסיס של המערכת ואחריה ‎{{1}}”, וזה
+              ‏בדיוק הניסוח שמזמין בסיס בלי לוכסן: הסיפא שנשלחת היא
+              ‏`properties/abc` — בלי לוכסן מוביל — ולכן בסיס שאינו
+              ‏מסתיים בלוכסן מייצר מארח שאינו קיים, ובסיס עם מקטע
+              ‏נוסף מייצר „העמוד לא נמצא”. זה החצי היחיד של הקישור
+              ‏שיושב אצל Meta ולא אצלנו, ולכן הוא מוצג מילה במילה
+              ‏ולצידו היעד שאליו הוא נוחת.
+            */}
+            {settings.whatsapp.assistant.notifyTemplateButtonUrl !== undefined && (
+              <div
+                className="mt-2 rounded p-3 text-sm"
+                style={{ background: "var(--color-surface-sunken)" }}
+              >
+                <p className="mb-1">‏זו הכתובת שצריך לרשום ב-Meta לכפתור, מילה במילה:</p>
+                <p dir="ltr" className="mb-2 font-mono break-all">
+                  {settings.whatsapp.assistant.notifyTemplateButtonUrl}
+                </p>
+                <p style={{ color: "var(--color-text-muted)" }}>
+                  ‏התראה על נכס תיפתח כך:{" "}
+                  <span dir="ltr" className="font-mono break-all">
+                    {settings.whatsapp.assistant.notifyTemplateButtonExample}
+                  </span>
+                </p>
+                <p className="mt-1" style={{ color: "var(--color-text-muted)" }}>
+                  ‏הלוכסן שלפני ‎{"{{1}}"}‎ הכרחי — בלעדיו כל לחיצה נוחתת על „העמוד לא נמצא”.
+                </p>
+              </div>
+            )}
             {/*
               ‎**ירידות שורה — ולמה זו תבנית אחרת ולא תיקון בקוד.**
 

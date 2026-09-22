@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   WHATSAPP_TEMPLATE_PARAMS,
   whatsappDeepLinkSuffix,
+  whatsappButtonUrlTemplate,
+  whatsappButtonLandsOn,
   whatsappTemplateButton,
   whatsappTemplateParams,
 } from "./whatsapp-templates.js";
@@ -160,6 +162,29 @@ describe("כפתור „פתח במערכת”", () => {
   /* כתובת ממקור זר אינה נדבקת מתחת לבסיס שלנו ויוצרת כתובת שבורה */
   it("מקור זר אינו הופך לסיפא", () => {
     expect(whatsappDeepLinkSuffix("https://evil.example/x")).toBe("notifications");
+  });
+
+  /*
+   * ‎**החצי שנקבע מחוץ לקוד.** הסיפא היא נתיב בלי לוכסן מוביל,
+   * ‏ולכן הבסיס שנרשם ב-Meta חייב להסתיים בלוכסן. זו הטענה
+   * ‏שמרכיבה את שני החצאים בחזרה לכתובת המקורית.
+   */
+  it("הבסיס והסיפא מרכיבים בדיוק את הנתיב שהתכוונו אליו", () => {
+    const origin = "https://app.example.com";
+    const template = whatsappButtonUrlTemplate(origin);
+    expect(template).toBe("https://app.example.com/{{1}}");
+    for (const path of ["/properties/abc", "/buyers/7", "/leads/x", "/notifications"]) {
+      expect(whatsappButtonLandsOn(template, whatsappDeepLinkSuffix(path))).toBe(
+        `${origin}${path}`,
+      );
+    }
+  });
+
+  /* ‏לוכסן בסוף המקור אינו מכפיל את עצמו בתבנית */
+  it("מקור עם לוכסן בסוף אינו מייצר לוכסן כפול", () => {
+    expect(whatsappButtonUrlTemplate("https://app.example.com/")).toBe(
+      "https://app.example.com/{{1}}",
+    );
   });
 
   it("הכפתור מיקומי, ואינו נושא שם משתנה", () => {

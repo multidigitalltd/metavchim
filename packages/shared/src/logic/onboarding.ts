@@ -80,7 +80,7 @@ export function onboardingSteps(facts: OnboardingFacts): OnboardingProgress {
       key: "properties",
       title: "הנכסים הראשונים",
       why: "אפשר להקליט תיאור בקול והמערכת בונה את הכרטיס — מהיר בהרבה מהקלדה.",
-      href: "/properties/voice",
+      href: "/voice",
       done: facts.properties > 0,
       essential: true,
     },

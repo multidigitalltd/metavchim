@@ -236,6 +236,45 @@ export function whatsappDeepLinkSuffix(urlOrPath: string, origin?: string): stri
 }
 
 /**
+ * ‎**הכתובת שצריך לרשום ב-Meta לכפתור „פתח במערכת”, מילה במילה.**
+ *
+ * ‏זה החצי שהקוד לא ראה. `whatsappDeepLinkSuffix` מחזיר נתיב **בלי**
+ * ‏לוכסן מוביל (`properties/abc`), ו-Meta מדביקה אותו לכתובת בסיס
+ * ‏שנרשמה בעורך התבניות שלה — מקום שהמערכת מעולם לא קראה ולא
+ * ‏אימתה. כלומר מחצית מכל קישור שהבוט שולח בכפתור נקבעה מחוץ
+ * ‏למאגר, והצורה היחידה שבה היא נכונה היא זו:
+ *
+ * ```
+ * https://<הדומיין>/{{1}}
+ * ```
+ *
+ * ‏והלוכסן הזה הוא כל ההבדל:
+ *
+ * ‏| מה נרשם | מה נפתח |
+ * ‏| --- | --- |
+ * ‏| `…example.com/{{1}}` | `…example.com/properties/abc` ✓ |
+ * ‏| `…example.com{{1}}` | `…example.comproperties/abc` — אין מארח כזה |
+ * ‏| `…example.com/n/{{1}}` | `…example.com/n/properties/abc` — „העמוד לא נמצא” |
+ *
+ * ‏ההנחיה שהופיעה במסך הפלטפורמה אמרה „כתובת הבסיס של המערכת
+ * ‏ואחריה ‎{{1}}”, וזו בדיוק הניסוח שמזמין את השורה השנייה בטבלה.
+ * ‏מכאן והלאה המסך מציג את המחרוזת עצמה, נגזרת מ-`WEB_ORIGIN`,
+ * ‏ולא תיאור שלה.
+ */
+export function whatsappButtonUrlTemplate(webOrigin: string): string {
+  return `${webOrigin.replace(/\/+$/u, "")}/{{1}}`;
+}
+
+/**
+ * ‏לאן נוחתת לחיצה בפועל — הבסיס שנרשם עם הסיפא במקום `{{1}}`.
+ * ‏זו ההרכבה שהמסך מציג, ולכן היא כאן ולא שם: תצוגה שמחשבת בעצמה
+ * ‏היא עותק שני של החוזה.
+ */
+export function whatsappButtonLandsOn(urlTemplate: string, suffix: string): string {
+  return urlTemplate.replace("{{1}}", suffix);
+}
+
+/**
  * הכפתור עצמו. `null` כשאין מה לפתוח — כפתור אינו נשלח ריק, וקורא
  * שמצרף אותו בכל זאת שולח הודעה שתידחה.
  */
