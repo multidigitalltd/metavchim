@@ -51,11 +51,18 @@ async function pollOnce(): Promise<void> {
   const items = apiList(page.items, "items");
   const through = await AsyncStorage.getItem(THROUGH_KEY).catch(() => null);
   const newest = items[0]?.createdAt ?? null;
+  /*
+   * ‏הסמן מתקדם רק דרך מה שהוצג בפועל: אם הגיעו יותר מחמש התראות בין
+   * ‏שתי סריקות, החמש **הוותיקות** מוצגות עכשיו והשאר בסריקה הבאה —
+   * ‏לא נדחקות מאחורי סמן שקפץ אל החדשה ביותר (ביקורת Codex).
+   */
+  let advanceTo = newest;
   if (through !== null) {
-    const fresh = items
+    const pending = items
       .filter((n) => !n.readAt && n.createdAt > through)
-      .slice(0, MAX_PER_RUN)
-      .reverse();
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    const fresh = pending.slice(0, MAX_PER_RUN);
+    if (pending.length > fresh.length) advanceTo = fresh[fresh.length - 1]?.createdAt ?? through;
     for (const n of fresh) {
       await Notifications.scheduleNotificationAsync({
         content: {
@@ -77,7 +84,7 @@ async function pollOnce(): Promise<void> {
       });
     }
   }
-  if (newest !== null) await AsyncStorage.setItem(THROUGH_KEY, newest).catch(() => undefined);
+  if (advanceTo !== null) await AsyncStorage.setItem(THROUGH_KEY, advanceTo).catch(() => undefined);
   syncBadge(page.unreadCount);
 }
 
@@ -91,14 +98,20 @@ TaskManager.defineTask(NOTIFY_TASK, async () => {
 });
 
 /**
- * ‏רישום — אחרי התחברות, כשאין פוש אמיתי. „עד לכאן” נרשם עכשיו, כדי
- * ‏שההרצה הראשונה לא תציג את מה שכבר נראה במסך ההתראות.
+ * ‏רישום — אחרי התחברות, כשאין פוש אמיתי. „עד לכאן” נרשם עכשיו לפי
+ * ‏**השרת** — ההתראה החדשה ביותר שכבר קיימת — ולא לפי שעון המכשיר:
+ * ‏שעון שרץ קדימה היה משתיק את כל מה שיגיע עד שהשרת „ישיג” אותו
+ * ‏(ביקורת Codex). בלי התראות בכלל הסמן נשאר ריק, וההרצה הראשונה
+ * ‏רושמת אותו בלי להציג דבר.
  */
 export async function startNotificationPolling(): Promise<void> {
   try {
     const existing = await AsyncStorage.getItem(THROUGH_KEY);
     if (existing === null) {
-      await AsyncStorage.setItem(THROUGH_KEY, new Date().toISOString());
+      const latest = await apiGet<Page>("/notifications?limit=1")
+        .then((page) => apiList(page.items, "items")[0]?.createdAt ?? null)
+        .catch(() => null);
+      if (latest !== null) await AsyncStorage.setItem(THROUGH_KEY, latest);
     }
     await BackgroundTask.registerTaskAsync(NOTIFY_TASK, { minimumInterval: INTERVAL_MINUTES });
   } catch {
