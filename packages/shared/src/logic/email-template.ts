@@ -1,3 +1,5 @@
+import { PRODUCT_NAME } from "./email-domain.js";
+
 /**
  * תבנית האימייל של המערכת — עברית, מימין לשמאל, ורספונסיבית.
  *
@@ -141,7 +143,7 @@ export function renderEmailText(content: EmailContent): string {
  * הוא מה שהופך אותו לרספונסיבי בנייד — הטבלה מצטמצמת ולא נחתכת.
  * ‏`max-width` לבדו אינו נתמך בכל לקוח, ולכן שניהם.
  */
-export function renderEmailHtml(content: EmailContent, productName = "מתווכים"): string {
+export function renderEmailHtml(content: EmailContent, productName = PRODUCT_NAME): string {
   const parts: string[] = [];
 
   if (content.heading) {

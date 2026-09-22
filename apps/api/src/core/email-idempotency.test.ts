@@ -330,3 +330,21 @@ describe("‏מפתח פסול", () => {
     ).rejects.toThrow(/מפתח אידמפוטנטיות פסול/u);
   });
 });
+
+/**
+ * ‎**„מאת: no_reply” — מה שהנמען ראה בפועל.**
+ *
+ * ‏הבדיקה של `withSenderName` בחבילה המשותפת מוכיחה שהכלל נכון;
+ * ‏היא אינה מוכיחה שהוא **מופעל** על השליחה. כאן נבדקת הכותרת
+ * ‏שיוצאת מהשירות עצמו, כלומר בדיוק המחרוזת שהגיעה לתיבה
+ * ‏בצילום — ולכן החזרת השורה לצורתה הקודמת תפיל את זה.
+ */
+describe("שורת „מאת” שיוצאת מהשירות", () => {
+  it("נושאת את שם המוצר ולא רק את הכתובת", async () => {
+    const { prisma } = fakePrisma();
+    const { calls } = stubFetch(200);
+    await send(serviceWith(prisma), null);
+    const body = calls[0]?.body as { From?: string } | undefined;
+    expect(body?.From).toBe('"מתווכים" <a@b.example>');
+  });
+});

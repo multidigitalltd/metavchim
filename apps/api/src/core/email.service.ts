@@ -9,6 +9,8 @@ import {
   renderEmailText,
   type EmailAttemptStatus,
   type EmailContent,
+  PRODUCT_NAME,
+  withSenderName,
 } from "@metavchim/shared";
 import { loadEnv } from "../config/env";
 import { PlatformSettingsService } from "./platform-settings.service";
@@ -665,7 +667,15 @@ export class EmailService {
           "X-Postmark-Server-Token": token,
         },
         body: JSON.stringify({
-          From: from,
+          /*
+           * ‎**השם, ולא רק הכתובת.** בלי שם תצוגה לקוח הדואר מציג
+           * ‏את החלק שלפני ה-‎`@` — כלומר „no_reply” אצל כל מי
+           * ‏שקיבל מייל מהמערכת, בזמן שגוף אותה הודעה אומר
+           * ‏„מתווכים”. כאן ולא אצל הקוראים: זו הנקודה היחידה שבה
+           * ‏כל שולח עובר, והשולח של משרד שחיבר דומיין נושא כבר
+           * ‏את שמו ואינו נגוע.
+           */
+          From: withSenderName(from, PRODUCT_NAME),
           To: to,
           ...(replyTo === undefined ? {} : { ReplyTo: replyTo }),
           ...(attachments === undefined || attachments.length === 0
