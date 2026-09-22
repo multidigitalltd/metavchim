@@ -68,6 +68,8 @@ export interface AdminMediaOrder {
   amountAgorot: number;
   commissionPercent: number;
   commissionAgorot: number;
+  /** בהפניה: מה הנציג חייב על ההפניה, כפי שנצרב בשליחה. */
+  leadFeeAgorot: number | null;
   contactName: string;
   contactPhone: string;
   contactEmail: string;
@@ -191,6 +193,7 @@ export class MediaAdminService {
       amountAgorot: row.amountAgorot,
       commissionPercent: row.commissionPercent,
       commissionAgorot: row.commissionAgorot,
+      leadFeeAgorot: row.leadFeeAgorot,
       contactName: row.contactName,
       contactPhone: row.contactPhone,
       contactEmail: row.contactEmail,

@@ -85,6 +85,25 @@ export const MEDIA_ORDER_MAX_QUANTITY = 20;
 /** אורך התדריך/הערות שהמשרד מצרף להזמנה. */
 export const MEDIA_ORDER_BRIEF_MAX = 2000;
 
+/** ‏תקרת מחיר ליחידה — 100,000 ₪ נטו. תקרת שפיות, לא תמחור. */
+export const MEDIA_PRODUCT_PRICE_MAX_AGOROT = 10_000_000;
+
+/**
+ * ‏תקרת הזמנה אחת — שני מיליון ₪ נטו: המחיר המרבי כפול הכמות המרבית.
+ *
+ * ‏הסכום נשמר ב-`INTEGER` (עד ~21.4 מיליון ₪), והמע"מ נוסף עליו.
+ * ‏התקרה כפול מע"מ חייבת להישאר מתחת לגבול הזה — אחרת ההזמנה
+ * ‏נכתבת ושורת התשלום נופלת אחריה (ביקורת Codex). השרת בודק את
+ * ‏התקרה לפני שהוא כותב דבר.
+ */
+export const MEDIA_ORDER_MAX_AMOUNT_AGOROT = MEDIA_PRODUCT_PRICE_MAX_AGOROT * MEDIA_ORDER_MAX_QUANTITY;
+
+/**
+ * ‏slug-ים שאינם מדיה: `/media/orders` הוא מסך ההזמנות, ומדיה בשם
+ * ‏הזה הייתה בולעת אותו — הנתיב הסטטי נבדק לפני הדינמי.
+ */
+export const MEDIA_RESERVED_SLUGS = ["orders", "new"] as const;
+
 /**
  * אחוז העמלה כפי שנשמר על המדיה, עם נפילה לברירת המחדל.
  *
@@ -154,5 +173,10 @@ export function mediaOrderTotals(input: {
 export const MEDIA_SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
 
 export function isMediaSlug(value: string): boolean {
-  return value.length >= 2 && value.length <= 60 && MEDIA_SLUG_PATTERN.test(value);
+  return (
+    value.length >= 2 &&
+    value.length <= 60 &&
+    MEDIA_SLUG_PATTERN.test(value) &&
+    !(MEDIA_RESERVED_SLUGS as readonly string[]).includes(value)
+  );
 }

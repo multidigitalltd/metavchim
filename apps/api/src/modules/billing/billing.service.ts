@@ -665,13 +665,15 @@ export class BillingService {
     if (!verified.paid) {
       // כישלון מסומן, אבל רק על שורה שעדיין ממתינה — הודעת כישלון
       // מאוחרת לא תבטל תשלום שכבר נקלט
-      await this.prisma.payment.updateMany({
+      const rejected = await this.prisma.payment.updateMany({
         where: { lowProfileId, status: { in: CLAIMABLE } },
         data: {
           status: "failed",
           failureReason: verified.message.slice(0, 300) || "התשלום לא אושר",
         },
       });
+      // הזמנת מדיה נכשלת עם התשלום שלה — אחרת היא „ממתינה” לנצח
+      if (rejected.count > 0) await this.mediaOrders.markFailedForPaymentPage(lowProfileId);
       return { applied: false, status: "failed" };
     }
 
@@ -710,6 +712,9 @@ export class BillingService {
         where: { id: payment.id, status: { in: CLAIMABLE } },
         data: { status: "failed", failureReason: "הסכום שנגבה אינו תואם להזמנה" },
       });
+      if (payment.purpose === "media_order" && payment.mediaOrderId !== null) {
+        await this.mediaOrders.markFailed(payment.mediaOrderId);
+      }
       return { applied: false, status: "failed" };
     }
 

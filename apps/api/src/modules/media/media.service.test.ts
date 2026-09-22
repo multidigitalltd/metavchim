@@ -22,6 +22,7 @@ const ME = "01USER000000000000000000A0";
 const OUTLET = "01OUTLET0000000000000000A0";
 const PAID = "01PRODUCTPAID00000000000A0";
 const LEAD = "01PRODUCTLEAD00000000000A0";
+const BIG = "01PRODUCTB1G000000000000A0";
 
 interface Sent {
   to: string;
@@ -29,7 +30,7 @@ interface Sent {
   key: string | null;
 }
 
-function harness(options: { cardcom?: boolean } = {}) {
+function harness(options: { cardcom?: boolean; mail?: boolean; contactEmail?: string } = {}) {
   const orders: Record<string, unknown>[] = [];
   const payments: Record<string, unknown>[] = [];
   const sent: Sent[] = [];
@@ -46,12 +47,22 @@ function harness(options: { cardcom?: boolean } = {}) {
       active: true,
       outlet: { name: "מגזין טאבו", slug: "tabu-magazine", commissionPercent: 10 },
     },
+    [BIG]: {
+      id: BIG,
+      outletId: OUTLET,
+      name: "כריכה — מהדורה מיוחדת",
+      kind: "paid",
+      priceAgorot: 10_000_000,
+      active: true,
+      outlet: { name: "מגזין טאבו", slug: "tabu-magazine", commissionPercent: 10 },
+    },
     [LEAD]: {
       id: LEAD,
       outletId: OUTLET,
       name: "עמוד שער",
       kind: "lead",
       priceAgorot: null,
+      leadFeeAgorot: 5_000,
       active: true,
       outlet: { name: "מגזין טאבו", slug: "tabu-magazine", commissionPercent: 10 },
     },
@@ -80,7 +91,7 @@ function harness(options: { cardcom?: boolean } = {}) {
       where,
       data,
     }: {
-      where: { tenantId?: string; id?: string | { in: string[] } };
+      where: { tenantId?: string; id?: string | { in: string[] }; status?: string };
       data: Record<string, unknown>;
     }) => {
       const ids =
@@ -89,6 +100,7 @@ function harness(options: { cardcom?: boolean } = {}) {
       for (const row of orders) {
         if (where.tenantId !== undefined && row["tenantId"] !== where.tenantId) continue;
         if (ids !== null && !ids.includes(row["id"] as string)) continue;
+        if (where.status !== undefined && row["status"] !== where.status) continue;
         Object.assign(row, data);
         count += 1;
       }
@@ -100,6 +112,8 @@ function harness(options: { cardcom?: boolean } = {}) {
       payments.push({ ...data });
       return data;
     },
+    findUnique: async ({ where }: { where: { lowProfileId: string } }) =>
+      payments.find((p) => p["lowProfileId"] === where.lowProfileId) ?? null,
     update: async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
       const row = payments.find((p) => p["id"] === where.id);
       if (row) Object.assign(row, data);
@@ -138,7 +152,7 @@ function harness(options: { cardcom?: boolean } = {}) {
         id: OUTLET,
         name: "מגזין טאבו",
         contactName: "ר׳ נציג",
-        contactEmail: "ads@tabu.example",
+        contactEmail: options.contactEmail ?? "ads@tabu.example",
         contactPhone: "+972521234567",
       }),
       findMany: async () => [{ id: OUTLET, slug: "tabu-magazine" }],
@@ -158,12 +172,20 @@ function harness(options: { cardcom?: boolean } = {}) {
     charge: async (net: number) => ({ amountAgorot: Math.round(net * 1.18), vatPercent: 18 }),
   };
   const email = {
+    /*
+     * ‏כמו `EmailService.send` האמיתי: בלי דואר מוגדר — שתיקה, אלא אם
+     * ‏`required`, ואז חריגה. זה בדיוק ההבדל שהבדיקות למטה בודקות.
+     */
     send: async (
       to: string,
       subject: string,
       _content: unknown,
-      opts: { idempotency: { key: string } | null },
+      opts: { idempotency: { key: string } | null; required?: boolean },
     ) => {
+      if (options.mail === false) {
+        if (opts.required) throw new Error("הדואר לא הוגדר");
+        return;
+      }
       sent.push({ to, subject, key: opts.idempotency?.key ?? null });
     },
   };
@@ -220,6 +242,33 @@ describe("MediaService — הפניה", () => {
     expect(h.adminNotices).toHaveLength(1);
     expect(h.orders[0]?.["notifiedAt"]).not.toBeNull();
     expect(h.audits).toEqual(["media.order_referred"]);
+  });
+
+  it("התמורה על ההפניה מצולמת על ההזמנה", async () => {
+    const h = harness();
+    await asOwner(() =>
+      h.service.createReferral({ tenantId: TENANT, userId: ME }, { ...ORDER, productId: LEAD }),
+    );
+    expect(h.orders[0]?.["leadFeeAgorot"]).toBe(5_000);
+  });
+
+  it("בלי דואר מוגדר — ההזמנה נרשמת, אבל אינה מסומנת כנשלחה", async () => {
+    const h = harness({ mail: false });
+    const result = await asOwner(() =>
+      h.service.createReferral({ tenantId: TENANT, userId: ME }, { ...ORDER, productId: LEAD }),
+    );
+    expect(result.status).toBe("referred");
+    expect(h.orders[0]?.["notifiedAt"]).toBeNull();
+  });
+
+  it("מדיה בלי איש קשר — מנהלי הפלטפורמה מקבלים, וההזמנה נשארת „לא נשלח”", async () => {
+    const h = harness({ contactEmail: "" });
+    await asOwner(() =>
+      h.service.createReferral({ tenantId: TENANT, userId: ME }, { ...ORDER, productId: LEAD }),
+    );
+    expect(h.adminNotices).toHaveLength(1);
+    expect(h.sent.map((s) => s.to)).toEqual(["dana@office.example"]);
+    expect(h.orders[0]?.["notifiedAt"]).toBeNull();
   });
 
   it("מוצר בתשלום אינו נשלח כהפניה", async () => {
@@ -303,6 +352,32 @@ describe("MediaService — הזמנה בתשלום", () => {
     expect(h.sent.map((s) => s.to)).toEqual(["ads@tabu.example", "dana@office.example"]);
     expect(h.sent[0]?.subject).toContain("הזמנת פרסום");
     expect(h.orders[0]?.["notifiedAt"]).not.toBeNull();
+  });
+
+  it("תשלום שנדחה אצל הסולק מכשיל את ההזמנה, ולא הזמנה ששולמה", async () => {
+    const h = harness();
+    const { orderId, paymentId } = await asOwner(() =>
+      h.service.startCheckout({ tenantId: TENANT, userId: ME }, { ...ORDER, productId: PAID }),
+    );
+    await h.service.markFailedForPaymentPage(`lp-${paymentId}`);
+    expect(h.orders[0]?.["status"]).toBe("failed");
+    // ‏ומאוחר יותר האישור כן מגיע (דף שנשאר פתוח) — ההזמנה נסגרת כשולמה
+    expect(await h.service.settleWithin(h.tx as never, orderId, new Date())).toEqual({ tenantId: TENANT });
+    await h.service.markFailed(orderId);
+    expect(h.orders[0]?.["status"]).toBe("paid");
+  });
+
+  it("הזמנה שחורגת מתקרת הסכום נדחית לפני שנכתב דבר", async () => {
+    const h = harness();
+    await expect(
+      asOwner(() =>
+        h.service.startCheckout(
+          { tenantId: TENANT, userId: ME },
+          { ...ORDER, productId: BIG, quantity: 20 },
+        ),
+      ),
+    ).rejects.toThrow(/גדולה מדי/u);
+    expect(h.orders).toHaveLength(0);
   });
 
   it("הפניה אינה נתפסת כתשלום — settleWithin מחזיר null", async () => {

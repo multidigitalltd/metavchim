@@ -80,6 +80,8 @@ CREATE TABLE media_orders (
   amount_agorot      INTEGER       NOT NULL DEFAULT 0,
   commission_percent INTEGER       NOT NULL DEFAULT 0,
   commission_agorot  INTEGER       NOT NULL DEFAULT 0,
+  -- בהפניה: התמורה שהנציג חייב על ההפניה, מצולמת מהמוצר; ריק בתשלום
+  lead_fee_agorot    INTEGER,
   brief              VARCHAR(2000) NOT NULL DEFAULT '',
   contact_name       VARCHAR(120)  NOT NULL,
   contact_phone      VARCHAR(20)   NOT NULL,

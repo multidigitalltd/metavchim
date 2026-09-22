@@ -1,11 +1,16 @@
 import { describe, expect, it } from "vitest";
+import { MediaOutletPatchSchema, MediaOutletUpsertSchema } from "../schemas/media.js";
 import {
   DEFAULT_MEDIA_COMMISSION_PERCENT,
+  MEDIA_ORDER_MAX_AMOUNT_AGOROT,
   MEDIA_ORDER_MAX_QUANTITY,
+  MEDIA_PRODUCT_PRICE_MAX_AGOROT,
   isMediaSlug,
   mediaOrderTotals,
   resolveMediaCommissionPercent,
 } from "./media.js";
+
+const OUTLET = { slug: "tabu-magazine", name: "מגזין טאבו", kind: "magazine", commissionPercent: 10 };
 
 describe("resolveMediaCommissionPercent", () => {
   it("ריק אינו אפס — נופל לברירת המחדל", () => {
@@ -47,6 +52,16 @@ describe("mediaOrderTotals", () => {
     expect(mediaOrderTotals({ unitPriceAgorot: 100, quantity: 1, commissionPercent: 0 }).commissionAgorot).toBe(0);
   });
 
+  it("המחיר המרבי כפול הכמות המרבית נשאר בתקרת ההזמנה — גם עם מע\"מ, בתוך INTEGER", () => {
+    const totals = mediaOrderTotals({
+      unitPriceAgorot: MEDIA_PRODUCT_PRICE_MAX_AGOROT,
+      quantity: MEDIA_ORDER_MAX_QUANTITY,
+      commissionPercent: 10,
+    });
+    expect(totals.amountAgorot).toBeLessThanOrEqual(MEDIA_ORDER_MAX_AMOUNT_AGOROT);
+    expect(Math.ceil(MEDIA_ORDER_MAX_AMOUNT_AGOROT * 1.5)).toBeLessThan(2_147_483_647);
+  });
+
   it("כמות מחוץ לטווח נחתכת לטווח", () => {
     expect(mediaOrderTotals({ unitPriceAgorot: 100, quantity: 0, commissionPercent: 10 }).quantity).toBe(1);
     expect(mediaOrderTotals({ unitPriceAgorot: 100, quantity: 999, commissionPercent: 10 }).quantity).toBe(
@@ -66,5 +81,12 @@ describe("isMediaSlug", () => {
     expect(isMediaSlug("tabu magazine")).toBe(false);
     expect(isMediaSlug("tabu-")).toBe(false);
     expect(isMediaSlug("a")).toBe(false);
+  });
+
+  it("דוחה שמות שמורים — /media/orders הוא מסך ההזמנות", () => {
+    expect(isMediaSlug("orders")).toBe(false);
+    expect(MediaOutletUpsertSchema.safeParse({ ...OUTLET, slug: "orders" }).success).toBe(false);
+    expect(MediaOutletPatchSchema.safeParse({ slug: "orders" }).success).toBe(false);
+    expect(MediaOutletUpsertSchema.safeParse(OUTLET).success).toBe(true);
   });
 });

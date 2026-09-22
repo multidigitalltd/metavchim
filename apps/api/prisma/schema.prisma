@@ -3153,6 +3153,10 @@ model MediaOrder {
   amountAgorot      Int       @default(0) @map("amount_agorot")
   commissionPercent Int       @default(0) @map("commission_percent")
   commissionAgorot  Int       @default(0) @map("commission_agorot")
+  /// בהפניה: מה הנציג חייב לפלטפורמה על ההפניה הזו — צילום מהמוצר
+  /// ברגע השליחה, כי התמורה על המוצר נערכת ולא אמורה לשכתב הפניות
+  /// שכבר יצאו. ריק בהזמנה בתשלום.
+  leadFeeAgorot     Int?      @map("lead_fee_agorot")
   /// התדריך — מה לפרסם, איזה נכס, הערות למעצב
   brief             String    @default("") @db.VarChar(2000)
   /// מי במשרד מנהל את המודעה — נציג המדיה חוזר אליו

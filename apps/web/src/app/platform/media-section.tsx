@@ -85,6 +85,7 @@ interface AdminOrder {
   amountAgorot: number;
   commissionPercent: number;
   commissionAgorot: number;
+  leadFeeAgorot: number | null;
   contactName: string;
   contactPhone: string;
   contactEmail: string;
@@ -532,7 +533,7 @@ export function MediaSection(): React.JSX.Element {
                   <th className="p-2 text-start">מה</th>
                   <th className="p-2 text-start">מצב</th>
                   <th className="p-2 text-start">סכום</th>
-                  <th className="p-2 text-start">עמלה</th>
+                  <th className="p-2 text-start">עמלה / תמורה על הפניה</th>
                   <th className="p-2 text-start">איש קשר</th>
                   <th className="p-2 text-start">נשלח לנציג</th>
                 </tr>
@@ -561,7 +562,9 @@ export function MediaSection(): React.JSX.Element {
                     <td className="p-2 whitespace-nowrap">
                       {order.kind === "paid"
                         ? `${formatPrice(order.commissionAgorot)} (${order.commissionPercent}%)`
-                        : "—"}
+                        : order.leadFeeAgorot === null
+                          ? "—"
+                          : `הפניה: ${formatPrice(order.leadFeeAgorot)}`}
                     </td>
                     <td className="p-2">
                       {order.contactName}

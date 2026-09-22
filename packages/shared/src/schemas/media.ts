@@ -5,12 +5,20 @@ import {
   MEDIA_ORDER_MAX_QUANTITY,
   MEDIA_OUTLET_KINDS,
   MEDIA_PRODUCT_KINDS,
-  MEDIA_SLUG_PATTERN,
+  MEDIA_PRODUCT_PRICE_MAX_AGOROT,
+  isMediaSlug,
 } from "../logic/media.js";
 import { IdSchema, PhoneInputSchema } from "./common.js";
 
-/** ‏עד מיליון ₪ למוצר — תקרת שפיות, לא תמחור. */
-const PRICE_AGOROT_MAX = 100_000_000;
+const PRICE_AGOROT_MAX = MEDIA_PRODUCT_PRICE_MAX_AGOROT;
+
+/** ‏slug תקין ולא שמור — `isMediaSlug` הוא מקור האמת, גם לבדיקה בשרת. */
+const SlugSchema = z
+  .string()
+  .trim()
+  .min(2)
+  .max(60)
+  .refine(isMediaSlug, "slug באותיות לטיניות קטנות, ספרות ומקפים — ולא שם שמור");
 
 /**
  * הזמנת מוצר מדיה על ידי משרד.
@@ -35,7 +43,7 @@ export type MediaOrderCreate = z.infer<typeof MediaOrderCreateSchema>;
 /** ‏ניהול הארכיון במסך הפלטפורמה — מדיה. */
 export const MediaOutletUpsertSchema = z
   .object({
-    slug: z.string().trim().min(2).max(60).regex(MEDIA_SLUG_PATTERN, "slug באותיות לטיניות קטנות, ספרות ומקפים"),
+    slug: SlugSchema,
     name: z.string().trim().min(2).max(120),
     kind: z.enum(MEDIA_OUTLET_KINDS),
     /** שורה אחת מתחת לשם — "המגזין הנפוץ ביותר בציבור החרדי". */
