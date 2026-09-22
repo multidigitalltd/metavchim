@@ -127,6 +127,7 @@ import {
   neighborhoodSame,
   shekelsLabel,
   viewingFeedbackSentences,
+  webOriginFromEnv,
 } from "@metavchim/shared";
 
 for (const candidate of [
@@ -4302,7 +4303,28 @@ async function capabilitiesByUser(
 async function processWhatsAppNotifySweep(): Promise<void> {
   const config = await whatsappConfig();
   if (!config) return; // הצד היוצא אינו מוגדר — אין מה לדחוף
-  const webOrigin = process.env["WEB_ORIGIN"] ?? "";
+  /*
+   * ‎**דרך הכלל המשותף, ולא `process.env` גולמי.**
+   *
+   * ‏שתי התקלות שהשורה הקודמת (`process.env["WEB_ORIGIN"] ?? ""`)
+   * ‏אפשרה שקטות באותה מידה, ושתיהן נראות מבחוץ כמו „הבוט שולח
+   * ‏קישורים שבורים”:
+   *
+   * ‏לוכסן בסוף הערך → `https://host//properties/123`, נתיב שאינו
+   * ‏קיים, כלומר „העמוד לא נמצא” על כל קישור שיוצא מכאן.
+   * ‏משתנה חסר → `""`, והקישור יוצא כנתיב יחסי שבוואטסאפ אינו
+   * ‏קישור בכלל.
+   *
+   * ‎`loadEnv()` של ה-API כבר נירמל, אבל ה-Workers אינם עוברים
+   * ‏דרכו — ולכן התיקון ההוא כיסה תהליך אחד מתוך שניים, והתהליך
+   * ‏שנשאר בחוץ הוא בדיוק זה ששולח את ההודעות (דיווח המשתמש).
+   */
+  const webOrigin = webOriginFromEnv(process.env["WEB_ORIGIN"]);
+  if (webOrigin === null) {
+    // ‏שתיקה כאן שולחת הודעות עם קישור שבור — עדיף לומר ולא לשלוח
+    console.error("[wa-notify] WEB_ORIGIN חסר — הסבב מדלג, אחרת הקישורים יצאו שבורים");
+    return;
+  }
   const now = new Date();
   const since = new Date(now.getTime() - WA_NOTIFY_MAX_AGE_MS);
   const hour = jerusalemHour(now);

@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
+import { normalizeWebOrigin } from "@metavchim/shared";
 import { z } from "zod";
 
 /**
@@ -31,12 +32,14 @@ const EnvSchema = z.object({
    *
    * ‏שני קוראים כבר גילו את זה וניקו בעצמם (`.replace(/\/+$/u, "")`),
    * ‏וזו בדיוק הצורה שבה כלל אחד הופך לשלושה עותקים שאינם מסכימים.
+   *
+   * ‎**והכלל עבר לחבילה המשותפת.** הוא ישב כאן בלבד, וה-Workers —
+   * ‏שבונים את ההודעות שהבוט שולח — אינם עוברים דרך `loadEnv()`
+   * ‏ולכן קראו את המשתנה גולמי. כלומר הנרמול כיסה תהליך אחד
+   * ‏מתוך שניים, והשני הוא בדיוק זה ששולח את הקישורים.
    * ‏הנרמול כאן פעם אחת, על גבול הסביבה, ואף קורא אינו צריך לזכור.
    */
-  WEB_ORIGIN: z
-    .string()
-    .url()
-    .transform((value) => value.replace(/\/+$/u, "")),
+  WEB_ORIGIN: z.string().url().transform(normalizeWebOrigin),
   DATABASE_URL: z.string().min(1),
   REDIS_URL: z.string().min(1),
   /** מפתח AES-256-GCM להצפנת PII — 32 בייט ב-base64 (docs/04 §4). */
