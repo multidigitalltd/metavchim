@@ -7,6 +7,7 @@ import {
   Delete,
   ForbiddenException,
   Get,
+  NotFoundException,
   HttpCode,
   Param,
   Patch,
@@ -74,10 +75,13 @@ import {
   linkNeedsReverification,
   type PlanDefinition,
   type ServiceVersion,
+  emailDomainStatus,
+  WHATSAPP_CONNECTION_LIVE_STATUSES,
   whatsappButtonUrlTemplate,
   whatsappButtonLandsOn,
   whatsappDeepLinkSuffix,
 } from "@metavchim/shared";
+import { OfficeSettingsService } from "../settings/office-settings.service";
 import { loadEnv } from "../../config/env";
 import { TaxTablesSchema, type TaxTables, type TaxTablesInput } from "@metavchim/shared";
 import { PlatformAdmin } from "../../common/auth.decorators";
@@ -208,6 +212,17 @@ export const TelephonyWebhookQuerySchema = z
 const PurgeWebhookLogSchema = z
   .object({ olderThanHours: z.coerce.number().int().min(0).max(24 * 90) })
   .strict();
+
+/**
+ * ‎**מייל מהפלטפורמה למשרד.**
+ *
+ * ‏הגבולות אינם קישוט: נושא ריק יוצא כהודעה בלי שורת נושא, וגוף
+ * ‏ריק שולח דף ריק ללקוח משלם. התקרות הן מה ש-Postmark מקבלת.
+ */
+const AgencyEmailSchema = z.object({
+  subject: z.string().trim().min(2).max(200),
+  body: z.string().trim().min(2).max(20000),
+});
 
 const CreateAgencySchema = z
   .object({
@@ -673,6 +688,40 @@ export interface PaymentRow {
   createdAt: Date;
 }
 
+/**
+ * ‎**מה שרואים כשפותחים שורה של משרד.**
+ *
+ * ‏ארבע קבוצות ולא רשימה שטוחה: „מי הם”, „מה יש להם”, „מה הם
+ * ‏משלמים” ו„האם הם חיים”. בעל הפלטפורמה שואל את ארבע השאלות
+ * ‏האלה בנפרד, וערבוב שלהן בטור אחד הוא מה שהופך מסך לרשימת
+ * ‏שדות.
+ */
+export interface AgencyDetails {
+  contact: {
+    ownerName: string | null;
+    ownerEmail: string | null;
+    ownerPhone: string | null;
+    officePhone: string | null;
+    officeAddress: string | null;
+    licenseNumber: string | null;
+  };
+  usage: { properties: number; buyers: number; leads: number; calls: number };
+  billing: {
+    signupSource: string;
+    couponCode: string | null;
+    couponPercentOff: number | null;
+    couponPlanCode: string | null;
+    whatsappAgentSeatsExtra: number;
+  };
+  activity: {
+    lastLoginAt: Date | null;
+    whatsappConnected: boolean;
+    telephonyConnected: boolean;
+    emailDomainConnected: boolean;
+    filesLocked: boolean;
+  };
+}
+
 export interface AgencyRow {
   id: string;
   /** ‏מספר הלקוח — מה שאפשר להקריא בטלפון ולחפש לפיו ברשימה. */
@@ -809,6 +858,7 @@ export class PlatformController {
     private readonly leadPricing: LeadPricingService,
     private readonly cardcom: CardcomService,
     private readonly accountDeletion: AccountDeletionService,
+    private readonly officeSettings: OfficeSettingsService,
     private readonly geocoding: GeocodingService,
     private readonly creditEconomy: CreditEconomyService,
     private readonly serviceVersions: ServiceVersionsService,
@@ -1307,6 +1357,208 @@ export class PlatformController {
       // אותה פונקציה שהשרת אוכף לפיה, ולא העתק שלה
       periodEnded: tenantPeriodEnded({ ...t, planIsFree: freeCodes.has(t.plan) }),
     }));
+  }
+
+  /**
+   * ‎**פרטי משרד אחד — לפי דרישה, ולא ברשימה.**
+   *
+   * ‏הרשימה נטענת בשאילתה אחת על `tenants` בלבד, וזה מה שמחזיק
+   * ‏אותה מהירה. ספירות ופרטי קשר לכל משרד היו הופכים אותה
+   * ‏ל-N שאילתות בכל טעינה — גם למשרדים שאיש לא פתח. לכן הם כאן,
+   * ‏ונקראים כשהשורה נפתחת.
+   *
+   * ‎**וכל מה שנקרא מתוך המשרד עובר ב-`withExplicitTenant`** —
+   * ‏כלומר RLS ממשיך להיאכף, ובעל הפלטפורמה רואה משרד אחד שביקש
+   * ‏ולא צובר גישה רוחבית. זו הדרך היחידה שמותרת לכך (ראו
+   * ‏`PrismaService`).
+   */
+  @Get("agencies/:id/details")
+  async agencyDetails(@Param("id") id: string): Promise<AgencyDetails> {
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id },
+      select: {
+        signupSource: true,
+        couponCode: true,
+        couponPercentOff: true,
+        couponPlanCode: true,
+        whatsappAgentSeatsExtra: true,
+        filesLockedAt: true,
+      },
+    });
+    if (tenant === null) throw new NotFoundException("משרד לא נמצא");
+
+    const office = await this.officeSettings.read(id);
+
+    /*
+     * ‏הבעלים הוא הנמען של „שלח מייל”, ולכן הוא נקרא כאן ולא
+     * ‏מחושב שוב שם: שתי קריאות לאותה שאלה נפרדות ביום שבו משרד
+     * ‏יחזיק שני בעלים.
+     */
+    const owner = await this.agencyOwner(id);
+
+    /*
+     * ‏„מתי מישהו נכנס לאחרונה” היא שאלה על המשרד ולא על משתמש,
+     * ‏ולכן המקסימום מכולם — משרד חי הוא משרד שמישהו בו נכנס.
+     */
+    const lastLogin = await this.prisma.user.aggregate({
+      where: { tenantId: id, isActive: true },
+      _max: { lastLoginAt: true },
+    });
+
+    /*
+     * ‎**הכול בטרנזקציה אחת עם הקשר דייר.**
+     *
+     * ‏גם `integration` ו-`email_domains` יושבות תחת RLS, ולכן
+     * ‏ספירה ישירה עליהן עם `where: { tenantId }` הייתה מפרידה
+     * ‏בתנאי במקום במסד — בדיוק מה שהשער `rls-access` תפס. הפרדה
+     * ‏שנשענת על תנאי היא הפרדה שהשאילתה הבאה יכולה לשכוח.
+     */
+    const [properties, buyers, leads, calls, telephony, domain] =
+      await this.prisma.withExplicitTenant(id, async (tx) =>
+        Promise.all([
+          /*
+           * ‎`deletedAt: null` — אותו תנאי שמסך המשרד ושירות הניתוח
+           * ‏סופרים לפיו. בלעדיו הפאנל היה מציג מספר גדול יותר ממה
+           * ‏שהמשרד עצמו רואה ברשימותיו, והפער הזה נקרא כתקלה.
+           */
+          tx.property.count({ where: { deletedAt: null } }),
+          tx.buyer.count({ where: { deletedAt: null } }),
+          /* ‏לידים ושיחות אינם נמחקים רכות — אין להם `deletedAt` */
+          tx.lead.count(),
+          tx.call.count(),
+          tx.integration.count({ where: { status: "active" } }),
+          /*
+           * ‏השורה נוצרת ברגע שהמשרד מזין דומיין, וה-DNS עדיין
+           * ‏ממתין; היא גם שורדת אימות שנשבר. „מחובר” הוא מה
+           * ‏ש-`EmailService` באמת שולח דרכו, ולכן אותו כלל בדיוק.
+           */
+          tx.emailDomain.findFirst({
+            select: { dkimVerified: true, returnPathVerified: true },
+          }),
+        ]),
+      );
+
+    /* ‏חיבור הוואטסאפ יושב מחוץ ל-RLS (הוובהוק מגיע בלי הקשר), ולכן
+       הסינון כאן מפורש — וזה מה ששער `tenant-filter` דורש. */
+    const whatsapp = await this.prisma.whatsAppBusinessConnection.count({
+      where: { tenantId: id, status: { in: [...WHATSAPP_CONNECTION_LIVE_STATUSES] } },
+    });
+
+    return {
+      contact: {
+        ownerName: owner?.name ?? null,
+        ownerEmail: owner?.email ?? null,
+        ownerPhone: owner?.phone ?? null,
+        officePhone: office.officePhone ?? null,
+        officeAddress: office.officeAddress ?? null,
+        licenseNumber: office.licenseNumber ?? null,
+      },
+      usage: { properties, buyers, leads, calls },
+      billing: {
+        signupSource: tenant.signupSource,
+        couponCode: tenant.couponCode,
+        couponPercentOff: tenant.couponPercentOff,
+        couponPlanCode: tenant.couponPlanCode,
+        whatsappAgentSeatsExtra: tenant.whatsappAgentSeatsExtra,
+      },
+      activity: {
+        lastLoginAt: lastLogin._max.lastLoginAt,
+        whatsappConnected: whatsapp > 0,
+        telephonyConnected: telephony > 0,
+        emailDomainConnected: domain !== null && emailDomainStatus(domain) === "verified",
+        filesLocked: tenant.filesLockedAt !== null,
+      },
+    };
+  }
+
+  /**
+   * ‎**בעל המשרד — נקודה אחת.**
+   *
+   * ‏גם הפרטים וגם השליחה שואלים „מי הבעלים”, ושתי תשובות לאותה
+   * ‏שאלה נפרדות ביום מן הימים. `isActive` הוא חלק מהשאלה: מייל
+   * ‏לבעלים שהושבת אינו מגיע לאיש.
+   */
+  private async agencyOwner(
+    tenantId: string,
+  ): Promise<{ name: string; email: string; phone: string | null } | null> {
+    return this.prisma.user.findFirst({
+      where: { tenantId, role: "owner", isActive: true },
+      orderBy: { createdAt: "asc" },
+      select: { name: true, email: true, phone: true },
+    });
+  }
+
+  /**
+   * ‎**מייל מהפלטפורמה לבעל המשרד.**
+   *
+   * ‏עד היום כל פנייה למשרד יצאה מחוץ למערכת — מתיבה אישית, בלי
+   * ‏זכר לכך שנשלחה. כאן היא יוצאת מהשולח של המערכת, עם אותה
+   * ‏תבנית שכל מייל אחר לובש.
+   *
+   * ‎`required: true` — שליחה שנכשלת חייבת להיאמר. „נשלח” על מייל
+   * ‏שלא יצא הוא בדיוק מה שגורם למישהו לחכות לתשובה שלא תגיע.
+   *
+   * ‎`tenantId` **אינו** נמסר בכוונה: המייל יוצא מהפלטפורמה ולא
+   * ‏מהדומיין של המשרד — הוא זה שמקבל אותו.
+   */
+  @Post("agencies/:id/email")
+  async emailAgency(
+    @Param("id") id: string,
+    @Body(new ZodValidationPipe(AgencyEmailSchema)) body: z.infer<typeof AgencyEmailSchema>,
+  ): Promise<{ sentTo: string }> {
+    const owner = await this.agencyOwner(id);
+    if (owner === null) {
+      throw new BadRequestException("למשרד אין בעלים פעיל — אין למי לשלוח");
+    }
+    /*
+     * ‎**שורות, ולא פסקה אחת.**
+     *
+     * ‏מה שנכתב בתיבה נמסר כמחרוזת, ו-`send` עוטף מחרוזת בפסקה
+     * ‏יחידה — ואז HTML בולע את ירידות השורה. מי שכתב שלוש פסקאות
+     * ‏היה רואה אותן נמרחות לשורה אחת אצל הנמען.
+     */
+    const paragraphs = body.body
+      .split(/\n+/u)
+      .map((line) => line.trim())
+      .filter((line) => line !== "");
+
+    /*
+     * ‎**מפתח לכל שליחה, ולא `null`.**
+     *
+     * ‏עם `null` אין שורת ניסיון כלל, כלומר גם לא חצי עקבה. המפתח
+     * ‏ייחודי ללחיצה (ולא לתוכן), כי הודעה שנכתבה ביד פעמיים היא
+     * ‏שתי הודעות — אבל שליחה שנפלה באמצע מזוהה ואינה נשלחת פעמיים.
+     */
+    const key = `platformmail:${ulid()}`;
+    await this.email.send(owner.email, body.subject, { paragraphs }, {
+      idempotency: { key, purpose: "platform_office" },
+      required: true,
+      tenantId: undefined,
+    });
+
+    /*
+     * ‎**והעקבה נשארת אצל המשרד.**
+     *
+     * ‏שורת הניסיון נמחקת אחרי חודש ואינה נושאת את הנמען — היא
+     * ‏זיכרון לניסיון חוזר, לא היסטוריה. מה שהופך „מי פנה אלינו
+     * ‏ומתי” לשאלה שאפשר לענות עליה הוא יומן המשרד, וזה גם מה
+     * ‏שהופך את הפעולה **גלויה למשרד עצמו** — אותו דפוס בדיוק
+     * ‏שבו שולחן החיבורים נוגע במשרד.
+     */
+    await this.prisma.withExplicitTenant(id, async (tx) => {
+      await tx.auditLog.create({
+        data: {
+          id: ulid(),
+          tenantId: id,
+          userId: null,
+          action: "office.platform_email",
+          entityType: "tenant",
+          entityId: id,
+          metadata: { subject: body.subject, to: owner.email } as object,
+        },
+      });
+    });
+    return { sentTo: owner.email };
   }
 
   /** הקמת משרד חדש: Tenant + בעלים עם סיסמה זמנית (מוצגת פעם אחת). */

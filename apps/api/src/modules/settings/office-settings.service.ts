@@ -49,8 +49,19 @@ export class OfficeSettingsService {
    * ‏שמאפשר לתבנית ההסכם לומר „חסר מספר רישיון” במקום להדפיס שורה
    * ‏ריקה במסמך משפטי.
    */
-  async read(): Promise<OfficeSettings> {
-    const tenantId = TenantContext.current().tenantId;
+  async read(explicitTenantId?: string): Promise<OfficeSettings> {
+    /*
+     * ‎**מזהה מפורש — לשולחן הפלטפורמה.**
+     *
+     * ‏מסך המשרדים מציג את פרטי המשרד של **משרד אחר**, ואין לו
+     * ‏הקשר דייר. קורא שני שהיה מפרש את אותו JSON בעצמו היה
+     * ‏העותק שבו „לא הוגדר” ו„ריק” נפרדים — וזו בדיוק ההבחנה
+     * ‏שהתיעוד למעלה קיים בשבילה.
+     *
+     * ‏ברירת המחדל נקראת רק כשהארגומנט הושמט, ולכן קורא מפורש
+     * ‏אינו נוגע ב-`TenantContext` כלל.
+     */
+    const tenantId = explicitTenantId ?? TenantContext.current().tenantId;
     const tenant = await this.prisma.tenant.findUnique({
       where: { id: tenantId },
       select: { name: true, settings: true },
