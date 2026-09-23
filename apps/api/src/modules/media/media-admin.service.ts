@@ -70,6 +70,19 @@ export interface AdminMediaOutlet {
   owedOrders: number;
 }
 
+export interface AdminMediaTotals {
+  paidOrders: number;
+  /** סך ההזמנות ששולמו, נטו. */
+  paidAgorot: number;
+  /** מתוכו — מה שנשאר בפלטפורמה. */
+  commissionAgorot: number;
+  /** חלקן של המדיות שטרם הועבר. */
+  owedAgorot: number;
+  referrals: number;
+  /** סך התמורה על הפניות שנשלחו, כפי שנצרבה — לרישום. */
+  referralFeesAgorot: number;
+}
+
 export interface AdminMediaSettlement {
   id: string;
   outletId: string;
@@ -307,6 +320,38 @@ export class MediaAdminService {
       throw new BadRequestException("למוצר יש הזמנות — אפשר להשבית אותו, לא למחוק");
     }
     await this.prisma.mediaProduct.deleteMany({ where: { id } });
+  }
+
+  /**
+   * הסיכום שמעל הטבלה — כמה נכנס, כמה מזה עמלה, כמה עוד לא הועבר.
+   * מחושב על **כל** ההזמנות ולא על העמוד שמוצג: הטבלה היא עמוד אחרון,
+   * והסיכום הוא דוח.
+   */
+  async totals(): Promise<AdminMediaTotals> {
+    const [paid, owed, referrals] = await Promise.all([
+      this.prisma.mediaOrder.aggregate({
+        where: { status: "paid" },
+        _sum: { amountAgorot: true, commissionAgorot: true },
+        _count: { _all: true },
+      }),
+      this.prisma.mediaOrder.aggregate({
+        where: { status: "paid", settlementId: null },
+        _sum: { amountAgorot: true, commissionAgorot: true },
+      }),
+      this.prisma.mediaOrder.aggregate({
+        where: { status: "referred" },
+        _sum: { leadFeeAgorot: true },
+        _count: { _all: true },
+      }),
+    ]);
+    return {
+      paidOrders: paid._count._all,
+      paidAgorot: paid._sum.amountAgorot ?? 0,
+      commissionAgorot: paid._sum.commissionAgorot ?? 0,
+      owedAgorot: (owed._sum.amountAgorot ?? 0) - (owed._sum.commissionAgorot ?? 0),
+      referrals: referrals._count._all,
+      referralFeesAgorot: referrals._sum.leadFeeAgorot ?? 0,
+    };
   }
 
   /** ההזמנות של כל המשרדים — החדשות ראשונות, עמוד אחרון ולא הכול. */

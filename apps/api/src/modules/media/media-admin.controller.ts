@@ -38,7 +38,9 @@ import {
   type AdminMediaOrder,
   type AdminMediaOutlet,
   type AdminMediaSettlement,
+  type AdminMediaTotals,
 } from "./media-admin.service";
+import { MediaService } from "./media.service";
 import { MAX_MEDIA_IMAGE_BYTES, MediaImagesService } from "./media-images.service";
 
 /** שדות הטקסט שלצד הקובץ ב-multipart — סגורים, כמו בתמונות הנכסים. */
@@ -65,6 +67,7 @@ export class MediaAdminController {
   constructor(
     private readonly admin: MediaAdminService,
     private readonly images: MediaImagesService,
+    private readonly media: MediaService,
   ) {}
 
   @Get()
@@ -73,8 +76,16 @@ export class MediaAdminController {
   }
 
   @Get("orders")
-  async orders(): Promise<{ orders: AdminMediaOrder[] }> {
-    return { orders: await this.admin.orders() };
+  async orders(): Promise<{ orders: AdminMediaOrder[]; totals: AdminMediaTotals }> {
+    const [orders, totals] = await Promise.all([this.admin.orders(), this.admin.totals()]);
+    return { orders, totals };
+  }
+
+  /** שליחה חוזרת לנציג — כשאיש הקשר הוגדר אחרי שההזמנה כבר הגיעה. */
+  @Post("orders/:id/notify")
+  @HttpCode(200)
+  resend(@Param("id", IdParam) id: string): Promise<{ notified: boolean }> {
+    return this.media.resendNotification(id);
   }
 
   @Get("settlements")

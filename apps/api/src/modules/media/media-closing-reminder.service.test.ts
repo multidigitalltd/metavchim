@@ -5,6 +5,7 @@ vi.mock("../../config/env", () => ({
 }));
 
 import { MediaClosingReminderService } from "./media-closing-reminder.service";
+import { MediaMailService } from "./media-mail.service";
 
 /**
  * תזכורת סגירת גיליון — פעם אחת לגיליון, רק להזמנה שממתינה, ושוב
@@ -22,6 +23,10 @@ function harness(input: { closingAt: Date | null; remindedFor?: Date | null; ord
     name: "מגזין טאבו",
     nextClosingAt: input.closingAt,
     remindedForClosingAt: input.remindedFor ?? null,
+    contactName: "ר׳ נציג",
+    contactEmail: "ads@tabu.example",
+    contactPhone: "",
+    closingText: "",
   };
   const orders = input.orders ?? [
     {
@@ -30,9 +35,20 @@ function harness(input: { closingAt: Date | null; remindedFor?: Date | null; ord
       outletId: OUTLET,
       status: "pending_payment",
       createdBy: "01USER000000000000000000A0",
+      kind: "paid",
+      outletName: "מגזין טאבו",
       productName: "מודעה רבע עמוד",
+      quantity: 1,
+      amountAgorot: 90_000,
+      commissionAgorot: 9_000,
+      leadFeeAgorot: null,
+      brief: "",
       contactName: "דנה כהן",
+      contactPhone: "+972521111111",
       contactEmail: "dana@office.example",
+      officeName: "משרד הדגמה",
+      customerNo: 100123,
+      createdAt: NOW,
       closingReminderAt: null,
     },
   ];
@@ -74,8 +90,18 @@ function harness(input: { closingAt: Date | null; remindedFor?: Date | null; ord
       sent.push({ to, key: opts.idempotency.key });
     },
   };
-  const service = new MediaClosingReminderService(prisma as never, email as never);
-  return { service, outlet, orders, notifications, sent };
+  const adminNotices: string[] = [];
+  const admins = {
+    notify: async (notice: { subject: string }) => {
+      adminNotices.push(notice.subject);
+      return { sent: 1, failed: 0 };
+    },
+  };
+  const service = new MediaClosingReminderService(
+    prisma as never,
+    new MediaMailService(email as never, admins as never),
+  );
+  return { service, outlet, orders, notifications, sent, adminNotices };
 }
 
 describe("MediaClosingReminderService.sweep", () => {
@@ -85,6 +111,8 @@ describe("MediaClosingReminderService.sweep", () => {
     expect(h.notifications).toHaveLength(1);
     expect(h.notifications[0]?.userId).toBe("01USER000000000000000000A0");
     expect(h.sent).toEqual([{ to: "dana@office.example", key: `media-closing:01ORDER00000000000000000A0:${hours(20).getTime()}` }]);
+    expect(h.adminNotices).toHaveLength(1);
+    expect(h.adminNotices[0]).toContain("נסגר מחר");
     expect(h.orders[0]?.["closingReminderAt"]).toEqual(hours(20));
     expect(h.outlet["remindedForClosingAt"]).toEqual(hours(20));
   });
@@ -115,8 +143,8 @@ describe("MediaClosingReminderService.sweep", () => {
     const h = harness({
       closingAt: hours(20),
       orders: [
-        { id: "01ORDERPA1D0000000000000A0", tenantId: TENANT, outletId: OUTLET, status: "paid", createdBy: null, productName: "x", contactName: "y", contactEmail: "a@b.c", closingReminderAt: null },
-        { id: "01ORDERREF00000000000000A0", tenantId: TENANT, outletId: OUTLET, status: "referred", createdBy: null, productName: "x", contactName: "y", contactEmail: "a@b.c", closingReminderAt: null },
+        { id: "01ORDERPA1D0000000000000A0", tenantId: TENANT, outletId: OUTLET, status: "paid", createdBy: null, kind: "paid", outletName: "x", productName: "x", quantity: 1, amountAgorot: 0, commissionAgorot: 0, leadFeeAgorot: null, brief: "", contactName: "y", contactPhone: "", contactEmail: "a@b.c", officeName: "o", customerNo: null, createdAt: NOW, closingReminderAt: null },
+        { id: "01ORDERREF00000000000000A0", tenantId: TENANT, outletId: OUTLET, status: "referred", createdBy: null, kind: "lead", outletName: "x", productName: "x", quantity: 1, amountAgorot: 0, commissionAgorot: 0, leadFeeAgorot: null, brief: "", contactName: "y", contactPhone: "", contactEmail: "a@b.c", officeName: "o", customerNo: null, createdAt: NOW, closingReminderAt: null },
       ],
     });
     expect((await h.service.sweep(NOW)).reminded).toBe(0);

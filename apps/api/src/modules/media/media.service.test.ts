@@ -5,6 +5,7 @@ vi.mock("../../config/env", () => ({
   loadEnv: () => ({ WEB_ORIGIN: "https://app.test", PLATFORM_ADMIN_EMAILS: [] }),
 }));
 
+import { MediaMailService, outletMailKey } from "./media-mail.service";
 import { MediaService } from "./media.service";
 
 /**
@@ -83,6 +84,8 @@ function harness(options: { cardcom?: boolean; mail?: boolean; contactEmail?: st
       ),
     findUnique: async ({ where }: { where: { id: string } }) =>
       orders.find((o) => o["id"] === where.id) ?? null,
+    findFirst: async ({ where }: { where: { id: string; tenantId: string } }) =>
+      orders.find((o) => o["id"] === where.id && o["tenantId"] === where.tenantId) ?? null,
     update: async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
       const row = orders.find((o) => o["id"] === where.id);
       if (row) Object.assign(row, data);
@@ -115,6 +118,20 @@ function harness(options: { cardcom?: boolean; mail?: boolean; contactEmail?: st
     },
     findUnique: async ({ where }: { where: { lowProfileId: string } }) =>
       payments.find((p) => p["lowProfileId"] === where.lowProfileId) ?? null,
+    findMany: async ({ where }: { where: { tenantId: string; mediaOrderId: string; status: string } }) =>
+      payments.filter(
+        (p) =>
+          p["tenantId"] === where.tenantId &&
+          p["mediaOrderId"] === where.mediaOrderId &&
+          p["status"] === where.status,
+      ),
+    count: async ({ where }: { where: { tenantId: string; mediaOrderId: string; status: string } }) =>
+      payments.filter(
+        (p) =>
+          p["tenantId"] === where.tenantId &&
+          p["mediaOrderId"] === where.mediaOrderId &&
+          p["status"] === where.status,
+      ).length,
     update: async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
       const row = payments.find((p) => p["id"] === where.id);
       if (row) Object.assign(row, data);
@@ -124,14 +141,15 @@ function harness(options: { cardcom?: boolean; mail?: boolean; contactEmail?: st
       where,
       data,
     }: {
-      where: { tenantId: string; mediaOrderId: { in: string[] }; status: string };
+      where: { tenantId: string; mediaOrderId: string | { in: string[] }; status: string };
       data: Record<string, unknown>;
     }) => {
+      const ids = typeof where.mediaOrderId === "string" ? [where.mediaOrderId] : where.mediaOrderId.in;
       let count = 0;
       for (const row of payments) {
         if (
           row["tenantId"] === where.tenantId &&
-          where.mediaOrderId.in.includes(row["mediaOrderId"] as string) &&
+          ids.includes(row["mediaOrderId"] as string) &&
           row["status"] === where.status
         ) {
           Object.assign(row, data);
@@ -155,6 +173,8 @@ function harness(options: { cardcom?: boolean; mail?: boolean; contactEmail?: st
         contactName: "ר׳ נציג",
         contactEmail: options.contactEmail ?? "ads@tabu.example",
         contactPhone: "+972521234567",
+        closingText: "יום שני 12:00",
+        nextClosingAt: null,
       }),
       findMany: async () => [{ id: OUTLET, slug: "tabu-magazine" }],
     },
@@ -202,7 +222,7 @@ function harness(options: { cardcom?: boolean; mail?: boolean; contactEmail?: st
     prisma as never,
     cardcom as never,
     vat as never,
-    email as never,
+    new MediaMailService(email as never, admins as never),
     admins as never,
     audit as never,
   );
@@ -239,7 +259,7 @@ describe("MediaService — הפניה", () => {
       customerNo: 100123,
     });
     expect(h.sent.map((s) => s.to)).toEqual(["ads@tabu.example", "dana@office.example"]);
-    expect(h.sent[0]?.key).toBe(`media-order:${result.orderId}:outlet`);
+    expect(h.sent[0]?.key).toBe(outletMailKey(result.orderId, "ads@tabu.example"));
     expect(h.adminNotices).toHaveLength(1);
     expect(h.orders[0]?.["notifiedAt"]).not.toBeNull();
     expect(h.audits).toEqual(["media.order_referred"]);
@@ -309,8 +329,10 @@ describe("MediaService — הזמנה בתשלום", () => {
       status: "pending",
       lowProfileId: `lp-${result.paymentId}`,
     });
-    expect(h.sent).toHaveLength(0);
-    expect(h.adminNotices).toHaveLength(0);
+    // ‏„ההזמנה נפתחה” — ללקוח ולמנהלים; לנציג המדיה עדיין לא
+    expect(h.sent.map((s) => s.to)).toEqual(["dana@office.example"]);
+    expect(h.sent[0]?.subject).toContain("נפתחה");
+    expect(h.adminNotices).toHaveLength(1);
   });
 
   it("דף תשלום קודם על אותו מוצר מתבטל ותשלומו מסומן superseded", async () => {
@@ -350,8 +372,10 @@ describe("MediaService — הזמנה בתשלום", () => {
     expect(await h.service.settleWithin(h.tx as never, orderId, now)).toBeNull();
 
     await h.service.notifyAfterPayment(orderId);
-    expect(h.sent.map((s) => s.to)).toEqual(["ads@tabu.example", "dana@office.example"]);
-    expect(h.sent[0]?.subject).toContain("הזמנת פרסום");
+    // ‏[נפתחה ללקוח] ואז [שולם: לנציג, ללקוח]
+    expect(h.sent.map((s) => s.to)).toEqual(["dana@office.example", "ads@tabu.example", "dana@office.example"]);
+    expect(h.sent[1]?.subject).toContain("הזמנת פרסום");
+    expect(h.sent[2]?.subject).toContain("התשלום התקבל");
     expect(h.orders[0]?.["notifiedAt"]).not.toBeNull();
   });
 
@@ -360,8 +384,16 @@ describe("MediaService — הזמנה בתשלום", () => {
     const { orderId, paymentId } = await asOwner(() =>
       h.service.startCheckout({ tenantId: TENANT, userId: ME }, { ...ORDER, productId: PAID }),
     );
+    // ‏כמו `apply`: שורת התשלום כבר סומנה failed לפני שההזמנה נשאלת
+    const page = h.payments.find((p) => p["id"] === paymentId);
+    if (page) page["status"] = "failed";
     await h.service.markFailedForPaymentPage(`lp-${paymentId}`);
     expect(h.orders[0]?.["status"]).toBe("failed");
+    // ‏הלקוח והמנהלים שומעים על הדחייה; דחייה חוזרת אינה מייל נוסף
+    expect(h.sent.at(-1)?.subject).toContain("לא הושלם");
+    const sentBefore = h.sent.length;
+    await h.service.markFailedForPaymentPage(`lp-${paymentId}`);
+    expect(h.sent).toHaveLength(sentBefore);
     // ‏ומאוחר יותר האישור כן מגיע (דף שנשאר פתוח) — ההזמנה נסגרת כשולמה
     expect(await h.service.settleWithin(h.tx as never, orderId, new Date())).toEqual({ tenantId: TENANT });
     await h.service.markFailed(orderId);
@@ -387,5 +419,118 @@ describe("MediaService — הזמנה בתשלום", () => {
       h.service.createReferral({ tenantId: TENANT, userId: ME }, { ...ORDER, productId: LEAD }),
     );
     expect(await h.service.settleWithin(h.tx as never, orderId, new Date())).toBeNull();
+  });
+});
+
+describe("MediaService — המשך לתשלום, ביטול ושליחה חוזרת", () => {
+  it("המשך לתשלום פותח דף חדש על אותה הזמנה, והקודם מסומן superseded", async () => {
+    const h = harness();
+    const first = await asOwner(() =>
+      h.service.startCheckout({ tenantId: TENANT, userId: ME }, { ...ORDER, productId: PAID }),
+    );
+    const resumed = await asOwner(() => h.service.resumeCheckout({ tenantId: TENANT, userId: ME }, first.orderId));
+    expect(resumed.orderId).toBe(first.orderId);
+    expect(resumed.paymentId).not.toBe(first.paymentId);
+    expect(h.orders).toHaveLength(1);
+    expect(h.orders[0]?.["status"]).toBe("pending_payment");
+    expect(h.payments.find((p) => p["id"] === first.paymentId)?.["status"]).toBe("superseded");
+    expect(h.payments.find((p) => p["id"] === resumed.paymentId)?.["amountAgorot"]).toBe(212_400);
+  });
+
+  it("הזמנה שנכשלה חוזרת ל„ממתינה” בהמשך לתשלום; הזמנה ששולמה — לא", async () => {
+    const h = harness();
+    const { orderId, paymentId } = await asOwner(() =>
+      h.service.startCheckout({ tenantId: TENANT, userId: ME }, { ...ORDER, productId: PAID }),
+    );
+    const page = h.payments.find((p) => p["id"] === paymentId);
+    if (page) page["status"] = "failed";
+    await h.service.markFailed(orderId);
+    expect(h.orders[0]?.["status"]).toBe("failed");
+    await asOwner(() => h.service.resumeCheckout({ tenantId: TENANT, userId: ME }, orderId));
+    expect(h.orders[0]?.["status"]).toBe("pending_payment");
+    await h.service.settleWithin(h.tx as never, orderId, new Date());
+    await expect(
+      asOwner(() => h.service.resumeCheckout({ tenantId: TENANT, userId: ME }, orderId)),
+    ).rejects.toThrow(/אינה ממתינה/u);
+  });
+
+  it("ביטול — ההזמנה מבוטלת ודף התשלום superseded; משרד אחר אינו יכול", async () => {
+    const h = harness();
+    const { orderId, paymentId } = await asOwner(() =>
+      h.service.startCheckout({ tenantId: TENANT, userId: ME }, { ...ORDER, productId: PAID }),
+    );
+    await expect(
+      h.service.cancel({ tenantId: "01OTHERTENANT0000000000A0", userId: ME }, orderId),
+    ).rejects.toThrow(/לא נמצאה/u);
+    await asOwner(() => h.service.cancel({ tenantId: TENANT, userId: ME }, orderId));
+    expect(h.orders[0]?.["status"]).toBe("cancelled");
+    expect(h.sent.at(-1)?.subject).toContain("בוטלה");
+    expect(h.adminNotices.at(-1)).toContain("בוטל");
+    expect(h.payments.find((p) => p["id"] === paymentId)?.["status"]).toBe("superseded");
+    expect(h.audits).toContain("media.order_cancelled");
+  });
+
+  it("שליחה חוזרת — רק להזמנה ששולמה או הפניה, ובלי כפילות למי שכבר קיבל", async () => {
+    const h = harness();
+    const { orderId } = await asOwner(() =>
+      h.service.createReferral({ tenantId: TENANT, userId: ME }, { ...ORDER, productId: LEAD }),
+    );
+    expect(h.sent).toHaveLength(2);
+    expect((await h.service.resendNotification(orderId)).notified).toBe(true);
+    // ‏המדומה כאן אינו זוכר מפתחות — במערכת האמיתית זיכרון השליחה עוצר את הכפילות
+    const pending = await asOwner(() =>
+      h.service.startCheckout({ tenantId: TENANT, userId: ME }, { ...ORDER, productId: PAID }),
+    );
+    await expect(h.service.resendNotification(pending.orderId)).rejects.toThrow(/רק הזמנה ששולמה/u);
+  });
+
+  it("מפתח המייל לנציג — לפי ההזמנה והנמען: כתובת מתוקנת מקבלת שליחה, אותה כתובת לא", () => {
+    const a = outletMailKey("01ORDER00000000000000000A0", "Ads@Tabu.example ");
+    expect(a).toBe(outletMailKey("01ORDER00000000000000000A0", "ads@tabu.example"));
+    expect(a).not.toBe(outletMailKey("01ORDER00000000000000000A0", "new@tabu.example"));
+    expect(a).toMatch(/^media-order:01ORDER00000000000000000A0:outlet:[0-9a-f]{12}$/u);
+    expect(a.length).toBeLessThanOrEqual(80);
+  });
+
+  it("דחיית הדף הישן אחרי „המשך לתשלום” אינה מכשילה את ההזמנה — הדף החדש עוד פתוח", async () => {
+    const h = harness();
+    const first = await asOwner(() =>
+      h.service.startCheckout({ tenantId: TENANT, userId: ME }, { ...ORDER, productId: PAID }),
+    );
+    const resumed = await asOwner(() => h.service.resumeCheckout({ tenantId: TENANT, userId: ME }, first.orderId));
+    const sentBefore = h.sent.length;
+    // ‏הסולק דוחה את הדף הישן (superseded) — כמו `apply` שמסמן את השורה failed ואז קורא לנו
+    const old = h.payments.find((p) => p["id"] === first.paymentId);
+    if (old) old["status"] = "failed";
+    await h.service.markFailedForPaymentPage(`lp-${first.paymentId}`);
+    expect(h.orders[0]?.["status"]).toBe("pending_payment");
+    expect(h.sent).toHaveLength(sentBefore);
+    // ‏הדף החדש נדחה — עכשיו ההזמנה באמת נכשלה
+    const fresh = h.payments.find((p) => p["id"] === resumed.paymentId);
+    if (fresh) fresh["status"] = "failed";
+    await h.service.markFailedForPaymentPage(`lp-${resumed.paymentId}`);
+    expect(h.orders[0]?.["status"]).toBe("failed");
+    expect(h.sent.at(-1)?.subject).toContain("לא הושלם");
+  });
+
+  it("תשלום שני על הזמנה ששולמה — חיוב כפול למנהלים; אותו תשלום פעמיים — שקט", async () => {
+    const h = harness();
+    const first = await asOwner(() =>
+      h.service.startCheckout({ tenantId: TENANT, userId: ME }, { ...ORDER, productId: PAID }),
+    );
+    const resumed = await asOwner(() => h.service.resumeCheckout({ tenantId: TENANT, userId: ME }, first.orderId));
+    const paymentOf = (id: string) => h.payments.find((p) => p["id"] === id) as Record<string, unknown>;
+    // ‏הדף החדש שולם ונתפס
+    paymentOf(resumed.paymentId)["status"] = "paid";
+    expect(await h.service.settleWithin(h.tx as never, first.orderId, new Date())).toEqual({ tenantId: TENANT });
+    // ‏הודעה כפולה על אותו תשלום — כפילות רגילה, בלי רעש
+    const before = h.adminNotices.length;
+    await h.service.reportOrphanPayment(resumed.paymentId, first.orderId);
+    expect(h.adminNotices).toHaveLength(before);
+    // ‏הדף הישן (superseded) שולם גם הוא ונתפס — הלקוח חויב פעמיים
+    paymentOf(first.paymentId)["status"] = "paid";
+    expect(await h.service.settleWithin(h.tx as never, first.orderId, new Date())).toBeNull();
+    await h.service.reportOrphanPayment(first.paymentId, first.orderId);
+    expect(h.adminNotices.at(-1)).toContain("חיוב כפול");
   });
 });
