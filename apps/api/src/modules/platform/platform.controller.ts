@@ -75,6 +75,8 @@ import {
   linkNeedsReverification,
   type PlanDefinition,
   type ServiceVersion,
+  emailDomainStatus,
+  WHATSAPP_CONNECTION_LIVE_STATUSES,
   whatsappButtonUrlTemplate,
   whatsappButtonLandsOn,
   whatsappDeepLinkSuffix,
@@ -1411,22 +1413,35 @@ export class PlatformController {
      * ‏בתנאי במקום במסד — בדיוק מה שהשער `rls-access` תפס. הפרדה
      * ‏שנשענת על תנאי היא הפרדה שהשאילתה הבאה יכולה לשכוח.
      */
-    const [properties, buyers, leads, calls, telephony, emailDomain] =
+    const [properties, buyers, leads, calls, telephony, domain] =
       await this.prisma.withExplicitTenant(id, async (tx) =>
         Promise.all([
-          tx.property.count(),
-          tx.buyer.count(),
+          /*
+           * ‎`deletedAt: null` — אותו תנאי שמסך המשרד ושירות הניתוח
+           * ‏סופרים לפיו. בלעדיו הפאנל היה מציג מספר גדול יותר ממה
+           * ‏שהמשרד עצמו רואה ברשימותיו, והפער הזה נקרא כתקלה.
+           */
+          tx.property.count({ where: { deletedAt: null } }),
+          tx.buyer.count({ where: { deletedAt: null } }),
+          /* ‏לידים ושיחות אינם נמחקים רכות — אין להם `deletedAt` */
           tx.lead.count(),
           tx.call.count(),
           tx.integration.count({ where: { status: "active" } }),
-          tx.emailDomain.count(),
+          /*
+           * ‏השורה נוצרת ברגע שהמשרד מזין דומיין, וה-DNS עדיין
+           * ‏ממתין; היא גם שורדת אימות שנשבר. „מחובר” הוא מה
+           * ‏ש-`EmailService` באמת שולח דרכו, ולכן אותו כלל בדיוק.
+           */
+          tx.emailDomain.findFirst({
+            select: { dkimVerified: true, returnPathVerified: true },
+          }),
         ]),
       );
 
     /* ‏חיבור הוואטסאפ יושב מחוץ ל-RLS (הוובהוק מגיע בלי הקשר), ולכן
        הסינון כאן מפורש — וזה מה ששער `tenant-filter` דורש. */
     const whatsapp = await this.prisma.whatsAppBusinessConnection.count({
-      where: { tenantId: id },
+      where: { tenantId: id, status: { in: [...WHATSAPP_CONNECTION_LIVE_STATUSES] } },
     });
 
     return {
@@ -1450,7 +1465,7 @@ export class PlatformController {
         lastLoginAt: lastLogin._max.lastLoginAt,
         whatsappConnected: whatsapp > 0,
         telephonyConnected: telephony > 0,
-        emailDomainConnected: emailDomain > 0,
+        emailDomainConnected: domain !== null && emailDomainStatus(domain) === "verified",
         filesLocked: tenant.filesLockedAt !== null,
       },
     };
@@ -1495,14 +1510,53 @@ export class PlatformController {
     if (owner === null) {
       throw new BadRequestException("למשרד אין בעלים פעיל — אין למי לשלוח");
     }
-    await this.email.send(owner.email, body.subject, body.body, {
-      /*
-       * ‎`null` ולא מפתח: כל לחיצה היא הודעה חדשה שנכתבה ביד,
-       * ‏ולא ניסיון חוזר של אותה שליחה.
-       */
-      idempotency: null,
+    /*
+     * ‎**שורות, ולא פסקה אחת.**
+     *
+     * ‏מה שנכתב בתיבה נמסר כמחרוזת, ו-`send` עוטף מחרוזת בפסקה
+     * ‏יחידה — ואז HTML בולע את ירידות השורה. מי שכתב שלוש פסקאות
+     * ‏היה רואה אותן נמרחות לשורה אחת אצל הנמען.
+     */
+    const paragraphs = body.body
+      .split(/\n+/u)
+      .map((line) => line.trim())
+      .filter((line) => line !== "");
+
+    /*
+     * ‎**מפתח לכל שליחה, ולא `null`.**
+     *
+     * ‏עם `null` אין שורת ניסיון כלל, כלומר גם לא חצי עקבה. המפתח
+     * ‏ייחודי ללחיצה (ולא לתוכן), כי הודעה שנכתבה ביד פעמיים היא
+     * ‏שתי הודעות — אבל שליחה שנפלה באמצע מזוהה ואינה נשלחת פעמיים.
+     */
+    const key = `platformmail:${ulid()}`;
+    await this.email.send(owner.email, body.subject, { paragraphs }, {
+      idempotency: { key, purpose: "platform_office" },
       required: true,
       tenantId: undefined,
+    });
+
+    /*
+     * ‎**והעקבה נשארת אצל המשרד.**
+     *
+     * ‏שורת הניסיון נמחקת אחרי חודש ואינה נושאת את הנמען — היא
+     * ‏זיכרון לניסיון חוזר, לא היסטוריה. מה שהופך „מי פנה אלינו
+     * ‏ומתי” לשאלה שאפשר לענות עליה הוא יומן המשרד, וזה גם מה
+     * ‏שהופך את הפעולה **גלויה למשרד עצמו** — אותו דפוס בדיוק
+     * ‏שבו שולחן החיבורים נוגע במשרד.
+     */
+    await this.prisma.withExplicitTenant(id, async (tx) => {
+      await tx.auditLog.create({
+        data: {
+          id: ulid(),
+          tenantId: id,
+          userId: null,
+          action: "office.platform_email",
+          entityType: "tenant",
+          entityId: id,
+          metadata: { subject: body.subject, to: owner.email } as object,
+        },
+      });
     });
     return { sentTo: owner.email };
   }

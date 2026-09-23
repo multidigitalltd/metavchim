@@ -54,6 +54,7 @@ import {
   type AutomationSettings,
   type AutomationSpec,
   normalizePhone,
+  WHATSAPP_CONNECTION_LIVE_STATUSES,
 } from "@metavchim/shared";
 import { loadEnv } from "../../config/env";
 import {
@@ -1927,7 +1928,7 @@ export class SettingsController {
        */
       this.prisma.withTenant((tx) =>
         tx.whatsAppBusinessConnection.count({
-          where: { tenantId, status: { in: ["connected", "pending_history", "payment_required"] } },
+          where: { tenantId, status: { in: [...WHATSAPP_CONNECTION_LIVE_STATUSES] } },
         }),
       ),
     ]);
