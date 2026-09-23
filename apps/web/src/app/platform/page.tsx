@@ -35,6 +35,7 @@ import { Notice } from "../notice";
 import { EntityTabs, TabPanel, useEntityTab } from "../entity-tabs";
 import { FunnelCopySection } from "./funnel-copy-section";
 import { MediaSection } from "./media-section";
+import { AgencyDetailsPanel } from "./agency-details-panel";
 
 /**
  * ניהול הפלטפורמה — הקמת משרדי תיווך חדשים בלי SSH. נגיש רק למנהלי
@@ -453,6 +454,8 @@ export default function PlatformPage() {
   const [modulesFor, setModulesFor] = useState<string | null>(null);
   const [overridesFor, setOverridesFor] = useState<string | null>(null);
   const [waFor, setWaFor] = useState<string | null>(null);
+  /* ‏שורה פתוחה אחת בלבד: הפרטים נטענים בפתיחה, וכמה פתוחות יחד הן כמה בקשות */
+  const [detailsFor, setDetailsFor] = useState<string | null>(null);
   const [forbidden, setForbidden] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [created, setCreated] = useState<{ ownerEmail: string; tempPassword: string } | null>(null);
@@ -969,6 +972,18 @@ export default function PlatformPage() {
                         מתקשר ואומר „הסוכן לא עונה לי”, זו השורה שבה
                         התמיכה כבר נמצאת.
                       */}
+                      {/*
+                        ‎**„פרטים” ראשון בשורת הפעולות.** זו הפעולה
+                        השכיחה — מי שמחפש טלפון או בודק אם משרד חי
+                        עושה את זה הרבה יותר מהשהיה או מחיקה.
+                      */}
+                      <Button
+                        variant="secondary"
+                        aria-expanded={detailsFor === a.id}
+                        onClick={() => setDetailsFor(detailsFor === a.id ? null : a.id)}
+                      >
+                        פרטים
+                      </Button>
                       <Button
                         variant="secondary"
                         aria-expanded={waFor === a.id}
@@ -981,6 +996,13 @@ export default function PlatformPage() {
                       </Button>
                     </td>
                   </tr>
+                  {detailsFor === a.id ? (
+                    <tr style={{ background: "var(--color-bg)" }}>
+                      <td colSpan={8} className="p-3">
+                        <AgencyDetailsPanel tenantId={a.id} agencyName={a.name} />
+                      </td>
+                    </tr>
+                  ) : null}
                   {waFor === a.id ? (
                     <tr style={{ background: "var(--color-bg)" }}>
                       <td colSpan={8} className="p-3">

@@ -7,6 +7,7 @@ import { FunnelModule } from "../funnel/funnel.module";
 import { MessagingModule } from "../messaging/messaging.module";
 import { TelephonyModule } from "../telephony/telephony.module";
 import { WebhookLogModule } from "../webhook-log/webhook-log.module";
+import { OfficeSettingsService } from "../settings/office-settings.service";
 import { AccountDeletionService } from "../settings/account-deletion.service";
 import { AgentUsageController } from "./agent-usage.controller";
 import { AgentUsageService } from "./agent-usage.service";
@@ -61,6 +62,11 @@ import { ServiceVersionsService } from "./service-versions.service";
     IntegrationDeskService,
     CardcomService,
     AccountDeletionService,
+    /*
+     * ‏פרטי המשרד נקראים בשולחן המשרדים דרך אותו קורא שהמשרד עצמו
+     * ‏משתמש בו, עם מזהה מפורש — ולא בפירוש שני של אותו JSON.
+     */
+    OfficeSettingsService,
     ServiceVersionsService,
     PlatformCreditsService,
     AgentUsageService,
