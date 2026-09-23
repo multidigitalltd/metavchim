@@ -850,8 +850,16 @@ export function AppShell({ children }: { children: ReactNode }) {
           ICONS.mentor,
           <span className="mv-nav-ai">AI</span>,
         )}
-        {/* רכש מדיה — ארכיון המדיות והזמנות פרסום */}
-        {navLink("/media", "רכש מדיה", ICONS.media)}
+        {/*
+          רכש מדיה — ארכיון המדיות והזמנות פרסום. בינתיים תצוגה מקדימה:
+          פתוח למנהל הפלטפורמה, ולשאר „בקרוב” (השער ב-media/layout.tsx).
+        */}
+        {navLink(
+          "/media",
+          "רכש מדיה",
+          ICONS.media,
+          me?.isPlatformAdmin ? undefined : <span className="mv-nav-soon">בקרוב</span>,
+        )}
         {/*
           „הדרכות” מפנה לתיעוד הציבורי ואינו מסך במערכת.
 

@@ -41,6 +41,8 @@ export interface NavItem {
   needs?: Capability;
   platformAdmin?: boolean;
   tag?: NavTag;
+  /** ‏תצוגה מקדימה: מנהל הפלטפורמה רואה את המסך פתוח — בלי התג. */
+  tagHiddenForPlatformAdmin?: boolean;
   /** ‏מונה אפור ליד התווית. */
   count?: (s: NavSummary) => number;
   /** ‏תג אפרסק — דחיפות. */
@@ -166,7 +168,14 @@ export const NAV_ITEMS: readonly NavItem[] = [
     icon: "sparkles-outline",
     tag: "ai",
   },
-  { href: "/media", label: "רכש מדיה", icon: "megaphone-outline" },
+  {
+    href: "/media",
+    label: "רכש מדיה",
+    icon: "megaphone-outline",
+    // ‏תצוגה מקדימה למנהל הפלטפורמה; לשאר — „בקרוב” (השער ב-web, media/layout.tsx)
+    tag: "soon",
+    tagHiddenForPlatformAdmin: true,
+  },
   { href: "/docs", label: "הדרכות", icon: "book-outline", external: true },
   {
     href: "/settings",
@@ -189,6 +198,12 @@ export const NAV_ITEMS: readonly NavItem[] = [
     platformAdmin: true,
   },
 ];
+
+/** ‏התג שמוצג ליד הפריט למשתמש הזה — אותו כלל כמו התג בתפריט ה-web. */
+export function navTag(item: NavItem, user: AuthUser | null): NavTag | undefined {
+  if (item.tagHiddenForPlatformAdmin && user?.isPlatformAdmin === true) return undefined;
+  return item.tag;
+}
 
 /** ‏האם הפריט מוצג למשתמש הזה, עם הסיכום הזה — אותם כללים כמו `navLink` ב-web. */
 export function navVisible(

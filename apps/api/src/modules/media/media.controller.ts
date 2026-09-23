@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, Param, Post, Req, Res, type StreamableFile } from "@nestjs/common";
+import { Body, Controller, Get, HttpCode, Param, Post, Req, Res, UseGuards, type StreamableFile } from "@nestjs/common";
 import type { Request, Response } from "express";
 import { z } from "zod";
 import {
@@ -13,6 +13,7 @@ import { objectResponse } from "../../common/object-response";
 import { TenantContext } from "../../common/tenant-context";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { MediaImagesService } from "./media-images.service";
+import { MediaPreviewGuard } from "./media-preview.guard";
 import {
   MediaService,
   orderContext,
@@ -33,6 +34,10 @@ import {
  * - **הזמנה בתשלום** — `billing.manage`, כמו כל רכישה בכרטיס
  *   המשרד: קרדיטים, מקומות, מספרים. הסוכן רואה את המחיר; בעל
  *   המשרד משלם.
+ *
+ * ‏**בינתיים — תצוגה מקדימה.** `MediaPreviewGuard` על המחלקה פותח את
+ * כל הנתיבים האלה למנהל הפלטפורמה בלבד, עד שהתיקונים יסתיימו; שאר
+ * המשתמשים רואים „בקרוב”. ההצהרות למטה הן מה שיהיה בהשקה.
  */
 const SlugSchema = z.string().trim().min(2).max(60).regex(MEDIA_SLUG_PATTERN);
 const SlugParam = new ZodValidationPipe(SlugSchema);
@@ -40,6 +45,7 @@ const IdParam = new ZodValidationPipe(IdSchema);
 const OrderBody = new ZodValidationPipe(MediaOrderCreateSchema);
 
 @Controller("media")
+@UseGuards(MediaPreviewGuard)
 export class MediaController {
   constructor(
     private readonly media: MediaService,

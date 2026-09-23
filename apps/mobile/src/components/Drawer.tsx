@@ -16,6 +16,7 @@ import { apiOrigin } from "@/lib/config";
 import { family } from "@/lib/fonts";
 import {
   NAV_ITEMS,
+  navTag,
   navVisible,
   routeFor,
   type NavItem,
@@ -103,6 +104,7 @@ export function Drawer() {
               ).map((item) => {
                 const count = summary && item.count ? item.count(summary) : 0;
                 const badge = summary && item.badge ? item.badge(summary) : 0;
+                const tag = navTag(item, user ?? null);
                 return (
                   <Pressable
                     key={item.href}
@@ -134,12 +136,10 @@ export function Drawer() {
                         </Text>
                       </View>
                     ) : null}
-                    {item.tag ? (
-                      <View
-                        style={[styles.tag, item.tag === "ai" && styles.tagAi]}
-                      >
+                    {tag ? (
+                      <View style={[styles.tag, tag === "ai" && styles.tagAi]}>
                         <Text style={styles.tagText} weight={700}>
-                          {TAG_TEXT[item.tag]}
+                          {TAG_TEXT[tag]}
                         </Text>
                       </View>
                     ) : null}
