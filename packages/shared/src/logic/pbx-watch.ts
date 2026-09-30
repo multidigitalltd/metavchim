@@ -28,6 +28,8 @@
  */
 
 import { jerusalemWallParts, jerusalemWeekday } from "./israel-time.js";
+import type { EmailContent } from "./email-template.js";
+import { notificationUrl } from "./web-push.js";
 
 /* ==================== חלון הניטור ==================== */
 
@@ -237,4 +239,77 @@ export function pbxSilenceMessage(input: {
         ? "מעולם לא נקלטה שיחה נכנסת מהמרכזייה. בדקו את כתובת הוובהוק בהגדרות הספק."
         : `לא נקלטה שיחה נכנסת כבר ${hours} שעות עבודה. אם התקשרו אליכם בזמן הזה — הוובהוק אצל ספק המרכזייה כנראה כבוי.`,
   };
+}
+
+/**
+ * ‎**אותה התראה, במייל — למי שאינו מחזיק מקום בסוכן בוואטסאפ.**
+ *
+ * ‏בקשת המשתמש: מנוי על הסוכן מקבל את „המרכזייה השתתקה” בוואטסאפ,
+ * ‏ומי שאינו מנוי — במייל בלבד (`whatsappNeedsSeat`). הכותרת והגוף
+ * ‏הם אלה שנכתבו בשורת ההתראה, כדי שהפעמון, הוואטסאפ והמייל יאמרו
+ * ‏אותו דבר במילים זהות.
+ *
+ * ‏הכפתור מוביל לאותו יעד כמו הפעמון והוואטסאפ — `notificationUrl`,
+ * ‏ולא נתיב שנכתב כאן שוב.
+ */
+export function pbxSilenceEmail(input: {
+  firstName: string;
+  title: string;
+  body: string | null;
+  webOrigin: string;
+}): { subject: string; content: EmailContent } {
+  const origin = input.webOrigin.replace(/\/+$/u, "");
+  const path = notificationUrl({
+    type: "pbx_silent",
+    title: input.title,
+    body: input.body,
+    entityType: "integration",
+    entityId: null,
+  });
+  return {
+    subject: input.title,
+    content: {
+      heading: input.title,
+      greeting: `שלום ${input.firstName},`,
+      paragraphs: [
+        input.body ?? "",
+        "כדאי לבדוק בהגדרות אצל ספק המרכזייה שכתובת הוובהוק עדיין מוגדרת ופעילה.",
+      ].filter((paragraph) => paragraph !== ""),
+      button: { label: "לחיבורי המערכת", url: `${origin}${path}` },
+      footnote:
+        "המייל נשלח למנהלי המשרד שההתראה לא הגיעה אליהם בוואטסאפ. אפשר לכבות אותה בהגדרות, תחת „אוטומציות פנימיות”.",
+    },
+  };
+}
+
+/**
+ * ‎**האם „המרכזייה השתתקה” יוצאת במייל למנהל הזה — לפי מה שקרה בוואטסאפ.**
+ *
+ * ‏שני סבבים שולחים את אותה התראה: הוואטסאפ בעובדים והמייל ב-API.
+ * ‏אם כל אחד מהם היה קורא לבד את מצב המנוי **עכשיו**, מנהל שקיבל מקום
+ * ‏בסוכן בין שני הסבבים היה נופל בין הכיסאות — הוואטסאפ דילג עליו כי
+ * ‏לא היה לו מקום, והמייל מדלג כי עכשיו יש לו. ובכיוון ההפוך הוא היה
+ * ‏מקבל את שניהם (ביקורת Codex).
+ *
+ * ‏לכן המייל שואל על מה **שקרה** בוואטסאפ, ולא רק על המנוי:
+ *
+ * ‏| המצב | מייל |
+ * ‏| --- | --- |
+ * ‏| ההתראה כבר נמסרה לו בוואטסאפ | לא — היא כבר אצלו |
+ * ‏| אין לו מקום בסוכן | כן, מיד — הוואטסאפ לא ישלח לו |
+ * ‏| יש לו מקום, והוואטסאפ עוד לא סיים (שעות שקט, השתקה) | עדיין לא |
+ * ‏| יש לו מקום, והוואטסאפ סגר את ההתראה בלעדיו | כן |
+ *
+ * ‏השורה האחרונה היא גם הרשת: מחזיק מקום שכיבה את התראות הוואטסאפ או
+ * ‏שאין לו טלפון תקין אינו נשאר בלי לדעת שהמרכזייה שותקת.
+ */
+export function pbxSilenceEmailDue(input: {
+  hasSeat: boolean;
+  /** ‏החותמת של סבב הוואטסאפ אצלו כבר עברה את מועד ההתראה */
+  receivedOnWhatsApp: boolean;
+  /** ‏סבב הוואטסאפ סגר את ההתראה (`whatsappAt`) */
+  whatsappClosed: boolean;
+}): boolean {
+  if (input.receivedOnWhatsApp) return false;
+  return !input.hasSeat || input.whatsappClosed;
 }

@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { mapCspOrigins } from "@metavchim/shared";
+import { mapCspOrigins, unescapedSlashPath } from "@metavchim/shared";
 
 /**
  * מדיניות אבטחת תוכן (CSP) — **שכבת ההגנה שנשארת כשמשהו אחר נכשל.**
@@ -156,6 +156,21 @@ function safeOrigin(value: string): string | null {
 }
 
 export function middleware(request: NextRequest): NextResponse {
+  /*
+   * ‎**לוכסן מקודד — כפתור „פתח במערכת” שנחת על „העמוד לא נמצא”.**
+   *
+   * ‏הכתובת `…/settings%2Fintegrations` היא קטע נתיב אחד בעיני השרת,
+   * ‏ולכן 404 — בעוד `…/settings/integrations` מחזיר את המסך (נמדד מול
+   * ‏השרת החי). הפניה קבועה לנתיב האמיתי; כתובת תקינה אינה נוגעת כאן.
+   * ‏ההסבר המלא ב-`unescapedSlashPath`.
+   */
+  const unescaped = unescapedSlashPath(request.nextUrl.pathname);
+  if (unescaped !== null) {
+    const url = request.nextUrl.clone();
+    url.pathname = unescaped;
+    return NextResponse.redirect(url, 308);
+  }
+
   const dev = process.env.NODE_ENV !== "production";
   const nonce = Buffer.from(crypto.randomUUID()).toString("base64");
 

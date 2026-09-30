@@ -5,6 +5,7 @@ import {
   type OnModuleInit,
 } from "@nestjs/common";
 import {
+  firstNameOf,
   forumActivityEmail,
   isForumNotificationType,
   jerusalemWallParts,
@@ -148,7 +149,7 @@ export class ForumMailService implements OnModuleInit, OnModuleDestroy {
           body: row.body,
           threadId: row.entityId,
         }));
-        const mail = forumActivityEmail(firstName(user.name), items, origin, prefs.digest);
+        const mail = forumActivityEmail(firstNameOf(user.name), items, origin, prefs.digest);
         try {
           await this.email.send(user.email, mail.subject, mail.content, {
             // אותו אצווה = אותה שליחה: המפתח הוא הנמען והחותמת שתיסגר בה
@@ -173,8 +174,4 @@ export class ForumMailService implements OnModuleInit, OnModuleDestroy {
     }
     return sent;
   }
-}
-
-function firstName(name: string): string {
-  return name.trim().split(/\s+/u)[0] ?? name;
 }

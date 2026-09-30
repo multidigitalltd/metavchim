@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { escapeHtml, renderEmailHtml, renderEmailText } from "./email-template.js";
+import { escapeHtml, firstNameOf, renderEmailHtml, renderEmailText } from "./email-template.js";
 
 const base = { paragraphs: ["שורה ראשונה", "שורה שנייה"] };
 
@@ -112,5 +112,18 @@ describe("renderEmailText", () => {
 
   it("בלי רווחים מיותרים בסוף", () => {
     expect(renderEmailText(base).endsWith("\n")).toBe(false);
+  });
+});
+
+describe("firstNameOf", () => {
+  it("‏המילה הראשונה של השם, בלי רווחים מסביב", () => {
+    expect(firstNameOf("דנה כהן")).toBe("דנה");
+    expect(firstNameOf("  יוסי   לוי ")).toBe("יוסי");
+    expect(firstNameOf("מרים")).toBe("מרים");
+  });
+
+  it("‏שם ריק נשאר ריק — ולא „undefined” בפתיחת המייל", () => {
+    expect(firstNameOf("")).toBe("");
+    expect(firstNameOf("   ")).toBe("");
   });
 });

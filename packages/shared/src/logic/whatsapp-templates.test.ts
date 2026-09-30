@@ -6,7 +6,9 @@ import {
   whatsappButtonLandsOn,
   whatsappTemplateButton,
   whatsappTemplateParams,
+  unescapedSlashPath,
 } from "./whatsapp-templates.js";
+import { notificationUrl } from "./web-push.js";
 
 /**
  * ‎**מה שהמסך מבטיח שנרשם ב-Meta, ומה שנשלח בפועל.**
@@ -200,5 +202,51 @@ describe("כפתור „פתח במערכת”", () => {
 
   it("סיפא ריקה אינה מייצרת כפתור", () => {
     expect(whatsappTemplateButton("  ")).toBeNull();
+  });
+});
+
+describe("‏לוכסן מקודד בכפתור „פתח במערכת”", () => {
+  /*
+   * ‏כל יעד שכפתור יכול לשאת: הסיפא נבנית בדיוק כמו בסבב ההתראות
+   * ‏(`notificationUrl` ← `whatsappDeepLinkSuffix`), ואז הלוכסנים
+   * ‏שבה מקודדים — וחייבת לחזור אל אותו נתיב.
+   */
+  const targets = [
+    { entityType: "integration", entityId: null },
+    { entityType: "property", entityId: "01JPROP00000000000000000AB" },
+    { entityType: "lead", entityId: "01JLEAD00000000000000000AB" },
+    { entityType: "buyer", entityId: "01JBUYR00000000000000000AB" },
+    { entityType: "recruitment", entityId: "01JRECR00000000000000000AB" },
+    { entityType: "coop_deal", entityId: "01JDEAL00000000000000000AB" },
+    { entityType: "forum_thread", entityId: "01JTHRD00000000000000000AB" },
+    { entityType: "media_order", entityId: null },
+  ];
+
+  for (const target of targets) {
+    it(`${target.entityType}: הצורה המקודדת חוזרת לנתיב שהכפתור התכוון אליו`, () => {
+      const suffix = whatsappDeepLinkSuffix(
+        notificationUrl({ type: "x", title: "", body: null, ...target }),
+      );
+      expect(suffix).toContain("/");
+      const encoded = `/${encodeURIComponent(suffix)}`;
+      expect(encoded).toContain("%2F");
+      expect(unescapedSlashPath(encoded)).toBe(`/${suffix}`);
+    });
+  }
+
+  it("‏נתיב תקין אינו משתנה", () => {
+    expect(unescapedSlashPath("/settings/integrations")).toBeNull();
+    expect(unescapedSlashPath("/notifications")).toBeNull();
+    // ‏קידוד אחר (עברית) אינו לוכסן ואינו נוגעים בו
+    expect(unescapedSlashPath("/forum/%D7%A9%D7%9C%D7%95%D7%9D")).toBeNull();
+  });
+
+  it("‏אותיות קטנות וגדולות — שתיהן", () => {
+    expect(unescapedSlashPath("/settings%2fintegrations")).toBe("/settings/integrations");
+  });
+
+  it("‏לעולם אינו יוצא מהאתר — גם כשהלוכסנים המקודדים מובילים", () => {
+    expect(unescapedSlashPath("/%2F%2Fevil.example")).toBe("/evil.example");
+    expect(unescapedSlashPath("/%2F")).toBe("/");
   });
 });

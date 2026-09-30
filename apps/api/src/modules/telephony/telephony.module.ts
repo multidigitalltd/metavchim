@@ -3,6 +3,7 @@ import { ContactsModule } from "../contacts/contacts.module";
 import { IntakeModule } from "../intake/intake.module";
 import { MessagingModule } from "../messaging/messaging.module";
 import { VoiceIntakeModule } from "../voice-intake/voice-intake.module";
+import { PbxSilenceMailService } from "./pbx-silence-mail.service";
 import { PlatformRecordingsController } from "./platform-recordings.controller";
 import { RecordingFetchService } from "./recording-fetch.service";
 import { TelephonyPresenceController } from "./telephony-presence.controller";
@@ -32,7 +33,8 @@ import { VirtualNumbersController } from "./virtual-numbers.controller";
      */
     PlatformRecordingsController,
   ],
-  providers: [TelephonyService, RecordingFetchService],
+  // „המרכזייה השתתקה” במייל, למנהלים בלי מקום בסוכן — ראו המחלקה
+  providers: [TelephonyService, RecordingFetchService, PbxSilenceMailService],
   exports: [TelephonyService],
 })
 export class TelephonyModule {}

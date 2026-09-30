@@ -4133,6 +4133,11 @@ interface WaRecipient {
   /** עד מתי כבר קיבל — מונע כפילות כשנמען אחר של אותה התראה נכשל */
   notifiedThrough: Date | null;
   /**
+   * ‏מחזיק מקום בסוכן (`whatsappAccess`). בעל המשרד נמען גם בלעדיו,
+   * ‏ולכן זה אינו נגזר מעצם היותו ברשימה — ראו `whatsappNeedsSeat`.
+   */
+  hasSeat: boolean;
+  /**
    * ‎**מזהי הפעולות** שמותרות לו — לא היכולות שלו.
    *
    * ‏ההבחנה אינה סמנטית: `notifyFollowUp` משווה מול מזהה פעולה
@@ -4368,6 +4373,9 @@ async function processWhatsAppNotifySweep(): Promise<void> {
      * הנמענים: מי שהמנוי שלו פעיל (בעל המשרד תמיד), יש לו טלפון,
      * והוא הדליק את ההתראות. אותם שערים בדיוק כמו במענה של הסוכן —
      * דחיפה למי שאינו מנוי הייתה מוצר בחינם, ולמי שכיבה היא ספאם.
+     *
+     * ‏„בעל המשרד תמיד” — חוץ מסוגים שדורשים מקום בסוכן
+     * ‏(`whatsappNeedsSeat`): אותם בעל משרד בלי מקום מקבל במייל בלבד.
      */
     const users = await prisma.user.findMany({
       where: {
@@ -4376,7 +4384,7 @@ async function processWhatsAppNotifySweep(): Promise<void> {
         phone: { not: null },
         OR: [{ whatsappAccess: true }, { role: "owner" }],
       },
-      select: { id: true, phone: true, preferences: true, role: true },
+      select: { id: true, phone: true, preferences: true, role: true, whatsappAccess: true },
     });
     if (users.length === 0) continue;
 
@@ -4431,6 +4439,7 @@ async function processWhatsAppNotifySweep(): Promise<void> {
         windowOpen: sessionWindowOpen(chat?.lastInboundAt ?? null, now),
         snoozed: chat?.notifySnoozeUntil ? chat.notifySnoozeUntil > now : false,
         notifiedThrough: chat?.notifiedThrough ?? null,
+        hasSeat: user.whatsappAccess,
         allowedActionIds: allowedActionsFor(capabilities),
         capabilities: [...capabilities],
       });
@@ -4453,7 +4462,7 @@ async function processWhatsAppNotifySweep(): Promise<void> {
       const queued = pending.filter(
         (notification) =>
           (!notification.userId || notification.userId === recipient.userId) &&
-          shouldNotifyByWhatsApp(notification.type, recipient.prefs) &&
+          shouldNotifyByWhatsApp(notification.type, recipient.prefs, recipient) &&
           notification.createdAt.getTime() > watermark,
       );
       if (queued.length === 0) continue;
@@ -4709,7 +4718,7 @@ async function processWhatsAppNotifySweep(): Promise<void> {
         const targets = [...recipients.values()].filter(
           (recipient) =>
             (!notification.userId || notification.userId === recipient.userId) &&
-            shouldNotifyByWhatsApp(notification.type, recipient.prefs),
+            shouldNotifyByWhatsApp(notification.type, recipient.prefs, recipient),
         );
         return targets.every((recipient) => {
           const through = delivered.get(recipient.userId) ?? recipient.notifiedThrough;

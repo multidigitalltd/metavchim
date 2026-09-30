@@ -236,6 +236,27 @@ export function whatsappDeepLinkSuffix(urlOrPath: string, origin?: string): stri
 }
 
 /**
+ * ‎**הנתיב שהכפתור התכוון אליו, כשהלוכסן בו הגיע מקודד (`%2F`).**
+ *
+ * ‏הסיפא של כפתור „פתח במערכת” היא נתיב עם לוכסנים
+ * ‏(`settings/integrations`, `properties/abc`). אם היא נפתחת כשהלוכסן
+ * ‏מקודד — `…/settings%2Fintegrations` — השרת רואה **קטע נתיב אחד**
+ * ‏בשם `settings/integrations`, שאינו קיים, ומחזיר „העמוד לא נמצא”.
+ * ‏זה נמדד מול השרת החי: הנתיב הרגיל מחזיר 200 והמקודד 404 (דיווח
+ * ‏המשתמש על הקישור בהתראת „המרכזייה השתתקה”).
+ *
+ * ‏מחזיר את הנתיב עם הלוכסנים האמיתיים, או `null` כשאין מה לתקן —
+ * ‏כתובת תקינה לעולם אינה משתנה כאן.
+ *
+ * ‏לוכסנים מובילים מתכווצים לאחד: ‎`/%2F%2Fevil.com` הופך לנתיב
+ * ‎`/evil.com` באתר שלנו, ולעולם לא לקישור יחסי-פרוטוקול לאתר אחר.
+ */
+export function unescapedSlashPath(pathname: string): string | null {
+  if (!/%2f/iu.test(pathname)) return null;
+  return `/${pathname.replace(/%2f/giu, "/").replace(/^\/+/u, "")}`;
+}
+
+/**
  * ‎**הכתובת שצריך לרשום ב-Meta לכפתור „פתח במערכת”, מילה במילה.**
  *
  * ‏זה החצי שהקוד לא ראה. `whatsappDeepLinkSuffix` מחזיר נתיב **בלי**
