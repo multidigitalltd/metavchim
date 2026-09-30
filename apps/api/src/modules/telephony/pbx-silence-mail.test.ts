@@ -18,7 +18,12 @@ const ALERT = {
   id: "01JALERT00000000000000000A",
   title: "לא נקלטו שיחות מהמרכזייה",
   body: "לא נקלטה שיחה נכנסת כבר 5 שעות עבודה.",
+  createdAt: new Date("2026-09-30T07:55:00.000Z"),
+  /** ‏סבב הוואטסאפ עוד לא סגר אותה */
+  whatsappAt: null as Date | null,
 };
+const AFTER_ALERT = new Date("2026-09-30T07:56:00.000Z");
+const BEFORE_ALERT = new Date("2026-09-30T07:00:00.000Z");
 
 interface StaffRow {
   id: string;
@@ -26,6 +31,10 @@ interface StaffRow {
   email: string;
   role: string;
   whatsappAccess: boolean;
+}
+interface ChatRow {
+  userId: string;
+  notifiedThrough: Date | null;
 }
 interface OverrideRow {
   userId: string;
@@ -38,6 +47,7 @@ function harness(input: {
   staff: StaffRow[];
   overrides?: OverrideRow[];
   alerts?: (typeof ALERT)[];
+  chats?: ChatRow[];
   configured?: boolean;
 }) {
   const sent: { to: string; subject: string; key: string | undefined; url: string | undefined; tenantId: unknown }[] = [];
@@ -49,6 +59,10 @@ function harness(input: {
         return input.alerts ?? [ALERT];
       },
     },
+    whatsAppChat: {
+      findMany: async (args: { where: { userId: { in: string[] } } }) =>
+        (input.chats ?? []).filter((row) => args.where.userId.in.includes(row.userId)),
+    },
     userCapability: {
       findMany: async (args: { where: { userId: { in: string[] } } }) =>
         (input.overrides ?? []).filter((row) => args.where.userId.in.includes(row.userId)),
@@ -56,11 +70,7 @@ function harness(input: {
   };
   const prisma = {
     tenant: { findMany: async () => [{ id: TENANT, blockedModules: [] }] },
-    user: {
-      // ‏השאילתה עצמה מסננת את מחזיקי המקום — הזיוף מכבד אותה
-      findMany: async (args: { where: { whatsappAccess: boolean } }) =>
-        input.staff.filter((user) => user.whatsappAccess === args.where.whatsappAccess),
-    },
+    user: { findMany: async () => input.staff },
     withExplicitTenant: async <T>(tenantId: string, fn: (t: typeof tx) => Promise<T>) => {
       expect(tenantId).toBe(TENANT);
       return fn(tx);
@@ -124,8 +134,18 @@ describe("‏מי מקבל את „המרכזייה השתתקה” במייל",
     expect(sent[0]?.subject).toBe(ALERT.title);
   });
 
-  it("‏מי שמחזיק מקום בסוכן — אינו מקבל מייל (הוא מקבל בוואטסאפ)", async () => {
+  it("‏מי שמחזיק מקום בסוכן — אינו מקבל מייל כל עוד הוואטסאפ בדרך אליו", async () => {
     const { service, sent } = harness({ staff: [owner({ whatsappAccess: true })] });
+    await service.tick(NOW);
+    expect(sent).toEqual([]);
+  });
+
+  it("‏מחזיק מקום שקיבל בוואטסאפ — אינו מקבל גם במייל", async () => {
+    const { service, sent } = harness({
+      staff: [owner({ whatsappAccess: true })],
+      alerts: [{ ...ALERT, whatsappAt: AFTER_ALERT }],
+      chats: [{ userId: owner().id, notifiedThrough: AFTER_ALERT }],
+    });
     await service.tick(NOW);
     expect(sent).toEqual([]);
   });
@@ -153,6 +173,31 @@ describe("‏מי מקבל את „המרכזייה השתתקה” במייל",
       overrides: [
         { userId: owner().id, capability: "settings.manage", effect: "deny", expiresAt: null },
       ],
+    });
+    await service.tick(NOW);
+    expect(sent).toEqual([]);
+  });
+});
+
+/*
+ * ‏המרוץ שנמצא בביקורת Codex: שני הסבבים רצים בנפרד, ומנוי שמשתנה
+ * ‏ביניהם לא אמור להשאיר מנהל בלי ערוץ או עם שניים.
+ */
+describe("‏מנוי שהשתנה בין סבב הוואטסאפ לסבב המייל", () => {
+  it("‏קיבל מקום אחרי שהוואטסאפ סגר את ההתראה בלעדיו — מקבל מייל", async () => {
+    const { service, sent } = harness({
+      staff: [owner({ whatsappAccess: true })],
+      alerts: [{ ...ALERT, whatsappAt: AFTER_ALERT }],
+      chats: [{ userId: owner().id, notifiedThrough: BEFORE_ALERT }],
+    });
+    await service.tick(NOW);
+    expect(sent.map((mail) => mail.to)).toEqual(["owner@example.com"]);
+  });
+
+  it("‏קיבל בוואטסאפ ואז איבד את המקום — אינו מקבל שוב במייל", async () => {
+    const { service, sent } = harness({
+      staff: [owner({ whatsappAccess: false })],
+      chats: [{ userId: owner().id, notifiedThrough: AFTER_ALERT }],
     });
     await service.tick(NOW);
     expect(sent).toEqual([]);

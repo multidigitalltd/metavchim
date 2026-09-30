@@ -6,6 +6,7 @@ import {
   PBX_SILENT_MIN_HOURS,
   pbxSilenceDedupeKey,
   pbxSilenceEmail,
+  pbxSilenceEmailDue,
   pbxSilenceMessage,
   resolvePbxWatch,
   shouldAlertPbxSilence,
@@ -310,5 +311,34 @@ describe("pbxSilenceEmail", () => {
     const mail = pbxSilenceEmail({ firstName: "דנה", title: message.title, body: null, webOrigin: "https://x.co.il" });
     expect(mail.content.paragraphs.every((p) => p !== "")).toBe(true);
     expect(mail.content.paragraphs).toHaveLength(1);
+  });
+});
+
+describe("pbxSilenceEmailDue", () => {
+  const due = (hasSeat: boolean, receivedOnWhatsApp: boolean, whatsappClosed: boolean): boolean =>
+    pbxSilenceEmailDue({ hasSeat, receivedOnWhatsApp, whatsappClosed });
+
+  it("‏בלי מקום בסוכן — מייל מיד, בלי לחכות לוואטסאפ", () => {
+    expect(due(false, false, false)).toBe(true);
+    expect(due(false, false, true)).toBe(true);
+  });
+
+  it("‏מחזיק מקום — לא במייל כל עוד הוואטסאפ עוד בדרך אליו", () => {
+    expect(due(true, false, false)).toBe(false);
+  });
+
+  /*
+   * ‏המרוץ שנמצא בביקורת: קיבל מקום אחרי שהוואטסאפ כבר סגר את ההתראה
+   * ‏בלעדיו. בלי זה הוא לא היה מקבל אותה בשום ערוץ.
+   */
+  it("‏מחזיק מקום שהוואטסאפ סגר את ההתראה בלעדיו — מייל", () => {
+    expect(due(true, false, true)).toBe(true);
+  });
+
+  /* ‏והכיוון ההפוך: קיבל בוואטסאפ, ואז איבד את המקום — לא פעמיים */
+  it("‏מי שכבר קיבל בוואטסאפ — לעולם לא גם במייל", () => {
+    expect(due(true, true, true)).toBe(false);
+    expect(due(false, true, true)).toBe(false);
+    expect(due(false, true, false)).toBe(false);
   });
 });

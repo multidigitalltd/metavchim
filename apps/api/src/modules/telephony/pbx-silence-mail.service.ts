@@ -4,7 +4,12 @@ import {
   type OnModuleDestroy,
   type OnModuleInit,
 } from "@nestjs/common";
-import { effectiveCapabilities, firstNameOf, pbxSilenceEmail } from "@metavchim/shared";
+import {
+  effectiveCapabilities,
+  firstNameOf,
+  pbxSilenceEmail,
+  pbxSilenceEmailDue,
+} from "@metavchim/shared";
 import { loadEnv } from "../../config/env";
 import { EmailService } from "../../core/email.service";
 import { PrismaService } from "../../core/prisma.service";
@@ -23,10 +28,13 @@ import { PrismaService } from "../../core/prisma.service";
  *
  * ## מי מקבל
  *
- * ‏משתמש פעיל בלי מקום בסוכן, **שרשאי לתקן** (`settings.manage` —
- * ‏אותה יכולת שהקישור בהתראה דורש). סוכן שאינו יכול לגשת להגדרות
- * ‏המרכזייה אינו מקבל מייל שאין לו מה לעשות איתו; הפעמון נשאר אצלו
- * ‏כמו היום.
+ * ‏מנהל פעיל **שרשאי לתקן** (`settings.manage` — אותה יכולת שהקישור
+ * ‏בהתראה דורש), ושההתראה **לא הגיעה אליו בוואטסאפ**: בלי מקום בסוכן
+ * ‏— מיד; עם מקום — רק אם סבב הוואטסאפ סגר אותה בלעדיו. ההחלטה נשענת
+ * ‏על מה שקרה בוואטסאפ ולא רק על המנוי, כדי ששינוי מנוי בין שני
+ * ‏הסבבים לא ישאיר מנהל בלי שום ערוץ או עם שניים — ראו
+ * ‏`pbxSilenceEmailDue`. סוכן שאינו יכול לגשת להגדרות המרכזייה אינו
+ * ‏מקבל מייל שאין לו מה לעשות איתו; הפעמון נשאר אצלו כמו היום.
  *
  * ## למה אין כאן חותמת „נשלח עד”
  *
@@ -94,14 +102,34 @@ export class PbxSilenceMailService implements OnModuleInit, OnModuleDestroy {
       const alerts = await this.prisma.withExplicitTenant(tenant.id, (tx) =>
         tx.notification.findMany({
           where: { tenantId: tenant.id, type: "pbx_silent", createdAt: { gte: since } },
-          select: { id: true, title: true, body: true },
+          select: { id: true, title: true, body: true, createdAt: true, whatsappAt: true },
         }),
       );
       if (alerts.length === 0) continue;
 
-      const recipients = await this.recipients(tenant.id, tenant.blockedModules, now);
+      const managers = await this.managers(tenant.id, tenant.blockedModules, now);
+      if (managers.length === 0) continue;
+      /*
+       * ‏עד היכן סבב הוואטסאפ כבר מסר לכל אחד — אותה חותמת שהסבב עצמו
+       * ‏נשען עליה כדי לא לשלוח פעמיים.
+       */
+      const chats = await this.prisma.withExplicitTenant(tenant.id, (tx) =>
+        tx.whatsAppChat.findMany({
+          where: { tenantId: tenant.id, userId: { in: managers.map((user) => user.id) } },
+          select: { userId: true, notifiedThrough: true },
+        }),
+      );
+      const deliveredThrough = new Map(chats.map((chat) => [chat.userId, chat.notifiedThrough]));
+
       for (const alert of alerts) {
-        for (const user of recipients) {
+        for (const user of managers) {
+          const through = deliveredThrough.get(user.id) ?? null;
+          const due = pbxSilenceEmailDue({
+            hasSeat: user.whatsappAccess,
+            receivedOnWhatsApp: through !== null && through >= alert.createdAt,
+            whatsappClosed: alert.whatsappAt !== null,
+          });
+          if (!due) continue;
           const mail = pbxSilenceEmail({
             firstName: firstNameOf(user.name),
             title: alert.title,
@@ -123,20 +151,20 @@ export class PbxSilenceMailService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * ‏מנהלי המשרד שאין להם מקום בסוכן — ראו „מי מקבל” למעלה.
+   * ‏מי במשרד רשאי לתקן את חיבור המרכזייה — ראו „מי מקבל” למעלה.
    *
    * ‏החריגים נקראים בתוך הקשר הדייר: `user_capabilities` תחת RLS,
    * ‏ושאילתה בלעדיו מחזירה אפס שורות בשקט — מנהל שהיכולת שלו הוענקה
    * ‏בחריג לא היה מקבל את המייל.
    */
-  private async recipients(
+  private async managers(
     tenantId: string,
     blockedModules: readonly string[],
     now: Date,
-  ): Promise<{ id: string; name: string; email: string }[]> {
+  ): Promise<{ id: string; name: string; email: string; whatsappAccess: boolean }[]> {
     const staff = await this.prisma.user.findMany({
-      where: { tenantId, isActive: true, whatsappAccess: false },
-      select: { id: true, name: true, email: true, role: true },
+      where: { tenantId, isActive: true },
+      select: { id: true, name: true, email: true, role: true, whatsappAccess: true },
     });
     if (staff.length === 0) return [];
     const overrides = await this.prisma.withExplicitTenant(tenantId, (tx) =>
