@@ -28,6 +28,8 @@
  */
 
 import { jerusalemWallParts, jerusalemWeekday } from "./israel-time.js";
+import type { EmailContent } from "./email-template.js";
+import { notificationUrl } from "./web-push.js";
 
 /* ==================== חלון הניטור ==================== */
 
@@ -236,5 +238,46 @@ export function pbxSilenceMessage(input: {
       input.lastInboundAt === null
         ? "מעולם לא נקלטה שיחה נכנסת מהמרכזייה. בדקו את כתובת הוובהוק בהגדרות הספק."
         : `לא נקלטה שיחה נכנסת כבר ${hours} שעות עבודה. אם התקשרו אליכם בזמן הזה — הוובהוק אצל ספק המרכזייה כנראה כבוי.`,
+  };
+}
+
+/**
+ * ‎**אותה התראה, במייל — למי שאינו מחזיק מקום בסוכן בוואטסאפ.**
+ *
+ * ‏בקשת המשתמש: מנוי על הסוכן מקבל את „המרכזייה השתתקה” בוואטסאפ,
+ * ‏ומי שאינו מנוי — במייל בלבד (`whatsappNeedsSeat`). הכותרת והגוף
+ * ‏הם אלה שנכתבו בשורת ההתראה, כדי שהפעמון, הוואטסאפ והמייל יאמרו
+ * ‏אותו דבר במילים זהות.
+ *
+ * ‏הכפתור מוביל לאותו יעד כמו הפעמון והוואטסאפ — `notificationUrl`,
+ * ‏ולא נתיב שנכתב כאן שוב.
+ */
+export function pbxSilenceEmail(input: {
+  firstName: string;
+  title: string;
+  body: string | null;
+  webOrigin: string;
+}): { subject: string; content: EmailContent } {
+  const origin = input.webOrigin.replace(/\/+$/u, "");
+  const path = notificationUrl({
+    type: "pbx_silent",
+    title: input.title,
+    body: input.body,
+    entityType: "integration",
+    entityId: null,
+  });
+  return {
+    subject: input.title,
+    content: {
+      heading: input.title,
+      greeting: `שלום ${input.firstName},`,
+      paragraphs: [
+        input.body ?? "",
+        "כדאי לבדוק בהגדרות אצל ספק המרכזייה שכתובת הוובהוק עדיין מוגדרת ופעילה.",
+      ].filter((paragraph) => paragraph !== ""),
+      button: { label: "לחיבורי המערכת", url: `${origin}${path}` },
+      footnote:
+        "המייל נשלח למנהלי המשרד שאין להם מקום בסוכן בוואטסאפ. אפשר לכבות את ההתראה בהגדרות, תחת „אוטומציות פנימיות”.",
+    },
   };
 }

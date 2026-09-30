@@ -5,6 +5,7 @@ import {
   monitoredHoursSince,
   PBX_SILENT_MIN_HOURS,
   pbxSilenceDedupeKey,
+  pbxSilenceEmail,
   pbxSilenceMessage,
   resolvePbxWatch,
   shouldAlertPbxSilence,
@@ -277,5 +278,37 @@ describe("דיוק הספירה בקצוות", () => {
         DEFAULT_PBX_WATCH,
       ),
     ).toBeCloseTo(0.5, 3);
+  });
+});
+
+describe("pbxSilenceEmail", () => {
+  const message = {
+    title: "לא נקלטו שיחות מהמרכזייה",
+    body: "לא נקלטה שיחה נכנסת כבר 5 שעות עבודה. אם התקשרו אליכם בזמן הזה — הוובהוק אצל ספק המרכזייה כנראה כבוי.",
+  };
+
+  it("אומר את מה שהפעמון והוואטסאפ אומרים — אותה כותרת ואותו גוף", () => {
+    const mail = pbxSilenceEmail({ firstName: "דנה", ...message, webOrigin: "https://app.example.co.il" });
+    expect(mail.subject).toBe(message.title);
+    expect(mail.content.heading).toBe(message.title);
+    expect(mail.content.greeting).toBe("שלום דנה,");
+    expect(mail.content.paragraphs[0]).toBe(message.body);
+  });
+
+  /*
+   * ‏הכפתור נוחת במסך החיבורים, בדיוק כמו הפעמון והוואטסאפ — ובלי
+   * ‏לוכסן כפול כשכתובת הבסיס מסתיימת בלוכסן.
+   */
+  it("הכפתור מוביל למסך החיבורים, גם כשהבסיס מסתיים בלוכסן", () => {
+    for (const webOrigin of ["https://app.example.co.il", "https://app.example.co.il/"]) {
+      const mail = pbxSilenceEmail({ firstName: "דנה", ...message, webOrigin });
+      expect(mail.content.button?.url).toBe("https://app.example.co.il/settings/integrations");
+    }
+  });
+
+  it("התראה בלי גוף אינה מייצרת פסקה ריקה", () => {
+    const mail = pbxSilenceEmail({ firstName: "דנה", title: message.title, body: null, webOrigin: "https://x.co.il" });
+    expect(mail.content.paragraphs.every((p) => p !== "")).toBe(true);
+    expect(mail.content.paragraphs).toHaveLength(1);
   });
 });

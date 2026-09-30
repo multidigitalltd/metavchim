@@ -14,6 +14,7 @@ import {
   parseWhatsAppNotifyPrefs,
   sessionWindowOpen,
   shouldNotifyByWhatsApp,
+  whatsappNeedsSeat,
   templateParams,
   templateLineParams,
   NOTIFY_TEMPLATE_LINES,
@@ -26,6 +27,9 @@ import {
 import { mentorMessageBody } from "./mentor.js";
 import { WA_BUTTON_TITLE_MAX } from "./whatsapp-buttons.js";
 import { agentAction } from "../agent/actions.js";
+
+/** נמען שמחזיק מקום בסוכן — המקרה הרגיל של כל הבדיקות כאן. */
+const SEAT = { hasSeat: true };
 
 const item = (over: Partial<NotifyItem> = {}): NotifyItem => ({
   type: "lead",
@@ -81,8 +85,8 @@ describe("notifyCategory", () => {
 
   it("מי שכיבה „התאמות” מפסיק לקבל גם את פתיחת ההצעה", () => {
     const prefs = parseWhatsAppNotifyPrefs({ categories: { matches: false } });
-    expect(shouldNotifyByWhatsApp("offer_opened", prefs)).toBe(false);
-    expect(shouldNotifyByWhatsApp("matches_found", prefs)).toBe(false);
+    expect(shouldNotifyByWhatsApp("offer_opened", prefs, SEAT)).toBe(false);
+    expect(shouldNotifyByWhatsApp("matches_found", prefs, SEAT)).toBe(false);
   });
 });
 
@@ -166,17 +170,41 @@ describe("shouldNotifyByWhatsApp", () => {
 
   it("המתג הראשי חוסם הכול כשכיבו אותו", () => {
     const off = { ...DEFAULT_WHATSAPP_NOTIFY_PREFS, enabled: false };
-    expect(shouldNotifyByWhatsApp("lead", off)).toBe(false);
+    expect(shouldNotifyByWhatsApp("lead", off, SEAT)).toBe(false);
   });
 
   it("קטגוריה שלא נכתבה נחשבת דלוקה", () => {
-    expect(shouldNotifyByWhatsApp("lead", on)).toBe(true);
+    expect(shouldNotifyByWhatsApp("lead", on, SEAT)).toBe(true);
   });
 
   it("קטגוריה שכובתה חוסמת רק את עצמה", () => {
     const prefs = { ...on, categories: { digests: false } };
-    expect(shouldNotifyByWhatsApp("daily_brief", prefs)).toBe(false);
-    expect(shouldNotifyByWhatsApp("call_missed", prefs)).toBe(true);
+    expect(shouldNotifyByWhatsApp("daily_brief", prefs, SEAT)).toBe(false);
+    expect(shouldNotifyByWhatsApp("call_missed", prefs, SEAT)).toBe(true);
+  });
+
+  /*
+   * ‏בקשת המשתמש: „רק מי שמנוי על הסוכן בוואטסאפ יקבל הודעה שהוובהוק
+   * ‏במרכזייה כנראה לא פעיל”. מי שאינו מנוי מקבל אותה במייל.
+   */
+  it("„המרכזייה השתתקה” יוצאת בוואטסאפ רק למחזיק מקום בסוכן", () => {
+    expect(shouldNotifyByWhatsApp("pbx_silent", on, { hasSeat: true })).toBe(true);
+    expect(shouldNotifyByWhatsApp("pbx_silent", on, { hasSeat: false })).toBe(false);
+  });
+
+  it("בלי מקום בסוכן — שאר ההתראות ממשיכות כרגיל", () => {
+    expect(shouldNotifyByWhatsApp("call_missed", on, { hasSeat: false })).toBe(true);
+    expect(shouldNotifyByWhatsApp("lead", on, { hasSeat: false })).toBe(true);
+  });
+
+  it("מקום בסוכן אינו עוקף מתג שכובה", () => {
+    const callsOff = { ...on, categories: { calls: false } };
+    expect(shouldNotifyByWhatsApp("pbx_silent", callsOff, { hasSeat: true })).toBe(false);
+  });
+
+  it("רק „המרכזייה השתתקה” דורשת מקום", () => {
+    expect(whatsappNeedsSeat("pbx_silent")).toBe(true);
+    expect(whatsappNeedsSeat("call_missed")).toBe(false);
   });
 });
 

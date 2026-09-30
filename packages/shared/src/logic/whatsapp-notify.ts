@@ -318,11 +318,34 @@ export function parseWhatsAppNotifyPrefs(raw: unknown): WhatsAppNotifyPrefs {
   };
 }
 
+/**
+ * ‎**סוגים שיוצאים בוואטסאפ רק למי שמחזיק מקום בסוכן** (`whatsappAccess`).
+ *
+ * ‏בעל המשרד מקבל את דחיפות הוואטסאפ גם בלי מקום — וזה נכון לרוב
+ * ‏ההתראות. „המרכזייה השתתקה” היא חריג (בקשת המשתמש): מי שאינו מנוי
+ * ‏על הסוכן מקבל אותה **במייל בלבד** (`PbxSilenceMailService` ב-API),
+ * ‏ולא בתבנית וואטסאפ מאדם שאינו משוחח עם הבוט.
+ */
+const SEAT_ONLY_TYPES: ReadonlySet<string> = new Set(["pbx_silent"]);
+
+/** האם סוג ההתראה יוצא בוואטסאפ רק למחזיקי מקום בסוכן. */
+export function whatsappNeedsSeat(type: string): boolean {
+  return SEAT_ONLY_TYPES.has(type);
+}
+
+/**
+ * ‎`recipient.hasSeat` הוא **חובה ולא אופציונלי**: הסבב קורא לפונקציה
+ * ‏בשני מקומות — בבחירת מה לשלוח ובסגירת מה שכבר טופל — ופרמטר שאפשר
+ * ‏להשמיט היה נשכח באחד מהם. אז התראה הייתה נשלחת לפי כלל אחד ונסגרת
+ * ‏לפי כלל אחר.
+ */
 export function shouldNotifyByWhatsApp(
   type: string,
   prefs: WhatsAppNotifyPrefs,
+  recipient: { hasSeat: boolean },
 ): boolean {
   if (!prefs.enabled) return false;
+  if (!recipient.hasSeat && whatsappNeedsSeat(type)) return false;
   // קטגוריה שלא נכתבה = דלוקה: מי שהדליק את המתג רוצה הכול, אלא אם כיבה
   return prefs.categories[notifyCategory(type)] !== false;
 }

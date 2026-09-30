@@ -132,6 +132,16 @@ export interface EmailQuote {
  * כלומר קלט של אדם. שם שמכיל `<` היה שובר את המבנה, ותוכן ממוקד
  * יותר היה יכול להזריק קישור לגוף ההודעה.
  */
+/**
+ * ‏השם הפרטי מתוך שם מלא — ל„שלום דנה,” בפתיחת מייל.
+ *
+ * ‏היה עותק פרטי בכל סבב מייל; שני עותקים של אותה שורה נפרדים ביום
+ * ‏שמישהו מתקן אחד מהם (שם עם רווח מוביל, שם ריק).
+ */
+export function firstNameOf(name: string): string {
+  return name.trim().split(/\s+/u)[0] ?? "";
+}
+
 export function escapeHtml(value: string): string {
   return value
     .replace(/&/gu, "&amp;")
