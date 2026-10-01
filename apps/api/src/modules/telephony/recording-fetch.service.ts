@@ -2,8 +2,6 @@ import {
   BadRequestException,
   Injectable,
   Logger,
-  OnModuleDestroy,
-  OnModuleInit,
 } from "@nestjs/common";
 import {
   build015RecordingsListUrl,
@@ -43,6 +41,7 @@ import { CryptoService } from "../../core/crypto.service";
 import { PrismaService } from "../../core/prisma.service";
 import { StorageService } from "../../core/storage.service";
 import { TranscriptionService } from "../voice-intake/transcription.service";
+import { Sweep } from "../../core/sweeps";
 
 /**
  * משיכת ההקלטות מהמרכזייה אל האחסון שלנו.
@@ -289,12 +288,8 @@ interface RecordingJob {
 }
 
 @Injectable()
-export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
+export class RecordingFetchService {
   private readonly logger = new Logger(RecordingFetchService.name);
-  private timer: NodeJS.Timeout | null = null;
-  private first: NodeJS.Timeout | null = null;
-  /** סבב אחד בכל רגע — שניים היו מושכים את אותן שורות פעמיים. */
-  private running = false;
   /**
    * ‎**מי פותח את הסבב הבא.**
    *
@@ -360,23 +355,8 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
     private readonly transcription: TranscriptionService,
   ) {}
 
-  onModuleInit(): void {
-    this.first = setTimeout(() => {
-      void this.tick();
-      this.timer = setInterval(() => void this.tick(), TICK_MS);
-    }, FIRST_TICK_DELAY_MS);
-    // אחרת התהליך לא יוצא בבדיקות ובסקריפטים קצרים
-    this.first.unref?.();
-  }
-
-  onModuleDestroy(): void {
-    if (this.first) clearTimeout(this.first);
-    if (this.timer) clearInterval(this.timer);
-  }
-
+  @Sweep({ name: "recording-fetch", everyMs: TICK_MS, firstDelayMs: FIRST_TICK_DELAY_MS })
   async tick(): Promise<void> {
-    if (this.running) return;
-    this.running = true;
     try {
       const jobs = await this.pending();
       /*
@@ -449,8 +429,6 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
        * רקע לא אמור להיות מסוגל לעשות את זה (ביקורת Codex).
        */
       this.logger.error(`סבב משיכת ההקלטות נכשל: ${String(error)}`);
-    } finally {
-      this.running = false;
     }
   }
 

@@ -1,7 +1,8 @@
-import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import { ulid } from "ulid";
 import { PrismaService } from "../../core/prisma.service";
 import { WhatsAppConnectionService, type ExpiredLine } from "./whatsapp-connection.service";
+import { Sweep } from "../../core/sweeps";
 
 /**
  * כל שש שעות. הטוקן חי 60 יום והרענון מתחיל שבועיים לפני הסוף,
@@ -40,40 +41,24 @@ const FIRST_SWEEP_DELAY_MS = 90 * 1000;
  * ורוב הסבבים אינם מוצאים אף אחד.
  */
 @Injectable()
-export class WhatsAppTokenRefreshService implements OnModuleInit, OnModuleDestroy {
+export class WhatsAppTokenRefreshService {
   private readonly logger = new Logger(WhatsAppTokenRefreshService.name);
-  private timer: NodeJS.Timeout | null = null;
-  private kickoff: NodeJS.Timeout | null = null;
-  private running = false;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly connections: WhatsAppConnectionService,
   ) {}
 
-  onModuleInit(): void {
-    this.kickoff = setTimeout(() => {
-      void this.tick();
-      this.timer = setInterval(() => void this.tick(), SWEEP_INTERVAL_MS);
-    }, FIRST_SWEEP_DELAY_MS);
-    // אחרת התהליך לא יוצא בבדיקות ובסקריפטים קצרים
-    this.kickoff.unref?.();
-  }
-
-  onModuleDestroy(): void {
-    if (this.kickoff) clearTimeout(this.kickoff);
-    if (this.timer) clearInterval(this.timer);
-  }
-
+  @Sweep({
+    name: "whatsapp-token-refresh",
+    everyMs: SWEEP_INTERVAL_MS,
+    firstDelayMs: FIRST_SWEEP_DELAY_MS,
+  })
   private async tick(): Promise<void> {
-    if (this.running) return;
-    this.running = true;
     try {
       await this.sweep();
     } catch (error: unknown) {
       this.logger.error(`סבב רענון טוקני וואטסאפ נכשל: ${String(error)}`);
-    } finally {
-      this.running = false;
     }
   }
 

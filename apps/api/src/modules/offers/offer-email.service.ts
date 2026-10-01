@@ -4,8 +4,6 @@ import {
   Injectable,
   Logger,
   NotFoundException,
-  OnModuleDestroy,
-  OnModuleInit,
 } from "@nestjs/common";
 import { randomBytes } from "node:crypto";
 import { ulid } from "ulid";
@@ -28,6 +26,7 @@ import { ContactsService } from "../contacts/contacts.service";
 import { EmailInboxService } from "../email-inbox/email-inbox.service";
 import { ExclusivityService } from "../exclusivity/exclusivity.service";
 import { OffersService } from "./offers.service";
+import { Sweep } from "../../core/sweeps";
 
 /**
  * כל עשר דקות — מהיר מספיק כדי ש"נכס חדש" יגיע ללקוח בעודו חדשות,
@@ -130,11 +129,8 @@ interface OutgoingOffer {
  * מפוענח באותה שכבה. הסבב זול — שאילתות ספורות למשרד.
  */
 @Injectable()
-export class OfferEmailService implements OnModuleInit, OnModuleDestroy {
+export class OfferEmailService {
   private readonly logger = new Logger(OfferEmailService.name);
-  private timer: NodeJS.Timeout | null = null;
-  private kickoff: NodeJS.Timeout | null = null;
-  private running = false;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -148,29 +144,12 @@ export class OfferEmailService implements OnModuleInit, OnModuleDestroy {
     private readonly outbox: OutboxService,
   ) {}
 
-  onModuleInit(): void {
-    this.kickoff = setTimeout(() => {
-      void this.tick();
-      this.timer = setInterval(() => void this.tick(), SWEEP_INTERVAL_MS);
-    }, FIRST_SWEEP_DELAY_MS);
-    // אחרת התהליך לא יוצא בבדיקות ובסקריפטים קצרים
-    this.kickoff.unref?.();
-  }
-
-  onModuleDestroy(): void {
-    if (this.kickoff) clearTimeout(this.kickoff);
-    if (this.timer) clearInterval(this.timer);
-  }
-
+  @Sweep({ name: "offer-email", everyMs: SWEEP_INTERVAL_MS, firstDelayMs: FIRST_SWEEP_DELAY_MS })
   private async tick(): Promise<void> {
-    if (this.running) return;
-    this.running = true;
     try {
       await this.sweep();
     } catch (error: unknown) {
       this.logger.error(`סבב הצעות אוטומטיות נכשל: ${String(error)}`);
-    } finally {
-      this.running = false;
     }
   }
 

@@ -1,8 +1,6 @@
 import {
   Injectable,
   Logger,
-  type OnModuleDestroy,
-  type OnModuleInit,
 } from "@nestjs/common";
 import {
   effectiveCapabilities,
@@ -13,6 +11,7 @@ import {
 import { loadEnv } from "../../config/env";
 import { EmailService } from "../../core/email.service";
 import { PrismaService } from "../../core/prisma.service";
+import { Sweep } from "../../core/sweeps";
 
 /**
  * ‎**„המרכזייה השתתקה” במייל — למי שאינו מחזיק מקום בסוכן בוואטסאפ.**
@@ -52,41 +51,22 @@ const FIRST_TICK_DELAY_MS = 3 * 60 * 1000;
 const LOOKBACK_MS = 6 * 60 * 60 * 1000;
 
 @Injectable()
-export class PbxSilenceMailService implements OnModuleInit, OnModuleDestroy {
+export class PbxSilenceMailService {
   private readonly logger = new Logger(PbxSilenceMailService.name);
-  private timer: NodeJS.Timeout | null = null;
-  private first: NodeJS.Timeout | null = null;
-  private running = false;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly email: EmailService,
   ) {}
 
-  onModuleInit(): void {
-    this.first = setTimeout(() => {
-      void this.tick();
-      this.timer = setInterval(() => void this.tick(), TICK_MS);
-    }, FIRST_TICK_DELAY_MS);
-    this.first.unref?.();
-  }
-
-  onModuleDestroy(): void {
-    if (this.first) clearTimeout(this.first);
-    if (this.timer) clearInterval(this.timer);
-  }
-
   /** סבב אחד. ציבורי כדי שבדיקה תוכל להריץ אותו בלי לחכות. */
+  @Sweep({ name: "pbx-silence-mail", everyMs: TICK_MS, firstDelayMs: FIRST_TICK_DELAY_MS })
   async tick(now: Date = new Date()): Promise<void> {
-    if (this.running) return;
-    this.running = true;
     try {
       if (!(await this.email.isConfigured())) return;
       await this.sendPending(now);
     } catch (error: unknown) {
       this.logger.error(`סבב המייל על שתיקת המרכזייה נכשל: ${String(error)}`);
-    } finally {
-      this.running = false;
     }
   }
 

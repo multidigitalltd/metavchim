@@ -1,4 +1,4 @@
-import { Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import {
   digestDedupeKey,
   digestManagerDedupeKey,
@@ -24,6 +24,7 @@ import { PrismaService } from "../../core/prisma.service";
 import { PlatformSettingsService } from "../../core/platform-settings.service";
 import { WhatsAppSendService } from "../messaging/whatsapp-send.service";
 import { AnalyticsService } from "./analytics.service";
+import { Sweep } from "../../core/sweeps";
 
 /**
  * ‎**הסיכום החודשי לסוכן — מה הוא עשה, ואיפה הוא עומד.**
@@ -63,11 +64,8 @@ interface Skipped {
 }
 
 @Injectable()
-export class OfficeDigestService implements OnModuleInit, OnModuleDestroy {
+export class OfficeDigestService {
   private readonly logger = new Logger(OfficeDigestService.name);
-  private timer: NodeJS.Timeout | null = null;
-  private first: NodeJS.Timeout | null = null;
-  private running = false;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -77,20 +75,6 @@ export class OfficeDigestService implements OnModuleInit, OnModuleDestroy {
     private readonly platformSettings: PlatformSettingsService,
   ) {}
 
-  onModuleInit(): void {
-    this.first = setTimeout(() => {
-      void this.tick();
-      this.timer = setInterval(() => void this.tick(), SWEEP_INTERVAL_MS);
-    }, FIRST_SWEEP_DELAY_MS);
-    /* ‏אחרת התהליך לא יוצא בבדיקות ובסקריפטים קצרים */
-    this.first.unref?.();
-  }
-
-  onModuleDestroy(): void {
-    if (this.first) clearTimeout(this.first);
-    if (this.timer) clearInterval(this.timer);
-  }
-
   /**
    * ‎**הסבב אינו בודק „האם היום הראשון בחודש”.**
    *
@@ -99,22 +83,17 @@ export class OfficeDigestService implements OnModuleInit, OnModuleDestroy {
    * ‏הייתה הופכת תקלת תשתית לחודש בלי סיכום. כאן הסבב הראשון
    * ‏שרץ אחרי תחילת החודש שולח, וכל השאר לא עושים דבר.
    */
+  @Sweep({ name: "office-digest", everyMs: SWEEP_INTERVAL_MS, firstDelayMs: FIRST_SWEEP_DELAY_MS })
   private async tick(): Promise<void> {
-    if (this.running) return;
-    this.running = true;
-    try {
-      const tenants = await this.prisma.tenant.findMany({
-        where: { status: { in: ["active", "trial"] } },
-        select: { id: true },
+    const tenants = await this.prisma.tenant.findMany({
+      where: { status: { in: ["active", "trial"] } },
+      select: { id: true },
+    });
+    for (const tenant of tenants) {
+      await this.sweepTenant(tenant.id).catch((err: unknown) => {
+        /* ‏משרד שנכשל אינו מפיל את השאר — אבל גם אינו נבלע */
+        this.logger.error(`סיכום חודשי נכשל למשרד ${tenant.id}: ${String(err)}`);
       });
-      for (const tenant of tenants) {
-        await this.sweepTenant(tenant.id).catch((err: unknown) => {
-          /* ‏משרד שנכשל אינו מפיל את השאר — אבל גם אינו נבלע */
-          this.logger.error(`סיכום חודשי נכשל למשרד ${tenant.id}: ${String(err)}`);
-        });
-      }
-    } finally {
-      this.running = false;
     }
   }
 

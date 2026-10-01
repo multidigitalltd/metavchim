@@ -1,4 +1,5 @@
 import { Global, Module } from "@nestjs/common";
+import { DiscoveryModule } from "@nestjs/core";
 import { ActivationNudgeService } from "./activation-nudge.service";
 import { AuditService } from "./audit.service";
 import { AutomationQuotaService } from "./automation-quota.service";
@@ -22,12 +23,15 @@ import { TaxTablesService } from "./tax-tables.service";
 import { OutboxService } from "./outbox.service";
 import { PrismaService } from "./prisma.service";
 import { StorageService } from "./storage.service";
+import { SweepScheduler } from "./sweeps";
 import { TenantLogoService } from "./tenant-logo.service";
 import { VatService } from "./vat.service";
 
 /** שירותי תשתית רוחביים — זמינים לכל מודול בלי ייבוא חוזר. */
 @Global()
 @Module({
+  /* ‏`SweepScheduler` מוצא את הסבבים בכל הספקים — ראו `sweeps.ts` */
+  imports: [DiscoveryModule],
   providers: [
     PrismaService,
     CryptoService,
@@ -60,6 +64,7 @@ import { VatService } from "./vat.service";
     StorageService,
     TenantLogoService,
     VatService,
+    SweepScheduler,
   ],
   exports: [
     PrismaService,

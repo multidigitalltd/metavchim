@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import { randomBytes } from "node:crypto";
 import { ulid } from "ulid";
 import {
@@ -16,6 +16,7 @@ import { EmailService } from "./email.service";
 import { PlanCatalogService } from "./plan-catalog.service";
 import { PlatformSettingsService } from "./platform-settings.service";
 import { PrismaService } from "./prisma.service";
+import { Sweep } from "./sweeps";
 
 /** פעם בשעה — החלון נמדד בימים, כמו בהזמנה לשיחת ההיכרות. */
 const SWEEP_INTERVAL_MS = 60 * 60 * 1000;
@@ -66,11 +67,8 @@ const MAX_SENDS_PER_SWEEP = 200;
  * ולא שולח. שליחה שנכשלה לפני שאיש קיבל משחררת את הסימון.
  */
 @Injectable()
-export class ActivationNudgeService implements OnModuleInit, OnModuleDestroy {
+export class ActivationNudgeService {
   private readonly logger = new Logger(ActivationNudgeService.name);
-  private timer: NodeJS.Timeout | null = null;
-  private kickoff: NodeJS.Timeout | null = null;
-  private running = false;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -79,28 +77,16 @@ export class ActivationNudgeService implements OnModuleInit, OnModuleDestroy {
     private readonly settings: PlatformSettingsService,
   ) {}
 
-  onModuleInit(): void {
-    this.kickoff = setTimeout(() => {
-      void this.tick();
-      this.timer = setInterval(() => void this.tick(), SWEEP_INTERVAL_MS);
-    }, FIRST_SWEEP_DELAY_MS);
-    this.kickoff.unref?.();
-  }
-
-  onModuleDestroy(): void {
-    if (this.kickoff) clearTimeout(this.kickoff);
-    if (this.timer) clearInterval(this.timer);
-  }
-
+  @Sweep({
+    name: "activation-nudge",
+    everyMs: SWEEP_INTERVAL_MS,
+    firstDelayMs: FIRST_SWEEP_DELAY_MS,
+  })
   private async tick(): Promise<void> {
-    if (this.running) return;
-    this.running = true;
     try {
       await this.sweep(new Date());
     } catch (error: unknown) {
       this.logger.error(`סבב תזכורות ההפעלה נכשל: ${String(error)}`);
-    } finally {
-      this.running = false;
     }
   }
 
