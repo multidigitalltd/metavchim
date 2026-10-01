@@ -10,6 +10,7 @@ export * from "./schemas/offer.js";
 export * from "./schemas/mentor.js";
 export * from "./schemas/forum.js";
 export * from "./schemas/signup.js";
+export * from "./logic/aes-gcm.js";
 export * from "./logic/audio-format.js";
 export * from "./logic/readiness.js";
 export * from "./logic/matching.js";

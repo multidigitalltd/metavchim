@@ -6,6 +6,7 @@ import {
 } from "@nestjs/common";
 import { ulid } from "ulid";
 import {
+  firstNameOf,
   jerusalemDayStart,
   jerusalemMonthStart,
   jerusalemWallIsoToUtc,
@@ -1143,7 +1144,3 @@ export class MentorReviewService implements OnModuleInit, OnModuleDestroy {
   }
 }
 
-/** השם הפרטי מתוך השם המלא — לפנייה אישית; ריק כשאין שם. */
-function firstNameOf(name: string | null | undefined): string {
-  return (name ?? "").trim().split(/\s+/u)[0] ?? "";
-}
