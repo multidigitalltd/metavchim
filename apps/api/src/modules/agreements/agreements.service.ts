@@ -7,7 +7,7 @@ import {
 } from "@nestjs/common";
 import { createHash, randomBytes } from "node:crypto";
 import { ulid } from "ulid";
-import { AGREEMENT_KIND_LABELS, AGREEMENT_KINDS_ON_PROPERTY, BuyerRequirementsSchema, agreementAllowsOpenLink, agreementDealLabel, agreementRequiresProperty, jerusalemDayStart, OPEN_SIGNER_PLACEHOLDERS, openSignerBlanks, pendingAgreementRank, pendingAgreementState, REQUIRED_PLACEHOLDERS, SIGNER_BLANK, SIGNER_PROVIDED_PLACEHOLDERS, defaultAgreementTemplate, fillSignerId, formatIsraeliNumber, formatJerusalemDate, renderAgreement, type AgreementKind, type AgreementValues, type PendingAgreementState, whatsappLink } from "@metavchim/shared";
+import { AGREEMENT_KIND_LABELS, AGREEMENT_KINDS_ON_PROPERTY, BuyerRequirementsSchema, agreementAllowsOpenLink, agreementDealLabel, agreementRequiresProperty, jerusalemDayStart, OPEN_SIGNER_PLACEHOLDERS, openSignerBlanks, pendingAgreementRank, pendingAgreementState, REQUIRED_PLACEHOLDERS, SIGNER_ADDRESS_BLANK, SIGNER_BLANK, SIGNER_PROVIDED_PLACEHOLDERS, defaultAgreementTemplate, fillSignerAddress, fillSignerId, formatIsraeliNumber, formatJerusalemDate, renderAgreement, type AgreementKind, type AgreementValues, type PendingAgreementState, whatsappLink } from "@metavchim/shared";
 import {
   actionablePropertyIds,
   propertyRecordInScope,
@@ -88,6 +88,11 @@ export interface PublicAgreementView {
    * ‏בשני המקרים. השרת יודע, כי אצלו יושב הנוסח הקפוא.
    */
   openLink: boolean;
+  /**
+   * ‏הסכם רגיל שבנוסח שלו שורה לכתובת הלקוח — המסך מבקש אותה.
+   * ‏הסכם שנשלח לפני שהשורה נוספה אינו מבקש, כי אין לה מקום בו.
+   */
+  asksAddress: boolean;
 }
 
 /**
@@ -872,7 +877,18 @@ export class AgreementsService {
        * חוסר ההתאמה הזה (ביקורת Codex).
        */
       תעודת_זהות_הלקוח: SIGNER_BLANK,
+      /*
+       * ‏הכתובת — שורה לחותם, כי אין לה מקור אחר במערכת (ראו
+       * ‏`SIGNER_ADDRESS_BLANK`). כתובת שהשולח כבר מסר נשארת: בניגוד
+       * ‏למספר הזהות אין לה עמודה נפרדת שהמסמך עלול לסתור.
+       */
+      כתובת_הלקוח: input.values?.כתובת_הלקוח?.trim() || SIGNER_ADDRESS_BLANK,
     };
+  }
+
+  /** ‏האם טופס החתימה מבקש כתובת — כלל אחד לתצוגה ולחתימה. */
+  private static asksAddress(row: { signerTemplate: string | null; renderedBody: string }): boolean {
+    return row.signerTemplate === null && row.renderedBody.includes(SIGNER_ADDRESS_BLANK);
   }
 
   /** תצוגת ההסכם ללקוח החותם — בלי הקשר דייר. */
@@ -912,6 +928,7 @@ export class AgreementsService {
         signerName: row.signerName ?? undefined,
         bodyHash: row.bodyHash,
         openLink: row.signerTemplate !== null,
+        asksAddress: AgreementsService.asksAddress(row),
       };
     });
   }
@@ -930,6 +947,8 @@ export class AgreementsService {
     input: {
       signerName: string;
       signerIdNumber: string;
+      /** הסכם רגיל שמבקש כתובת — ראו `asksAddress`. */
+      signerAddress?: string;
       /** קישור פתוח בלבד — שאר השדות שהחותם מילא. ראו `OpenSignerAnswers`. */
       open?: OpenSignerAnswers;
       signatureImage?: string;
@@ -1012,6 +1031,9 @@ export class AgreementsService {
       if (row.signerTemplate === null && input.open !== undefined) {
         throw new BadRequestException("ההסכם הזה הופק על לקוח ונכס מסוימים — פרטיו כבר בתוכו");
       }
+      if (AgreementsService.asksAddress(row) && (input.signerAddress ?? "").trim() === "") {
+        throw new BadRequestException("יש למלא כתובת מגורים לפני החתימה");
+      }
 
       const signedAt = new Date();
       /*
@@ -1033,7 +1055,10 @@ export class AgreementsService {
        */
       const finalBody =
         row.signerTemplate === null
-          ? fillSignerId(row.renderedBody, input.signerIdNumber)
+          ? fillSignerAddress(
+              fillSignerId(row.renderedBody, input.signerIdNumber),
+              input.signerAddress ?? "",
+            )
           : renderAgreement(
               row.signerTemplate,
               openSignerValues(input.signerName, input.signerIdNumber, input.open),

@@ -45,6 +45,9 @@ const SendSchema = z.object({ channel: z.enum(["whatsapp", "email"]) }).strict()
  */
 const CreateOpenSchema = z.object({ kind: z.enum(AGREEMENT_KINDS) }).strict();
 
+/** ‏כתובת מגורים שהחותם מזין — אותו כלל בהסכם רגיל ובקישור פתוח. */
+const SignerAddressSchema = z.string().min(2).max(200);
+
 /*
  * "מספר זיהוי" בתקנות אינו בהכרח תעודת זהות ישראלית — רוכשים תושבי
  * חוץ נפוצים בשוק, והמספר שלהם הוא דרכון עם אותיות. ולידציה של
@@ -54,6 +57,8 @@ const SignSchema = z
   .object({
     signerName: z.string().min(2).max(120),
     signerIdNumber: z.string().regex(/^[0-9A-Za-z]{5,20}$/u, "מספר הזיהוי אינו תקין"),
+    /** ‏הסכם רגיל שמבקש כתובת — רשות כאן, חובה בשירות (רק לו יש את השורה). */
+    signerAddress: SignerAddressSchema.optional(),
     confirmed: z.literal(true),
     /*
      * החתימה המצוירת — רשות בסכמה, חובה במסך.
@@ -75,7 +80,7 @@ const SignSchema = z
      */
     open: z
       .object({
-        address: z.string().min(2).max(200),
+        address: SignerAddressSchema,
         /*
          * ‎**`PhoneInputSchema` ולא מחרוזת** (ביקורת Codex, P1).
          *
@@ -245,6 +250,7 @@ export class AgreementsController {
     return this.agreements.sign(token, {
       signerName: body.signerName,
       signerIdNumber: body.signerIdNumber,
+      ...(body.signerAddress !== undefined ? { signerAddress: body.signerAddress } : {}),
       ...(body.open !== undefined ? { open: body.open } : {}),
       ...(body.signatureImage !== undefined ? { signatureImage: body.signatureImage } : {}),
       ip: req.ip,
