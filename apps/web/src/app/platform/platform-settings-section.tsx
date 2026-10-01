@@ -763,7 +763,7 @@ export function PlatformSettingsSection({
     setError(null);
     try {
       await apiPatch("/platform/settings", { geocodingProvider: provider });
-      await load();
+      load();
     } catch (err: unknown) {
       setError(err instanceof ApiError ? err.message : "שמירת הספק נכשלה");
     } finally {
@@ -777,7 +777,7 @@ export function PlatformSettingsSection({
     setError(null);
     try {
       await apiPatch("/platform/settings", { [key]: String(raw ?? "").trim() });
-      await load();
+      load();
     } catch (err: unknown) {
       setError(err instanceof ApiError ? err.message : "השמירה נכשלה");
     } finally {
@@ -799,7 +799,7 @@ export function PlatformSettingsSection({
       await apiPatch("/platform/settings", {
         referralFeePercent: text === "" ? "" : Number(text),
       });
-      await load();
+      load();
       /*
        * העמלה הזו היא `feeCreditsPercent` של כלכלת הרשת, שמוצגת
        * בסקציה אחרת. בלי ההודעה הזו האזהרה שם נשארת על המצב הישן

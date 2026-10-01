@@ -617,7 +617,7 @@ export class ListingsService {
         where: { tenantId, originPropertyId: propertyId, status: "active" },
       }),
     );
-    return row === null ? null : await this.toDto(row, tenantId);
+    return row === null ? null : this.toDto(row, tenantId);
   }
 
   /**
@@ -700,7 +700,7 @@ export class ListingsService {
       tx.sharedListing.findFirst({ where: { id } }),
     );
     if (!row) throw new NotFoundException("פרסום לא נמצא");
-    return await this.toDto(row, tenantId);
+    return this.toDto(row, tenantId);
   }
 
   private toDto(
@@ -997,7 +997,7 @@ export class ListingsService {
      */
     return await Promise.all(
       visible.map(async (row) => {
-        const dto = await this.toDto(row, tenantId, offices.get(row.tenantId));
+        const dto = this.toDto(row, tenantId, offices.get(row.tenantId));
         if (dto.mine) return dto;
         const matches = this.matchOwnBuyers(buyers, names, row);
         return {
