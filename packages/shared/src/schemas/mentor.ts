@@ -4,7 +4,6 @@ import {
   MENTOR_GOAL_PERIODS,
   MENTOR_GOAL_TARGET_MAX,
 } from "../logic/mentor.js";
-import { IdSchema } from "./common.js";
 import { MENTOR_NAME_MAX, MENTOR_STYLES } from "../logic/mentor-persona.js";
 
 /**
@@ -43,16 +42,6 @@ export const MentorGoalInputSchema = z.object({
 });
 export type MentorGoalInput = z.infer<typeof MentorGoalInputSchema>;
 
-export const MentorGoalSchema = MentorGoalInputSchema.extend({
-  id: IdSchema,
-  tenantId: IdSchema,
-  /** היעד הוא של המתווך, לא של המשרד — מנהל אינו קובע יעד לסוכן דרך המנטור */
-  userId: IdSchema,
-  createdAt: z.date(),
-  /** יעד שהופסק נשמר להיסטוריה — הסיכומים שכבר נאמרו עליו לא נעלמים */
-  endedAt: z.date().nullable(),
-});
-export type MentorGoal = z.infer<typeof MentorGoalSchema>;
 
 /**
  * הפרסונה של המנטור — שם וסגנון (docs/14 §4.1). נשמרת ב-`preferences.mentor`

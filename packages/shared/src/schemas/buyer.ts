@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { IdSchema, MoneyAgorotSchema } from "./common.js";
+import { MoneyAgorotSchema } from "./common.js";
 import { PropertyTypeSchema, DealTypeSchema } from "./property.js";
 import { FLOOR_CHOICES, FLOOR_MAX, FLOOR_MIN } from "../logic/floor-preference.js";
 import {
@@ -190,19 +190,3 @@ export const BuyerRequirementsSchema = z.object({
 });
 export type BuyerRequirements = z.infer<typeof BuyerRequirementsSchema>;
 
-export const BuyerSchema = z.object({
-  id: IdSchema,
-  tenantId: IdSchema,
-  contactId: IdSchema,
-  requirements: BuyerRequirementsSchema,
-  financing: FinancingStatusSchema.default("unknown"),
-  maturity: BuyerMaturitySchema,
-  /** דריסה ידנית של המתווך גוברת על החישוב האוטומטי. */
-  maturityOverridden: z.boolean().default(false),
-  source: z.string().max(60),
-  aiNotes: z.string().max(4000).optional(),
-  agentNotes: z.string().max(4000).optional(),
-  createdAt: z.coerce.date(),
-  updatedAt: z.coerce.date(),
-});
-export type Buyer = z.infer<typeof BuyerSchema>;

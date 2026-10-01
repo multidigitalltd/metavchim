@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { IdSchema } from "./common.js";
 
 export const LeadSourceSchema = z.enum([
   "voice_call",
@@ -105,23 +104,3 @@ export function leadSourceText(source: string, sourceNote?: string | null): stri
 /** סטטוסים שבהם הליד עדיין "חי" — פנייה נוספת מצטרפת אליו במקום לפצל ציר זמן. */
 export const OPEN_LEAD_STATUSES: readonly LeadStatus[] = ["new", "in_progress", "waiting_customer"];
 
-export const LeadSchema = z.object({
-  id: IdSchema,
-  tenantId: IdSchema,
-  contactId: IdSchema,
-  source: LeadSourceSchema,
-  /** ‏הטקסט החופשי של „אחר”. קצר בכוונה — תווית, לא סיפור. */
-  sourceNote: z.string().trim().max(60).optional(),
-  intent: LeadIntentSchema,
-  status: LeadStatusSchema,
-  assignedToUserId: IdSchema.optional(),
-  /** ליד שהסוכן הקולי/הבוט סימן כרגיש — חובת מגע אנושי, מוצג באדום בדשבורד. */
-  requiresHuman: z.boolean().default(false),
-  requiresHumanReason: z.string().max(500).optional(),
-  propertyId: IdSchema.optional(),
-  summary: z.string().max(2000).optional(),
-  firstResponseAt: z.coerce.date().optional(),
-  createdAt: z.coerce.date(),
-  updatedAt: z.coerce.date(),
-});
-export type Lead = z.infer<typeof LeadSchema>;
