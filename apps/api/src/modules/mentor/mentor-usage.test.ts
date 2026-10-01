@@ -99,8 +99,7 @@ function harness(opts: {
       {
         tenantId: TENANT,
         userId: USER,
-        role: "agent",
-        permissions: new Set<string>(),
+        capabilities: new Set(),
         billingOnly: false,
       },
       fn,

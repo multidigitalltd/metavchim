@@ -18,6 +18,7 @@ const goal: MentorGoalProgress = {
   expected: 4,
   pace: "behind",
   remaining: 3,
+  periodStart: new Date("2026-09-05T21:00:00.000Z"),
   why: "הדירה של הילדים",
   intention: "כל בוקר ב-11:00",
 };
@@ -35,6 +36,7 @@ const base: MentorChatContext = {
     reflection: "מה עצר את ההצעות השבוע?",
     weekLabel: "שבוע שעבר",
     reflectionAnswer: null,
+    greeting: null,
   },
   history: [
     { role: "user", text: "איך היה השבוע?" },

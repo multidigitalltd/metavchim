@@ -107,14 +107,21 @@ function agreementsService(rows: AgreementRow[]): AgreementsService {
     getById: async () => ({ id: SHARED, name: "בעל הנכס", phone: "+972501234567" }),
     getByIds: async () => new Map([[SHARED, { name: "בעל הנכס" }]]),
   };
+  /*
+   * ‏לפי סדר הבנאי. `buyers` נוסף לבנאי במקום השלישי אחרי שהבדיקה
+   * ‏נכתבה, והזיוף של יומן הביקורת המשיך להיכנס למקומו — כלומר
+   * ‏`audit` קיבל `{}`. המסלולים כאן נדחים לפני הכתיבה ולכן זה לא
+   * ‏נראה; בדיקת הטיפוסים של הבדיקות היא שגילתה.
+   */
   return new AgreementsService(
     prisma as never,
     contacts as never,
-    { record: async () => undefined } as never,
-    {} as never,
-    {} as never,
-    {} as never,
-    {} as never,
+    {} as never, // buyers
+    { record: async () => undefined } as never, // audit
+    {} as never, // messaging
+    {} as never, // email
+    {} as never, // emailInbox
+    {} as never, // logo
   );
 }
 
