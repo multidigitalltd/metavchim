@@ -1,4 +1,4 @@
-import { ConsoleLogger, Injectable, Logger } from "@nestjs/common";
+import { ConsoleLogger, Injectable, Logger, type BeforeApplicationShutdown } from "@nestjs/common";
 import {
   jerusalemDayStart,
   jerusalemWallParts,
@@ -110,7 +110,7 @@ export class ServerErrorLogger extends ConsoleLogger {
 }
 
 @Injectable()
-export class ServerErrorDigestService {
+export class ServerErrorDigestService implements BeforeApplicationShutdown {
   private readonly logger = new Logger(ServerErrorDigestService.name);
 
   constructor(
@@ -142,6 +142,18 @@ export class ServerErrorDigestService {
         return;
       }
     }
+  }
+
+  /**
+   * ‎**כיבוי מסודר כותב את מה שנספר** (ביקורת Codex, P2).
+   *
+   * ‏בלי זה כל פריסה הייתה מאבדת את השגיאות מאז הכתיבה האחרונה — ומופע
+   * ‏שנופל בדקה הראשונה את כולן; הסיכום היה סופר פחות בדיוק ביום של
+   * ‏פריסה. השלב הזה רץ אחרי `onModuleDestroy`, כש-Prisma כבר נותק,
+   * ‏והשאילתה מחברת אותו מחדש לרגע.
+   */
+  async beforeApplicationShutdown(): Promise<void> {
+    await this.flush();
   }
 
   /**

@@ -65,6 +65,14 @@ describe("‏שגיאות השרת במסד", () => {
     expect(await stored()).toEqual({ count: 3, notified: false });
   });
 
+  it("‏בכיבוי — מה שנספר נכתב, גם אחרי ש-Prisma כבר נותק", async () => {
+    const { digest } = service();
+    serverErrors.record(SOURCE, "order 20 failed", DAY_AT);
+    await prisma.$disconnect();
+    await digest.beforeApplicationShutdown();
+    expect(await stored()).toEqual({ count: 4, notified: false });
+  });
+
   it("‏מייל שלא הגיע לאיש — השורה משתחררת", async () => {
     const { digest, notices } = service(0);
     await digest.digest(NEXT_MORNING);
@@ -76,7 +84,7 @@ describe("‏שגיאות השרת במסד", () => {
     const first = service();
     await first.digest.digest(NEXT_MORNING);
     expect(first.notices).toHaveLength(1);
-    expect(first.notices[0]?.details?.some((detail) => detail.label === `3× · ${SOURCE}`)).toBe(true);
+    expect(first.notices[0]?.details?.some((detail) => detail.label === `4× · ${SOURCE}`)).toBe(true);
     expect((await stored())?.notified).toBe(true);
 
     const second = service();

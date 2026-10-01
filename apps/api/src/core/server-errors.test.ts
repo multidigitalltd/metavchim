@@ -74,6 +74,13 @@ function harness(options: { failWrites?: number; rows?: unknown[]; sent?: number
 }
 
 describe("‏הכתיבה לטבלה", () => {
+  it("‏כיבוי מסודר כותב את מה שנספר מאז הכתיבה האחרונה", async () => {
+    const { service, writes } = harness();
+    quiet().error("boom", undefined, "X");
+    await service.beforeApplicationShutdown();
+    expect(writes.filter((sql) => sql.startsWith("INSERT INTO server_errors"))).toHaveLength(1);
+  });
+
   it("‏כתיבה שנכשלה מחזירה את הספירה, והבאה כותבת אותה", async () => {
     const { service, writes } = harness({ failWrites: 1 });
     quiet().error("boom", undefined, "X");
