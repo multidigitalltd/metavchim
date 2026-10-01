@@ -1,8 +1,6 @@
 import {
   Injectable,
   Logger,
-  type OnModuleDestroy,
-  type OnModuleInit,
 } from "@nestjs/common";
 import {
   firstNameOf,
@@ -16,6 +14,7 @@ import {
 import { loadEnv } from "../../config/env";
 import { EmailService } from "../../core/email.service";
 import { PrismaService } from "../../core/prisma.service";
+import { Sweep } from "../../core/sweeps";
 
 /**
  * המייל של הפורום — **הערוץ השלישי של אותן התראות.**
@@ -53,29 +52,13 @@ const DIGEST_MIN_GAP_MS = 20 * 60 * 60 * 1000;
 const MAX_SENDS_PER_SWEEP = 300;
 
 @Injectable()
-export class ForumMailService implements OnModuleInit, OnModuleDestroy {
+export class ForumMailService {
   private readonly logger = new Logger(ForumMailService.name);
-  private timer: NodeJS.Timeout | null = null;
-  private first: NodeJS.Timeout | null = null;
-  private running = false;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly email: EmailService,
   ) {}
-
-  onModuleInit(): void {
-    this.first = setTimeout(() => {
-      void this.tick();
-      this.timer = setInterval(() => void this.tick(), TICK_MS);
-    }, FIRST_TICK_DELAY_MS);
-    this.first.unref?.();
-  }
-
-  onModuleDestroy(): void {
-    if (this.first) clearTimeout(this.first);
-    if (this.timer) clearInterval(this.timer);
-  }
 
   /**
    * האם מגיע למשתמש מייל עכשיו — פונקציה טהורה, נבדקת.
@@ -90,17 +73,14 @@ export class ForumMailService implements OnModuleInit, OnModuleDestroy {
     return lastMailedAt === null || now.getTime() - lastMailedAt.getTime() >= DIGEST_MIN_GAP_MS;
   }
 
+  @Sweep({ name: "forum-mail", everyMs: TICK_MS, firstDelayMs: FIRST_TICK_DELAY_MS })
   async tick(now: Date = new Date()): Promise<number> {
-    if (this.running) return 0;
-    this.running = true;
     try {
       if (!(await this.email.isConfigured())) return 0;
       return await this.sendActivityMails(now);
     } catch (error: unknown) {
       this.logger.error(`סבב המייל של הפורום נכשל: ${String(error)}`);
       return 0;
-    } finally {
-      this.running = false;
     }
   }
 

@@ -1,6 +1,7 @@
-import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import { EmailService } from "./email.service";
 import { PrismaService } from "./prisma.service";
+import { Sweep } from "./sweeps";
 
 /** פעם בשעה — החלון נמדד בימים, ודיוק של שעה הוא די והותר. */
 const SWEEP_INTERVAL_MS = 60 * 60 * 1000;
@@ -45,39 +46,24 @@ const MAX_AGE_DAYS = 12;
  * משרד שלא יקבל את ההצעה לעולם בגלל תקלה רגעית.
  */
 @Injectable()
-export class OnboardingOutreachService implements OnModuleInit, OnModuleDestroy {
+export class OnboardingOutreachService {
   private readonly logger = new Logger(OnboardingOutreachService.name);
-  private timer: NodeJS.Timeout | null = null;
-  private kickoff: NodeJS.Timeout | null = null;
-  private running = false;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly email: EmailService,
   ) {}
 
-  onModuleInit(): void {
-    this.kickoff = setTimeout(() => {
-      void this.tick();
-      this.timer = setInterval(() => void this.tick(), SWEEP_INTERVAL_MS);
-    }, FIRST_SWEEP_DELAY_MS);
-    this.kickoff.unref?.();
-  }
-
-  onModuleDestroy(): void {
-    if (this.kickoff) clearTimeout(this.kickoff);
-    if (this.timer) clearInterval(this.timer);
-  }
-
+  @Sweep({
+    name: "onboarding-outreach",
+    everyMs: SWEEP_INTERVAL_MS,
+    firstDelayMs: FIRST_SWEEP_DELAY_MS,
+  })
   private async tick(): Promise<void> {
-    if (this.running) return;
-    this.running = true;
     try {
       await this.sweep(new Date());
     } catch (error: unknown) {
       this.logger.error(`onboarding outreach sweep failed: ${String(error)}`);
-    } finally {
-      this.running = false;
     }
   }
 

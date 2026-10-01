@@ -1,8 +1,6 @@
 import {
   Injectable,
   Logger,
-  type OnModuleDestroy,
-  type OnModuleInit,
 } from "@nestjs/common";
 import { ulid } from "ulid";
 import {
@@ -62,6 +60,7 @@ import {
 } from "./mentor-signals.service";
 import { MentorPracticeService } from "./mentor-practice.service";
 import { MentorService } from "./mentor.service";
+import { Sweep } from "../../core/sweeps";
 
 /**
  * כל חצי שעה. הסיכום נכתב פעם בשבוע והבוקר פעם ביום, אבל יעד שהושג
@@ -97,30 +96,14 @@ const STREAK_LOOKBACK = 26;
  * שני סבבים מקבילים אינם כותבים פעמיים, וההתראה נושאת אותו מפתח.
  */
 @Injectable()
-export class MentorReviewService implements OnModuleInit, OnModuleDestroy {
+export class MentorReviewService {
   private readonly logger = new Logger(MentorReviewService.name);
-  private timer: NodeJS.Timeout | null = null;
-  private first: NodeJS.Timeout | null = null;
-  private running = false;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly plans: PlanCatalogService,
     private readonly signals: MentorSignalsService,
   ) {}
-
-  onModuleInit(): void {
-    this.first = setTimeout(() => {
-      void this.tick();
-      this.timer = setInterval(() => void this.tick(), TICK_MS);
-    }, FIRST_TICK_DELAY_MS);
-    this.first.unref?.();
-  }
-
-  onModuleDestroy(): void {
-    if (this.first) clearTimeout(this.first);
-    if (this.timer) clearInterval(this.timer);
-  }
 
   /** השבועות שהגיע זמנם ברגע נתון — פונקציה טהורה, נבדקת. */
   static dueWeeks(now: Date): Date[] {
@@ -198,16 +181,13 @@ export class MentorReviewService implements OnModuleInit, OnModuleDestroy {
     return hour >= 7 && hour < 22;
   }
 
+  @Sweep({ name: "mentor-review", everyMs: TICK_MS, firstDelayMs: FIRST_TICK_DELAY_MS })
   async tick(now: Date = new Date()): Promise<number> {
-    if (this.running) return 0;
-    this.running = true;
     try {
       return await this.sweep(now);
     } catch (error: unknown) {
       this.logger.error(`סבב הסיכום השבועי של המנטור נכשל: ${String(error)}`);
       return 0;
-    } finally {
-      this.running = false;
     }
   }
 

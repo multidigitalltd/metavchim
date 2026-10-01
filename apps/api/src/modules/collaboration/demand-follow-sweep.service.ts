@@ -1,7 +1,8 @@
-import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import { PrismaService } from "../../core/prisma.service";
 import { CollaborationService } from "./collaboration.service";
 import { ListingsService } from "./listings.service";
+import { Sweep } from "../../core/sweeps";
 
 /**
  * ‎**הסבב שהופך „עקוב” להתראה — בשני הכיוונים.**
@@ -39,10 +40,8 @@ const TICK_MS = 60 * 60 * 1000;
 const FIRST_TICK_DELAY_MS = 5 * 60 * 1000;
 
 @Injectable()
-export class DemandFollowSweepService implements OnModuleInit, OnModuleDestroy {
+export class DemandFollowSweepService {
   private readonly logger = new Logger(DemandFollowSweepService.name);
-  private timer: NodeJS.Timeout | null = null;
-  private kickoff: NodeJS.Timeout | null = null;
   /** ‏סבב שרץ עכשיו. שני סבבים במקביל אינם מזיקים, אבל אינם מועילים. */
   private ticking = false;
 
@@ -52,20 +51,7 @@ export class DemandFollowSweepService implements OnModuleInit, OnModuleDestroy {
     private readonly listings: ListingsService,
   ) {}
 
-  onModuleInit(): void {
-    this.kickoff = setTimeout(() => {
-      void this.tick();
-      this.timer = setInterval(() => void this.tick(), TICK_MS);
-    }, FIRST_TICK_DELAY_MS);
-    // אחרת התהליך אינו יוצא בבדיקות ובסקריפטים קצרים
-    this.kickoff.unref?.();
-  }
-
-  onModuleDestroy(): void {
-    if (this.kickoff) clearTimeout(this.kickoff);
-    if (this.timer) clearInterval(this.timer);
-  }
-
+  @Sweep({ name: "demand-follow-sweep", everyMs: TICK_MS, firstDelayMs: FIRST_TICK_DELAY_MS })
   private async tick(): Promise<void> {
     if (this.ticking) return;
     this.ticking = true;

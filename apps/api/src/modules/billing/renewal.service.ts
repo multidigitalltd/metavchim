@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import { ulid } from "ulid";
 import {
   dailyEmailIdempotencyKey,
@@ -11,6 +11,7 @@ import { EmailService } from "../../core/email.service";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PrismaService } from "../../core/prisma.service";
 import { InvoiceService } from "./invoice.service";
+import { Sweep } from "../../core/sweeps";
 
 /**
  * חידוש מנוי אוטומטי — בטוקן השמור, בלי דף תשלום ובלי וובהוק.
@@ -34,10 +35,8 @@ const TICK_MS = 60 * 60 * 1000;
 /** כמה מנויים לחדש בכל סבב. תקרה, לא יעד. */
 const BATCH = 25;
 @Injectable()
-export class RenewalService implements OnModuleInit, OnModuleDestroy {
+export class RenewalService {
   private readonly logger = new Logger(RenewalService.name);
-  private timer: NodeJS.Timeout | null = null;
-  private running = false;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -49,19 +48,8 @@ export class RenewalService implements OnModuleInit, OnModuleDestroy {
     private readonly vat: VatService,
   ) {}
 
-  onModuleInit(): void {
-    this.timer = setInterval(() => void this.tick(), TICK_MS);
-    // ‎unref‎ כדי שהטיימר לא יחזיק את התהליך בכיבוי מסודר
-    this.timer.unref();
-  }
-
-  onModuleDestroy(): void {
-    if (this.timer) clearInterval(this.timer);
-  }
-
+  @Sweep({ name: "renewal", everyMs: TICK_MS })
   async tick(): Promise<void> {
-    if (this.running) return; // אין טיקים חופפים
-    this.running = true;
     try {
       /*
        * התזכורות **לפני** החידושים, באותו סבב.
@@ -74,8 +62,6 @@ export class RenewalService implements OnModuleInit, OnModuleDestroy {
       await this.renewDue();
     } catch (error) {
       this.logger.error(`סבב החידושים נכשל: ${String(error)}`);
-    } finally {
-      this.running = false;
     }
   }
 

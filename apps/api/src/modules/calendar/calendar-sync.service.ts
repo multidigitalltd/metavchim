@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import { ulid } from "ulid";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import {
@@ -6,6 +6,7 @@ import {
   type CalendarLink,
   type GoogleEvent,
 } from "./google-calendar.service";
+import { Sweep } from "../../core/sweeps";
 
 /**
  * הסבב שמושך שינויים מיומן Google פנימה ודוחף שינויים מקומיים החוצה.
@@ -42,34 +43,20 @@ export interface SyncResult {
 }
 
 @Injectable()
-export class CalendarSyncService implements OnModuleInit, OnModuleDestroy {
+export class CalendarSyncService {
   private readonly logger = new Logger(CalendarSyncService.name);
-  private timer: NodeJS.Timeout | null = null;
-  private running = false;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly google: GoogleCalendarService,
   ) {}
 
-  onModuleInit(): void {
-    this.timer = setInterval(() => void this.tick(), TICK_MS);
-    this.timer.unref();
-  }
-
-  onModuleDestroy(): void {
-    if (this.timer) clearInterval(this.timer);
-  }
-
+  @Sweep({ name: "calendar-sync", everyMs: TICK_MS })
   async tick(): Promise<void> {
-    if (this.running) return;
-    this.running = true;
     try {
       await this.syncAll();
     } catch (error) {
       this.logger.error(`סבב סנכרון היומנים נכשל: ${String(error)}`);
-    } finally {
-      this.running = false;
     }
   }
 

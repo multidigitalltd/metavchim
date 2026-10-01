@@ -1,5 +1,5 @@
 import { Prisma } from "@prisma/client";
-import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import { ulid } from "ulid";
 import {
   DISMISS_REASONS,
@@ -17,6 +17,7 @@ import {
 } from "@metavchim/shared";
 import { TenantContext } from "../../common/tenant-context";
 import { PrismaService } from "../../core/prisma.service";
+import { Sweep } from "../../core/sweeps";
 import { MATCHABLE_PROPERTY_STATUSES, MatchingService } from "./matching.service";
 
 /** כל שעה — הסבב עצמו רץ רק למי שהגיע תורו, ראו `matchRefreshDue`. */
@@ -87,11 +88,8 @@ interface RefreshOutcome extends MatchRefreshState {
  * התראות, וגם להחמיץ את האמיתית שתגיע מחר.
  */
 @Injectable()
-export class MatchRefreshService implements OnModuleInit, OnModuleDestroy {
+export class MatchRefreshService {
   private readonly logger = new Logger(MatchRefreshService.name);
-  private timer: NodeJS.Timeout | null = null;
-  private kickoff: NodeJS.Timeout | null = null;
-  private ticking = false;
   /**
    * משרדים שסבב שלהם רץ ברגע זה.
    *
@@ -113,29 +111,12 @@ export class MatchRefreshService implements OnModuleInit, OnModuleDestroy {
     private readonly matching: MatchingService,
   ) {}
 
-  onModuleInit(): void {
-    this.kickoff = setTimeout(() => {
-      void this.tick();
-      this.timer = setInterval(() => void this.tick(), TICK_MS);
-    }, FIRST_TICK_DELAY_MS);
-    // אחרת התהליך לא יוצא בבדיקות ובסקריפטים קצרים
-    this.kickoff.unref?.();
-  }
-
-  onModuleDestroy(): void {
-    if (this.kickoff) clearTimeout(this.kickoff);
-    if (this.timer) clearInterval(this.timer);
-  }
-
+  @Sweep({ name: "match-refresh", everyMs: TICK_MS, firstDelayMs: FIRST_TICK_DELAY_MS })
   private async tick(): Promise<void> {
-    if (this.ticking) return;
-    this.ticking = true;
     try {
       await this.sweepAll(new Date());
     } catch (error: unknown) {
       this.logger.error(`match refresh sweep failed: ${String(error)}`);
-    } finally {
-      this.ticking = false;
     }
   }
 

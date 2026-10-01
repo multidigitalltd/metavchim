@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import { ulid } from "ulid";
 import {
   dailyEmailIdempotencyKey,
@@ -11,6 +11,7 @@ import { EmailService } from "../../core/email.service";
 import { PrismaService } from "../../core/prisma.service";
 import { InvoiceService } from "./invoice.service";
 import { NumberRentalService } from "./number-rental.service";
+import { Sweep } from "../../core/sweeps";
 
 /**
  * הסורק החודשי של השכרות המספרים — חיוב, ושחרור.
@@ -36,10 +37,8 @@ const BATCH = 25;
 const RETRY_EVERY_MS = 24 * 60 * 60 * 1000;
 
 @Injectable()
-export class NumberRentalRenewalService implements OnModuleInit, OnModuleDestroy {
+export class NumberRentalRenewalService {
   private readonly logger = new Logger(NumberRentalRenewalService.name);
-  private timer: NodeJS.Timeout | null = null;
-  private running = false;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -51,26 +50,14 @@ export class NumberRentalRenewalService implements OnModuleInit, OnModuleDestroy
     private readonly vat: VatService,
   ) {}
 
-  onModuleInit(): void {
-    this.timer = setInterval(() => void this.tick(), TICK_MS);
-    this.timer.unref();
-  }
-
-  onModuleDestroy(): void {
-    if (this.timer) clearInterval(this.timer);
-  }
-
+  @Sweep({ name: "number-rental-renewal", everyMs: TICK_MS })
   async tick(): Promise<void> {
-    if (this.running) return;
-    this.running = true;
     try {
       await this.renewDue();
       await this.releaseDue();
       await this.purgeStalePending();
     } catch (error) {
       this.logger.error(`סבב השכרות נכשל: ${String(error)}`);
-    } finally {
-      this.running = false;
     }
   }
 

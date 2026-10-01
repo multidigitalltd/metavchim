@@ -3454,6 +3454,15 @@ model PlatformSetting {
   @@map("platform_settings")
 }
 
+/// ‏חכירת סבבים מחזוריים — מי מחזיק כל סבב ועד מתי (apps/api/src/core/sweeps.ts).
+model SweepLease {
+  name   String   @id @db.VarChar(60)
+  holder String   @db.VarChar(120)
+  until  DateTime @db.Timestamptz(3)
+
+  @@map("sweep_leases")
+}
+
 /// נוסחי ההסכמים של המשרד. אין שורה ⇒ נוסח ברירת המחדל שבקוד
 /// (packages/shared — agreement-template.ts), כך שמשרד חדש עובד מיד.
 model AgreementTemplate {

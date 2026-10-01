@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import { ulid } from "ulid";
 import { Prisma } from "@prisma/client";
 import {
@@ -9,6 +9,7 @@ import {
 } from "@metavchim/shared";
 import { CreditEconomyService } from "./credit-economy.service";
 import { PrismaService, type TenantTx } from "./prisma.service";
+import { Sweep } from "./sweeps";
 
 /** כל שעה. התפוגה נמדדת בחודשים — דיוק של שעה הוא יותר מדי, לא פחות. */
 const SWEEP_INTERVAL_MS = 60 * 60 * 1000;
@@ -39,40 +40,20 @@ const FIRST_SWEEP_DELAY_MS = 60 * 1000;
  * היתרה יורדת ל-‎-20‎ בכל ריצה, ואיתו ל-0 (ביקורת Codex).
  */
 @Injectable()
-export class CreditExpiryService implements OnModuleInit, OnModuleDestroy {
+export class CreditExpiryService {
   private readonly logger = new Logger(CreditExpiryService.name);
-  private timer: NodeJS.Timeout | null = null;
-  private kickoff: NodeJS.Timeout | null = null;
-  private running = false;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly economy: CreditEconomyService,
   ) {}
 
-  onModuleInit(): void {
-    this.kickoff = setTimeout(() => {
-      void this.tick();
-      this.timer = setInterval(() => void this.tick(), SWEEP_INTERVAL_MS);
-    }, FIRST_SWEEP_DELAY_MS);
-    // אחרת התהליך לא יוצא בבדיקות ובסקריפטים קצרים
-    this.kickoff.unref?.();
-  }
-
-  onModuleDestroy(): void {
-    if (this.kickoff) clearTimeout(this.kickoff);
-    if (this.timer) clearInterval(this.timer);
-  }
-
+  @Sweep({ name: "credit-expiry", everyMs: SWEEP_INTERVAL_MS, firstDelayMs: FIRST_SWEEP_DELAY_MS })
   private async tick(): Promise<void> {
-    if (this.running) return;
-    this.running = true;
     try {
       await this.sweep(new Date());
     } catch (error: unknown) {
       this.logger.error(`credit expiry sweep failed: ${String(error)}`);
-    } finally {
-      this.running = false;
     }
   }
 

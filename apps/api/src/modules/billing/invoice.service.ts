@@ -2,8 +2,6 @@ import {
   Injectable,
   Logger,
   NotFoundException,
-  type OnModuleDestroy,
-  type OnModuleInit,
 } from "@nestjs/common";
 import { ulid } from "ulid";
 import {
@@ -18,6 +16,7 @@ import { LinetService } from "../../core/linet.service";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { VatService } from "../../core/vat.service";
 import { PrismaService } from "../../core/prisma.service";
+import { Sweep } from "../../core/sweeps";
 
 /**
  * חשבונית מס קבלה על כל תשלום שנגבה.
@@ -60,12 +59,8 @@ const SWEEP_INTERVAL_MS = 5 * 60 * 1000;
 const FIRST_SWEEP_DELAY_MS = 2 * 60 * 1000;
 
 @Injectable()
-export class InvoiceService implements OnModuleInit, OnModuleDestroy {
+export class InvoiceService {
   private readonly logger = new Logger(InvoiceService.name);
-  private timer: NodeJS.Timeout | null = null;
-  private kickoff: NodeJS.Timeout | null = null;
-  /** סבב שעוד רץ — שני סבבים במקביל היו נלחמים על אותן שורות. */
-  private running = false;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -74,23 +69,8 @@ export class InvoiceService implements OnModuleInit, OnModuleDestroy {
     private readonly vat: VatService,
   ) {}
 
-  onModuleInit(): void {
-    this.kickoff = setTimeout(() => {
-      void this.tick();
-      this.timer = setInterval(() => void this.tick(), SWEEP_INTERVAL_MS);
-    }, FIRST_SWEEP_DELAY_MS);
-    // אחרת התהליך לא יוצא בבדיקות ובסקריפטים קצרים
-    this.kickoff.unref?.();
-  }
-
-  onModuleDestroy(): void {
-    if (this.kickoff) clearTimeout(this.kickoff);
-    if (this.timer) clearInterval(this.timer);
-  }
-
+  @Sweep({ name: "invoice", everyMs: SWEEP_INTERVAL_MS, firstDelayMs: FIRST_SWEEP_DELAY_MS })
   private async tick(): Promise<void> {
-    if (this.running) return;
-    this.running = true;
     try {
       const result = await this.issueDue();
       if (result.issued > 0 || result.failed > 0) {
@@ -98,8 +78,6 @@ export class InvoiceService implements OnModuleInit, OnModuleDestroy {
       }
     } catch (error) {
       this.logger.error(`סבב החשבוניות נכשל: ${String(error)}`);
-    } finally {
-      this.running = false;
     }
   }
 

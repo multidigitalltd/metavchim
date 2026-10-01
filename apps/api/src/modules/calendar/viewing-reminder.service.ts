@@ -1,4 +1,4 @@
-import { Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import { ulid } from "ulid";
 import {
   dailyEmailIdempotencyKey,
@@ -24,6 +24,7 @@ import { PlatformSettingsService } from "../../core/platform-settings.service";
 import { PrismaService } from "../../core/prisma.service";
 import { ContactsService } from "../contacts/contacts.service";
 import { WhatsAppSendService } from "../messaging/whatsapp-send.service";
+import { Sweep } from "../../core/sweeps";
 
 /**
  * תזכורת לפני סיור — לזה שגר בנכס, ולקונה שבא לראות אותו.
@@ -69,11 +70,8 @@ interface Recipient {
 }
 
 @Injectable()
-export class ViewingReminderService implements OnModuleInit, OnModuleDestroy {
+export class ViewingReminderService {
   private readonly logger = new Logger(ViewingReminderService.name);
-  private timer: NodeJS.Timeout | null = null;
-  private first: NodeJS.Timeout | null = null;
-  private running = false;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -83,23 +81,12 @@ export class ViewingReminderService implements OnModuleInit, OnModuleDestroy {
     private readonly settings: PlatformSettingsService,
   ) {}
 
-  onModuleInit(): void {
-    this.first = setTimeout(() => {
-      void this.tick();
-      this.timer = setInterval(() => void this.tick(), SWEEP_INTERVAL_MS);
-    }, FIRST_SWEEP_DELAY_MS);
-    // אחרת התהליך לא יוצא בבדיקות ובסקריפטים קצרים
-    this.first.unref?.();
-  }
-
-  onModuleDestroy(): void {
-    if (this.first) clearTimeout(this.first);
-    if (this.timer) clearInterval(this.timer);
-  }
-
+  @Sweep({
+    name: "viewing-reminder",
+    everyMs: SWEEP_INTERVAL_MS,
+    firstDelayMs: FIRST_SWEEP_DELAY_MS,
+  })
   async tick(): Promise<{ sent: number; tasks: number }> {
-    if (this.running) return { sent: 0, tasks: 0 };
-    this.running = true;
     try {
       return await this.sweep();
     } catch (error: unknown) {
@@ -109,8 +96,6 @@ export class ViewingReminderService implements OnModuleInit, OnModuleDestroy {
        */
       this.logger.error(`סבב תזכורות הסיור נכשל: ${String(error)}`);
       return { sent: 0, tasks: 0 };
-    } finally {
-      this.running = false;
     }
   }
 

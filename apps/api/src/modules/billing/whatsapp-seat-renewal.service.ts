@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import { ulid } from "ulid";
 import {
   dailyEmailIdempotencyKey,
@@ -11,6 +11,7 @@ import { PrismaService } from "../../core/prisma.service";
 import { VatService } from "../../core/vat.service";
 import { InvoiceService } from "./invoice.service";
 import { WhatsappSeatService } from "./whatsapp-seat.service";
+import { Sweep } from "../../core/sweeps";
 
 /**
  * הסורק החודשי של המקומות הנוספים לסוכן — חיוב, וסגירה.
@@ -64,10 +65,8 @@ const RETRY_EVERY_MS = 24 * 60 * 60 * 1000;
 const GRACE_MS = 14 * 24 * 60 * 60 * 1000;
 
 @Injectable()
-export class WhatsappSeatRenewalService implements OnModuleInit, OnModuleDestroy {
+export class WhatsappSeatRenewalService {
   private readonly logger = new Logger(WhatsappSeatRenewalService.name);
-  private timer: NodeJS.Timeout | null = null;
-  private running = false;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -79,25 +78,13 @@ export class WhatsappSeatRenewalService implements OnModuleInit, OnModuleDestroy
     private readonly vat: VatService,
   ) {}
 
-  onModuleInit(): void {
-    this.timer = setInterval(() => void this.tick(), TICK_MS);
-    this.timer.unref();
-  }
-
-  onModuleDestroy(): void {
-    if (this.timer) clearInterval(this.timer);
-  }
-
+  @Sweep({ name: "whatsapp-seat-renewal", everyMs: TICK_MS })
   async tick(): Promise<void> {
-    if (this.running) return;
-    this.running = true;
     try {
       await this.renewDue();
       await this.releaseDue();
     } catch (error) {
       this.logger.error(`סבב מקומות הוואטסאפ נכשל: ${String(error)}`);
-    } finally {
-      this.running = false;
     }
   }
 

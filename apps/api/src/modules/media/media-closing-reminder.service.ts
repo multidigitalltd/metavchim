@@ -1,4 +1,4 @@
-import { Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import {
   MEDIA_CLOSING_REMINDER_HOURS,
   formatJerusalemDate,
@@ -8,6 +8,7 @@ import {
 import { notifyOnce } from "../../common/notify-once";
 import { PrismaService } from "../../core/prisma.service";
 import { MediaMailService } from "./media-mail.service";
+import { Sweep } from "../../core/sweeps";
 
 /**
  * תזכורת „הגיליון נסגר מחר” — למשרד שיש לו הזמנה שממתינה לתשלום.
@@ -37,40 +38,24 @@ const FIRST_SWEEP_DELAY_MS = 2 * 60 * 1000;
 const MAX_ORDERS_PER_SWEEP = 200;
 
 @Injectable()
-export class MediaClosingReminderService implements OnModuleInit, OnModuleDestroy {
+export class MediaClosingReminderService {
   private readonly logger = new Logger(MediaClosingReminderService.name);
-  private kickoff: NodeJS.Timeout | null = null;
-  private timer: NodeJS.Timeout | null = null;
-  private running = false;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly mail: MediaMailService,
   ) {}
 
-  onModuleInit(): void {
-    this.kickoff = setTimeout(() => {
-      void this.tick();
-      this.timer = setInterval(() => void this.tick(), SWEEP_INTERVAL_MS);
-      this.timer.unref();
-    }, FIRST_SWEEP_DELAY_MS);
-    this.kickoff.unref();
-  }
-
-  onModuleDestroy(): void {
-    if (this.kickoff) clearTimeout(this.kickoff);
-    if (this.timer) clearInterval(this.timer);
-  }
-
+  @Sweep({
+    name: "media-closing-reminder",
+    everyMs: SWEEP_INTERVAL_MS,
+    firstDelayMs: FIRST_SWEEP_DELAY_MS,
+  })
   private async tick(): Promise<void> {
-    if (this.running) return;
-    this.running = true;
     try {
       await this.sweep(new Date());
     } catch (error) {
       this.logger.error(`סבב תזכורות סגירת גיליון נכשל: ${String(error)}`);
-    } finally {
-      this.running = false;
     }
   }
 
