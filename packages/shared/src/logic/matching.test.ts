@@ -28,6 +28,7 @@ const baseProperty: PropertyFields = {
 const baseBuyer: BuyerRequirements = {
   cities: ["בני ברק"],
   neighborhoods: [],
+  searchAreas: [],
   dealType: "sale",
   propertyTypes: ["apartment"],
   budgetMaxAgorot: 280_000_000,
@@ -103,7 +104,7 @@ describe("scoreMatch — מנוע ההתאמות", () => {
       dealType: "rent",
       budgetMaxAgorot: 700_000, // 7,000 ₪
     };
-    const rental = { ...baseProperty, dealType: "rent" };
+    const rental = { ...baseProperty, dealType: "rent" as const };
     // 8,500 ₪ — יותר מ-15% מעל: מוחרג (רצועת המכירה הייתה בולעת הכל)
     expect(
       scoreMatch({ ...rental, priceAgorot: 850_000 }, buyer).excluded,
@@ -122,7 +123,7 @@ describe("scoreMatch — מנוע ההתאמות", () => {
       budgetMinAgorot: 500_000,
       budgetMaxAgorot: 1_000_000,
     };
-    const rental = { ...baseProperty, dealType: "rent" };
+    const rental = { ...baseProperty, dealType: "rent" as const };
     // 4,000 ₪ — מתחת לרצפה: מוחרג (רצועה מהתקרה הייתה מקבלת אותו)
     expect(
       scoreMatch({ ...rental, priceAgorot: 400_000 }, buyer).excluded,
@@ -517,6 +518,7 @@ describe("סף המידע — כרטיס ריק אינו נכנס להתאמות
   const importedBuyer: BuyerRequirements = {
     cities: [],
     neighborhoods: [],
+    searchAreas: [],
     dealType: "sale",
     propertyTypes: [],
     budgetMaxAgorot: 280_000_000,
@@ -567,10 +569,20 @@ describe("סף המידע — כרטיס ריק אינו נכנס להתאמות
     const thin: BuyerRequirements = {
       ...importedBuyer,
       areaSqmMin: 80,
-      entryDatePreference: "flexible",
+      entryType: "flexible",
     };
-    const result = scoreMatch(baseProperty, thin);
-    expect(result.breakdown.length).toBeGreaterThanOrEqual(2);
+    // ‏לנכס הבסיסי אין מועד מסירה, ובלעדיו קריטריון הכניסה אינו נספר כלל
+    const result = scoreMatch({ ...baseProperty, entryType: "immediate" }, thin);
+    /*
+     * ‏שלושת הקריטריונים השוליים נבדקו בפועל. השדה כאן נקרא פעם
+     * ‏`entryDatePreference`, ואחרי שהשם הוחלף ל-`entryType` הבדיקה
+     * ‏המשיכה לעבור עם **שניים** — כלומר הבאג שהיא נכתבה עליו (שלושה
+     * ‏שעוברים את שער הספירה) לא נבדק כלל, עד שבדיקת הטיפוסים של
+     * ‏הבדיקות הראתה שהשדה אינו קיים.
+     */
+    expect(result.breakdown.map((part) => part.criterion)).toEqual(
+      expect.arrayContaining(["budget", "area", "entry_date"]),
+    );
     expect(result.insufficientData).toBe(true);
     expect(result.score).toBe(0);
   });
@@ -587,6 +599,7 @@ describe("סף המידע — כרטיס ריק אינו נכנס להתאמות
     const withoutRooms: BuyerRequirements = {
       cities: ["בני ברק"],
       neighborhoods: [],
+      searchAreas: [],
       dealType: "sale",
       propertyTypes: ["apartment"],
       // בתוך רצועת התקציב של הנכס (2.65M) — הבדיקה על הכיסוי, לא על הרצועה
@@ -634,6 +647,7 @@ describe("סף המידע — כרטיס ריק אינו נכנס להתאמות
     const belowGate = scoreMatch(baseProperty, {
       cities: ["בני ברק"],
       neighborhoods: [],
+      searchAreas: [],
       dealType: "sale",
       propertyTypes: ["apartment"],
       features: {},
@@ -645,6 +659,7 @@ describe("סף המידע — כרטיס ריק אינו נכנס להתאמות
     const atGate = scoreMatch(baseProperty, {
       cities: ["בני ברק"],
       neighborhoods: [],
+      searchAreas: [],
       dealType: "sale",
       propertyTypes: ["apartment"],
       roomsMin: 3,
@@ -686,6 +701,7 @@ describe("סף המידע — כרטיס ריק אינו נכנס להתאמות
     const buyer: BuyerRequirements = {
       cities: ["בני ברק"],
       neighborhoods: [],
+      searchAreas: [],
       dealType: "sale",
       propertyTypes: [],
       budgetMaxAgorot: 280_000_000,
@@ -792,7 +808,7 @@ describe("כלל הברזל — מיקום חייב להיבחן", () => {
    * הוא נעשה.
    */
   it("וילה למי שביקש דירה — נפסלת, לא „מתאימה ב-88%”", () => {
-    const villa = scoreMatch({ ...baseProperty, propertyType: "house" }, baseBuyer);
+    const villa = scoreMatch({ ...baseProperty, propertyType: "private_house" }, baseBuyer);
     expect(villa.breakdown.some((p) => p.criterion === "property_type")).toBe(true);
     expect(villa.excluded).toBe(true);
     expect(villa.score).toBe(0);
@@ -808,6 +824,7 @@ describe("כלל הברזל — מיקום חייב להיבחן", () => {
     const bare = scoreMatch(baseProperty, {
       cities: ["בני ברק"],
       neighborhoods: [],
+      searchAreas: [],
       dealType: "sale",
       propertyTypes: ["apartment"],
       features: {},
@@ -835,7 +852,7 @@ describe("כלל הברזל — מיקום חייב להיבחן", () => {
 
   it("סוג שאינו מתאים **וגם** בלי מיקום — הדחייה גוברת", () => {
     const result = scoreMatch(
-      { ...baseProperty, propertyType: "house" },
+      { ...baseProperty, propertyType: "private_house" },
       { ...baseBuyer, cities: [] },
     );
     expect(result.excluded).toBe(true);
@@ -925,7 +942,7 @@ describe("מסחרי — המטרייה מגיעה עד המנוע", () => {
   const shop = { ...baseProperty, propertyType: "commercial_shop" as const };
 
   it("קונה שביקש „מסחרי” אינו מוחרג מול חנות", () => {
-    const buyer = { ...baseBuyer, propertyTypes: ["commercial"] };
+    const buyer: BuyerRequirements = { ...baseBuyer, propertyTypes: ["commercial"] };
     const result = scoreMatch(shop, buyer);
     expect(result.excluded).toBe(false);
     expect(result.breakdown.find((p) => p.criterion === "property_type")?.score).toBe(1);
@@ -961,19 +978,19 @@ describe("קומה — מוריד בציון, ואינו פוסל", () => {
    * נתון, ולא נכס שנפסל — וזו ההבחנה שרצועת ההסבר קיימת בשבילה.
    */
   it("ונכס בלי קומה רשומה — גם כשהקונה כן ביקש", () => {
-    const buyer = { ...baseBuyer, floorPreference: { mode: "range", min: 3 } } as const;
+    const buyer: BuyerRequirements = { ...baseBuyer, floorPreference: { mode: "range", min: 3 } };
     expect(part(buyer, undefined)).toBeUndefined();
   });
 
   it("קומה בטווח — ניקוד מלא, בלי הערה", () => {
-    const buyer = { ...baseBuyer, floorPreference: { mode: "range", min: 1, max: 4 } } as const;
+    const buyer: BuyerRequirements = { ...baseBuyer, floorPreference: { mode: "range", min: 1, max: 4 } };
     const found = part(buyer, 2);
     expect(found?.score).toBe(1);
     expect(found?.note).toBeUndefined();
   });
 
   it("קומה מחוץ לרשימה — אפס, עם הערה שנוקבת במה שביקש", () => {
-    const buyer = { ...baseBuyer, floorPreference: { mode: "list", floors: [0, 1] } } as const;
+    const buyer: BuyerRequirements = { ...baseBuyer, floorPreference: { mode: "list", floors: [0, 1] } };
     const found = part(buyer, 2);
     expect(found?.score).toBe(0);
     expect(found?.note).toContain("קרקע, קומה 1");
@@ -985,7 +1002,7 @@ describe("קומה — מוריד בציון, ואינו פוסל", () => {
    * ברשימה, ולא להיעלם ממנה.
    */
   it("ואינו מוציא את ההתאמה מהרשימה", () => {
-    const buyer = { ...baseBuyer, floorPreference: { mode: "list", floors: [0] } } as const;
+    const buyer: BuyerRequirements = { ...baseBuyer, floorPreference: { mode: "list", floors: [0] } };
     const result = scoreMatch({ ...baseProperty, floor: 2 }, buyer);
     expect(result.excluded).toBe(false);
     expect(result.score).toBeGreaterThan(0);
@@ -993,7 +1010,7 @@ describe("קומה — מוריד בציון, ואינו פוסל", () => {
 
   /* ‎**ובכל זאת עולה כסף** — אחרת הקריטריון לא היה עושה דבר. */
   it("ומוריד מהציון מול אותו נכס בדיוק שמתאים", () => {
-    const wants = { ...baseBuyer, floorPreference: { mode: "list", floors: [0] } } as const;
+    const wants: BuyerRequirements = { ...baseBuyer, floorPreference: { mode: "list", floors: [0] } };
     const miss = scoreMatch({ ...baseProperty, floor: 2 }, wants).score;
     const hit = scoreMatch({ ...baseProperty, floor: 0 }, wants).score;
     expect(miss).toBeLessThan(hit);

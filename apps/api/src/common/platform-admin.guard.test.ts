@@ -62,7 +62,7 @@ async function run(options: {
   } as unknown as PrismaService;
   const guard: GuardType = new PlatformAdminGuard(reflector, prisma);
 
-  return TenantContext.run({ tenantId: "t1", userId: "u1", capabilities: new Set() }, () =>
+  return TenantContext.run({ tenantId: "t1", userId: "u1", capabilities: new Set(), billingOnly: false }, () =>
     guard.canActivate(context),
   );
 }

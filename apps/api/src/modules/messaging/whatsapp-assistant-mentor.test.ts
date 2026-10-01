@@ -87,6 +87,14 @@ function harness(opts: {
     stub,
     stub,
     mentor,
+    stub,
+    stub,
+    stub,
+    stub,
+    stub,
+    stub,
+    stub,
+    stub,
   );
   const user = { id: USER, tenantId: TENANT, name: "דנה כהן", role: "agent" };
   const say = (text: string) =>

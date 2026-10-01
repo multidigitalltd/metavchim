@@ -101,6 +101,16 @@ export interface PropertyDto extends PropertyFields {
   /** בעל הנכס (המוכר) — מוצג בעמוד הנכס ומזין את התיק המאוחד */
   /** בעל הנכס — הוא המוכר או המשכיר, ולכן כרטיס מלא כמו של קונה */
   ownerContact?: { id: string; name: string; phone: string; email?: string };
+  /** ‏מי שגר בנכס, כשאינו הבעלים — אותו כרטיס בדיוק */
+  occupantContact?: { id: string; name: string; phone: string; email?: string };
+  /**
+   * ‎**„מוסתר” אינו „חסר”.** יש בעלים (או דייר) והמשתמש אינו רשאי
+   * ‏לראות אותו — ולכן המסך אומר „יש, ולא לך” ואינו מציע להוסיף.
+   * ‏השדה היה נשלח ולא הוצהר כאן; הבדיקות ש-`getById` שולח אותו קראו
+   * ‏שדה שהטיפוס לא הכיר, ורק בדיקת הטיפוסים של הבדיקות גילתה זאת.
+   */
+  ownerRedacted?: true;
+  occupantRedacted?: true;
   /**
    * הנכס בארכיון.
    *

@@ -119,6 +119,13 @@ function harness(
     stub,
     stub,
     practice,
+    stub,
+    stub,
+    stub,
+    stub,
+    stub,
+    stub,
+    stub,
   );
   const user = { id: USER, tenantId: TENANT, name: "דנה כהן", role: "agent" };
   const say = (text: string) =>

@@ -32,7 +32,7 @@ const HANGUP = {
 
 describe("שדות הוובהוק של 015 שנבלעו עד עכשיו", () => {
   it("שלושתם נקלטים מהאירוע האמיתי", () => {
-    const event = parseTelephonyEvent(HANGUP)!;
+    const event = parseTelephonyEvent(HANGUP, "015")!;
     expect(event.callerName).toBe("משה כהן");
     expect(event.providerRecordingPath).toBe(
       "54936/12048/2026/08/20/record_17872047751258756_23747",
@@ -47,15 +47,15 @@ describe("שדות הוובהוק של 015 שנבלעו עד עכשיו", () => 
    */
   it("שלושת האירועים מדווחים על אותה שעת התחלה", () => {
     const times = ["Calling", "Answer", "Hangup"].map(
-      (status) => parseTelephonyEvent({ ...HANGUP, status })!.startedAt?.getTime(),
+      (status) => parseTelephonyEvent({ ...HANGUP, status }, "015")!.startedAt?.getTime(),
     );
     expect(new Set(times).size).toBe(1);
   });
 
   it("שם שהוא בעצם מספר אינו נשמר כשם", () => {
-    expect(parseTelephonyEvent({ ...HANGUP, callername: "0501234567" })!.callerName).toBeUndefined();
-    expect(parseTelephonyEvent({ ...HANGUP, callername: "Unknown" })!.callerName).toBeUndefined();
-    expect(parseTelephonyEvent({ ...HANGUP, callername: "  " })!.callerName).toBeUndefined();
+    expect(parseTelephonyEvent({ ...HANGUP, callername: "0501234567" }, "015")!.callerName).toBeUndefined();
+    expect(parseTelephonyEvent({ ...HANGUP, callername: "Unknown" }, "015")!.callerName).toBeUndefined();
+    expect(parseTelephonyEvent({ ...HANGUP, callername: "  " }, "015")!.callerName).toBeUndefined();
   });
 
   /*
@@ -64,12 +64,12 @@ describe("שדות הוובהוק של 015 שנבלעו עד עכשיו", () => 
    * לשעת הקליטה.
    */
   it("חותם זמן לא סביר נדחה ולא מתקבל כ-1970", () => {
-    expect(parseTelephonyEvent({ ...HANGUP, start: "0" })!.startedAt).toBeUndefined();
-    expect(parseTelephonyEvent({ ...HANGUP, start: "abc" })!.startedAt).toBeUndefined();
+    expect(parseTelephonyEvent({ ...HANGUP, start: "0" }, "015")!.startedAt).toBeUndefined();
+    expect(parseTelephonyEvent({ ...HANGUP, start: "abc" }, "015")!.startedAt).toBeUndefined();
   });
 
   it("מילישניות מזוהות לפי סדר הגודל", () => {
-    const event = parseTelephonyEvent({ ...HANGUP, start: "1787204776000" })!;
+    const event = parseTelephonyEvent({ ...HANGUP, start: "1787204776000" }, "015")!;
     expect(event.startedAt?.toISOString()).toBe("2026-08-20T05:46:16.000Z");
   });
 

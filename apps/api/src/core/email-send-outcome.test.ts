@@ -117,7 +117,7 @@ describe("שער: הכלל מנוסח במקום אחד", () => {
     const offenders: string[] = [];
     for (const { name, src } of FILES) {
       for (const [, raw] of src.matchAll(WRITES)) {
-        const value = raw.trim();
+        const value = (raw ?? "").trim();
         if (value.replace(/\?\?/gu, "").includes("?")) offenders.push(`${name}: ${value}`);
       }
     }
@@ -133,7 +133,7 @@ describe("שער: הכלל מנוסח במקום אחד", () => {
    */
   it("‏ארבעת נתיבי השליחה מסווגים דרך הפונקציה", () => {
     const via = FILES.filter(({ src }) =>
-      [...src.matchAll(WRITES)].some(([, raw]) => fromHelper(raw.trim(), src)),
+      [...src.matchAll(WRITES)].some(([, raw]) => fromHelper((raw ?? "").trim(), src)),
     )
       .map(({ name }) => name)
       .sort();

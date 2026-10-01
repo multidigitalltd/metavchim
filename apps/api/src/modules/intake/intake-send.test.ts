@@ -177,7 +177,7 @@ describe("sendInvite", () => {
       string,
       string,
       { button?: { url: string }; greeting?: string },
-      { required?: boolean; tenantId?: string },
+      { required?: boolean; tenantId?: string; replyTo?: string },
     ];
     expect(to).toBe("dana@example.com");
     /* ‏הקישור שנשלח הוא הקישור שהוחזר — לא קישור שני שנוצר בדרך */

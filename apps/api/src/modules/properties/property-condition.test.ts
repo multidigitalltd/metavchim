@@ -57,6 +57,7 @@ describe("הבקר מתרגם null לריקון", () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
     );
   }
 

@@ -740,7 +740,7 @@ describe("‏שלב על שעון הניסיון, כשהמשרד כבר לא ב�
       track: "conversion",
       clock: "trial",
       offsetDays: -2,
-      audience: "no_card",
+      audience: ["no_card"],
       channels: ["email"],
       enabled: true,
     },
@@ -755,6 +755,7 @@ describe("‏שלב על שעון הניסיון, כשהמשרד כבר לא ב�
       hasValidCard: false,
       trialActive: false,
       chargeFailing: false,
+      subscribed: false,
     },
     stages,
     definitionsIncomplete: false,
@@ -964,6 +965,7 @@ describe("עיגון שעון למסלול", () => {
       funnelStartedAt: new Date("2026-09-01T06:00:00.000Z"),
       trialEndsAt: new Date("2026-09-15T06:00:00.000Z"),
       paymentFailedAt: new Date("2026-09-10T06:00:00.000Z"),
+      trialConcluded: false,
     };
     for (const track of FUNNEL_TRACKS) {
       for (const clock of FUNNEL_CLOCKS) {
@@ -1113,7 +1115,7 @@ describe("היסט השלב — טווח שאפשר לחשב ממנו תאריך
       funnelStartedAt: new Date("2026-09-07T06:00:00.000Z"),
       trialEndsAt: null,
       paymentFailedAt: null,
-      trialConcludedAt: null,
+      trialConcluded: false,
     };
     const broken = stage({ key: "broken", clock: "funnel", offsetDays: 2147483647 });
     /* ‏העוגן קיים, ולכן זה אינו מסלול ה-`null` אלא תאריך פסול */

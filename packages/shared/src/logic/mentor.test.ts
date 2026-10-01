@@ -63,6 +63,7 @@ function goal(
     elapsed: 1,
     expected: 5,
     remaining: 0,
+    periodStart: WEEK_START,
     ...partial,
   };
 }
@@ -444,6 +445,7 @@ describe("suggestProcessGoals — מתוצאה לתהליך, לפי המשפך �
     const plan = suggestProcessGoals({
       outcome: { target: 1, period: "week" },
       history: {
+        ...quiet,
         deals_closed: 3,
         viewings_held: 9, // 3 סיורים לעסקה — טוב מברירת המחדל
         offers_sent: 18, // 2 הצעות לסיור

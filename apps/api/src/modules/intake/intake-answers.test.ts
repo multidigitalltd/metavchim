@@ -27,7 +27,7 @@ const HONEYPOT = "website";
 function assertPassThrough(
   shape: Record<string, unknown>,
   fixture: Record<string, unknown>,
-  normalized: Record<string, unknown>,
+  normalized: object,
 ): void {
   expect(Object.keys(fixture).sort()).toEqual(Object.keys(shape).sort());
   for (const key of Object.keys(shape)) {
