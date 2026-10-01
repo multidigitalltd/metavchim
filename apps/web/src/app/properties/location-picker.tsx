@@ -251,7 +251,7 @@ export function LocationPicker({
     const draw = (): void => {
       const existing = map.getSource(RADIUS_SOURCE);
       if (existing !== undefined) {
-        (existing as maplibregl.GeoJSONSource).setData(data);
+        void (existing as maplibregl.GeoJSONSource).setData(data);
         return;
       }
       map.addSource(RADIUS_SOURCE, { type: "geojson", data });
