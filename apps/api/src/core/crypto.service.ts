@@ -1,6 +1,6 @@
 import { Injectable } from "@nestjs/common";
-import { createCipheriv, createDecipheriv, createHmac, randomBytes } from "node:crypto";
-import { normalizeEmail } from "@metavchim/shared";
+import * as nodeCrypto from "node:crypto";
+import { normalizeEmail, openAesGcm, sealAesGcm } from "@metavchim/shared";
 import { loadEnv } from "../config/env";
 
 /**
@@ -19,25 +19,17 @@ export class CryptoService {
     this.hashKey = env.PHONE_HASH_KEY;
   }
 
+  /** ‏הפורמט והאלגוריתם — `sealAesGcm` בחבילה המשותפת, אותם שהעובדים מפענחים בהם. */
   encrypt(plaintext: string): string {
-    const iv = randomBytes(12);
-    const cipher = createCipheriv("aes-256-gcm", this.dataKey, iv);
-    const ciphertext = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final()]);
-    return Buffer.concat([iv, cipher.getAuthTag(), ciphertext]).toString("base64");
+    return Buffer.from(sealAesGcm(plaintext, this.dataKey, nodeCrypto)).toString("base64");
   }
 
   decrypt(stored: string): string {
-    const raw = Buffer.from(stored, "base64");
-    const iv = raw.subarray(0, 12);
-    const tag = raw.subarray(12, 28);
-    const ciphertext = raw.subarray(28);
-    const decipher = createDecipheriv("aes-256-gcm", this.dataKey, iv);
-    decipher.setAuthTag(tag);
-    return Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString("utf8");
+    return openAesGcm(Buffer.from(stored, "base64"), this.dataKey, nodeCrypto);
   }
 
   phoneHash(normalizedPhone: string): string {
-    return createHmac("sha256", this.hashKey).update(normalizedPhone).digest("hex");
+    return nodeCrypto.createHmac("sha256", this.hashKey).update(normalizedPhone).digest("hex");
   }
 
   /**
@@ -46,7 +38,7 @@ export class CryptoService {
    * ערך, ושתי טבלאות שונות היו "מוצאות" התאמה שאינה קיימת.
    */
   nameHash(normalizedName: string): string {
-    return createHmac("sha256", this.hashKey).update(`name:${normalizedName}`).digest("hex");
+    return nodeCrypto.createHmac("sha256", this.hashKey).update(`name:${normalizedName}`).digest("hex");
   }
 
   /**
@@ -68,7 +60,7 @@ export class CryptoService {
    * `normalizeEmail` אידמפוטנטי, ולכן קורא שכבר נירמל אינו מושפע.
    */
   emailHash(email: string): string {
-    return createHmac("sha256", this.hashKey)
+    return nodeCrypto.createHmac("sha256", this.hashKey)
       .update(`email:${normalizeEmail(email)}`)
       .digest("hex");
   }
@@ -82,6 +74,6 @@ export class CryptoService {
    * כדי שחתם משתמש לעולם לא יתנגש עם חתם טלפון.
    */
   forumAuthorKey(userId: string): string {
-    return createHmac("sha256", this.hashKey).update(`forum:${userId}`).digest("hex");
+    return nodeCrypto.createHmac("sha256", this.hashKey).update(`forum:${userId}`).digest("hex");
   }
 }

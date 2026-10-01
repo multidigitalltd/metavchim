@@ -2,6 +2,7 @@ import { Injectable, Logger } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { ulid } from "ulid";
 import {
+  firstNameOf,
   agentAction,
   AGENT_DEGRADED_REASON,
   agentHistorySummary,
@@ -647,7 +648,7 @@ export class WhatsAppAssistantService {
         msg.fromWaId,
         helpMenu(
           allowed.map((action) => action.id),
-          firstName(user.name),
+          firstNameOf(user.name),
         ),
         { replyTo: msg.externalId },
       );
@@ -2032,7 +2033,7 @@ export class WhatsAppAssistantService {
     /** תחילית לתשובה על הודעה קולית — שהמתווך יראה מה נשמע. */
     const heard = transcribed ? `שמעתי: „${text}”\n\n` : "";
     // מי מדבר — נכנס לפרומפט כדי שהתשובה תהיה שלו ולא כללית
-    const speaker = { name: firstName(user.name), roleLabel: roleLabel(user.role) };
+    const speaker = { name: firstNameOf(user.name), roleLabel: roleLabel(user.role) };
 
     /*
      * „לענות למנטור” — כלשונו (כפתור ההתראה או הקלדה): פותח את
@@ -3060,11 +3061,6 @@ function withHeard(reply: AgentReply, heard: string): AgentReply {
   };
 }
 
-/** „דוד כהן” ⇒ „דוד” — פנייה בשם פרטי, כמו שמדברים בוואטסאפ. */
-function firstName(name: string): string {
-  return name.trim().split(/\s+/u)[0] ?? name;
-}
-
 /**
  * ההכרות הראשונה. שלוש שורות ושלוש דוגמאות — לא מדריך.
  *
@@ -3075,7 +3071,7 @@ function welcomeText(name: string, allowedIds: readonly string[]): string {
   /** עד שלוש דוגמאות — הכרות, לא קטלוג. */
   const examples = agentWelcomeExamples(allowedIds, 3);
   return [
-    `היי ${firstName(name)} 👋`,
+    `היי ${firstNameOf(name)} 👋`,
     "אני העוזרת האישית שלך במתווכים — כאן בוואטסאפ, בלי להיכנס למערכת.",
     "",
     ...(examples.length > 0
