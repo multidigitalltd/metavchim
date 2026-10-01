@@ -58,6 +58,13 @@ describe("‏סבב אחד", () => {
     expect(ran).toBe(true);
   });
 
+  it("‏סבב של המופע עצמו — רץ בלי חכירה, גם כשמופע אחר מחזיק שם", async () => {
+    let ran = 0;
+    const own = { ...OPTIONS, perInstance: true };
+    expect(await scheduler(HELD).runOnce(own, async () => (ran += 1))).toBe(true);
+    expect(ran).toBe(1);
+  });
+
   it("‏מסד שאינו עונה על החכירה אינו עוצר את הסבב — כמו לפני המנגנון", async () => {
     let ran = false;
     const sweeps = scheduler(async () => {

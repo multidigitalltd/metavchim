@@ -22,6 +22,7 @@ import { PlatformSettingsService } from "./platform-settings.service";
 import { TaxTablesService } from "./tax-tables.service";
 import { OutboxService } from "./outbox.service";
 import { PrismaService } from "./prisma.service";
+import { ServerErrorDigestService } from "./server-errors";
 import { StorageService } from "./storage.service";
 import { SweepScheduler } from "./sweeps";
 import { TenantLogoService } from "./tenant-logo.service";
@@ -65,6 +66,7 @@ import { VatService } from "./vat.service";
     TenantLogoService,
     VatService,
     SweepScheduler,
+    ServerErrorDigestService,
   ],
   exports: [
     PrismaService,

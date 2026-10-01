@@ -35,6 +35,11 @@ export interface SweepOptions {
   everyMs: number;
   /** ‏השהיה עד הסבב הראשון אחרי עלייה. בלי — הראשון אחרי `everyMs`. */
   firstDelayMs?: number;
+  /**
+   * ‏סבב של המופע עצמו ולא של המערכת — כל מופע מריץ את שלו, בלי חכירה
+   * ‏(למשל כתיבת מה שנצבר בזיכרון של התהליך).
+   */
+  perInstance?: boolean;
 }
 
 const SWEEP_METADATA = "metavchim:sweep";
@@ -138,17 +143,19 @@ export class SweepScheduler implements OnApplicationBootstrap, OnModuleDestroy {
     const leaseMs = sweepLeaseMs(options.everyMs);
     let heartbeat: NodeJS.Timeout | null = null;
     try {
-      const claim = await this.claim(options.name, leaseMs);
-      if (!claim.claimed) {
-        this.retryAtExpiry(options, run, claim.expiresInMs);
-        return false;
+      if (options.perInstance !== true) {
+        const claim = await this.claim(options.name, leaseMs);
+        if (!claim.claimed) {
+          this.retryAtExpiry(options, run, claim.expiresInMs);
+          return false;
+        }
+        /*
+         * ‏סבב שנמשך יותר מהחכירה מאריך אותה — אחרת מופע שני היה מתחיל
+         * ‏את אותו סבב בזמן שהראשון עוד באמצעו.
+         */
+        heartbeat = setInterval(() => void this.extend(options.name, leaseMs), leaseMs / 2);
+        heartbeat.unref();
       }
-      /*
-       * ‏סבב שנמשך יותר מהחכירה מאריך אותה — אחרת מופע שני היה מתחיל
-       * ‏את אותו סבב בזמן שהראשון עוד באמצעו.
-       */
-      heartbeat = setInterval(() => void this.extend(options.name, leaseMs), leaseMs / 2);
-      heartbeat.unref();
       await run();
       return true;
     } catch (error: unknown) {
