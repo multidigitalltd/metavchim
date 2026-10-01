@@ -50,7 +50,7 @@ function controllerWith(over: {
       return USER;
     }),
     getUserForSession: vi.fn(async () => USER),
-    sessionExpiry: vi.fn(async () => new Date("2030-01-01T00:00:00Z")),
+    sessionExpiry: vi.fn(async (): Promise<Date | null> => new Date("2030-01-01T00:00:00Z")),
   };
   const google = {
     authorizationUrl: vi.fn(async () => "https://accounts.google.test/auth"),
@@ -178,7 +178,7 @@ describe("google/exchange", () => {
   it("קוד שפג או שכבר נוצל — 401, ובלי Session", async () => {
     const { controller, auth, handoff } = controllerWith({});
     handoff.redeemGoogle.mockRejectedValueOnce(new UnauthorizedException("פג"));
-    await expect(controller.googleExchange({ code: "C".repeat(43) }, request({}))).rejects.toBeInstanceOf(
+    await expect(controller.googleExchange({ code: "C".repeat(43), persistent: false }, request({}))).rejects.toBeInstanceOf(
       UnauthorizedException,
     );
     expect(auth.issueSession).not.toHaveBeenCalled();

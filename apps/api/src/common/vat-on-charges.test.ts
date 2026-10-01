@@ -160,7 +160,7 @@ function scan(): { charges: number; findings: Finding[] } {
 
   for (const file of sources(ROOT)) {
     const text = readFileSync(file, "utf8");
-    if (!CHARGE_CALLS.values().some((name) => text.includes(name))) continue;
+    if (![...CHARGE_CALLS].some((name) => text.includes(name))) continue;
     const source = ts.createSourceFile(
       file,
       text,

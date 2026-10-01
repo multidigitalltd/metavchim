@@ -40,6 +40,9 @@ const call = (over: Partial<CallDto> = {}): CallDto => ({
   occurredAt: AT,
   outcome: "missed",
   highlights: {},
+  hasRecording: false,
+  recording: { state: "none" },
+  createdAt: AT,
   ...over,
 });
 
@@ -49,7 +52,7 @@ interface Seen {
 
 function serviceFor(rows: CallDto[]): { service: AgentExecuteService; seen: Seen } {
   const seen: Seen = { queries: [] };
-  const service = new AgentExecuteService(...(Array(40).fill({}) as never[]));
+  const service = Reflect.construct(AgentExecuteService, Array(40).fill({})) as AgentExecuteService;
   /*
    * ‏השמה לפי שם ולא לפי מיקום: לבנאי יש עשרות ארגומנטים, ורשימה
    * ‏מסודרת ידנית הייתה נשברת בשקט ביום שמישהו מוסיף תלות באמצע.

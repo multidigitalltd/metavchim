@@ -35,6 +35,8 @@ const basePlan = (over: Partial<PlanDefinition> = {}): PlanDefinition => ({
   maxProperties: 100,
   maxNetworkListings: null,
   maxNetworkDemands: null,
+  whatsappSeatMonthlyAgorot: null,
+  maxAutomations: null,
   features: ["whatsapp"],
   trialDays: 14,
   priceOnRequest: false,

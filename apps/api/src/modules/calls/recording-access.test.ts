@@ -55,6 +55,7 @@ function serviceFor(call: FakeCall | null): CallsService {
     {} as never,
     storage as never,
     {} as never,
+    {} as never,
   );
 }
 
@@ -182,6 +183,7 @@ describe("גישה להקלטת שיחה", () => {
         {} as never,
         { getObject: async () => ({ body: null, contentType: "audio/wav" }) } as never,
         {} as never,
+        {} as never,
       );
       const attempt = asAgent(["buyers.view_own"], "01ME", () => service.recording("01CALL"));
       if (allowed) await expect(attempt).resolves.toBeDefined();
@@ -277,6 +279,7 @@ describe("גישה להקלטת שיחה", () => {
       {} as never,
       { getObject: async () => ({ body: null, contentType: "audio/wav" }) } as never,
       {} as never,
+      {} as never,
     );
 
     // עם מודול הלידים — נפתחת
@@ -367,6 +370,7 @@ describe("גישה להקלטת שיחה", () => {
       { withTenant: async <T>(fn: (t: unknown) => Promise<T>): Promise<T> => fn(tx) } as never,
       {} as never,
       { getByIds: async () => new Map(), getById: async () => null } as never,
+      {} as never,
       {} as never,
       {} as never,
       {} as never,

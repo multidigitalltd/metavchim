@@ -20,7 +20,7 @@ function serviceWith() {
   const prisma = {
     session: {
       deleteMany: vi.fn(async () => ({ count: 1 })),
-      create: vi.fn(async () => undefined),
+      create: vi.fn(async (_args: { data: Record<string, unknown> }) => undefined),
     },
     user: { update: vi.fn(async () => undefined) },
   };
@@ -35,7 +35,7 @@ describe("משבצת הנייד", () => {
     expect(prisma.session.deleteMany).toHaveBeenCalledWith({
       where: { userId: USER.id, client: "mobile" },
     });
-    const created = prisma.session.create.mock.calls[0]![0] as { data: Record<string, unknown> };
+    const created = prisma.session.create.mock.calls[0]![0];
     expect(created.data).toMatchObject({ userId: USER.id, client: "mobile", persistent: true });
   });
 
@@ -44,7 +44,7 @@ describe("משבצת הנייד", () => {
     const before = Date.now();
     const { expiresAt } = await service.issueSession(USER, { client: "web", persistent: true });
     expect(prisma.session.deleteMany).not.toHaveBeenCalled();
-    const created = prisma.session.create.mock.calls[0]![0] as { data: Record<string, unknown> };
+    const created = prisma.session.create.mock.calls[0]![0];
     expect(created.data).toMatchObject({ client: "web", persistent: false });
     expect(expiresAt.getTime() - before).toBeLessThanOrEqual(SESSION_TTL_MS + 1000);
   });

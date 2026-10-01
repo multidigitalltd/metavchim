@@ -78,7 +78,8 @@ describe("מה הסוכן רשאי לשנות", () => {
   it("שלושה מתגים בוליאניים בלבד", () => {
     const keys = policy?.fields.map((f) => f.key) ?? [];
     expect(keys).toEqual(["policyKey", "policyState"]);
-    const values = policy?.fields.find((f) => f.key === "policyKey")?.values ?? [];
+    const field = policy?.fields.find((f) => f.key === "policyKey");
+    const values = field?.type === "enum" ? field.values : [];
     expect([...values]).toEqual([
       "autoShareProperties",
       "autoShareBuyers",
@@ -92,7 +93,9 @@ describe("מה הסוכן רשאי לשנות", () => {
    * ‏משנה דבר.
    */
   it("כל ערך בקטלוג הוא שדה אמיתי בסכימה", () => {
-    const values = agentAction("update_office_policy")?.fields[0]?.values ?? [];
+    const field = agentAction("update_office_policy")?.fields[0];
+    const values = field?.type === "enum" ? field.values : [];
+    expect(values.length, "השדה הראשון אינו רשימת ערכים").toBeGreaterThan(0);
     for (const key of values) {
       expect(SERVICE, `${key} אינו בסכימה`).toContain(`${key}: z.boolean().optional()`);
     }

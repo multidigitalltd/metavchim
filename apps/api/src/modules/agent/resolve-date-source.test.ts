@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { AgentResolveService } from "./resolve.service";
+import type { AgentField } from "@metavchim/shared";
 import type { Interpretation } from "./interpret.service";
 
 /**
@@ -38,6 +39,11 @@ function service(): AgentResolveService {
     { placeVocabulary: async () => [] } as never,
     {} as never,
     {} as never,
+    {} as never,
+    {} as never,
+    {} as never,
+    {} as never,
+    {} as never,
   );
 }
 
@@ -48,6 +54,7 @@ function interpretation(over: Partial<Interpretation>): Interpretation {
     evidence: {},
     unmapped: [],
     rejected: [],
+    suggest: [],
     fallback: false,
     steps: [],
     ...over,
@@ -55,8 +62,9 @@ function interpretation(over: Partial<Interpretation>): Interpretation {
 }
 
 /** השדה שבו יושב המועד של `create_task`, כפי שהכרטיס מציג אותו. */
-function dueAt(fields: { key: string; value: string }[]): string | undefined {
-  return fields.find((field) => field.key === "dueAt")?.value;
+function dueAt(fields: readonly AgentField[]): string | undefined {
+  const value = fields.find((field) => field.key === "dueAt")?.value;
+  return value === undefined ? undefined : String(value);
 }
 
 describe("מקור המועד של הפעולה הראשית", () => {
