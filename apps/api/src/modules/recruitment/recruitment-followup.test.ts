@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { TASK_ENTITY_TYPES, taskEntityHref, isTaskEntityType } from "@metavchim/shared";
+import { workersSource } from "../../common/workers-source.testkit";
 
 /**
  * ‎**פולואפ על נכס לגיוס הוא משימה עם מועד — ולא מנגנון שני.**
@@ -185,9 +186,7 @@ describe("‏פולואפ בגיוס — משימה, לא מנגנון שני", 
    * ‏מנוסחה מקומית, כי אותה כתובת מוצגת גם בכרטיס ובמסך המשימות.
    */
   it("‏העובד מעשיר תזכורת גיוס בכתובת, ומגביל אותה ביכולת", () => {
-    const worker = strip(
-      read("apps", "workers", "src", "main.ts"),
-    );
+    const worker = strip(workersSource("whatsapp/details.ts"));
     /*
      * ‏על **הביטוי שמרכיב את `about`**, ולא על „המחרוזת מופיעה
      * ‏איפשהו בקובץ”: הניסוח הראשון חיפש

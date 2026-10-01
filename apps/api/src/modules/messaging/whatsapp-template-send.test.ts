@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { workersSource } from "../../common/workers-source.testkit";
 
 /**
  * ‎**התבנית שנרשמה ידנית ב-Meta, והקוד ששולח אליה.**
@@ -23,7 +24,7 @@ const SEND = read("./whatsapp-send.service.ts");
 const TELEPHONY = read("../telephony/telephony.service.ts");
 const EMAIL = read("../email-inbox/email-inbox.service.ts");
 const VIEWING = read("../calendar/viewing-reminder.service.ts");
-const WORKERS = read("../../../../../apps/workers/src/main.ts");
+const WORKERS = workersSource("whatsapp/config.ts", "jobs/whatsapp-notify.ts");
 
 describe("שליחת תבנית", () => {
   /*

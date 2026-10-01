@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
+import { workersSource } from "../../common/workers-source.testkit";
 
 /**
  * ‎**שיחה אחת, שלושה כותבים, ליבה אחת.**
@@ -12,13 +13,13 @@ import { describe, expect, it } from "vitest";
  * כבר קרתה פעם אחת, עם שני חלונות היסטוריה שונים שמחקו זה את זה.
  */
 
+const strip = (source: string): string =>
+  source.replace(/\/\*[\s\S]*?\*\//gu, "").replace(/^[ \t]*\/\/.*$/gmu, "");
 const read = (relative: string): string =>
-  readFileSync(new URL(relative, import.meta.url), "utf8")
-    .replace(/\/\*[\s\S]*?\*\//gu, "")
-    .replace(/^[ \t]*\/\/.*$/gmu, "");
+  strip(readFileSync(new URL(relative, import.meta.url), "utf8"));
 
 const WA = read("../messaging/whatsapp-assistant.service.ts");
-const WORKER = read("../../../../workers/src/main.ts");
+const WORKER = strip(workersSource());
 const SCREEN = read("./agent-conversation.service.ts");
 
 describe("ליבת אחסון השיחה", () => {

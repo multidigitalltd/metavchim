@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { workersSource } from "../../common/workers-source.testkit";
 
 /**
  * ‎**„ליד ממתין מאתמול” — ארבע פעמים, בלי לומר על מי.**
@@ -28,7 +29,7 @@ const read = (relative: string): string =>
   readFileSync(new URL(relative, import.meta.url), "utf8");
 
 const COACH = read("./coach.service.ts");
-const WORKERS = read("../../../../../apps/workers/src/main.ts");
+const WORKERS = workersSource("jobs/lead-sla.ts");
 
 describe("השם בהמלצות המאמן", () => {
   it("השם מפוענח, ואינו נכתב קבוע", () => {
