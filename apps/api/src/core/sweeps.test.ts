@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { Injectable } from "@nestjs/common";
 import { DiscoveryModule, DiscoveryService, MetadataScanner, Reflector } from "@nestjs/core";
 import { Test } from "@nestjs/testing";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { Sweep, SweepScheduler, sweepLeaseMs, type SweepOptions } from "./sweeps";
 
 /**
@@ -69,6 +69,69 @@ describe("‏סבב אחד", () => {
       }),
     ).toBe(true);
     expect(ran).toBe(true);
+  });
+});
+
+describe("‏מי שדילג מנסה שוב כשהחכירה פגה (ביקורת Codex, P2)", () => {
+  /** ‏מסד מדומה: התפיסה לפי `held`, והחכירה הקיימת פגה בעוד `expiresInMs`. */
+  function standby(state: { held: boolean; expiresInMs: number }): SweepScheduler {
+    const prisma = {
+      $queryRaw: async (strings: TemplateStringsArray) =>
+        strings.join("").includes("RETURNING")
+          ? state.held
+            ? []
+            : [{ holder: "me" }]
+          : [{ ms: state.expiresInMs }],
+      $executeRaw: async () => 1,
+    };
+    return new SweepScheduler({} as never, {} as never, {} as never, prisma as never);
+  }
+
+  it("‏המחזיק נעלם — הסבב רץ כשהחכירה פגה, ולא בעוד תקופה שלמה", async () => {
+    vi.useFakeTimers();
+    try {
+      const state = { held: true, expiresInMs: 5_000 };
+      const sweeps = standby(state);
+      let ran = 0;
+      expect(await sweeps.runOnce(OPTIONS, async () => (ran += 1))).toBe(false);
+      state.held = false;
+      await vi.advanceTimersByTimeAsync(5_500);
+      expect(ran, "עוד לפני תום החכירה ושנייה").toBe(0);
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(ran).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("‏ניסיון שהיה נוחת אחרי הטיק הרגיל — אינו נקבע", async () => {
+    vi.useFakeTimers();
+    try {
+      const state = { held: true, expiresInMs: OPTIONS.everyMs };
+      const sweeps = standby(state);
+      let ran = 0;
+      await sweeps.runOnce(OPTIONS, async () => (ran += 1));
+      state.held = false;
+      await vi.advanceTimersByTimeAsync(OPTIONS.everyMs + 5_000);
+      expect(ran).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("‏דילוג חוזר אינו מערים ניסיונות — אחד לכל סבב", async () => {
+    vi.useFakeTimers();
+    try {
+      const state = { held: true, expiresInMs: 5_000 };
+      const sweeps = standby(state);
+      let ran = 0;
+      for (let i = 0; i < 3; i += 1) await sweeps.runOnce(OPTIONS, async () => (ran += 1));
+      state.held = false;
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(ran).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

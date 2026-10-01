@@ -63,6 +63,8 @@ export class SweepScheduler implements OnApplicationBootstrap, OnModuleDestroy {
   private readonly holder = `${hostname()}:${process.pid}:${randomUUID().slice(0, 8)}`;
   private readonly timers: NodeJS.Timeout[] = [];
   private readonly running = new Set<string>();
+  /** ‏ניסיון חוזר אחד לכל סבב שדילג — ראו `retryAtExpiry`. */
+  private readonly retries = new Map<string, NodeJS.Timeout>();
 
   constructor(
     private readonly discovery: DiscoveryService,
@@ -79,6 +81,7 @@ export class SweepScheduler implements OnApplicationBootstrap, OnModuleDestroy {
 
   onModuleDestroy(): void {
     for (const timer of this.timers) clearTimeout(timer);
+    for (const timer of this.retries.values()) clearTimeout(timer);
   }
 
   /** ‏כל המתודות שסומנו ב-`@Sweep`, בכל הספקים. ציבורי לבדיקות. */
@@ -135,7 +138,11 @@ export class SweepScheduler implements OnApplicationBootstrap, OnModuleDestroy {
     const leaseMs = sweepLeaseMs(options.everyMs);
     let heartbeat: NodeJS.Timeout | null = null;
     try {
-      if (!(await this.claim(options.name, leaseMs))) return false;
+      const claim = await this.claim(options.name, leaseMs);
+      if (!claim.claimed) {
+        this.retryAtExpiry(options, run, claim.expiresInMs);
+        return false;
+      }
       /*
        * ‏סבב שנמשך יותר מהחכירה מאריך אותה — אחרת מופע שני היה מתחיל
        * ‏את אותו סבב בזמן שהראשון עוד באמצעו.
@@ -154,6 +161,31 @@ export class SweepScheduler implements OnApplicationBootstrap, OnModuleDestroy {
   }
 
   /**
+   * ‎**מי שדילג מנסה שוב כשהחכירה פגה, ולא בעוד תקופה שלמה** (ביקורת
+   * ‏Codex, P2).
+   *
+   * ‏בלי זה, מחזיק שנעלם רגע אחרי שמופע אחר דילג היה משאיר את הסבב בלי
+   * ‏איש עד הטיק הבא של המדלג — עד כמעט שתי תקופות, וזה בדיוק מה שפריסה
+   * ‏מדורגת עושה. מחזיק חי תופס שוב לפני כן או מיד אחרי, ואז הניסיון רק
+   * ‏מדלג פעם נוספת. ניסיון שהיה נוחת אחרי הטיק הרגיל מיותר ואינו נקבע.
+   */
+  private retryAtExpiry(
+    options: SweepOptions,
+    run: () => Promise<unknown>,
+    expiresInMs: number | null,
+  ): void {
+    if (expiresInMs === null || this.retries.has(options.name)) return;
+    const delay = Math.max(expiresInMs, 0) + 1_000;
+    if (delay >= options.everyMs) return;
+    const timer = setTimeout(() => {
+      this.retries.delete(options.name);
+      void this.runOnce(options, run);
+    }, delay);
+    timer.unref();
+    this.retries.set(options.name, timer);
+  }
+
+  /**
    * ‏תפיסת הסבב לתקופה. מצליחה אם אין חכירה, אם פגה, או אם היא כבר
    * ‏שלנו (סבב קודם שלנו שהתארך).
    *
@@ -161,7 +193,10 @@ export class SweepScheduler implements OnApplicationBootstrap, OnModuleDestroy {
    * ‏והיא אינה תנאי לעבודה: עד היום כל סבב רץ בלי לשאול איש, ותקלה כאן
    * ‏לא צריכה לעצור תזכורות. הסבב עצמו ייתקל באותה תקלה וידווח עליה.
    */
-  private async claim(name: string, leaseMs: number): Promise<boolean> {
+  private async claim(
+    name: string,
+    leaseMs: number,
+  ): Promise<{ claimed: true } | { claimed: false; expiresInMs: number | null }> {
     try {
       const rows = await this.prisma.$queryRaw<{ holder: string }[]>`
         INSERT INTO sweep_leases (name, holder, until)
@@ -169,10 +204,15 @@ export class SweepScheduler implements OnApplicationBootstrap, OnModuleDestroy {
         ON CONFLICT (name) DO UPDATE SET holder = EXCLUDED.holder, until = EXCLUDED.until
         WHERE sweep_leases.until <= now() OR sweep_leases.holder = EXCLUDED.holder
         RETURNING holder`;
-      return rows.length > 0;
+      if (rows.length > 0) return { claimed: true };
+      /* ‏מתי היא פגה — בשעון של המסד, כמו התפיסה עצמה */
+      const [lease] = await this.prisma.$queryRaw<{ ms: number }[]>`
+        SELECT (EXTRACT(EPOCH FROM (until - now())) * 1000)::float8 AS ms
+        FROM sweep_leases WHERE name = ${name}`;
+      return { claimed: false, expiresInMs: lease === undefined ? null : Number(lease.ms) };
     } catch (error: unknown) {
       this.logger.warn(`חכירת הסבב ${name} לא נבדקה — רץ בלעדיה: ${String(error)}`);
-      return true;
+      return { claimed: true };
     }
   }
 

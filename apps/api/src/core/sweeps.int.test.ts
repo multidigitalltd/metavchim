@@ -83,6 +83,25 @@ describe("‏חכירת סבב בין מופעים", () => {
     expect(row?.seconds).toBeLessThanOrEqual(59 * 60);
   });
 
+  it("‏המחזיק נעלם — המופע שדילג רץ כשהחכירה פגה, בלי לחכות לטיק הבא", async () => {
+    const options = sweep("standby");
+    const [a, b] = [instance(), instance()];
+    expect(await counted(a, options)).toBe(1);
+    /* ‏החכירה של A נגמרת בעוד שתי שניות, ו-A עצמו כבר לא יחזור */
+    await owner.$executeRawUnsafe(
+      `UPDATE sweep_leases SET until = now() + interval '2 seconds' WHERE name = '${options.name}'`,
+    );
+    let ran = 0;
+    expect(
+      await b.runOnce(options, async () => {
+        ran += 1;
+      }),
+    ).toBe(false);
+    await new Promise((resolve) => setTimeout(resolve, 4_000));
+    expect(ran).toBe(1);
+    b.onModuleDestroy();
+  });
+
   it("‏שני מופעים בבת אחת — רק אחד רץ", async () => {
     const options = sweep("race");
     const runs = await Promise.all(Array.from({ length: 6 }, () => counted(instance(), options)));
