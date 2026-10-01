@@ -1,4 +1,4 @@
-import sharp from "sharp";
+import sharp, { type Metadata, type OutputInfo, type OverlayOptions, type Sharp } from "sharp";
 import { PHOTO_MAX_EDGE, blurRectToPixels, fitWithin, type PhotoBlurRect } from "@metavchim/shared";
 
 /**
@@ -50,13 +50,13 @@ export class UnreadablePhotoError extends Error {
   }
 }
 
-function decoder(input: Buffer): sharp.Sharp {
+function decoder(input: Buffer): Sharp {
   return sharp(input, { limitInputPixels: MAX_INPUT_PIXELS, failOn: "error" });
 }
 
 /** ‏הגודל **אחרי** היישור — סיבוב של 90° מחליף רוחב וגובה. */
 async function orientedSize(input: Buffer): Promise<{ width: number; height: number }> {
-  let meta: sharp.Metadata;
+  let meta: Metadata;
   try {
     meta = await decoder(input).metadata();
   } catch {
@@ -72,11 +72,11 @@ async function orientedSize(input: Buffer): Promise<{ width: number; height: num
 async function logoOverlay(
   logo: Buffer,
   canvas: { width: number; height: number },
-): Promise<sharp.OverlayOptions | null> {
+): Promise<OverlayOptions | null> {
   const maxWidth = Math.floor(canvas.width * LOGO_FRACTION);
   const maxHeight = Math.floor(canvas.height * LOGO_FRACTION);
   if (maxWidth < 8 || maxHeight < 8) return null;
-  let resized: { data: Buffer; info: sharp.OutputInfo };
+  let resized: { data: Buffer; info: OutputInfo };
   try {
     resized = await sharp(logo, { limitInputPixels: MAX_INPUT_PIXELS })
       .resize({ width: maxWidth, height: maxHeight, fit: "inside", withoutEnlargement: true })
@@ -153,7 +153,7 @@ export async function blurPhotoRegions(
     .map((rect) => blurRectToPixels(rect, size.width, size.height))
     .filter((box): box is NonNullable<typeof box> => box !== null);
   try {
-    const overlays: sharp.OverlayOptions[] = [];
+    const overlays: OverlayOptions[] = [];
     for (const box of boxes) {
       const sigma = Math.min(200, Math.max(6, Math.round(Math.min(box.width, box.height) / 6)));
       const patch = await decoder(input).rotate().extract(box).blur(sigma).png().toBuffer();

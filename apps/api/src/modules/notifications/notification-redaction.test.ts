@@ -154,12 +154,19 @@ function asUser<T>(capabilities: Capability[], fn: () => T): T {
   );
 }
 
+/**
+ * ‏שורת התראה כפי שהיא במסד — עם הנמען. הצנזורה **אינה** שואלת עליו
+ * ‏(שורה אישית מצונזרת כמו משרדית, ראו למטה), והשדה נשאר בנתוני הבדיקה
+ * ‏כדי שזה ייראה במפורש ולא יוסתר בהשמטה.
+ */
+type Row = RedactableNotification & { userId: string | null };
+
 /** ‏סוכן שמנהל המשרד צמצם: בלי `properties.view_all` ובלי `leads.view_all`. */
 const SCOPED: Capability[] = ["properties.view", "buyers.view_own", "leads.view_own"];
 /** ‏ברירת המחדל של כל תפקיד קיים. */
 const DEFAULT: Capability[] = [...SCOPED, "properties.view_all", "leads.view_all", "buyers.view_all"];
 
-const OFFICE_CALL: RedactableNotification = {
+const OFFICE_CALL: Row = {
   id: "01NOTIFCALL0000000000001",
   userId: null,
   type: "call_missed",
@@ -168,7 +175,7 @@ const OFFICE_CALL: RedactableNotification = {
   entityType: "lead",
   entityId: LEADS[0]!.id,
 };
-const OFFICE_MINE: RedactableNotification = {
+const OFFICE_MINE: Row = {
   id: "01NOTIFMINE0000000000001",
   userId: null,
   type: "call_missed",
@@ -237,7 +244,7 @@ describe("‏התראה משרדית ישנה — הצנזורה בקריאה", 
 
   /* ‏ושורה בלי מצביע — אין בה עוגן, וממילא אין בה זהות */
   it("שורה משרדית בלי מצביע אינה נוגעת", async () => {
-    const system: RedactableNotification = {
+    const system: Row = {
       id: "01NOTIFINLINE00000000001",
       userId: null,
       type: "platform_disk_low",
@@ -263,7 +270,7 @@ describe("‏התראה משרדית ישנה — הצנזורה בקריאה", 
    * ‏המצב הנפוץ: שיחה ממספר לא מוכר פותחת ליד, לא לקוח.
    */
   it("התראת תמלול על שיחה של עמית — התמצית יורדת", async () => {
-    const transcribed: RedactableNotification = {
+    const transcribed: Row = {
       id: "01NOTIFINLINE00000000002",
       userId: null,
       type: "call_transcribed",
@@ -286,7 +293,7 @@ describe("‏התראה משרדית ישנה — הצנזורה בקריאה", 
    * ‏היו מצונזרות.
    */
   it("שיחה בלי לקוח נפתרת דרך הליד שלה — והיא של הסוכן", async () => {
-    const viaLead: RedactableNotification = {
+    const viaLead: Row = {
       id: "01NOTIFINLINE00000000003",
       userId: null,
       type: "call_transcribed",
@@ -303,7 +310,7 @@ describe("‏התראה משרדית ישנה — הצנזורה בקריאה", 
 
   /* ‏והצד השני: שיחה עם הלקוח שלי נשארת שלמה */
   it("ותמלול של שיחה עם הלקוח שלי נשאר", async () => {
-    const mine: RedactableNotification = {
+    const mine: Row = {
       id: "01NOTIFINLINE00000000004",
       userId: null,
       type: "call_transcribed",
@@ -328,7 +335,7 @@ describe("‏התראה משרדית ישנה — הצנזורה בקריאה", 
    * ‏ולכן הצמצום חייב לשבת מחוצה לו.
    */
   it("תמלול של שיחה על הליד של עמית — גם כשהלקוח נראה לי דרך כרטיס שלי", async () => {
-    const transcribed: RedactableNotification = {
+    const transcribed: Row = {
       id: "01NOTIFINLINE00000000005",
       userId: null,
       type: "call_transcribed",
@@ -346,7 +353,7 @@ describe("‏התראה משרדית ישנה — הצנזורה בקריאה", 
 
   /* ‏וכרטיס קונה של עמית — אותו כלל, עוגן אחר */
   it("מצביע לכרטיס קונה של עמית מצונזר, גם כשהלקוח נראה לי", async () => {
-    const theirCard: RedactableNotification = {
+    const theirCard: Row = {
       id: "01NOTIFINLINE00000000006",
       userId: null,
       type: "lead_returned",
@@ -364,7 +371,7 @@ describe("‏התראה משרדית ישנה — הצנזורה בקריאה", 
 
   /* ‏ואותו מצביע לכרטיס **שלי** על אותו אדם — נשאר שלם */
   it("ומצביע לכרטיס הקונה שלי על אותו אדם נשאר", async () => {
-    const myCard: RedactableNotification = {
+    const myCard: Row = {
       id: "01NOTIFINLINE00000000007",
       userId: null,
       type: "lead_returned",
@@ -381,7 +388,7 @@ describe("‏התראה משרדית ישנה — הצנזורה בקריאה", 
 
   /* ‏ולמנהל שרואה את כל הלידים — אותה שיחה נשארת שלמה */
   it("ולמי שרואה את כל הלידים היא נשארת", async () => {
-    const transcribed: RedactableNotification = {
+    const transcribed: Row = {
       id: "01NOTIFINLINE00000000008",
       userId: null,
       type: "call_transcribed",
@@ -426,7 +433,7 @@ describe("‏redactNotifications — מי צונזרה", () => {
   const SUBJECTS = new Map([["lead:01L", { contactId: THEIRS }]]);
 
   it("מזהה של שורה שצונזרה חוזר, ושל שורה שעברה — לא", () => {
-    const blocked: RedactableNotification = {
+    const blocked: Row = {
       id: "01NOTIFBLOCKED000000001",
       userId: null,
       type: "call_missed",
@@ -435,7 +442,7 @@ describe("‏redactNotifications — מי צונזרה", () => {
       entityType: "lead",
       entityId: "01L",
     };
-    const passing: RedactableNotification = {
+    const passing: Row = {
       id: "01NOTIFPASSING000000001",
       userId: null,
       type: "call_missed",
@@ -452,7 +459,7 @@ describe("‏redactNotifications — מי צונזרה", () => {
 
   /* ‏ובלי צנזורה כלל — קבוצה ריקה, ולא „כולם” */
   it("בלי צנזורה הקבוצה ריקה", () => {
-    const passing: RedactableNotification = {
+    const passing: Row = {
       id: "01NOTIFOPEN00000000001",
       userId: null,
       type: "platform_disk_low",

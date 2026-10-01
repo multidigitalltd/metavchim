@@ -2,7 +2,7 @@ import { ServiceUnavailableException } from "@nestjs/common";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { GoogleCalendarService, type CalendarLink } from "./google-calendar.service";
 import type { PrismaService } from "../../core/prisma.service";
-import type { PlatformSettingsService } from "../platform/platform-settings.service";
+import type { PlatformSettingsService } from "../../core/platform-settings.service";
 import type { CryptoService } from "../../core/crypto.service";
 
 /**

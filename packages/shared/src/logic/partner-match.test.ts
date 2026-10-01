@@ -260,7 +260,7 @@ describe("partnerPairs — מי נכנס", () => {
 
   it("מי שאינו מתאים בסוג הנכס נופל — וילה מול דירה", () => {
     const pairs = partnerPairs(PROPERTY, [
-      { buyerId: "A", requirements: buyer(100_000_000, { propertyTypes: ["house"] }) },
+      { buyerId: "A", requirements: buyer(100_000_000, { propertyTypes: ["private_house"] }) },
       { buyerId: "B", requirements: buyer(100_000_000) },
     ]);
     expect(pairs).toEqual([]);
@@ -488,7 +488,7 @@ describe("‏חזית הכרטיסים לכל לקוח", () => {
   /** ‏שכונה על הנכס — היא מוסיפה קריטריון, ואיתו מדרגות ציון. */
   const HOOD: PropertyFields = { ...PROPERTY, neighborhood: "נאות שושנים" };
   /** ‏דרישה שאינה מתקיימת בנכס — כל אחת גורעת מהציון. */
-  const FEAT: Partial<BuyerRequirements> = { features: { parking: true } };
+  const FEAT: Partial<BuyerRequirements> = { features: { hasParking: "nice" } };
   const ROOMS: Partial<BuyerRequirements> = { roomsMin: 4.5, roomsMax: 5.5 };
   const OTHER_HOOD: Partial<BuyerRequirements> = { neighborhoods: ["קרית שרת"] };
 

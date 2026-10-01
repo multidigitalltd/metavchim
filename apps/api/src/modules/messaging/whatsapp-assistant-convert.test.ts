@@ -114,6 +114,12 @@ function harness(opts: { ensureFails?: boolean } = {}) {
     stub,
     stub,
     calls,
+    stub,
+    stub,
+    stub,
+    stub,
+    stub,
+    stub,
   );
   /* ‏„לא סוג” ממשיך למנוע ההבנה — מזויף כדי לראות שהוא אכן נקרא */
   (svc as unknown as { propose: unknown }).propose = async (

@@ -891,7 +891,7 @@ describe("MentorReviewService.dailyForUser — 30 הימים הראשונים", 
     const { tx } = fakeTx({});
     let scanned = 0;
     (
-      tx as { mentorPractice: { findMany: () => Promise<never[]> } }
+      tx as unknown as { mentorPractice: { findMany: () => Promise<never[]> } }
     ).mentorPractice = {
       findMany: async () => {
         scanned += 1;

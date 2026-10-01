@@ -119,14 +119,21 @@ describe("לקוח שהוא גם הקונה שלי וגם בעל נכס של ע�
   it("הדוח על הנכס של העמית עדיין נחסם", async () => {
     await expect(
       asUser(ME, SCOPED, () =>
-        serviceFor(OTHER, [], true).sendToOwner("01PROP", "whatsapp"),
+        serviceFor(OTHER, [], true).sendToOwner("01PROP", {}, {
+          channel: "whatsapp",
+          periodLabel: "החודש",
+        }),
       ),
     ).rejects.toThrow(/סוכן אחר/u);
   });
 
   it("והשם אינו מוצג בדוח של הנכס ההוא", async () => {
     const report = await asUser(ME, SCOPED, () =>
-      serviceFor(OTHER, [], true).ownerChannels("01PROP"),
+      (
+        serviceFor(OTHER, [], true) as unknown as {
+          ownerChannels(id: string): Promise<{ name?: string } | null>;
+        }
+      ).ownerChannels("01PROP"),
     );
     expect(report?.name).toBeUndefined();
   });

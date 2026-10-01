@@ -23,7 +23,10 @@ describe("sessionTokenOf", () => {
   it("בלי אף אחד מהם — אין Session", () => {
     expect(sessionTokenOf(request({}))).toBeNull();
     expect(sessionTokenOf(request({ cookie: "" }))).toBeNull();
-    expect(sessionTokenOf({ cookies: undefined, headers: {} })).toBeNull();
+    // ‏בלי cookie-parser כלל — `cookies` אינו קיים, וזה בדיוק מה שנבדק
+    expect(
+      sessionTokenOf({ cookies: undefined, headers: {} } as unknown as Parameters<typeof sessionTokenOf>[0]),
+    ).toBeNull();
   });
 
   it("הכותרת קודמת לעוגייה כשיש שתיהן", () => {

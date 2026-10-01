@@ -169,7 +169,7 @@ describe("מסך ההרשאות מציג את היכולות בפועל", () => 
       withTenant: async <T>(fn: (tx: unknown) => Promise<T>): Promise<T> =>
         fn({ userCapability: { findMany: async () => [] } }),
     };
-    return controller as SettingsController;
+    return controller as unknown as SettingsController;
   }
 
   function asManager<T>(fn: () => T): T {
