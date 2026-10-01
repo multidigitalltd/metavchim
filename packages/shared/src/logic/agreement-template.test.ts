@@ -159,6 +159,11 @@ describe("fillSignerAddress", () => {
     }
   });
 
+  it("נוסח שמזכיר את הכתובת פעמיים — שני המקומות מתמלאים", () => {
+    const body = `כתובת: ${SIGNER_ADDRESS_BLANK}\nולמשלוח הודעות: ${SIGNER_ADDRESS_BLANK}`;
+    expect(fillSignerAddress(body, "הדקל 5")).toBe("כתובת: הדקל 5\nולמשלוח הודעות: הדקל 5");
+  });
+
   it("מספר זהות אינו נכנס לשורת הכתובת כשאין לו שורה משלו", () => {
     const body = `כתובת: ${SIGNER_ADDRESS_BLANK}`;
     expect(fillSignerId(body, "123456789")).toBe(body);

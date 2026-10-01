@@ -382,33 +382,34 @@ export const SIGNER_BLANK = `${BLANK_MARK}____________${BLANK_MARK}`;
 export const SIGNER_ADDRESS_BLANK = `${BLANK_MARK}${"_".repeat(24)}${BLANK_MARK}`;
 
 /**
- * ‏מילוי שורה של החותם בגוף ההסכם ברגע החתימה.
- *
- * ‏מוחלפת ההופעה הראשונה בלבד: נוסח שמזכיר את הפרט פעמיים ממלא רק
- * ‏את הראשונה, ולא הופך את השנייה לערך כפול. ערך ריק אינו מוחק את
- * ‏השורה.
- */
-function fillSignerBlank(body: string, blank: string, input: string): string {
-  const value = input.trim();
-  if (value === "") return body;
-  const at = body.indexOf(blank);
-  if (at === -1) return body;
-  return body.slice(0, at) + value + body.slice(at + blank.length);
-}
-
-/**
  * מילוי תעודת הזהות בגוף ההסכם ברגע החתימה.
  *
  * בלי זה מספר הזהות היה נשמר בשדה נפרד בלבד, והמסמך עצמו — שהוא
  * הראיה — היה נשאר בלי אחד מפרטי החובה שבתקנות.
+ *
+ * מוחלפת ההופעה הראשונה בלבד: נוסח שמזכיר את תעודת הזהות פעמיים
+ * ממלא רק את הראשונה, ולא הופך את השנייה למספר כפול.
  */
 export function fillSignerId(body: string, idNumber: string): string {
-  return fillSignerBlank(body, SIGNER_BLANK, idNumber);
+  const value = idNumber.trim();
+  if (value === "") return body;
+  const at = body.indexOf(SIGNER_BLANK);
+  if (at === -1) return body;
+  return body.slice(0, at) + value + body.slice(at + SIGNER_BLANK.length);
 }
 
-/** ‏מילוי כתובת הלקוח — ראו `SIGNER_ADDRESS_BLANK`. */
+/**
+ * ‏מילוי כתובת הלקוח — ראו `SIGNER_ADDRESS_BLANK`.
+ *
+ * ‏**כל** ההופעות, ולא רק הראשונה (ביקורת Codex, P2): נוסח מותאם
+ * ‏שמזכיר את הכתובת פעמיים היה נשמר ונחתם עם שורה ריקה במקום השני.
+ * ‏כתובת שחוזרת אינה „ערך כפול” — זו אותה כתובת, ושני המקומות צריכים
+ * ‏אותה. ערך ריק אינו מוחק את השורות.
+ */
 export function fillSignerAddress(body: string, address: string): string {
-  return fillSignerBlank(body, SIGNER_ADDRESS_BLANK, address);
+  const value = address.trim();
+  if (value === "") return body;
+  return body.split(SIGNER_ADDRESS_BLANK).join(value);
 }
 
 /**
