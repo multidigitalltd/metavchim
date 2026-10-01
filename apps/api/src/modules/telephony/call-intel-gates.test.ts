@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
+import { workersSource } from "../../common/workers-source.testkit";
 
 /**
  * ‎**רשת הביטחון של התמלול — מה שאסור להסיר.**
@@ -26,10 +27,7 @@ import { describe, expect, it } from "vitest";
  */
 
 const API = join(import.meta.dirname, "..", "..");
-const WORKER = readFileSync(
-  join(API, "..", "..", "workers", "src", "main.ts"),
-  "utf8",
-);
+const WORKER = workersSource("jobs/calls.ts");
 const INTEL = readFileSync(
   join(API, "..", "..", "..", "packages", "shared", "src", "logic", "call-intel.ts"),
   "utf8",
@@ -153,7 +151,7 @@ describe("פרטיות", () => {
    */
   const INTEL = WORKER.slice(
     WORKER.indexOf("async function callIntel("),
-    WORKER.indexOf("const AUTOMATION_CACHE_TTL_MS"),
+    WORKER.indexOf("\n}\n", WORKER.indexOf("async function callIntel(")),
   );
 
   it("גבול הבדיקה קיים — אחרת היא בודקת מחרוזת ריקה", () => {

@@ -10,6 +10,7 @@ import {
   type RedactableNotification,
 } from "@metavchim/shared";
 import { TenantContext } from "../../common/tenant-context";
+import { workersSource } from "../../common/workers-source.testkit";
 import { publicNotification } from "../telephony/telephony.service";
 import { redactUnauthorizedNotifications } from "./notification-visibility";
 
@@ -590,10 +591,7 @@ describe("‏שער: אין דרך שנייה לקרוא התראה", () => {
  * ‏ההודעה ולמטען הדחיפה חייב להיות התוצר של `redactNotification`.
  */
 describe("‏שער: אין דחיפה בלי צנזורה", () => {
-  const WORKERS = readFileSync(
-    join(import.meta.dirname, "..", "..", "..", "..", "workers", "src", "main.ts"),
-    "utf8",
-  );
+  const WORKERS = workersSource();
 
   /*
    * ‏הטענה על **מה שנכנס לניסוח**, ולא על שמות המשתנים: הניסוח
@@ -686,9 +684,7 @@ describe("‏נושא ההתראה — רק שורה חיה", () => {
     ],
     [
       "worker",
-      strip(
-        readFileSync(new URL("../../../../workers/src/main.ts", import.meta.url), "utf8"),
-      ),
+      strip(workersSource("jobs/whatsapp-notify.ts")),
     ],
   ] as const;
 
