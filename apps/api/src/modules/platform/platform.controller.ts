@@ -115,7 +115,7 @@ import { LeadPricingService } from "../../core/lead-pricing.service";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PrismaService } from "../../core/prisma.service";
 import { AuthService, tenantPeriodEnded } from "../auth/auth.service";
-import { SESSION_COOKIE } from "../auth/auth.controller";
+import { setSessionCookie } from "../../common/session-token";
 import {
   SubscriptionOfferService,
   type PlatformOfferRow,
@@ -3615,13 +3615,7 @@ export class PlatformController {
       }),
     );
 
-    res.cookie(SESSION_COOKIE, token, {
-      httpOnly: true,
-      secure: loadEnv().COOKIE_SECURE,
-      sameSite: "lax",
-      expires: until,
-      path: "/",
-    });
+    setSessionCookie(res, token, until);
     return { ok: true, until: until.toISOString() };
   }
 }

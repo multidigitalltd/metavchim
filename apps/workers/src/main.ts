@@ -1,4 +1,4 @@
-import { createDecipheriv } from "node:crypto";
+import * as nodeCrypto from "node:crypto";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { Queue, Worker, type Job } from "bullmq";
@@ -85,6 +85,7 @@ import {
   shekelLabel,
   propertyHeadline,
   OfferPresentationSchema,
+  openAesGcm,
   type NotifyDetail,
   type NotifyPerson,
   AGENT_ACTIONS,
@@ -3488,23 +3489,15 @@ let waConfigCache: { config: WhatsAppConfig | null; until: number } | null = nul
 /**
  * פענוח הגדרת פלטפורמה.
  *
- * מימוש מקוצר של `CryptoService.decrypt` שב-API: התהליכים נפרדים,
- * ולפתוח ערוץ HTTP פנימי בין העובדים ל-API רק כדי לקרוא שני מפתחות
- * היה מוסיף שטח תקיפה על משהו שהוא בסך הכול AES-GCM מוסכם.
- * הפורמט חייב להישאר זהה לשני הצדדים — הוא מתועד בסכימה.
+ * ‏אותו פענוח של `CryptoService.decrypt` שב-API — `openAesGcm` מהחבילה
+ * ‏המשותפת, ולא עותק שלו. התהליכים נפרדים, ולפתוח ערוץ HTTP פנימי בין
+ * ‏העובדים ל-API רק כדי לקרוא שני מפתחות היה מוסיף שטח תקיפה.
  */
 function decryptSetting(stored: string): string | null {
   const key = process.env["DATA_ENCRYPTION_KEY"];
   if (!key) return null;
   try {
-    const raw = Buffer.from(stored, "base64");
-    const decipher = createDecipheriv(
-      "aes-256-gcm",
-      Buffer.from(key, "base64"),
-      raw.subarray(0, 12),
-    );
-    decipher.setAuthTag(raw.subarray(12, 28));
-    return Buffer.concat([decipher.update(raw.subarray(28)), decipher.final()]).toString("utf8");
+    return openAesGcm(Buffer.from(stored, "base64"), Buffer.from(key, "base64"), nodeCrypto);
   } catch {
     return null;
   }
