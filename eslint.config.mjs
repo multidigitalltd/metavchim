@@ -27,6 +27,36 @@ export default tseslint.config(
     plugins: { "israel-time": israelTime },
     rules: { "israel-time/device-clock": "error" },
   },
+  /*
+   * ‎**הבטחה שנשכחה — עם מידע טיפוסים.**
+   *
+   * ‏`no-floating-promises` הוא הכלל היחיד שתופס `await` שנשכח: קריאה
+   * ‏אסינכרונית שהתוצאה שלה — וגם הכישלון שלה — נזרקים לריק. זה נראה
+   * ‏בדיוק כמו קוד תקין, עובר טיפוסים ובדיקות, ונכשל בשקט בייצור: מייל
+   * ‏שלא נשלח, שורה שלא נכתבה, `unhandledRejection` שמפיל תהליך.
+   * ‏הוא דורש את הטיפוסים, ולכן `projectService`.
+   *
+   * ‏‎`await-thenable` הוא הכיוון ההפוך — `await` על ערך שאינו
+   * ‏הבטחה, כלומר המחבר חשב שמשהו אסינכרוני והוא אינו. ‎`no-misused-
+   * ‏promises` תופס הבטחה במקום שמצפה לבוליאני או ל-`void`; מטפלי
+   * ‏אירועים ב-JSX פטורים (`attributes: false`), כי `onClick={async …}`
+   * ‏הוא הדרך המקובלת ב-React והשגיאה מטופלת בתוכם.
+   *
+   * ‏בדיקות בחוץ: הן אינן בפרויקט ש-`projectService` מוצא (`tsconfig.json`
+   * ‏מחריג אותן), והשגיאות שהכלל תופס הן שגיאות של קוד ייצור.
+   */
+  {
+    files: ["**/*.ts", "**/*.tsx"],
+    ignores: ["**/*.test.ts", "**/*.test.tsx", "**/*.testkit.ts"],
+    languageOptions: {
+      parserOptions: { projectService: true, tsconfigRootDir: import.meta.dirname },
+    },
+    rules: {
+      "@typescript-eslint/no-floating-promises": "error",
+      "@typescript-eslint/no-misused-promises": ["error", { checksVoidReturn: { attributes: false } }],
+      "@typescript-eslint/await-thenable": "error",
+    },
+  },
   {
     plugins: { "react-hooks": reactHooks },
     rules: {
