@@ -3463,6 +3463,20 @@ model SweepLease {
   @@map("sweep_leases")
 }
 
+/// ‏שגיאות השרת, מקובצות ליום — מקור הסיכום היומי (apps/api/src/core/server-errors.ts).
+model ServerError {
+  day        DateTime  @db.Date
+  source     String    @db.VarChar(120)
+  signature  String    @db.VarChar(300)
+  count      Int
+  firstAt    DateTime  @map("first_at") @db.Timestamptz(3)
+  lastAt     DateTime  @map("last_at") @db.Timestamptz(3)
+  notifiedAt DateTime? @map("notified_at") @db.Timestamptz(3)
+
+  @@id([day, source, signature])
+  @@map("server_errors")
+}
+
 /// נוסחי ההסכמים של המשרד. אין שורה ⇒ נוסח ברירת המחדל שבקוד
 /// (packages/shared — agreement-template.ts), כך שמשרד חדש עובד מיד.
 model AgreementTemplate {

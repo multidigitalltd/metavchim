@@ -6,12 +6,17 @@ import { json } from "express";
 import helmet from "helmet";
 import { AppModule } from "./app.module";
 import { loadEnv } from "./config/env";
+import { ServerErrorLogger } from "./core/server-errors";
 
 async function bootstrap(): Promise<void> {
   const env = loadEnv();
 
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
-    logger: env.NODE_ENV === "production" ? ["error", "warn", "log"] : ["debug", "log", "warn", "error"],
+    /* ‏יומן רגיל שגם סופר שגיאות לסיכום היומי — ראו core/server-errors.ts */
+    logger: new ServerErrorLogger({
+      logLevels:
+        env.NODE_ENV === "production" ? ["error", "warn", "log"] : ["debug", "log", "warn", "error"],
+    }),
     rawBody: true, // נדרש לאימות חתימות Webhook (WhatsApp)
     /*
      * רישום ידני של מפרקי הגוף, כי ברירת המחדל (100KB) קטנה מדי

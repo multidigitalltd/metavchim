@@ -8,6 +8,7 @@ import {
 } from "@metavchim/shared";
 import { processNotification } from "./notifications.js";
 import { connection, prisma } from "./runtime.js";
+import { recordJobFailure } from "./server-errors.js";
 import { processCleanup } from "./storage.js";
 import { processAgentEventsRetention } from "./jobs/agent-events-retention.js";
 import { transcribeOneCall } from "./jobs/calls.js";
@@ -304,6 +305,9 @@ for (const worker of workers) {
     console.error(
       `[${worker.name}] job ${job?.id ?? "?"} failed: ${error.message}`,
     );
+    /* ‏לסיכום היומי — רק כישלון סופי, לא כל ניסיון שעוד יחזור */
+    if (job && job.attemptsMade < (job.opts.attempts ?? 1)) return;
+    void recordJobFailure(`workers:${worker.name}:${job?.name ?? "?"}`, error.message);
   });
 }
 
