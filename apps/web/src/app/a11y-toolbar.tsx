@@ -106,7 +106,7 @@ export function AccessibilityRuntime() {
       const base = prefs ?? loadA11y();
       const next = commitA11y({ ...base, ...patch });
       setPrefs(next);
-      persistA11yToServer(next);
+      void persistA11yToServer(next);
     },
     [prefs],
   );
@@ -114,7 +114,7 @@ export function AccessibilityRuntime() {
   const reset = useCallback(() => {
     const next = resetA11y();
     setPrefs(next);
-    persistA11yToServer(next);
+    void persistA11yToServer(next);
   }, []);
 
   // עד הקריאה מהמטמון אין מה לצייר — מונע אי-התאמה בין השרת ללקוח
