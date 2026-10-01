@@ -1,4 +1,5 @@
-import type { Request } from "express";
+import type { Request, Response } from "express";
+import { loadEnv } from "../config/env";
 
 /** שם עוגיית ה-Session של אפליקציית הווב. */
 export const SESSION_COOKIE = "mv_session";
@@ -38,4 +39,21 @@ export function sessionTokenOf(req: Pick<Request, "cookies" | "headers">): strin
   }
   const cookie = (req.cookies as Record<string, unknown> | undefined)?.[SESSION_COOKIE];
   return typeof cookie === "string" && cookie !== "" ? cookie : null;
+}
+
+/**
+ * ‎**עוגיית ה-Session — אפשרויות אחת לכל מי שמנפיק אותה.**
+ *
+ * ‏כניסה, הרשמה וכניסת תמיכה בשם משרד כתבו כל אחת את אותן חמש אפשרויות.
+ * ‏עותק שמישהו מקשיח (למשל `sameSite: "strict"`) היה משאיר את השניים
+ * ‏האחרים מאחור — ועוגייה חלשה אחת מספיקה.
+ */
+export function setSessionCookie(res: Response, token: string, expires: Date): void {
+  res.cookie(SESSION_COOKIE, token, {
+    httpOnly: true,
+    secure: loadEnv().COOKIE_SECURE,
+    sameSite: "lax",
+    expires,
+    path: "/",
+  });
 }

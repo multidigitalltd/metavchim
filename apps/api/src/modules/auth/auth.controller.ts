@@ -28,7 +28,7 @@ import {
 import { loadEnv } from "../../config/env";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { AnyAuthenticated, BillingAllowed, Public } from "../../common/auth.decorators";
-import { SESSION_COOKIE, sessionTokenOf } from "../../common/session-token";
+import { SESSION_COOKIE, sessionTokenOf, setSessionCookie } from "../../common/session-token";
 import { TenantContext } from "../../common/tenant-context";
 import {
   AuthService,
@@ -320,7 +320,7 @@ export class AuthController {
         ip: req.ip,
         userAgent: req.headers["user-agent"],
       });
-      this.setSessionCookie(res, token, expiresAt);
+      setSessionCookie(res, token, expiresAt);
       res.redirect(`${webOrigin}${target}`);
     } catch (error) {
       // אימייל שאינו רשום במשרד — הודעה נפרדת, כי זו לא תקלה אלא
@@ -426,7 +426,7 @@ export class AuthController {
       res.redirect(`${env.WEB_ORIGIN}/login`);
       return;
     }
-    this.setSessionCookie(res, token, expiresAt);
+    setSessionCookie(res, token, expiresAt);
     res.cookie(EMBEDDED_COOKIE, "1", {
       // ‏נקראת בצד הלקוח (ה-AppShell), ולכן אינה httpOnly
       httpOnly: false,
@@ -436,16 +436,6 @@ export class AuthController {
       path: "/",
     });
     res.redirect(`${env.WEB_ORIGIN}${next}`);
-  }
-
-  private setSessionCookie(res: Response, token: string, expiresAt: Date): void {
-    res.cookie(SESSION_COOKIE, token, {
-      httpOnly: true,
-      secure: loadEnv().COOKIE_SECURE,
-      sameSite: "lax",
-      expires: expiresAt,
-      path: "/",
-    });
   }
 
   @Public()
@@ -505,7 +495,7 @@ export class AuthController {
     if (client === "mobile") {
       return { user, session: { token, expiresAt: expiresAt.toISOString() } };
     }
-    this.setSessionCookie(res, token, expiresAt);
+    setSessionCookie(res, token, expiresAt);
     return { user };
   }
 
