@@ -1,5 +1,5 @@
-import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { workersSource } from "../../common/workers-source.testkit";
 
 /**
  * ‎**החיווט של ההעשרה בעובד** — מה שאין עליו קומפיילר.
@@ -14,17 +14,14 @@ import { describe, expect, it } from "vitest";
  * פרטים של קונה של עמית לא תתגלה עד שמישהו יתלונן.
  */
 
-const WORKERS = readFileSync(
-  new URL("../../../../../apps/workers/src/main.ts", import.meta.url),
-  "utf8",
-);
+const WORKERS = workersSource("jobs/whatsapp-notify.ts");
+const DETAILS = workersSource("whatsapp/details.ts");
 
 /** גוף פונקציית ההעשרה עצמה — הטעינות, לא החיווט. */
 const loader = (): string => {
-  const start = WORKERS.indexOf("async function loadNotifyDetails(");
-  const end = WORKERS.indexOf("interface WaRecipient", start);
+  const start = DETAILS.indexOf("async function loadNotifyDetails(");
   expect(start, "loadNotifyDetails נעלמה").toBeGreaterThan(0);
-  return WORKERS.slice(start, end);
+  return DETAILS.slice(start);
 };
 
 describe("העשרת ההתראות בעובד", () => {
