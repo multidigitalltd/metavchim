@@ -405,6 +405,8 @@ model ContactPhone {
 
   @@unique([tenantId, phoneHash])
   @@index([tenantId, contactId])
+  /// ‏מחיקת איש קשר מתפשטת לפי `contact_id` בלבד — ראו מיגרציה 20261001090000
+  @@index([contactId], map: "contact_phones_contact_id_idx")
   @@map("contact_phones")
 }
 
@@ -428,6 +430,8 @@ model ContactLink {
 
   @@unique([tenantId, contactId, relatedContactId])
   @@index([tenantId, relatedContactId])
+  @@index([contactId], map: "contact_links_contact_id_idx")
+  @@index([relatedContactId], map: "contact_links_related_contact_id_idx")
   @@map("contact_links")
 }
 
@@ -1102,6 +1106,7 @@ model PropertyMedia {
   property Property @relation(fields: [propertyId], references: [id])
 
   @@index([tenantId, propertyId, sortOrder])
+  @@index([propertyId], map: "property_media_property_id_idx")
   @@map("property_media")
 }
 
@@ -1363,6 +1368,7 @@ model ContactOptOutToken {
   contact Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
 
   @@unique([tenantId, contactId], map: "contact_optout_tokens_contact_key")
+  @@index([contactId], map: "contact_optout_tokens_contact_id_idx")
   @@map("contact_optout_tokens")
 }
 
@@ -2346,6 +2352,7 @@ model WhatsAppConversation {
 
   @@unique([connectionId, contactId])
   @@index([tenantId, contactId])
+  @@index([contactId], map: "whatsapp_conversations_contact_id_idx")
   @@map("whatsapp_conversations")
 }
 
