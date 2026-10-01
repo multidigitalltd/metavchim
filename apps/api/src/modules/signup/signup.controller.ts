@@ -14,10 +14,9 @@ import {
   type SignupInput,
 } from "@metavchim/shared";
 import { Public } from "../../common/auth.decorators";
-import { loadEnv } from "../../config/env";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { AuthService } from "../auth/auth.service";
-import { SESSION_COOKIE } from "../auth/auth.controller";
+import { setSessionCookie } from "../../common/session-token";
 import { SignupService } from "./signup.service";
 import { CouponService } from "./coupon.service";
 import {
@@ -214,13 +213,7 @@ export class SignupController {
       ip: req.ip,
       userAgent: req.headers["user-agent"],
     });
-    res.cookie(SESSION_COOKIE, token, {
-      httpOnly: true,
-      secure: loadEnv().COOKIE_SECURE,
-      sameSite: "lax",
-      expires: expiresAt,
-      path: "/",
-    });
+    setSessionCookie(res, token, expiresAt);
     return {
       // null = מסלול חינמי, בלי תפוגה
       trialEndsAt: trialEndsAt?.toISOString() ?? null,
