@@ -119,13 +119,13 @@ export default function ProfilePage() {
   function update(patch: Partial<A11yPrefs>): void {
     const next = commitA11y({ ...prefs, ...patch });
     setPrefs(next);
-    persistA11yToServer(next);
+    void persistA11yToServer(next);
   }
 
   function resetPrefs(): void {
     const next = resetA11y();
     setPrefs(next);
-    persistA11yToServer(next);
+    void persistA11yToServer(next);
   }
 
   async function saveDetails(event: FormEvent<HTMLFormElement>): Promise<void> {

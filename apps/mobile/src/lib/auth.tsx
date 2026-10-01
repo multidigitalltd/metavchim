@@ -145,7 +145,9 @@ export function AuthProvider({ children }: PropsWithChildren) {
       .catch(() => readPushStatus())
       .then((status) => {
         if (!cancelled) setPushStatus(status);
-      });
+      })
+      // ‏גם קריאת המצב נכשלה — המסך נשאר במצב הקודם, בלי דחייה שאיש אינו מטפל בה
+      .catch(() => undefined);
     return () => {
       cancelled = true;
     };
