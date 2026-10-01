@@ -48,7 +48,7 @@ describe("כיסוי הביצוע מול קטלוג הפעולות", () => {
   });
 
   it("ואין ענף לפעולה שאינה בקטלוג", () => {
-    const orphans = cases.filter((id) => !catalogue.includes(id));
+    const orphans = cases.filter((id) => !(catalogue as readonly string[]).includes(id));
     expect(orphans, "ענפים שאף מסלול אינו מגיע אליהם").toEqual([]);
   });
 

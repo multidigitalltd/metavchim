@@ -100,7 +100,7 @@ function stubFetch(...responses: (number | "network")[]): {
       url,
       body: init?.body === undefined ? undefined : JSON.parse(init.body),
     });
-    const next = responses[Math.min(i, responses.length - 1)];
+    const next = responses[Math.min(i, responses.length - 1)]!;
     i += 1;
     if (next === "network") throw new Error("ECONNRESET");
     return {

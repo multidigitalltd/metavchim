@@ -72,6 +72,7 @@ function serviceFor(lead: Lead | null, deleted: string[]): CallsService {
     audit as never,
     storage as never,
     {} as never,
+    {} as never,
   );
 }
 

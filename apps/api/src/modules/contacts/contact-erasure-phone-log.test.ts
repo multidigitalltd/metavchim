@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { ContactLock } from "../../common/locks";
 import type { AuditService } from "../../core/audit.service";
 import type { CryptoService } from "../../core/crypto.service";
 import type { PrismaService } from "../../core/prisma.service";
@@ -92,7 +93,8 @@ function service(): { erase: ContactErasureService; calls: Call[] } {
 async function logCleanup(): Promise<Call | undefined> {
   const { erase, calls } = service();
   const tx = fakeTx(calls);
-  await erase.eraseUnreachable(tx, TENANT, { contactId: CONTACT }, "בדיקה");
+  // ‏הנעילה עצמה אינה הנושא כאן — המותג מגן על קוד ייצור, לא על הבדיקה
+  await erase.eraseUnreachable(tx, TENANT, { contactId: CONTACT } as unknown as ContactLock, "בדיקה");
   return calls.find(
     (call) => call.model === "webhookHit" && call.method === "updateMany",
   );

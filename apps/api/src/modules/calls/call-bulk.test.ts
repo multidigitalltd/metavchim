@@ -38,6 +38,7 @@ function serviceWith(overrides: {
     (overrides.audit ?? { record: () => Promise.resolve() }) as never,
     {} as never,
     {} as never,
+    {} as never,
   );
 }
 
@@ -165,7 +166,7 @@ describe("שיוך מרוכז לנציג", () => {
    */
   it("ואינו לוקח ליד של עמית — דילוג, ובלי כתיבה", async () => {
     const update = vi.fn(() => Promise.resolve({ count: 1 }));
-    const record = vi.fn(() => Promise.resolve());
+    const record = vi.fn((..._args: unknown[]) => Promise.resolve());
     const service = serviceWith({
       tx: {
         user: { findFirst: () => Promise.resolve({ id: "01AGENT", name: "דנה" }) },
@@ -211,7 +212,7 @@ describe("שיוך מרוכז לנציג", () => {
    */
   it("וליד שכבר אצל הנציג נספר בנפרד, בלי כתיבה ובלי ביקורת", async () => {
     const update = vi.fn(() => Promise.resolve({ count: 1 }));
-    const record = vi.fn(() => Promise.resolve());
+    const record = vi.fn((..._args: unknown[]) => Promise.resolve());
     const service = serviceWith({
       tx: {
         user: { findFirst: () => Promise.resolve({ id: "01AGENT" }) },
@@ -238,7 +239,7 @@ describe("שיוך מרוכז לנציג", () => {
    */
   it("והעברה אמיתית כותבת את הליד ורושמת מאיפה לאן", async () => {
     const update = vi.fn(() => Promise.resolve({ count: 1 }));
-    const record = vi.fn(() => Promise.resolve());
+    const record = vi.fn((..._args: unknown[]) => Promise.resolve());
     const service = serviceWith({
       tx: {
         user: { findFirst: () => Promise.resolve({ id: "01NEWAGENT" }) },
@@ -298,7 +299,7 @@ describe("שיוך מרוכז לנציג", () => {
    */
   it("ושתי שיחות על אותו ליד — העברה אחת, ושתיהן נספרות", async () => {
     const update = vi.fn(() => Promise.resolve({ count: 1 }));
-    const record = vi.fn(() => Promise.resolve());
+    const record = vi.fn((..._args: unknown[]) => Promise.resolve());
     let moved = false;
     const service = serviceWith({
       tx: {

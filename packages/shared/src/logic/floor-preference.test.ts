@@ -8,7 +8,7 @@ import {
   floorMatches,
   floorPreferenceText,
 } from "./floor-preference.js";
-import { BuyerRequirementsSchema } from "../schemas/buyer.js";
+import { BuyerRequirementsSchema, type FloorPreference } from "../schemas/buyer.js";
 
 const base = { cities: [], neighborhoods: [], searchAreas: [], dealType: "sale" as const };
 
@@ -57,7 +57,7 @@ describe("קומה רצויה", () => {
 
   describe("רשימה", () => {
     it("שייכות לקבוצה, ולא טווח שנגזר ממנה", () => {
-      const pick = { mode: "list", floors: [0, 5] } as const;
+      const pick = { mode: "list", floors: [0, 5] } satisfies FloorPreference;
       expect(floorMatches(pick, 0)).toBe(true);
       expect(floorMatches(pick, 5)).toBe(true);
       /*
@@ -85,11 +85,11 @@ describe("קומה רצויה", () => {
     });
 
     it.each([
-      [{ mode: "range", min: 3 } as const, "קומה 3 ומעלה"],
-      [{ mode: "range", max: 2 } as const, "עד קומה 2"],
-      [{ mode: "range", min: 1, max: 4 } as const, "קומה 1 עד קומה 4"],
-      [{ mode: "range", min: 2, max: 2 } as const, "קומה 2"],
-      [{ mode: "list", floors: [0, 1] } as const, "קרקע, קומה 1"],
+      [{ mode: "range", min: 3 } satisfies FloorPreference, "קומה 3 ומעלה"],
+      [{ mode: "range", max: 2 } satisfies FloorPreference, "עד קומה 2"],
+      [{ mode: "range", min: 1, max: 4 } satisfies FloorPreference, "קומה 1 עד קומה 4"],
+      [{ mode: "range", min: 2, max: 2 } satisfies FloorPreference, "קומה 2"],
+      [{ mode: "list", floors: [0, 1] } satisfies FloorPreference, "קרקע, קומה 1"],
     ])("%o נאמר „%s”", (preference, text) => {
       expect(floorPreferenceText(preference)).toBe(text);
     });
