@@ -368,6 +368,20 @@ const BLANK_MARK = "⁠";
 export const SIGNER_BLANK = `${BLANK_MARK}____________${BLANK_MARK}`;
 
 /**
+ * ‏השורה של כתובת הלקוח בהסכם רגיל — גם אותה החותם ממלא.
+ *
+ * ‏לכתובת אין מקור אחר במערכת, ולכן בלי זה היא הודפסה בכל הסכם
+ * ‏רגיל כ-`[חסר: כתובת הלקוח]`. היא אינה פרט חובה בתקנות, ולכן אינה
+ * ‏ב-`SIGNER_PROVIDED_PLACEHOLDERS`.
+ *
+ * ‏אותו סימון בלתי נראה, ושורה **ארוכה פי שניים**: כתובת ארוכה ממספר
+ * ‏זהות, והאורך הוא גם מה שמבדיל בין השתיים. אף אחת אינה מחרוזת-משנה
+ * ‏של השנייה (אחרי הסימון של זו באים 24 קווים, ושל זו 12 ואז סימון),
+ * ‏ולכן כל אחת נמצאת במקומה בלי קשר לסדר שלהן בנוסח.
+ */
+export const SIGNER_ADDRESS_BLANK = `${BLANK_MARK}${"_".repeat(24)}${BLANK_MARK}`;
+
+/**
  * מילוי תעודת הזהות בגוף ההסכם ברגע החתימה.
  *
  * בלי זה מספר הזהות היה נשמר בשדה נפרד בלבד, והמסמך עצמו — שהוא
@@ -382,6 +396,20 @@ export function fillSignerId(body: string, idNumber: string): string {
   const at = body.indexOf(SIGNER_BLANK);
   if (at === -1) return body;
   return body.slice(0, at) + value + body.slice(at + SIGNER_BLANK.length);
+}
+
+/**
+ * ‏מילוי כתובת הלקוח — ראו `SIGNER_ADDRESS_BLANK`.
+ *
+ * ‏**כל** ההופעות, ולא רק הראשונה (ביקורת Codex, P2): נוסח מותאם
+ * ‏שמזכיר את הכתובת פעמיים היה נשמר ונחתם עם שורה ריקה במקום השני.
+ * ‏כתובת שחוזרת אינה „ערך כפול” — זו אותה כתובת, ושני המקומות צריכים
+ * ‏אותה. ערך ריק אינו מוחק את השורות.
+ */
+export function fillSignerAddress(body: string, address: string): string {
+  const value = address.trim();
+  if (value === "") return body;
+  return body.split(SIGNER_ADDRESS_BLANK).join(value);
 }
 
 /**
