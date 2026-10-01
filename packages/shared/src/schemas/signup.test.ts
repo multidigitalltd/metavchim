@@ -30,7 +30,7 @@ describe("סכימת ההרשמה — טלפון", () => {
     expect(parsed.success).toBe(true);
   });
 
-  /** ‏הנרמול הוא גם מה שמייצר את הפורמט ש-`UserSchema.phone` דורש. */
+  /** ‏הנרמול הוא גם מה שמייצר את הפורמט ש-`PhoneSchema` דורש. */
   it("שומר E.164 ולא את מה שהוקלד", () => {
     const parsed = SignupInputSchema.parse({ ...base, phone: "(054) 123-4567" });
     expect(parsed.phone).toBe("+972541234567");

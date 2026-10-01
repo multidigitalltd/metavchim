@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { normalizeHouseNumber } from "../logic/property-address.js";
-import { IdSchema, MoneyAgorotSchema } from "./common.js";
+import { MoneyAgorotSchema } from "./common.js";
 
 export const PropertyTypeSchema = z.enum([
   "apartment",
@@ -279,21 +279,6 @@ export const PropertyFieldsSchema = z.object({
 });
 export type PropertyFields = z.infer<typeof PropertyFieldsSchema>;
 
-export const PropertySchema = PropertyFieldsSchema.extend({
-  id: IdSchema,
-  tenantId: IdSchema,
-  status: PropertyStatusSchema,
-  ownerContactId: IdSchema.optional(),
-  marketingTitle: z.string().max(160).optional(),
-  marketingDescription: z.string().max(4000).optional(),
-  internalNotes: z.string().max(4000).optional(),
-  /** מאפיינים נדירים/עתידיים — לא נכנסים כעמודות עד שיש להם שימוש בהתאמות. */
-  attributes: z.record(z.string(), z.unknown()).default({}),
-  readinessScore: z.number().int().min(0).max(100),
-  createdAt: z.coerce.date(),
-  updatedAt: z.coerce.date(),
-});
-export type Property = z.infer<typeof PropertySchema>;
 
 /**
  * תשעת השדות שמהם נגזרת מוכנות הנכס — **רשימה אחת לכל המערכת.**
