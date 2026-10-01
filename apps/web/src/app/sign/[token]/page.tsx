@@ -31,6 +31,8 @@ interface AgreementView {
    * ‏שורת מילוי נראית אותו דבר בשני המקרים.
    */
   openLink: boolean;
+  /** ‏הסכם רגיל שבנוסח שלו שורה לכתובת הלקוח — שוב, רק השרת יודע. */
+  asksAddress: boolean;
 }
 
 const inputStyle = { borderColor: "var(--color-input-border)", background: "var(--color-field)" } as const;
@@ -109,6 +111,10 @@ export default function SignPage({ params }: { params: Promise<{ token: string }
                 priceText: String(form.get("priceText")).trim(),
               },
             }
+          : {}),
+        // ‏הסכם רגיל: הכתובת היא הפרט היחיד מלבד הזהות שהחותם משלים
+        ...(view?.openLink !== true && view?.asksAddress === true
+          ? { signerAddress: String(form.get("address")).trim() }
           : {}),
       });
       setSignedAt(res.signedAt);
@@ -255,40 +261,46 @@ export default function SignPage({ params }: { params: Promise<{ token: string }
             ‏ההסכם ייכנס לכרטיס קיים או שייפתח כרטיס חדש.
           */}
           {view.openLink ? (
+            <div className="mb-4">
+              <label htmlFor="phone" className="mb-1 block font-medium">
+                טלפון נייד
+              </label>
+              <input
+                id="phone"
+                name="phone"
+                required
+                type="tel"
+                inputMode="tel"
+                minLength={9}
+                autoComplete="tel"
+                dir="ltr"
+                className="mv-ltr w-full rounded-lg border px-3 py-2.5"
+                style={inputStyle}
+              />
+            </div>
+          ) : null}
+
+          {/* ‏גם בהסכם רגיל: לכתובת אין מקור אחר, והחותם ממלא אותה כמו את מספר הזהות */}
+          {view.openLink || view.asksAddress ? (
+            <div className="mb-4">
+              <label htmlFor="address" className="mb-1 block font-medium">
+                כתובת מגורים
+              </label>
+              <input
+                id="address"
+                name="address"
+                required
+                minLength={2}
+                maxLength={200}
+                autoComplete="street-address"
+                className="w-full rounded-lg border px-3 py-2.5"
+                style={inputStyle}
+              />
+            </div>
+          ) : null}
+
+          {view.openLink ? (
             <>
-              <div className="mb-4">
-                <label htmlFor="phone" className="mb-1 block font-medium">
-                  טלפון נייד
-                </label>
-                <input
-                  id="phone"
-                  name="phone"
-                  required
-                  type="tel"
-                  inputMode="tel"
-                  minLength={9}
-                  autoComplete="tel"
-                  dir="ltr"
-                  className="mv-ltr w-full rounded-lg border px-3 py-2.5"
-                  style={inputStyle}
-                />
-              </div>
-
-              <div className="mb-4">
-                <label htmlFor="address" className="mb-1 block font-medium">
-                  כתובת מגורים
-                </label>
-                <input
-                  id="address"
-                  name="address"
-                  required
-                  minLength={2}
-                  autoComplete="street-address"
-                  className="w-full rounded-lg border px-3 py-2.5"
-                  style={inputStyle}
-                />
-              </div>
-
               <fieldset className="mb-4 border-0 p-0">
                 <legend className="mb-1 font-medium">סוג העסקה</legend>
                 <div className="flex flex-wrap gap-4">

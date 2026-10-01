@@ -6,11 +6,13 @@ import {
   REQUIRED_PLACEHOLDERS,
   SAMPLE_AGREEMENT_VALUES,
   OPEN_SIGNER_PLACEHOLDERS,
+  SIGNER_ADDRESS_BLANK,
   SIGNER_BLANK,
   SIGNER_PROVIDED_PLACEHOLDERS,
   agreementAllowsOpenLink,
   agreementDealLabel,
   defaultAgreementTemplate,
+  fillSignerAddress,
   fillSignerId,
   missingRequiredPlaceholders,
   openSignerBlanks,
@@ -135,6 +137,51 @@ describe("fillSignerId", () => {
   it("מספר ריק לא מוחק את השורה", () => {
     const body = `ת"ז ${SIGNER_BLANK}`;
     expect(fillSignerId(body, "   ")).toBe(body);
+  });
+});
+
+describe("fillSignerAddress", () => {
+  it("ממלא את שורת הכתובת בכתובת שהחותם הזין", () => {
+    expect(fillSignerAddress(`כתובת: ${SIGNER_ADDRESS_BLANK}`, " הדקל 5, רמת גן ")).toBe(
+      "כתובת: הדקל 5, רמת גן",
+    );
+  });
+
+  it("הכתובת והזהות לא נבלעות זו בשורה של זו — בכל סדר בנוסח", () => {
+    const cases: [string, string][] = [
+      [`כתובת ${SIGNER_ADDRESS_BLANK} · ת"ז ${SIGNER_BLANK}`, 'כתובת הדקל 5 · ת"ז 123456789'],
+      [`ת"ז ${SIGNER_BLANK} · כתובת ${SIGNER_ADDRESS_BLANK}`, 'ת"ז 123456789 · כתובת הדקל 5'],
+      [`${SIGNER_ADDRESS_BLANK}${SIGNER_BLANK}`, "הדקל 5123456789"],
+    ];
+    for (const [body, expected] of cases) {
+      expect(fillSignerAddress(fillSignerId(body, "123456789"), "הדקל 5")).toBe(expected);
+      expect(fillSignerId(fillSignerAddress(body, "הדקל 5"), "123456789")).toBe(expected);
+    }
+  });
+
+  it("מספר זהות אינו נכנס לשורת הכתובת כשאין לו שורה משלו", () => {
+    const body = `כתובת: ${SIGNER_ADDRESS_BLANK}`;
+    expect(fillSignerId(body, "123456789")).toBe(body);
+  });
+
+  it("כתובת ריקה לא מוחקת את השורה", () => {
+    const body = `כתובת: ${SIGNER_ADDRESS_BLANK}`;
+    expect(fillSignerAddress(body, "  ")).toBe(body);
+  });
+
+  it("נוסח ברירת המחדל: אחרי החתימה אין שורה ריקה ואין „חסר”", () => {
+    for (const kind of KINDS) {
+      const sent = renderAgreement(defaultAgreementTemplate(kind), {
+        ...SAMPLE_AGREEMENT_VALUES,
+        תעודת_זהות_הלקוח: SIGNER_BLANK,
+        כתובת_הלקוח: SIGNER_ADDRESS_BLANK,
+      }).text;
+      const signed = fillSignerAddress(fillSignerId(sent, "123456789"), "הדקל 5, רמת גן");
+      expect(signed).not.toContain(SIGNER_BLANK);
+      expect(signed).not.toContain(SIGNER_ADDRESS_BLANK);
+      expect(signed).not.toContain("[חסר");
+      expect(signed).toContain("הדקל 5, רמת גן");
+    }
   });
 });
 
