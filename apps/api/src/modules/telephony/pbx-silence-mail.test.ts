@@ -1,6 +1,7 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { loadEnv } from "../../config/env";
 import type { EmailService } from "../../core/email.service";
+import type { PlanCatalogService } from "../../core/plan-catalog.service";
 import type { PrismaService } from "../../core/prisma.service";
 import { PbxSilenceMailService } from "./pbx-silence-mail.service";
 
@@ -31,6 +32,8 @@ interface StaffRow {
   email: string;
   role: string;
   whatsappAccess: boolean;
+  phone: string | null;
+  preferences: unknown;
 }
 interface ChatRow {
   userId: string;
@@ -49,6 +52,8 @@ function harness(input: {
   alerts?: (typeof ALERT)[];
   chats?: ChatRow[];
   configured?: boolean;
+  /** ‏הסוכן בוואטסאפ בחבילה של המשרד — ברירת המחדל כן */
+  agentInPlan?: boolean;
 }) {
   const sent: { to: string; subject: string; key: string | undefined; url: string | undefined; tenantId: unknown }[] = [];
   const notificationWheres: unknown[] = [];
@@ -93,9 +98,16 @@ function harness(input: {
       });
     },
   };
+  const plans = {
+    tenantHasFeature: async (tenantId: string, feature: string) => {
+      expect([tenantId, feature]).toEqual([TENANT, "voice_intake"]);
+      return input.agentInPlan ?? true;
+    },
+  };
   const service = new PbxSilenceMailService(
     prisma as unknown as PrismaService,
     email as unknown as EmailService,
+    plans as unknown as PlanCatalogService,
   );
   return { service, sent, notificationWheres };
 }
@@ -106,6 +118,8 @@ const owner = (over: Partial<StaffRow> = {}): StaffRow => ({
   email: "owner@example.com",
   role: "owner",
   whatsappAccess: false,
+  phone: "050-123-4567",
+  preferences: {},
   ...over,
 });
 const agent = (over: Partial<StaffRow> = {}): StaffRow => ({
@@ -114,6 +128,8 @@ const agent = (over: Partial<StaffRow> = {}): StaffRow => ({
   email: "agent@example.com",
   role: "agent",
   whatsappAccess: false,
+  phone: "052-765-4321",
+  preferences: {},
   ...over,
 });
 
@@ -148,6 +164,47 @@ describe("‏מי מקבל את „המרכזייה השתתקה” במייל",
     });
     await service.tick(NOW);
     expect(sent).toEqual([]);
+  });
+
+  /*
+   * ‏בקשת המשתמש: „מי שמחזיק מקום אבל כיבה את הוואטסאפ צריך לקבל את
+   * ‏התראת המרכזייה במייל” — מיד, ולא אחרי שסבב הוואטסאפ יסגור אותה:
+   * ‏משרד שאין בו אף נמען וואטסאפ אינו נסגר שם לעולם.
+   */
+  it("‏מחזיק מקום שכיבה את התראות הוואטסאפ — מקבל מייל מיד", async () => {
+    const { service, sent } = harness({
+      staff: [owner({ whatsappAccess: true, preferences: { whatsappNotify: { enabled: false } } })],
+    });
+    await service.tick(NOW);
+    expect(sent.map((mail) => mail.to)).toEqual(["owner@example.com"]);
+  });
+
+  it("‏מחזיק מקום שכיבה רק את קטגוריית השיחות — מקבל מייל מיד", async () => {
+    const { service, sent } = harness({
+      staff: [
+        owner({
+          whatsappAccess: true,
+          preferences: { whatsappNotify: { categories: { calls: false } } },
+        }),
+      ],
+    });
+    await service.tick(NOW);
+    expect(sent.map((mail) => mail.to)).toEqual(["owner@example.com"]);
+  });
+
+  it("‏מחזיק מקום בלי טלפון שאפשר לשלוח אליו — מקבל מייל מיד", async () => {
+    const { service, sent } = harness({ staff: [owner({ whatsappAccess: true, phone: null })] });
+    await service.tick(NOW);
+    expect(sent.map((mail) => mail.to)).toEqual(["owner@example.com"]);
+  });
+
+  it("‏מחזיק מקום במשרד שהסוכן אינו בחבילה שלו — מקבל מייל מיד", async () => {
+    const { service, sent } = harness({
+      staff: [owner({ whatsappAccess: true })],
+      agentInPlan: false,
+    });
+    await service.tick(NOW);
+    expect(sent.map((mail) => mail.to)).toEqual(["owner@example.com"]);
   });
 
   it("‏סוכן שאינו רשאי לגעת בהגדרות — אינו מקבל מייל שאין לו מה לעשות איתו", async () => {
