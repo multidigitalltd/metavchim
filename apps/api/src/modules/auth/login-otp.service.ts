@@ -1,9 +1,10 @@
-import { Injectable, Logger, OnModuleDestroy, UnauthorizedException } from "@nestjs/common";
+import { Inject, Injectable, Logger, UnauthorizedException } from "@nestjs/common";
 import { createHmac, randomBytes, randomInt, timingSafeEqual } from "node:crypto";
-import IORedis from "ioredis";
+import type IORedis from "ioredis";
 import { loadEnv } from "../../config/env";
 import { EmailService } from "../../core/email.service";
 import { PlatformSettingsService } from "../../core/platform-settings.service";
+import { REDIS } from "../../core/redis";
 
 /**
  * אימות דו-שלבי בקוד אימייל (docs/04) — פעיל רק כש-LOGIN_OTP_ENABLED=true
@@ -24,25 +25,16 @@ interface OtpRecord {
 }
 
 @Injectable()
-export class LoginOtpService implements OnModuleDestroy {
+export class LoginOtpService {
   private readonly logger = new Logger(LoginOtpService.name);
-  private readonly redis: IORedis;
   private readonly hmacKey: string;
 
   constructor(
     private readonly email: EmailService,
     private readonly platformSettings: PlatformSettingsService,
+    @Inject(REDIS) private readonly redis: IORedis,
   ) {
-    const env = loadEnv();
-    this.redis = new IORedis(env.REDIS_URL, { maxRetriesPerRequest: 1, lazyConnect: false });
-    this.hmacKey = env.PHONE_HASH_KEY;
-    this.redis.on("error", () => {
-      /* נרשם באזהרות — אין קריסה על ניתוק Redis */
-    });
-  }
-
-  async onModuleDestroy(): Promise<void> {
-    await this.redis.quit().catch(() => undefined);
+    this.hmacKey = loadEnv().PHONE_HASH_KEY;
   }
 
   private hmac(code: string): string {

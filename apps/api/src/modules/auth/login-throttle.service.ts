@@ -1,7 +1,8 @@
-import { HttpException, Injectable, Logger, OnModuleDestroy } from "@nestjs/common";
+import { HttpException, Inject, Injectable, Logger } from "@nestjs/common";
 import { createHmac } from "node:crypto";
-import IORedis from "ioredis";
+import type IORedis from "ioredis";
 import { loadEnv } from "../../config/env";
+import { REDIS } from "../../core/redis";
 
 /**
  * הגנת Brute-Force על ההתחברות (docs/04 §6) — מודל הזמנה אטומית:
@@ -20,22 +21,12 @@ const EMAIL_MAX_ATTEMPTS = 5;
 const IP_MAX_ATTEMPTS = 20;
 
 @Injectable()
-export class LoginThrottleService implements OnModuleDestroy {
+export class LoginThrottleService {
   private readonly logger = new Logger(LoginThrottleService.name);
-  private readonly redis: IORedis;
   private readonly hashKey: string;
 
-  constructor() {
-    const env = loadEnv();
-    this.redis = new IORedis(env.REDIS_URL, { maxRetriesPerRequest: 1, lazyConnect: false });
-    this.hashKey = env.PHONE_HASH_KEY;
-    this.redis.on("error", () => {
-      /* נרשם באזהרות הפעולה — אין קריסת תהליך על ניתוק Redis */
-    });
-  }
-
-  async onModuleDestroy(): Promise<void> {
-    await this.redis.quit().catch(() => undefined);
+  constructor(@Inject(REDIS) private readonly redis: IORedis) {
+    this.hashKey = loadEnv().PHONE_HASH_KEY;
   }
 
   /** HMAC קצר — מזהה יציב בלי לחשוף אימייל/IP במפתחות Redis. */
