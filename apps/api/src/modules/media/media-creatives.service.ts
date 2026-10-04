@@ -190,6 +190,15 @@ export class MediaCreativesService {
     return this.open(order);
   }
 
+  /** הקובץ מעמוד ההזמנה של הנציג — לפי האסימון הקבוע של ההזמנה; תמיד הקובץ העדכני. */
+  async getByOutletToken(token: string): Promise<StoredObject & { name: string }> {
+    const order = await this.prisma.mediaOrder.findUnique({
+      where: { outletToken: token },
+      select: { creativeKey: true, creativeName: true, status: true },
+    });
+    return this.open(order !== null && (order.status === "paid" || order.status === "referred") ? order : null);
+  }
+
   /** מה שדף הקובץ הציבורי מציג מעל הקובץ — בלי פרטי המשרד. */
   async describeByToken(token: string): Promise<{
     outletName: string;

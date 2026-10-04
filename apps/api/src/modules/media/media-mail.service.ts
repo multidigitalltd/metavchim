@@ -64,9 +64,14 @@ export interface MailOrder {
   creativeToken: string | null;
   creativeName: string | null;
   creativeUploadedAt: Date | null;
-  /** „פורסם” — מתי, ואיפה (הערת בעל הפלטפורמה). */
+  /** „פורסם” — מתי, איפה (ההערה), ומי סימן (`platform` | `outlet`). */
   publishedAt: Date | null;
   publishedNote: string;
+  publishedBy: string;
+  /** עמוד ההזמנה של הנציג — האסימון שבקישור הקבוע במייל. */
+  outletToken: string | null;
+  /** הנציג אישר מהעמוד שלו שההזמנה התקבלה. */
+  outletConfirmedAt: Date | null;
 }
 
 export interface MailOutlet {
@@ -120,7 +125,9 @@ export class MediaMailService {
       heading: "הזמנת פרסום חדשה",
       paragraphs: [
         `משרד ${order.officeName} הזמין ושילם במערכת על ${order.productName} ב${order.outletName}.`,
+        ...this.outletPageLine(order),
       ],
+      ...this.outletButton(order),
       footnote: "התשלום נגבה על ידי המערכת; ההתחשבנות מול המגזין לפי ההסכם.",
     });
     await this.toAdmins(order, {
@@ -154,7 +161,9 @@ export class MediaMailService {
       heading: "פנייה חדשה לפרסום",
       paragraphs: [
         `משרד ${order.officeName} מבקש לפרסם ב${order.outletName}: ${order.productName}. הפנייה נשלחת אליך לתיאום ישיר מול המשרד.`,
+        ...this.outletPageLine(order),
       ],
+      ...this.outletButton(order),
       footnote: "הפנייה נמסרה דרך מערכת מתווכים. התמורה על ההפניה לפי ההסכם.",
     });
     await this.toAdmins(order, {
@@ -292,15 +301,21 @@ export class MediaMailService {
     });
   }
 
-  /** בעל הפלטפורמה סימן „פורסם” — הלקוח שומע שהמודעה שלו בחוץ. */
+  /**
+   * „פורסם” — בעל הפלטפורמה ממסך הפלטפורמה, או הנציג מהעמוד שלו.
+   * הלקוח שומע שהמודעה שלו בחוץ, ומי אמר זאת.
+   */
   async orderPublished(order: MailOrder, outlet: MailOutlet | null): Promise<void> {
     const badge: EmailBadge = { label: "פורסם", tone: "success" };
     const where = order.publishedNote === "" ? "" : ` (${order.publishedNote})`;
+    const byOutlet = order.publishedBy === "outlet";
     await this.toClient(order, "published", {
       badge,
       heading: "המודעה שלכם פורסמה",
       paragraphs: [
-        `${order.productName} ב${order.outletName} פורסם${where}.`,
+        byOutlet
+          ? `נציג ${order.outletName} אישר שהמודעה — ${order.productName} — פורסמה${where}.`
+          : `${order.productName} ב${order.outletName} פורסם${where}.`,
         "תודה שפרסמתם דרך המערכת — אפשר להזמין שוב מאותו עמוד בכל עת.",
       ],
       details: this.clientDetails(order, outlet),
@@ -309,8 +324,32 @@ export class MediaMailService {
     await this.toAdmins(order, {
       subject: `פורסם — ${order.outletName} — ${order.officeName}`,
       badge,
-      heading: "הזמנת מדיה סומנה כפורסמה",
+      heading: byOutlet ? "נציג המדיה סימן „פורסם”" : "הזמנת מדיה סומנה כפורסמה",
       paragraphs: [`${this.officeLine(order)} — ${order.productName} ב${order.outletName}${where}.`],
+      details: this.adminDetails(order, outlet),
+    });
+  }
+
+  /** הנציג אישר מהעמוד שלו שההזמנה התקבלה — הלקוח יודע שמישהו קרא. */
+  async outletConfirmed(order: MailOrder, outlet: MailOutlet | null): Promise<void> {
+    const badge: EmailBadge = { label: "הנציג אישר קבלה", tone: "success" };
+    await this.toClient(order, "confirmed", {
+      badge,
+      heading: `${order.outletName} אישר את קבלת ההזמנה`,
+      paragraphs: [
+        `נציג ${order.outletName} אישר שההזמנה שלכם — ${order.productName} — התקבלה אצלו.`,
+        order.creativeName === null
+          ? "השלב הבא: להעלות את קובץ המודעה בעמוד ההזמנה, כדי שיהיה לו מה להדפיס."
+          : "קובץ המודעה כבר אצלו. כשהמודעה תצא תקבלו הודעה נוספת.",
+      ],
+      details: this.clientDetails(order, outlet),
+      button: this.clientButton(order.creativeName === null ? "להעלאת קובץ המודעה" : "להזמנה", order.id),
+    });
+    await this.toAdmins(order, {
+      subject: `הנציג אישר קבלה — ${order.outletName} — ${order.officeName}`,
+      badge,
+      heading: "נציג המדיה אישר את קבלת ההזמנה",
+      paragraphs: [`${this.officeLine(order)} — ${order.productName} ב${order.outletName}.`],
       details: this.adminDetails(order, outlet),
     });
   }
@@ -335,10 +374,11 @@ export class MediaMailService {
     }
     if (order.brief !== "") rows.push({ label: "מה לפרסם", value: order.brief });
     if (order.creativeName !== null) rows.push({ label: "קובץ המודעה", value: order.creativeName });
+    if (order.outletConfirmedAt !== null) rows.push({ label: "הנציג אישר קבלה", value: formatJerusalemDate(order.outletConfirmedAt) });
     if (order.publishedAt !== null) {
       rows.push({
         label: "פורסם",
-        value: order.publishedNote === "" ? formatJerusalemDate(order.publishedAt) : `${formatJerusalemDate(order.publishedAt)} — ${order.publishedNote}`,
+        value: `${order.publishedNote === "" ? formatJerusalemDate(order.publishedAt) : `${formatJerusalemDate(order.publishedAt)} — ${order.publishedNote}`}${order.publishedBy === "outlet" ? " (אישור הנציג)" : ""}`,
       });
     }
     rows.push({ label: "תאריך ההזמנה", value: formatJerusalemDate(order.createdAt) });
@@ -402,6 +442,7 @@ export class MediaMailService {
           ? "טרם הועלה — המשרד יעלה אותו במערכת ותקבלו קישור במייל"
           : `${order.creativeName ?? "קובץ"} — ${this.creativeUrl(order.creativeToken)}`,
     });
+    if (order.outletToken !== null) rows.push({ label: "עמוד ההזמנה", value: this.outletUrl(order.outletToken) });
     rows.push({ label: "תאריך ההזמנה", value: formatJerusalemDate(order.createdAt) });
     rows.push({ label: "מספר הזמנה", value: order.id });
     return rows;
@@ -410,6 +451,21 @@ export class MediaMailService {
   /** הקישור לקובץ המודעה — דף ציבורי לנציג, בלי התחברות. */
   private creativeUrl(token: string): string {
     return `${this.origin()}/ad/${token}`;
+  }
+
+  /** עמוד ההזמנה של הנציג — קבוע להזמנה; שם מאשרים קבלה ומסמנים „פורסם”. */
+  private outletUrl(token: string): string {
+    return `${this.origin()}/outlet/${token}`;
+  }
+
+  private outletPageLine(order: MailOrder): string[] {
+    return order.outletToken === null
+      ? []
+      : ["בעמוד ההזמנה אפשר לאשר שההזמנה התקבלה, להוריד את קובץ המודעה כשיועלה, ולסמן שהמודעה פורסמה."];
+  }
+
+  private outletButton(order: MailOrder): { button?: { label: string; url: string } } {
+    return order.outletToken === null ? {} : { button: { label: "לעמוד ההזמנה", url: this.outletUrl(order.outletToken) } };
   }
 
   private closingLine(outlet: MailOutlet): string | null {

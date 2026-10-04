@@ -143,6 +143,9 @@ export class MediaClosingReminderService {
       creativeUploadedAt: Date | null;
       publishedAt: Date | null;
       publishedNote: string;
+      publishedBy: string;
+      outletToken: string | null;
+      outletConfirmedAt: Date | null;
     },
     outlet: {
       name: string;

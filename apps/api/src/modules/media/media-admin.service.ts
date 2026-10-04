@@ -4,6 +4,7 @@ import {
   MEDIA_ORDER_STAGE_LABEL,
   mediaOrderStage,
   type MediaImageKind,
+  type MediaSettlementKind,
   type MediaOrderStage,
   type MediaOrderStatus,
   type MediaOutletKind,
@@ -70,6 +71,9 @@ export interface AdminMediaOutlet {
   /** חלקה של המדיה בהזמנות ששולמו וטרם הועברו — היתרה לתשלום. */
   owedAgorot: number;
   owedOrders: number;
+  /** התמורה על הפניות שנשלחו וטרם נגבתה מהמדיה — היתרה לקבל. */
+  leadFeesOwedAgorot: number;
+  leadFeesOwedOrders: number;
 }
 
 export interface AdminMediaTotals {
@@ -83,12 +87,16 @@ export interface AdminMediaTotals {
   referrals: number;
   /** סך התמורה על הפניות שנשלחו, כפי שנצרבה — לרישום. */
   referralFeesAgorot: number;
+  /** מתוכו — מה שהמדיות טרם שילמו לפלטפורמה. */
+  leadFeesOwedAgorot: number;
 }
 
 export interface AdminMediaSettlement {
   id: string;
   outletId: string;
   outletName: string;
+  /** `payout` — הועבר למדיה; `lead_fees` — התקבל מהמדיה על הפניות. */
+  kind: MediaSettlementKind;
   amountAgorot: number;
   orderCount: number;
   reference: string;
@@ -126,8 +134,12 @@ export interface AdminMediaOrder {
   /** קובץ המודעה — שם ומועד; ריק = המשרד טרם העלה. */
   creativeName: string | null;
   creativeUploadedAt: Date | null;
+  /** הנציג אישר קבלה מהעמוד שלו. */
+  outletConfirmedAt: Date | null;
   publishedAt: Date | null;
   publishedNote: string;
+  /** מי סימן „פורסם” — `platform` | `outlet`; ריק כשטרם סומן. */
+  publishedBy: string;
   createdAt: Date;
 }
 
@@ -162,6 +174,16 @@ export class MediaAdminService {
         },
       ]),
     );
+    // ‏הכיוון השני — התמורה על הפניות שהמדיה טרם שילמה לפלטפורמה
+    const leadFees = await this.prisma.mediaOrder.groupBy({
+      by: ["outletId"],
+      where: { status: "referred", settlementId: null, leadFeeAgorot: { gt: 0 } },
+      _sum: { leadFeeAgorot: true },
+      _count: { _all: true },
+    });
+    const leadFeesByOutlet = new Map(
+      leadFees.map((o) => [o.outletId, { agorot: o._sum.leadFeeAgorot ?? 0, orders: o._count._all }]),
+    );
     return rows.map((row) => ({
       id: row.id,
       slug: row.slug,
@@ -189,6 +211,8 @@ export class MediaAdminService {
       })),
       owedAgorot: owedByOutlet.get(row.id)?.agorot ?? 0,
       owedOrders: owedByOutlet.get(row.id)?.orders ?? 0,
+      leadFeesOwedAgorot: leadFeesByOutlet.get(row.id)?.agorot ?? 0,
+      leadFeesOwedOrders: leadFeesByOutlet.get(row.id)?.orders ?? 0,
       products: row.products.map((p) => ({
         id: p.id,
         name: p.name,
@@ -229,7 +253,13 @@ export class MediaAdminService {
   }
 
   /**
-   * רישום העברה למדיה — כל ההזמנות ששולמו וטרם הועברו, יחד.
+   * רישום התחשבנות מול המדיה — כל מה שממתין, יחד.
+   *
+   * ‏שני כיוונים, מנגנון אחד: `payout` תופס את ההזמנות ששולמו וטרם
+   * ‏הועברו וסוכם את חלקה של המדיה (הסכום פחות העמלה); `lead_fees` תופס
+   * ‏את ההפניות שנשלחו עם תמורה וטרם נגבו וסוכם את התמורה שהמדיה
+   * ‏שילמה לפלטפורמה. הזמנה בתשלום והפניה אינן מתערבבות — לכל אחת
+   * ‏כיוון אחד.
    *
    * הסכום מחושב מההזמנות **בתוך הטרנזקציה** שמסמנת אותן, ולא נשלח
    * מהמסך: רישום שסכומו אינו סך ההזמנות אינו רישום של דבר. שני
@@ -248,21 +278,31 @@ export class MediaAdminService {
     });
     if (outlet === null) throw new NotFoundException("המדיה לא נמצאה");
     const id = ulid();
+    const leadFees = input.kind === "lead_fees";
     return this.prisma.$transaction(async (tx) => {
       const claimed = await tx.mediaOrder.updateMany({
-        where: { outletId, status: "paid", settlementId: null },
+        where: leadFees
+          ? { outletId, status: "referred", settlementId: null, leadFeeAgorot: { gt: 0 } }
+          : { outletId, status: "paid", settlementId: null },
         data: { settlementId: id },
       });
-      if (claimed.count === 0) throw new BadRequestException("אין הזמנות ששולמו וממתינות להעברה");
+      if (claimed.count === 0) {
+        throw new BadRequestException(
+          leadFees ? "אין הפניות עם תמורה שממתינות לתקבול" : "אין הזמנות ששולמו וממתינות להעברה",
+        );
+      }
       const sums = await tx.mediaOrder.aggregate({
         where: { settlementId: id },
-        _sum: { amountAgorot: true, commissionAgorot: true },
+        _sum: { amountAgorot: true, commissionAgorot: true, leadFeeAgorot: true },
       });
-      const amountAgorot = (sums._sum.amountAgorot ?? 0) - (sums._sum.commissionAgorot ?? 0);
+      const amountAgorot = leadFees
+        ? (sums._sum.leadFeeAgorot ?? 0)
+        : (sums._sum.amountAgorot ?? 0) - (sums._sum.commissionAgorot ?? 0);
       await tx.mediaSettlement.create({
         data: {
           id,
           outletId,
+          kind: input.kind,
           amountAgorot,
           orderCount: claimed.count,
           reference: input.reference,
@@ -284,6 +324,7 @@ export class MediaAdminService {
       id: row.id,
       outletId: row.outletId,
       outletName: row.outlet.name,
+      kind: row.kind as MediaSettlementKind,
       amountAgorot: row.amountAgorot,
       orderCount: row.orderCount,
       reference: row.reference,
@@ -338,7 +379,7 @@ export class MediaAdminService {
    * והסיכום הוא דוח.
    */
   async totals(): Promise<AdminMediaTotals> {
-    const [paid, owed, referrals] = await Promise.all([
+    const [paid, owed, referrals, leadFeesOwed] = await Promise.all([
       this.prisma.mediaOrder.aggregate({
         where: { status: "paid" },
         _sum: { amountAgorot: true, commissionAgorot: true },
@@ -353,6 +394,10 @@ export class MediaAdminService {
         _sum: { leadFeeAgorot: true },
         _count: { _all: true },
       }),
+      this.prisma.mediaOrder.aggregate({
+        where: { status: "referred", settlementId: null },
+        _sum: { leadFeeAgorot: true },
+      }),
     ]);
     return {
       paidOrders: paid._count._all,
@@ -361,6 +406,7 @@ export class MediaAdminService {
       owedAgorot: (owed._sum.amountAgorot ?? 0) - (owed._sum.commissionAgorot ?? 0),
       referrals: referrals._count._all,
       referralFeesAgorot: referrals._sum.leadFeeAgorot ?? 0,
+      leadFeesOwedAgorot: leadFeesOwed._sum.leadFeeAgorot ?? 0,
     };
   }
 
@@ -395,8 +441,10 @@ export class MediaAdminService {
       settlementId: row.settlementId,
       creativeName: row.creativeName,
       creativeUploadedAt: row.creativeUploadedAt,
+      outletConfirmedAt: row.outletConfirmedAt,
       publishedAt: row.publishedAt,
       publishedNote: row.publishedNote,
+      publishedBy: row.publishedBy,
       createdAt: row.createdAt,
     }));
   }

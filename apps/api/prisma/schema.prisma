@@ -3141,7 +3141,11 @@ model MediaOutletImage {
 model MediaSettlement {
   id           String   @id @db.Char(26)
   outletId     String   @map("outlet_id") @db.Char(26)
-  /// סך חלקה של המדיה בהזמנות שנכללו (הסכום פחות העמלה), נטו באגורות
+  /// payout — הפלטפורמה העבירה למדיה את חלקה; lead_fees — המדיה שילמה
+  /// לפלטפורמה את התמורה על ההפניות. שני כיוונים, רישום אחד לכל אחד.
+  kind         String   @default("payout") @db.VarChar(20)
+  /// payout: סך חלקה של המדיה בהזמנות שנכללו (הסכום פחות העמלה);
+  /// lead_fees: סך התמורה על ההפניות שנכללו. נטו באגורות.
   amountAgorot Int      @map("amount_agorot")
   orderCount   Int      @map("order_count")
   /// אסמכתת ההעברה — מספר העברה, תאריך, מה שמזהה אותה בבנק
@@ -3239,9 +3243,15 @@ model MediaOrder {
   /// הקישור שנציג המדיה מקבל במייל — אקראי, ללא התחברות; מתחלף בכל העלאה
   creativeToken      String?   @unique @map("creative_token") @db.VarChar(64)
   creativeUploadedAt DateTime? @map("creative_uploaded_at")
-  /// בעל הפלטפורמה סימן שהמודעה פורסמה — מתי, ואיפה ("גיליון 412, עמ׳ 7")
+  /// „פורסם” — מתי, איפה ("גיליון 412, עמ׳ 7"), ומי סימן: platform | outlet
   publishedAt        DateTime? @map("published_at")
   publishedNote      String    @default("") @map("published_note") @db.VarChar(300)
+  publishedBy        String    @default("") @map("published_by") @db.VarChar(20)
+  /// עמוד ההזמנה לנציג המדיה — אסימון אקראי יחיד להזמנה, ללא התחברות;
+  /// נוצר עם ההזמנה ואינו מתחלף (זה הקישור הקבוע במייל)
+  outletToken        String?   @unique @map("outlet_token") @db.VarChar(64)
+  /// הנציג אישר מהעמוד שלו שההזמנה התקבלה
+  outletConfirmedAt  DateTime? @map("outlet_confirmed_at")
   createdBy         String?   @map("created_by") @db.Char(26)
   createdAt         DateTime  @default(now()) @map("created_at")
   updatedAt         DateTime  @updatedAt @map("updated_at")
