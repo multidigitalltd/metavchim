@@ -48,6 +48,8 @@ export function maturityTone(maturity: string): Tone {
       return "amber";
     case "interested":
       return "success";
+    case "not_relevant":
+      return "dangerSolid";
     default:
       return "neutral";
   }

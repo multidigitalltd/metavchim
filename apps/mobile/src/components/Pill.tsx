@@ -3,7 +3,7 @@ import { radius, space, type, type Palette } from "@/theme";
 import { useColors } from "@/lib/theme";
 import { Text } from "./Text";
 
-export type Tone = "neutral" | "success" | "amber" | "danger" | "primary";
+export type Tone = "neutral" | "success" | "amber" | "danger" | "dangerSolid" | "primary";
 
 function tones(c: Palette): Record<Tone, { fg: string; bg: string }> {
   return {
@@ -11,6 +11,8 @@ function tones(c: Palette): Record<Tone, { fg: string; bg: string }> {
     success: { fg: c.success, bg: c.successSoft },
     amber: { fg: c.amberFg, bg: c.warningBg },
     danger: { fg: c.danger, bg: c.dangerSoft },
+    /* ‏רקע אדום מלא — „לא רלוונטי” */
+    dangerSolid: { fg: c.surface, bg: c.danger },
     primary: { fg: c.primary, bg: c.primarySoft },
   };
 }

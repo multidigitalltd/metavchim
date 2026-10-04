@@ -22,6 +22,7 @@ import {
   PROPERTY_TYPE_LABELS,
   waMeUrl,
 } from "@/lib/format";
+import { maturityTone } from "@/lib/maturity";
 import { can, useRequireAuth } from "@/lib/use-auth";
 import { IconCalendar, IconChat, IconClock, IconEdit, IconPhone } from "../../icons";
 import { NetworkShareSection } from "../../network-share-section";
@@ -144,13 +145,6 @@ const FEATURE_LABELS: Record<string, string> = {
   hasBalcony: "מרפסת",
   hasSafeRoom: 'ממ"ד',
   hasStorage: "מחסן",
-};
-
-const MATURITY_PILL: Record<string, { fg: string; bg: string }> = {
-  very_hot: { fg: "var(--color-danger)", bg: "var(--color-danger-soft)" },
-  hot: { fg: "var(--domain-amber-fg)", bg: "var(--domain-amber-bg)" },
-  interested: { fg: "var(--color-success)", bg: "var(--color-success-soft)" },
-  not_ripe: { fg: "var(--chip-neutral-fg)", bg: "var(--chip-neutral-bg)" },
 };
 
 /* גלולות סטטוס ההצעה בהיסטוריה — כללי stChip מהעיצוב */
@@ -453,7 +447,7 @@ export default function BuyerDetailPage({
   const nices = Object.entries(buyer.requirements.features).filter(
     ([, l]) => l === "nice",
   );
-  const pill = MATURITY_PILL[buyer.maturity] ?? MATURITY_PILL["not_ripe"]!;
+  const pill = maturityTone(buyer.maturity);
   /*
    * ‎**הסטטוס ששמור על הכרטיס נכנס לרשימה גם כשהוא הוסר משימוש.**
    *

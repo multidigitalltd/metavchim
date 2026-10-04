@@ -106,6 +106,8 @@
   --color-action-hover: #5fe083;
   --color-on-action: #0b1f12;
   --color-danger: #b0512c; /* לבן עליו: ~5.2:1 */
+  /* ‏טקסט על רקע `--color-danger` מלא — לבן כאן, כהה בערכה הכהה */
+  --color-on-danger: #ffffff;
   --color-success: #0c6e34;
   --color-success-soft: #e5fcea;
   --color-danger-soft: #fdf0eb;
@@ -479,6 +481,7 @@
     --color-action-hover: var(--dk-action-hover);
     --color-on-action: var(--dk-bg);
     --color-danger: var(--dk-danger);
+    --color-on-danger: var(--dk-bg);
     --color-success: var(--dk-success);
     --color-success-soft: var(--dk-success-soft);
     --color-danger-soft: var(--dk-danger-soft);
@@ -548,6 +551,7 @@
   --color-action-hover: var(--dk-action-hover);
   --color-on-action: var(--dk-bg);
   --color-danger: var(--dk-danger);
+  --color-on-danger: var(--dk-bg);
   --color-success: var(--dk-success);
   --color-success-soft: var(--dk-success-soft);
   --color-danger-soft: var(--dk-danger-soft);
@@ -869,20 +873,8 @@ code {
 }
 .mv-button--danger {
   background: var(--color-danger);
-  color: #ffffff;
+  color: var(--color-on-danger);
   box-shadow: var(--shadow-card);
-}
-/* במצב כהה צבע ה-danger בהיר — טקסט כהה עליו */
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) .mv-button--danger {
-    color: var(--dk-bg);
-  }
-}
-:root[data-theme="dark"] .mv-button--danger {
-  color: var(--dk-bg);
-}
-:root[data-theme="light"] .mv-button--danger {
-  color: #ffffff;
 }
 .mv-button--ghost {
   background: transparent;
@@ -1022,6 +1014,7 @@ code {
   --color-action-hover: #000099;
   --color-on-action: #ffffff;
   --color-danger: #a30000;
+  --color-on-danger: #ffffff;
   --color-success: #00521f;
   --color-success-soft: #ddf3e4;
   --color-danger-soft: #ffe4e4;

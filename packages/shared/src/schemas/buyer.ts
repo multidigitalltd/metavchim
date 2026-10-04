@@ -8,7 +8,7 @@ import {
   MIN_SEARCH_RADIUS_KM,
 } from "../logic/proximity.js";
 
-export const BuyerMaturitySchema = z.enum(["very_hot", "hot", "interested", "not_ripe"]);
+export const BuyerMaturitySchema = z.enum(["very_hot", "hot", "interested", "not_ripe", "not_relevant"]);
 export type BuyerMaturity = z.infer<typeof BuyerMaturitySchema>;
 
 /** תוויות עברית לבשלות — מקור אמת אחד ל-UI ולטקסטים שהשרת כותב (ציר, ייצוא). */
@@ -17,6 +17,7 @@ export const MATURITY_LABELS: Record<BuyerMaturity, string> = {
   hot: "חם",
   interested: "מתעניין",
   not_ripe: "לא בשל",
+  not_relevant: "לא רלוונטי",
 };
 
 /*

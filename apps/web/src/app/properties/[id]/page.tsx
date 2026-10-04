@@ -38,6 +38,7 @@ import {
   PROPERTY_TYPE_LABELS,
   STATUS_LABELS,
 } from "@/lib/format";
+import { maturityTone } from "@/lib/maturity";
 import { can, useRequireAuth } from "@/lib/use-auth";
 import { MatchExplanation } from "../../match-explanation";
 import {
@@ -336,13 +337,6 @@ const MATCH_FILTERS: readonly {
     keep: (m) => m.buyerMaturity === "hot" || m.buyerMaturity === "very_hot",
   },
 ];
-
-const MATURITY_TAG: Record<string, { fg: string; bg: string }> = {
-  very_hot: { fg: "var(--color-danger)", bg: "var(--color-danger-soft)" },
-  hot: { fg: "var(--domain-amber-fg)", bg: "var(--domain-amber-bg)" },
-  interested: { fg: "var(--color-success)", bg: "var(--color-success-soft)" },
-  not_ripe: { fg: "var(--chip-neutral-fg)", bg: "var(--chip-neutral-bg)" },
-};
 
 /*
  * הרצועות מגיעות מ-`@/lib/readiness` ואינן מוגדרות כאן.
@@ -2088,7 +2082,7 @@ export default function PropertyDetailPage({
                 const offerKnown = offersState !== "failed";
                 const offer = offerKnown ? offers[m.id] : undefined;
                 const tag = m.buyerMaturity
-                  ? MATURITY_TAG[m.buyerMaturity]
+                  ? maturityTone(m.buyerMaturity)
                   : undefined;
                 return (
                   /*
