@@ -2,7 +2,13 @@
 
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import Link from "next/link";
-import { ASSIGNABLE_ROLES, ROLE_CAPABILITIES, ROLE_LABELS, roleLabel } from "@metavchim/shared";
+import {
+  ASSIGNABLE_ROLES,
+  OptionalPhoneInputSchema,
+  ROLE_CAPABILITIES,
+  ROLE_LABELS,
+  roleLabel,
+} from "@metavchim/shared";
 import { Button } from "@metavchim/ui";
 import { apiGet, apiPatch, apiPost, ApiError, apiList } from "@/lib/api";
 import { useScrollAffordance } from "@/lib/use-scroll-affordance";
@@ -519,12 +525,14 @@ export default function SettingsPage() {
    * נשמר ביציאה מהשדה, ורק אם באמת השתנה — לא בכל מעבר פוקוס.
    */
   async function savePhone(member: TeamUser, raw: string) {
-    const phone = raw.trim();
-    if (phone === (member.phone ?? "")) return;
-    if (phone !== "" && !/^[\d\-+ ]{9,20}$/u.test(phone)) {
-      setMessage("מספר הטלפון לא נשמר — ספרות בלבד, 9 עד 20 תווים");
+    /* ‏אותו כלל כמו בשרת — והשוואה על הצורה המנורמלת, כמו שהוא נשמר */
+    const parsed = OptionalPhoneInputSchema.safeParse(raw);
+    if (!parsed.success) {
+      setMessage(`מספר הטלפון לא נשמר — ${parsed.error.issues[0]?.message ?? "קלט לא תקין"}`);
       return;
     }
+    const phone = parsed.data ?? "";
+    if (phone === (member.phone ?? "")) return;
     try {
       await apiPatch(`/settings/users/${member.id}`, { phone });
       setMessage(

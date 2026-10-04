@@ -53,6 +53,7 @@ import {
   type AutomationSettings,
   type AutomationSpec,
   normalizePhone,
+  OptionalPhoneInputSchema,
   WHATSAPP_CONNECTION_LIVE_STATUSES,
 } from "@metavchim/shared";
 import { loadEnv } from "../../config/env";
@@ -201,8 +202,8 @@ const UpdateUserSchema = z
   .object({
     role: AssignableRoleSchema.optional(),
     isActive: z.boolean().optional(),
-    /** אותו כלל בדיוק כמו בפרופיל האישי; "" מנקה את השדה */
-    phone: z.union([z.string().regex(/^[\d\-+ ]{9,20}$/u), z.literal("")]).optional(),
+    /** אותו כלל בדיוק כמו בפרופיל האישי (`OptionalPhoneInputSchema`); "" מנקה את השדה */
+    phone: OptionalPhoneInputSchema,
     /** מנוי הסוכן בוואטסאפ — נפרד לכל סוכן, בעל המשרד מפעיל */
     whatsappAccess: z.boolean().optional(),
   })
