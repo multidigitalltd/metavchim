@@ -22,6 +22,7 @@ import { PlatformSettingsService } from "./platform-settings.service";
 import { TaxTablesService } from "./tax-tables.service";
 import { OutboxService } from "./outbox.service";
 import { PrismaService } from "./prisma.service";
+import { REDIS, REDIS_PROVIDERS } from "./redis";
 import { ServerErrorDigestService } from "./server-errors";
 import { StorageService } from "./storage.service";
 import { SweepScheduler } from "./sweeps";
@@ -35,6 +36,8 @@ import { VatService } from "./vat.service";
   imports: [DiscoveryModule],
   providers: [
     PrismaService,
+    /* ‏חיבור Redis אחד לכל השירותים — ראו `redis.ts` */
+    ...REDIS_PROVIDERS,
     CryptoService,
     EmailService,
     EmailDomainProviderService,
@@ -70,6 +73,7 @@ import { VatService } from "./vat.service";
   ],
   exports: [
     PrismaService,
+    REDIS,
     CryptoService,
     EmailService,
     EmailDomainProviderService,

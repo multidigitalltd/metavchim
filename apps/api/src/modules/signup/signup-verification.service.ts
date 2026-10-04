@@ -1,18 +1,19 @@
 import {
   BadRequestException,
   HttpException,
+  Inject,
   Injectable,
   Logger,
-  OnModuleDestroy,
   ServiceUnavailableException,
   UnauthorizedException,
 } from "@nestjs/common";
 import { createHash, createHmac, randomBytes, randomInt, timingSafeEqual } from "node:crypto";
-import IORedis from "ioredis";
+import type IORedis from "ioredis";
 import { normalizeSignupCode, SIGNUP_CODE_LENGTH } from "@metavchim/shared";
 import { chargeFixedWindow, releaseFixedWindow } from "../../common/fixed-window-quota";
 import { loadEnv } from "../../config/env";
 import { EmailRejectedError, EmailService } from "../../core/email.service";
+import { REDIS } from "../../core/redis";
 
 /**
  * אימות כתובת האימייל **לפני** שהמשרד נפתח.
@@ -171,22 +172,15 @@ interface StoredPending {
 }
 
 @Injectable()
-export class SignupVerificationService implements OnModuleDestroy {
+export class SignupVerificationService {
   private readonly logger = new Logger(SignupVerificationService.name);
-  private readonly redis: IORedis;
   private readonly hmacKey: string;
 
-  constructor(private readonly email: EmailService) {
-    const env = loadEnv();
-    this.redis = new IORedis(env.REDIS_URL, { maxRetriesPerRequest: 1, lazyConnect: false });
-    this.hmacKey = env.PHONE_HASH_KEY;
-    this.redis.on("error", () => {
-      /* נרשם באזהרות — אין קריסה על ניתוק Redis */
-    });
-  }
-
-  async onModuleDestroy(): Promise<void> {
-    await this.redis.quit().catch(() => undefined);
+  constructor(
+    private readonly email: EmailService,
+    @Inject(REDIS) private readonly redis: IORedis,
+  ) {
+    this.hmacKey = loadEnv().PHONE_HASH_KEY;
   }
 
   /** ‏גיבוב עם מפתח — לקוד האימות, ולכל ערך שאסור לו לשבת במפתח Redis. */
