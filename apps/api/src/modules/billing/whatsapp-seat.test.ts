@@ -235,7 +235,7 @@ describe("מקום נוסף לסוכן הוואטסאפ — מנוי חודשי"
      * ‏ש„תוסיף סוכן” מהוואטסאפ יעבור באותה מכסה: הסוכן אינו עובר
      * ‏בבקרים. הרשימה כאן עוקבת אחרי מי שסופר בפועל.
      */
-    for (const file of [SERVICE, read("../settings/team.service.ts"), read("../platform/platform.controller.ts")]) {
+    for (const file of [SERVICE, read("../settings/team.service.ts"), read("../platform/platform-agencies.controller.ts")]) {
       expect(file).toContain("whatsappSeatQuotaWhere(");
     }
   });

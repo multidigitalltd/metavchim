@@ -1,4 +1,4 @@
-import { TelephonyWebhookQuerySchema } from "../platform/platform.controller";
+import { TelephonyWebhookQuerySchema } from "../platform/platform-system.controller";
 import { WEBHOOK_HIT_OUTCOMES } from "./webhook-log.service";
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";

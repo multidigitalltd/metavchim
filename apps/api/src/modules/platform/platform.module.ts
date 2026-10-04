@@ -16,7 +16,10 @@ import { DiskSpaceService } from "./disk-space.service";
 import { FunnelCopyController } from "./funnel-copy.controller";
 import { IntegrationDeskController } from "./integration-desk.controller";
 import { IntegrationDeskService } from "./integration-desk.service";
-import { PlatformController } from "./platform.controller";
+import { PlatformAgenciesController } from "./platform-agencies.controller";
+import { PlatformBillingController } from "./platform-billing.controller";
+import { PlatformSettingsController } from "./platform-settings.controller";
+import { PlatformSystemController } from "./platform-system.controller";
 import { PlatformCreditsService } from "./platform-credits.service";
 import { ServiceVersionsService } from "./service-versions.service";
 
@@ -51,7 +54,10 @@ import { ServiceVersionsService } from "./service-versions.service";
    * החיבורים בלבד, ומבחן מבני קורא בדיוק את שני הקבצים האלה.
    */
   controllers: [
-    PlatformController,
+    PlatformAgenciesController,
+    PlatformBillingController,
+    PlatformSettingsController,
+    PlatformSystemController,
     AgentUsageController,
     IntegrationDeskController,
     FunnelCopyController,
