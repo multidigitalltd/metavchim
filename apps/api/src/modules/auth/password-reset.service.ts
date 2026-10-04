@@ -1,9 +1,10 @@
-import { Injectable, Logger, OnModuleDestroy, UnauthorizedException } from "@nestjs/common";
+import { Inject, Injectable, Logger, UnauthorizedException } from "@nestjs/common";
 import { createHash, randomBytes } from "node:crypto";
-import IORedis from "ioredis";
+import type IORedis from "ioredis";
 import { loadEnv } from "../../config/env";
 import { EmailService } from "../../core/email.service";
 import { PrismaService } from "../../core/prisma.service";
+import { REDIS } from "../../core/redis";
 import { AuthService } from "./auth.service";
 
 /**
@@ -21,26 +22,14 @@ const TOKEN_TTL_SECONDS = 30 * 60;
 const REQUEST_COOLDOWN_SECONDS = 60;
 
 @Injectable()
-export class PasswordResetService implements OnModuleDestroy {
+export class PasswordResetService {
   private readonly logger = new Logger(PasswordResetService.name);
-  private readonly redis: IORedis;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly email: EmailService,
-  ) {
-    this.redis = new IORedis(loadEnv().REDIS_URL, {
-      maxRetriesPerRequest: 1,
-      lazyConnect: false,
-    });
-    this.redis.on("error", () => {
-      /* נרשם באזהרות — אין קריסה על ניתוק Redis */
-    });
-  }
-
-  async onModuleDestroy(): Promise<void> {
-    await this.redis.quit().catch(() => undefined);
-  }
+    @Inject(REDIS) private readonly redis: IORedis,
+  ) {}
 
   private static hash(token: string): string {
     return createHash("sha256").update(token).digest("hex");

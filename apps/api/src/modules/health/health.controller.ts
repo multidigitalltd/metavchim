@@ -1,8 +1,8 @@
-import { Controller, Get, Logger, OnModuleDestroy, ServiceUnavailableException } from "@nestjs/common";
-import IORedis from "ioredis";
-import { loadEnv } from "../../config/env";
+import { Controller, Get, Inject, Logger, ServiceUnavailableException } from "@nestjs/common";
+import type IORedis from "ioredis";
 import { Public } from "../../common/auth.decorators";
 import { PrismaService } from "../../core/prisma.service";
+import { REDIS } from "../../core/redis";
 
 interface DeepHealth {
   status: "ok";
@@ -12,23 +12,13 @@ interface DeepHealth {
 }
 
 @Controller("health")
-export class HealthController implements OnModuleDestroy {
+export class HealthController {
   private readonly logger = new Logger(HealthController.name);
-  private readonly redis: IORedis;
 
-  constructor(private readonly prisma: PrismaService) {
-    this.redis = new IORedis(loadEnv().REDIS_URL, {
-      maxRetriesPerRequest: 1,
-      lazyConnect: false,
-    });
-    this.redis.on("error", () => {
-      /* מדווח דרך /health/deep — אין קריסה על ניתוק Redis */
-    });
-  }
-
-  async onModuleDestroy(): Promise<void> {
-    await this.redis.quit().catch(() => undefined);
-  }
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(REDIS) private readonly redis: IORedis,
+  ) {}
 
   /** בדיקת חיים לתשתית (LB/healthcheck של docker) — ציבורי, ללא דאטה. */
   @Public()
