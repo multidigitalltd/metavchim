@@ -16,6 +16,7 @@
  */
 
 import { ideaKeyInText } from "./mentor-playbook.js";
+import { normalizePhoneForWhatsapp } from "./whatsapp-link.js";
 import {
   NOTIFY_CATEGORY_LABELS,
   type WhatsAppNotifyCategory,
@@ -327,33 +328,37 @@ export function parseWhatsAppNotifyPrefs(raw: unknown): WhatsAppNotifyPrefs {
 }
 
 /**
- * ‎**סוגים שיוצאים בוואטסאפ רק למי שמחזיק מקום בסוכן** (`whatsappAccess`).
+ * ‎**מי מקבל התראות בוואטסאפ — כלל אחד, לסבב ולמייל.**
  *
- * ‏בעל המשרד מקבל את דחיפות הוואטסאפ גם בלי מקום — וזה נכון לרוב
- * ‏ההתראות. „המרכזייה השתתקה” היא חריג (בקשת המשתמש): מי שאינו מנוי
- * ‏על הסוכן מקבל אותה **במייל בלבד** (`PbxSilenceMailService` ב-API),
- * ‏ולא בתבנית וואטסאפ מאדם שאינו משוחח עם הבוט.
+ * ‏מחזיק מקום בסוכן (`whatsappAccess`) שהדליק את ההתראות, ויש לו מספר
+ * ‏שאפשר לשלוח אליו. בעל המשרד אינו חריג (בקשת המשתמש): בלי מקום אין
+ * ‏דחיפות בוואטסאפ, כמו שאין מענה מהסוכן (`whatsappAgentDenial`).
+ *
+ * ‏המספר מנורמל לצורה הבינלאומית שהיא היחידה ש-Meta מקבלת. בפרופיל
+ * ‏הוא נשמר כפי שהוקלד ("050-123-4567"), ושליחה שלו כמו שהוא נדחית
+ * ‏(ביקורת Codex). מספר שאינו ניתן לנרמול אינו נמען.
+ *
+ * ‏הסבב בעובדים בוחר כך את הנמענים, ומייל „המרכזייה השתתקה” ב-API
+ * ‏שואל כך את מי הוואטסאפ לא ישיג. שני עותקים של הכלל היו נפרדים עם
+ * ‏הזמן, ומנהל היה נופל ביניהם — בלי וואטסאפ ובלי מייל.
  */
-const SEAT_ONLY_TYPES: ReadonlySet<string> = new Set(["pbx_silent"]);
-
-/** האם סוג ההתראה יוצא בוואטסאפ רק למחזיקי מקום בסוכן. */
-export function whatsappNeedsSeat(type: string): boolean {
-  return SEAT_ONLY_TYPES.has(type);
+export function whatsappNotifyRecipient(user: {
+  whatsappAccess: boolean;
+  phone: string | null;
+  preferences: unknown;
+}): { phone: string; prefs: WhatsAppNotifyPrefs } | null {
+  if (!user.whatsappAccess) return null;
+  const prefs = parseWhatsAppNotifyPrefs(user.preferences);
+  if (!prefs.enabled) return null;
+  const phone = normalizePhoneForWhatsapp(user.phone ?? "");
+  return phone === "" ? null : { phone, prefs };
 }
 
-/**
- * ‎`recipient.hasSeat` הוא **חובה ולא אופציונלי**: הסבב קורא לפונקציה
- * ‏בשני מקומות — בבחירת מה לשלוח ובסגירת מה שכבר טופל — ופרמטר שאפשר
- * ‏להשמיט היה נשכח באחד מהם. אז התראה הייתה נשלחת לפי כלל אחד ונסגרת
- * ‏לפי כלל אחר.
- */
 export function shouldNotifyByWhatsApp(
   type: string,
   prefs: WhatsAppNotifyPrefs,
-  recipient: { hasSeat: boolean },
 ): boolean {
   if (!prefs.enabled) return false;
-  if (!recipient.hasSeat && whatsappNeedsSeat(type)) return false;
   // קטגוריה שלא נכתבה = דלוקה: מי שהדליק את המתג רוצה הכול, אלא אם כיבה
   return prefs.categories[notifyCategory(type)] !== false;
 }

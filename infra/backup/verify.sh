@@ -53,6 +53,9 @@ write_state() {
 }
 EOF
   mv "${STATE}.tmp" "$STATE"
+  # ‏התוצאה אינה סוד, ומסך הפלטפורמה מציג אותה. ה-API רץ כ-node
+  # ‏(gid 1000 — ראו infra/docker/api-entrypoint.sh); הדאמפים נשארים 0600.
+  { chgrp 1000 "$STATE" && chmod 640 "$STATE"; } 2>/dev/null || true
 }
 
 # הודעת שגיאה של pg_restore עשויה להכיל גרשיים ולוכסנים; בלי בריחה

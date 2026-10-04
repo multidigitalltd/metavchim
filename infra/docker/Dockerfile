@@ -33,7 +33,8 @@ ENV NODE_ENV=production
 # ffmpeg ממיר הקלטות ל-ogg/opus לפני שליחתן בוואטסאפ — wav ו-webm,
 # שני הפורמטים שאנחנו שומרים בהם, נדחים בנתיב המדיה של Meta.
 # אותו כלי שכבר משמש את שירותי התמלול והזיהוי (infra/stt, infra/diarize).
-RUN apk add --no-cache ffmpeg
+# su-exec — העלייה יורדת מ-root ל-node (ראו api-entrypoint.sh)
+RUN apk add --no-cache ffmpeg su-exec
 COPY --from=build /prod/api /app
 WORKDIR /app
 # הקליינט של Prisma חייב להיווצר מחדש בתוך העץ הפרוס (node_modules חדש)
@@ -41,6 +42,10 @@ RUN node node_modules/prisma/build/index.js generate --schema=prisma/schema.pris
 ARG APP_VERSION=dev
 ENV APP_VERSION=$APP_VERSION
 EXPOSE 3001
+# ‏בלי root: העלייה מעבירה את תיקיית הגיבויים לקבוצה של node ויורדת
+# ‏אליו. הקבצים נשארים של root — לקריאה בלבד עבורו.
+COPY --chmod=755 infra/docker/api-entrypoint.sh /usr/local/bin/api-entrypoint
+ENTRYPOINT ["/usr/local/bin/api-entrypoint"]
 # מיגרציות רצות לפני עליית השרת — פריסה אטומית של סכימה+קוד
 CMD ["sh", "-c", "node node_modules/prisma/build/index.js migrate deploy --schema=prisma/schema.prisma && exec node dist/main.js"]
 
