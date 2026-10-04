@@ -9,14 +9,16 @@ import {
   MEDIA_PRODUCT_PRICE_MAX_AGOROT,
   isMediaSlug,
   mediaCanUploadCreative,
-  mediaClosingReminderDue,
+  mediaClosingWindowOpen,
   mediaClosingState,
   mediaCreativeMime,
+  mediaEarliestClosingAt,
   mediaOrderCanPublish,
   mediaOrderStage,
   mediaOrderTimeline,
   mediaOrderTotals,
   mediaOutletReminderDue,
+  mediaProductClosingAt,
   resolveMediaCommissionPercent,
 } from "./media.js";
 
@@ -80,7 +82,7 @@ describe("mediaOrderTotals", () => {
   });
 });
 
-describe("mediaClosingState / mediaClosingReminderDue", () => {
+describe("mediaClosingState / mediaClosingWindowOpen", () => {
   const now = new Date("2026-09-22T09:00:00.000Z");
   const hours = (h: number) => new Date(now.getTime() + h * 60 * 60 * 1000);
 
@@ -91,20 +93,17 @@ describe("mediaClosingState / mediaClosingReminderDue", () => {
     expect(mediaClosingState(hours(-1), now)).toBe("closed");
   });
 
-  it("התזכורת יוצאת פעם אחת לגיליון, ושוב כשהמועד מתעדכן", () => {
-    const closing = hours(20);
-    expect(mediaClosingReminderDue({ nextClosingAt: closing, remindedForClosingAt: null, now })).toBe(true);
-    expect(mediaClosingReminderDue({ nextClosingAt: closing, remindedForClosingAt: closing, now })).toBe(false);
+  it("חלון התזכורת — 24 השעות שלפני המועד; מועד שהתעדכן לגיליון הבא פותח חלון חדש", () => {
+    expect(mediaClosingWindowOpen({ nextClosingAt: hours(20), now })).toBe(true);
     const next = hours(20 + 7 * 24);
-    expect(mediaClosingReminderDue({ nextClosingAt: next, remindedForClosingAt: closing, now })).toBe(false);
-    expect(
-      mediaClosingReminderDue({ nextClosingAt: next, remindedForClosingAt: closing, now: hours(7 * 24) }),
-    ).toBe(true);
+    expect(mediaClosingWindowOpen({ nextClosingAt: next, now })).toBe(false);
+    expect(mediaClosingWindowOpen({ nextClosingAt: next, now: hours(7 * 24) })).toBe(true);
   });
 
-  it("מועד שעבר או רחוק מדי — אין תזכורת", () => {
-    expect(mediaClosingReminderDue({ nextClosingAt: hours(-2), remindedForClosingAt: null, now })).toBe(false);
-    expect(mediaClosingReminderDue({ nextClosingAt: hours(40), remindedForClosingAt: null, now })).toBe(false);
+  it("מועד שעבר, רחוק מדי, או ריק — מחוץ לחלון", () => {
+    expect(mediaClosingWindowOpen({ nextClosingAt: hours(-2), now })).toBe(false);
+    expect(mediaClosingWindowOpen({ nextClosingAt: hours(40), now })).toBe(false);
+    expect(mediaClosingWindowOpen({ nextClosingAt: null, now })).toBe(false);
   });
 });
 
@@ -218,5 +217,21 @@ describe("mediaOutletReminderDue", () => {
     expect(mediaOutletReminderDue({ ...base, notifiedAt: hoursAgo(72), outletConfirmedAt: hoursAgo(1) })).toBe(false);
     expect(mediaOutletReminderDue({ ...base, notifiedAt: hoursAgo(72), publishedAt: hoursAgo(1) })).toBe(false);
     expect(mediaOutletReminderDue({ ...base, notifiedAt: hoursAgo(72), outletReminderAt: hoursAgo(20) })).toBe(false);
+  });
+});
+
+describe("מועד סגירה לכל מוצר", () => {
+  const a = new Date("2026-10-10T10:00:00.000Z");
+  const b = new Date("2026-10-12T10:00:00.000Z");
+
+  it("המוצר גובר על המדיה; בלעדיו — המדיה", () => {
+    expect(mediaProductClosingAt(a, b)).toBe(a);
+    expect(mediaProductClosingAt(null, b)).toBe(b);
+    expect(mediaProductClosingAt(null, null)).toBeNull();
+  });
+
+  it("הקרוב ביותר לכרטיס — ומתעלם מריקים", () => {
+    expect(mediaEarliestClosingAt([null, b, a])).toBe(a);
+    expect(mediaEarliestClosingAt([null, null])).toBeNull();
   });
 });

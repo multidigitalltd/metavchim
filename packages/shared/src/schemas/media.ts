@@ -90,6 +90,8 @@ export const MediaProductUpsertSchema = z
     priceAgorot: z.number().int().min(0).max(PRICE_AGOROT_MAX).nullable().default(null),
     /** מה הנציג משלם לפלטפורמה על הפניה — לרישום, לא לחיוב אוטומטי. */
     leadFeeAgorot: z.number().int().min(0).max(PRICE_AGOROT_MAX).nullable().default(null),
+    /** ‏מועד סגירה למוצר הזה, ISO עם אזור זמן; ריק = מועד המדיה. */
+    nextClosingAt: z.string().datetime({ offset: true }).nullable().default(null),
     active: z.boolean().default(true),
     sortOrder: z.number().int().min(0).max(1000).default(0),
   })
@@ -146,6 +148,7 @@ export const MediaProductPatchSchema = z
     kind: z.enum(MEDIA_PRODUCT_KINDS).optional(),
     priceAgorot: z.number().int().min(0).max(PRICE_AGOROT_MAX).nullable().optional(),
     leadFeeAgorot: z.number().int().min(0).max(PRICE_AGOROT_MAX).nullable().optional(),
+    nextClosingAt: z.string().datetime({ offset: true }).nullable().optional(),
     active: z.boolean().optional(),
     sortOrder: z.number().int().min(0).max(1000).optional(),
   })

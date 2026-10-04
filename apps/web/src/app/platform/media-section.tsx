@@ -55,6 +55,8 @@ interface AdminProduct {
   kind: MediaProductKind;
   priceAgorot: number | null;
   leadFeeAgorot: number | null;
+  /** מועד סגירה של המוצר, ISO ב-UTC — ריק כשחל מועד המדיה. */
+  nextClosingAt: string | null;
   active: boolean;
   sortOrder: number;
 }
@@ -292,6 +294,7 @@ export function MediaSection(): React.JSX.Element {
         specs: text(form, "specs"),
         priceAgorot: agorotOrNull(form, "price"),
         leadFeeAgorot: agorotOrNull(form, "leadFee"),
+        nextClosingAt: closingIso(form),
       });
       element.reset();
     }, "✓ המוצר נוסף");
@@ -309,6 +312,7 @@ export function MediaSection(): React.JSX.Element {
           description: text(form, "description"),
           priceAgorot: agorotOrNull(form, "price"),
           leadFeeAgorot: agorotOrNull(form, "leadFee"),
+          nextClosingAt: closingIso(form),
           active: form.get("active") === "on",
           sortOrder: Number(text(form, "sortOrder") || "0"),
         }),
@@ -641,6 +645,17 @@ export function MediaSection(): React.JSX.Element {
                                 </label>
                               </div>
                               <div className="flex flex-wrap items-end gap-3">
+                                <label style={{ width: "170px" }}>
+                                  <span className="mb-1 block text-sm font-medium">סגירה למוצר הזה — תאריך</span>
+                                  <input name="closingDate" type="date" dir="ltr" defaultValue={product.nextClosingAt ? jerusalemWallParts(new Date(product.nextClosingAt)).date : ""} className={inputClass} style={inputStyle} />
+                                </label>
+                                <label style={{ width: "110px" }}>
+                                  <span className="mb-1 block text-sm font-medium">שעה</span>
+                                  <input name="closingTime" type="time" dir="ltr" defaultValue={product.nextClosingAt ? jerusalemWallParts(new Date(product.nextClosingAt)).time : "12:00"} className={inputClass} style={inputStyle} />
+                                </label>
+                                <span className="pb-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
+                                  ריק = מועד הסגירה של המדיה
+                                </span>
                                 <label style={{ width: "90px" }}>
                                   <span className="mb-1 block text-sm font-medium">סדר</span>
                                   <input name="sortOrder" type="number" min={0} max={1000} step={1} defaultValue={product.sortOrder} className={inputClass} style={inputStyle} />
@@ -688,6 +703,14 @@ export function MediaSection(): React.JSX.Element {
                         <label className="grow" style={{ minWidth: "140px" }}>
                           <span className="mb-1 block text-sm font-medium">מפרט</span>
                           <input name="specs" maxLength={200} className={inputClass} style={inputStyle} />
+                        </label>
+                        <label style={{ width: "160px" }}>
+                          <span className="mb-1 block text-sm font-medium">סגירה למוצר (לא חובה)</span>
+                          <input name="closingDate" type="date" dir="ltr" className={inputClass} style={inputStyle} />
+                        </label>
+                        <label style={{ width: "100px" }}>
+                          <span className="mb-1 block text-sm font-medium">שעה</span>
+                          <input name="closingTime" type="time" dir="ltr" defaultValue="12:00" className={inputClass} style={inputStyle} />
                         </label>
                         <Button type="submit" variant="secondary" disabled={busy}>
                           <IconPlus s={14} /> הוספת מוצר

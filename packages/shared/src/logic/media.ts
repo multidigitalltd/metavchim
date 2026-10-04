@@ -252,6 +252,24 @@ export type MediaImageKind = (typeof MEDIA_IMAGE_KINDS)[number];
 /** כמה דוגמאות מודעה למדיה — מספיק להראות, לא גלריה. */
 export const MEDIA_IMAGES_MAX = 8;
 
+/**
+ * ‏מועד הסגירה שחל על מוצר: המוצר יכול לקבוע מועד משלו (שער נסגר לפני
+ * ‏העמודים הפנימיים), ואז הוא גובר; בלעדיו — מועד המדיה. מקור אחד
+ * ‏למסך, למייל ולסורק התזכורות.
+ */
+export function mediaProductClosingAt<T extends Date | string>(productClosingAt: T | null, outletClosingAt: T | null): T | null {
+  return productClosingAt ?? outletClosingAt;
+}
+
+/** ‏המועד הקרוב ביותר מבין כמה — לכרטיס המדיה בארכיון; ריק כשאין אף אחד. */
+export function mediaEarliestClosingAt(dates: readonly (Date | null)[]): Date | null {
+  let earliest: Date | null = null;
+  for (const date of dates) {
+    if (date !== null && (earliest === null || date.getTime() < earliest.getTime())) earliest = date;
+  }
+  return earliest;
+}
+
 /** ‏כמה זמן לפני סגירת הגיליון נשלחת התזכורת למשרד עם הזמנה ממתינה. */
 export const MEDIA_CLOSING_REMINDER_HOURS = 24;
 
@@ -295,19 +313,17 @@ export function mediaClosingState(nextClosingAt: Date | null, now: Date): MediaC
 }
 
 /**
- * ‏האם הגיע הזמן לתזכורת על הגיליון הזה: המועד בעתיד, בתוך חלון
- * ‏התזכורת, ועדיין לא נשלחה תזכורת **למועד הזה** (מועד שהתעדכן
- * ‏לגיליון הבא מקבל תזכורת חדשה).
+ * ‏האם אנחנו בחלון התזכורת של המועד הזה: המועד בעתיד, ובתוך 24 השעות
+ * ‏שלפניו. בתוך החלון הסורק עובר בכל שעה על ההזמנות הממתינות, ומה
+ * ‏שמונע כפילות הוא **המועד שנרשם על ההזמנה** (`closing_reminder_at`
+ * ‏שווה למועד הזה), לא סימון על המדיה: סימון כזה היה משתיק הזמנה
+ * ‏שנפתחה אחרי הסבב הראשון בחלון, ומועד מוקדם יותר שהוקצה למוצר
+ * ‏אחרי שהזמנתו כבר הוזכרה למועד המדיה (ביקורת Codex).
  */
-export function mediaClosingReminderDue(input: {
-  nextClosingAt: Date | null;
-  remindedForClosingAt: Date | null;
-  now: Date;
-}): boolean {
+export function mediaClosingWindowOpen(input: { nextClosingAt: Date | null; now: Date }): boolean {
   if (input.nextClosingAt === null) return false;
   const msLeft = input.nextClosingAt.getTime() - input.now.getTime();
-  if (msLeft <= 0 || msLeft > MEDIA_CLOSING_REMINDER_HOURS * 60 * 60 * 1000) return false;
-  return input.remindedForClosingAt?.getTime() !== input.nextClosingAt.getTime();
+  return msLeft > 0 && msLeft <= MEDIA_CLOSING_REMINDER_HOURS * 60 * 60 * 1000;
 }
 
 /** ברירת המחדל לעמלת התיווך של הפלטפורמה על הזמנת מדיה, באחוזים. */

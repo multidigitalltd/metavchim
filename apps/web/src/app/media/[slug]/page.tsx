@@ -44,6 +44,8 @@ interface ProductRow {
   specs: string;
   kind: MediaProductKind;
   priceAgorot: number | null;
+  /** מועד סגירה של המוצר עצמו — כשקיים הוא גובר על מועד המדיה. */
+  nextClosingAt: string | null;
 }
 
 interface OutletDetail {
@@ -256,9 +258,12 @@ export default function MediaOutletPage(): React.JSX.Element | null {
               const paid = product.kind === "paid" && product.priceAgorot !== null;
               return (
                 <li key={product.id} className="mv-card mv-card--pad flex flex-col">
-                  <span className={`mv-pill self-start ${paid ? "mv-domain-green" : "mv-domain-amber"}`}>
-                    {paid ? "הזמנה ותשלום במערכת" : "פנייה לנציג"}
-                  </span>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className={`mv-pill ${paid ? "mv-domain-green" : "mv-domain-amber"}`}>
+                      {paid ? "הזמנה ותשלום במערכת" : "פנייה לנציג"}
+                    </span>
+                    {product.nextClosingAt ? <ClosingBadge nextClosingAt={product.nextClosingAt} compact /> : null}
+                  </div>
                   <h3 className="m-0 mt-2 text-[length:var(--type-row-title)] font-extrabold leading-snug">
                     {product.name}
                   </h3>

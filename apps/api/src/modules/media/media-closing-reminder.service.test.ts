@@ -17,22 +17,32 @@ const TENANT = "01TENANT00000000000000000A";
 const NOW = new Date("2026-09-22T09:00:00.000Z");
 const hours = (h: number) => new Date(NOW.getTime() + h * 60 * 60 * 1000);
 
-function harness(input: { closingAt: Date | null; remindedFor?: Date | null; orders?: Record<string, unknown>[] }) {
+const PRODUCT = "01PRODUCT000000000000000A0";
+const COVER = "01PRODUCTCOVER0000000000A0";
+
+function harness(input: {
+  closingAt: Date | null;
+  orders?: Record<string, unknown>[];
+  /** מוצרים עם מועד משלהם — כפי שהשאילתה מחזירה אותם על המדיה */
+  products?: Record<string, unknown>[];
+}) {
+  const products = input.products ?? [];
   const outlet: Record<string, unknown> = {
     id: OUTLET,
     name: "מגזין טאבו",
     nextClosingAt: input.closingAt,
-    remindedForClosingAt: input.remindedFor ?? null,
     contactName: "ר׳ נציג",
     contactEmail: "ads@tabu.example",
     contactPhone: "",
     closingText: "",
+    products,
   };
   const orders = input.orders ?? [
     {
       id: "01ORDER00000000000000000A0",
       tenantId: TENANT,
       outletId: OUTLET,
+      productId: PRODUCT,
       status: "pending_payment",
       createdBy: "01USER000000000000000000A0",
       kind: "paid",
@@ -71,16 +81,27 @@ function harness(input: { closingAt: Date | null; remindedFor?: Date | null; ord
   };
   const prisma = {
     mediaOutlet: {
-      findMany: async () => (outlet["nextClosingAt"] === null ? [] : [outlet]),
+      findMany: async () => [outlet],
       update: async ({ data }: { data: Record<string, unknown> }) => Object.assign(outlet, data),
     },
     mediaOrder: {
-      findMany: async ({ where }: { where: { OR: [{ closingReminderAt: null }, { closingReminderAt: { lt: Date } }] } }) =>
+      findMany: async ({
+        where,
+      }: {
+        where: {
+          productId?: string | { notIn: string[] };
+          OR: [{ closingReminderAt: null }, { closingReminderAt: { not: Date } }];
+        };
+      }) =>
         orders.filter(
           (o) =>
             o["status"] === "pending_payment" &&
+            (where.productId === undefined ||
+              (typeof where.productId === "string"
+                ? o["productId"] === where.productId
+                : !where.productId.notIn.includes(o["productId"] as string))) &&
             (o["closingReminderAt"] === null ||
-              (o["closingReminderAt"] as Date).getTime() < where.OR[1].closingReminderAt.lt.getTime()),
+              (o["closingReminderAt"] as Date).getTime() !== where.OR[1].closingReminderAt.not.getTime()),
         ),
       updateMany: async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
         const row = orders.find((o) => o["id"] === where.id);
@@ -119,7 +140,15 @@ describe("MediaClosingReminderService.sweep", () => {
     expect(h.adminNotices).toHaveLength(1);
     expect(h.adminNotices[0]).toContain("נסגר מחר");
     expect(h.orders[0]?.["closingReminderAt"]).toEqual(hours(20));
-    expect(h.outlet["remindedForClosingAt"]).toEqual(hours(20));
+  });
+
+  it("הזמנה שנפתחה באמצע החלון — הסבב הבא מזכיר גם לה", async () => {
+    const h = harness({ closingAt: hours(20) });
+    await h.service.sweep(NOW);
+    h.orders.push({ ...h.orders[0]!, id: "01ORDERLATE0000000000000A0", closingReminderAt: null, createdAt: hours(2) });
+    expect((await h.service.sweep(hours(3))).reminded).toBe(1);
+    expect(h.sent.at(-1)?.key).toBe(`media-closing:01ORDERLATE0000000000000A0:${hours(20).getTime()}`);
+    expect(h.sent).toHaveLength(2);
   });
 
   it("סבב שני על אותו גיליון — שקט", async () => {
@@ -148,11 +177,70 @@ describe("MediaClosingReminderService.sweep", () => {
     const h = harness({
       closingAt: hours(20),
       orders: [
-        { id: "01ORDERPA1D0000000000000A0", tenantId: TENANT, outletId: OUTLET, status: "paid", createdBy: null, kind: "paid", outletName: "x", productName: "x", quantity: 1, amountAgorot: 0, commissionAgorot: 0, leadFeeAgorot: null, brief: "", contactName: "y", contactPhone: "", contactEmail: "a@b.c", officeName: "o", customerNo: null, createdAt: NOW, closingReminderAt: null, creativeToken: null, creativeName: null, creativeUploadedAt: null, publishedAt: null, publishedNote: "", publishedBy: "", outletToken: null, outletConfirmedAt: null },
-        { id: "01ORDERREF00000000000000A0", tenantId: TENANT, outletId: OUTLET, status: "referred", createdBy: null, kind: "lead", outletName: "x", productName: "x", quantity: 1, amountAgorot: 0, commissionAgorot: 0, leadFeeAgorot: null, brief: "", contactName: "y", contactPhone: "", contactEmail: "a@b.c", officeName: "o", customerNo: null, createdAt: NOW, closingReminderAt: null, creativeToken: null, creativeName: null, creativeUploadedAt: null, publishedAt: null, publishedNote: "", publishedBy: "", outletToken: null, outletConfirmedAt: null },
+        { id: "01ORDERPA1D0000000000000A0", tenantId: TENANT, outletId: OUTLET, productId: PRODUCT, status: "paid", createdBy: null, kind: "paid", outletName: "x", productName: "x", quantity: 1, amountAgorot: 0, commissionAgorot: 0, leadFeeAgorot: null, brief: "", contactName: "y", contactPhone: "", contactEmail: "a@b.c", officeName: "o", customerNo: null, createdAt: NOW, closingReminderAt: null, creativeToken: null, creativeName: null, creativeUploadedAt: null, publishedAt: null, publishedNote: "", publishedBy: "", outletToken: null, outletConfirmedAt: null },
+        { id: "01ORDERREF00000000000000A0", tenantId: TENANT, outletId: OUTLET, productId: PRODUCT, status: "referred", createdBy: null, kind: "lead", outletName: "x", productName: "x", quantity: 1, amountAgorot: 0, commissionAgorot: 0, leadFeeAgorot: null, brief: "", contactName: "y", contactPhone: "", contactEmail: "a@b.c", officeName: "o", customerNo: null, createdAt: NOW, closingReminderAt: null, creativeToken: null, creativeName: null, creativeUploadedAt: null, publishedAt: null, publishedNote: "", publishedBy: "", outletToken: null, outletConfirmedAt: null },
       ],
     });
     expect((await h.service.sweep(NOW)).reminded).toBe(0);
     expect(h.sent).toHaveLength(0);
+  });
+
+  it("מוצר עם מועד משלו — ההזמנות שלו לפי המועד שלו, השאר לפי המדיה; כל אחד מסומן בנפרד", async () => {
+    const base = {
+      tenantId: TENANT,
+      outletId: OUTLET,
+      status: "pending_payment",
+      createdBy: null,
+      kind: "paid",
+      outletName: "x",
+      productName: "x",
+      quantity: 1,
+      amountAgorot: 0,
+      commissionAgorot: 0,
+      leadFeeAgorot: null,
+      brief: "",
+      contactName: "y",
+      contactPhone: "",
+      contactEmail: "a@b.c",
+      officeName: "o",
+      customerNo: null,
+      createdAt: NOW,
+      closingReminderAt: null,
+      creativeToken: null,
+      creativeName: null,
+      creativeUploadedAt: null,
+      publishedAt: null,
+      publishedNote: "",
+      publishedBy: "",
+      outletToken: null,
+      outletConfirmedAt: null,
+    };
+    // ‏השער נסגר בעוד 10 שעות; המדיה — בעוד 60 (עדיין רחוק)
+    const h = harness({
+      closingAt: hours(60),
+      products: [{ id: COVER, nextClosingAt: hours(10) }],
+      orders: [
+        { ...base, id: "01ORDERCOVER000000000000A0", productId: COVER },
+        { ...base, id: "01ORDERINNER000000000000A0", productId: PRODUCT },
+      ],
+    });
+    expect((await h.service.sweep(NOW)).reminded).toBe(1);
+    expect(h.sent.map((m) => m.key)).toEqual([`media-closing:01ORDERCOVER000000000000A0:${hours(10).getTime()}`]);
+    // ‏יומיים אחרי — המדיה נסגרת מחר: רק העמוד הפנימי מקבל, השער כבר קיבל לפי המועד שלו
+    expect((await h.service.sweep(hours(40))).reminded).toBe(1);
+    expect(h.sent.at(-1)?.key).toBe(`media-closing:01ORDERINNER000000000000A0:${hours(60).getTime()}`);
+    expect((await h.service.sweep(hours(41))).reminded).toBe(0);
+  });
+
+  it("הוזכרה למועד המדיה, ואז המוצר קיבל מועד מוקדם יותר — תזכורת חדשה למועד המוקדם", async () => {
+    const h = harness({ closingAt: hours(20) });
+    expect((await h.service.sweep(NOW)).reminded).toBe(1);
+    // ‏בעל הפלטפורמה קבע לשער מועד משלו — מחר בבוקר, לפני המדיה
+    (h.outlet["products"] as Record<string, unknown>[]).push({ id: PRODUCT, nextClosingAt: hours(12) });
+    expect((await h.service.sweep(hours(1))).reminded).toBe(1);
+    expect(h.sent.at(-1)?.key).toBe(`media-closing:01ORDER00000000000000000A0:${hours(12).getTime()}`);
+    expect(h.orders[0]?.["closingReminderAt"]).toEqual(hours(12));
+    // ‏ולא שוב
+    expect((await h.service.sweep(hours(2))).reminded).toBe(0);
   });
 });
