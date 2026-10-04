@@ -86,7 +86,7 @@ setWorkerUrl("/maplibre/maplibre-gl-worker.mjs");
  *    עובר ב-`import()`, וכל השאר ב-`globalThis.eval` — שה-CSP חוסם.
  * 2. **`wasm-unsafe-eval` ב-`script-src`.** התוסף הוא WebAssembly,
  *    ו-`WebAssembly.instantiate` נחסם בלי היתר מפורש. ראו
- *    `middleware.ts`.
+ *    `proxy.ts`.
  *
  * גרסה קודמת תיקנה רק את הראשון, וזה **החמיר**: התוסף עבר מ-
  * `unavailable` (תוויות מצוירות, הפוך) ל-`error` (תוויות נעלמות
