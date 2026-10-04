@@ -160,7 +160,7 @@ describe("mediaCreativeMime / mediaCanUploadCreative", () => {
 describe("mediaOrderTimeline", () => {
   const t0 = new Date("2026-10-01T08:00:00.000Z");
   const t1 = new Date("2026-10-01T09:00:00.000Z");
-  const base = { createdAt: t0, paidAt: null, notifiedAt: null, creativeUploadedAt: null, publishedAt: null };
+  const base = { createdAt: t0, paidAt: null, notifiedAt: null, outletConfirmedAt: null, creativeUploadedAt: null, publishedAt: null };
 
   it("הזמנה בתשלום שממתינה — „שולם” הוא השלב הנוכחי", () => {
     const steps = mediaOrderTimeline({ ...base, kind: "paid", status: "pending_payment" });
@@ -168,20 +168,24 @@ describe("mediaOrderTimeline", () => {
       "created:done",
       "paid:current",
       "sent:pending",
+      "confirmed:pending",
       "creative:pending",
       "published:pending",
     ]);
   });
 
-  it("שולם ונשלח — הקובץ הוא מה שמחכה", () => {
+  it("שולם ונשלח — הקובץ הוא מה שמחכה; אישור הנציג נרשם כשהגיע", () => {
     const steps = mediaOrderTimeline({ ...base, kind: "paid", status: "paid", paidAt: t1, notifiedAt: t1 });
-    expect(steps.map((s) => s.state)).toEqual(["done", "done", "done", "current", "pending"]);
+    expect(steps.map((s) => s.state)).toEqual(["done", "done", "done", "pending", "current", "pending"]);
+    const confirmed = mediaOrderTimeline({ ...base, kind: "paid", status: "paid", paidAt: t1, notifiedAt: t1, outletConfirmedAt: t1 });
+    expect(confirmed.find((s) => s.key === "confirmed")).toMatchObject({ state: "done", at: t1 });
   });
 
   it("הפניה — בלי שלב תשלום; נכשל — נעצר בשלב התשלום", () => {
     expect(mediaOrderTimeline({ ...base, kind: "lead", status: "referred", notifiedAt: t1 }).map((s) => s.key)).toEqual([
       "created",
       "sent",
+      "confirmed",
       "creative",
       "published",
     ]);
@@ -190,10 +194,10 @@ describe("mediaOrderTimeline", () => {
     expect(failed.slice(2).every((s) => s.state === "pending")).toBe(true);
   });
 
-  it("פורסם — כל מה שקדם מסומן כבוצע, חוץ מקובץ שלא הועלה", () => {
+  it("פורסם — כל מה שקדם מסומן כבוצע, חוץ מאישור הנציג וקובץ שלא היו", () => {
     const steps = mediaOrderTimeline({ ...base, kind: "lead", status: "referred", publishedAt: t1 });
-    expect(steps.map((s) => s.state)).toEqual(["done", "done", "pending", "done"]);
+    expect(steps.map((s) => s.state)).toEqual(["done", "done", "pending", "pending", "done"]);
     const paidPublished = mediaOrderTimeline({ ...base, kind: "paid", status: "paid", paidAt: t1, publishedAt: t1 });
-    expect(paidPublished.map((s) => s.state)).toEqual(["done", "done", "done", "pending", "done"]);
+    expect(paidPublished.map((s) => s.state)).toEqual(["done", "done", "done", "pending", "pending", "done"]);
   });
 });

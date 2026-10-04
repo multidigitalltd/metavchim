@@ -8,6 +8,7 @@ import {
   MEDIA_PRODUCT_KINDS,
   MEDIA_PRODUCT_PRICE_MAX_AGOROT,
   MEDIA_PUBLISHED_NOTE_MAX,
+  MEDIA_SETTLEMENT_KINDS,
   isMediaSlug,
 } from "../logic/media.js";
 import { IdSchema, PhoneInputSchema } from "./common.js";
@@ -129,6 +130,8 @@ export type MediaPublish = z.infer<typeof MediaPublishSchema>;
 
 export const MediaSettlementCreateSchema = z
   .object({
+    /** ‏איזה כיוון — העברה למדיה (ברירת המחדל) או תקבול ממנה על הפניות. */
+    kind: z.enum(MEDIA_SETTLEMENT_KINDS).default("payout"),
     reference: z.string().trim().max(120).default(""),
     note: z.string().trim().max(500).default(""),
   })

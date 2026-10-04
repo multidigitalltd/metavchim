@@ -32,7 +32,7 @@ import { Notice } from "../../../notice";
  */
 
 interface TimelineStep {
-  key: "created" | "paid" | "sent" | "creative" | "published";
+  key: "created" | "paid" | "sent" | "confirmed" | "creative" | "published";
   label: string;
   at: string | null;
   state: MediaTimelineState;
@@ -63,8 +63,11 @@ interface OrderDetail {
   creativeName: string | null;
   creativeMime: string | null;
   creativeUploadedAt: string | null;
+  outletConfirmedAt: string | null;
   publishedAt: string | null;
   publishedNote: string;
+  /** מי סימן „פורסם” — `platform` | `outlet`; ריק כשטרם סומן. */
+  publishedBy: string;
   timeline: TimelineStep[];
   outletContact: { name: string; phone: string } | null;
 }
@@ -252,6 +255,7 @@ export default function MediaOrderPage({ params }: { params: Promise<{ id: strin
                         <p className="m-0 text-[length:var(--type-caption-lg)]" style={{ color: "var(--color-text-muted)" }}>
                           {formatDateTime(step.at)}
                           {step.key === "published" && order.publishedNote ? ` · ${order.publishedNote}` : ""}
+                          {step.key === "published" && order.publishedBy === "outlet" ? " · אישור נציג המדיה" : ""}
                         </p>
                       ) : null}
                     </div>

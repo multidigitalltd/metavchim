@@ -82,8 +82,10 @@ function harness(options: { cardcom?: boolean; mail?: boolean; contactEmail?: st
         creativeName: null,
         creativeToken: null,
         creativeUploadedAt: null,
+        outletConfirmedAt: null,
         publishedAt: null,
         publishedNote: "",
+        publishedBy: "",
         ...data,
       });
       return data;
@@ -95,8 +97,10 @@ function harness(options: { cardcom?: boolean; mail?: boolean; contactEmail?: st
           (where.productId === undefined || o["productId"] === where.productId) &&
           (where.status === undefined || o["status"] === where.status),
       ),
-    findUnique: async ({ where }: { where: { id: string } }) =>
-      orders.find((o) => o["id"] === where.id) ?? null,
+    findUnique: async ({ where }: { where: { id?: string; outletToken?: string } }) =>
+      orders.find((o) =>
+        where.id !== undefined ? o["id"] === where.id : where.outletToken !== undefined && o["outletToken"] === where.outletToken,
+      ) ?? null,
     findFirst: async ({ where }: { where: { id: string; tenantId: string } }) =>
       orders.find((o) => o["id"] === where.id && o["tenantId"] === where.tenantId) ?? null,
     update: async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
@@ -113,6 +117,7 @@ function harness(options: { cardcom?: boolean; mail?: boolean; contactEmail?: st
         id?: string | { in: string[] };
         status?: string | { in: string[] };
         publishedAt?: null;
+        outletConfirmedAt?: null;
       };
       data: Record<string, unknown>;
     }) => {
@@ -126,6 +131,7 @@ function harness(options: { cardcom?: boolean; mail?: boolean; contactEmail?: st
         if (ids !== null && !ids.includes(row["id"] as string)) continue;
         if (statuses !== null && !statuses.includes(row["status"] as string)) continue;
         if (where.publishedAt === null && row["publishedAt"] !== null) continue;
+        if (where.outletConfirmedAt === null && row["outletConfirmedAt"] !== null) continue;
         Object.assign(row, data);
         count += 1;
       }
@@ -590,6 +596,7 @@ describe("MediaService — פעמון, עמוד ההזמנה ו„פורסם”"
       "created:done",
       "paid:current",
       "sent:pending",
+      "confirmed:pending",
       "creative:pending",
       "published:pending",
     ]);
@@ -625,5 +632,66 @@ describe("MediaService — פעמון, עמוד ההזמנה ו„פורסם”"
     expect(detail.timeline.at(-1)).toMatchObject({ key: "published", state: "done" });
     await expect(h.service.markPublished(orderId, "")).rejects.toThrow(/כבר סומנה/u);
     expect(h.notifications.filter((n) => n.type === "media_published")).toHaveLength(1);
+  });
+});
+
+describe("MediaService — עמוד ההזמנה של הנציג", () => {
+  it("לכל הזמנה אסימון קבוע לנציג; העמוד נפתח רק כשההזמנה אצל המדיה", async () => {
+    const h = harness();
+    const { orderId } = await asOwner(() =>
+      h.service.startCheckout({ tenantId: TENANT, userId: ME }, { ...ORDER, productId: PAID }),
+    );
+    const token = h.orders[0]?.["outletToken"] as string;
+    expect(token).toMatch(/^[A-Za-z0-9_-]{43}$/u);
+    // ‏ממתינה לתשלום — הנציג עוד לא אמור לראות אותה
+    await expect(h.service.outletView(token)).rejects.toThrow(/אינו בתוקף/u);
+    await h.service.settleWithin(h.tx as never, orderId, new Date());
+    const view = await h.service.outletView(token);
+    expect(view).toMatchObject({ officeName: "משרד הדגמה", productName: "מודעה רבע עמוד", kind: "paid", creative: null });
+    expect(Object.keys(view)).not.toContain("commissionAgorot");
+    // ‏המייל לנציג מצביע על העמוד
+    await h.service.notifyAfterPayment(orderId);
+    expect(h.sent.find((m) => m.to === "ads@tabu.example")).toBeDefined();
+  });
+
+  it("אישור קבלה — פעם אחת: התראה ומייל ללקוח, הודעה למנהלים; לחיצה שנייה שקטה", async () => {
+    const h = harness();
+    const { orderId } = await asOwner(() =>
+      h.service.createReferral({ tenantId: TENANT, userId: ME }, { ...ORDER, productId: LEAD }),
+    );
+    const token = h.orders[0]?.["outletToken"] as string;
+    const sentBefore = h.sent.length;
+    const noticesBefore = h.adminNotices.length;
+    const first = await h.service.confirmByOutlet(token);
+    expect(first.confirmedAt).toBeInstanceOf(Date);
+    expect(h.orders[0]?.["outletConfirmedAt"]).toBe(first.confirmedAt);
+    expect(h.orders[0]?.["status"]).toBe("referred");
+    expect(h.notifications.map((n) => n.type)).toEqual(["media_referred", "media_confirmed"]);
+    expect(h.sent).toHaveLength(sentBefore + 1);
+    expect(h.sent.at(-1)).toMatchObject({ to: "dana@office.example" });
+    expect(h.sent.at(-1)?.subject).toContain("אישר את קבלת ההזמנה");
+    expect(h.adminNotices).toHaveLength(noticesBefore + 1);
+    expect(h.audits).toContain("media.outlet_confirmed");
+
+    const second = await h.service.confirmByOutlet(token);
+    expect(second.confirmedAt).toBe(first.confirmedAt);
+    expect(h.sent).toHaveLength(sentBefore + 1);
+    expect(h.notifications).toHaveLength(2);
+    expect((await h.service.order(TENANT, orderId)).timeline.find((s) => s.key === "confirmed")).toMatchObject({ state: "done" });
+  });
+
+  it("„פורסם” מהעמוד של הנציג — נרשם מי סימן, הלקוח שומע, ושנית נדחה", async () => {
+    const h = harness();
+    await asOwner(() => h.service.createReferral({ tenantId: TENANT, userId: ME }, { ...ORDER, productId: LEAD }));
+    const token = h.orders[0]?.["outletToken"] as string;
+    await h.service.publishByOutlet(token, "גיליון 413");
+    expect(h.orders[0]).toMatchObject({ status: "referred", publishedBy: "outlet", publishedNote: "גיליון 413" });
+    expect(h.sent.at(-1)?.subject).toContain("פורסמה");
+    expect(h.adminNotices.at(-1)).toContain("פורסם");
+    expect(h.notifications.map((n) => n.type)).toEqual(["media_referred", "media_published"]);
+    await expect(h.service.publishByOutlet(token, "")).rejects.toThrow(/כבר סומנה/u);
+    await expect(h.service.publishByOutlet("x".repeat(43), "")).rejects.toThrow(/אינו בתוקף/u);
+    const view = await h.service.outletView(token);
+    expect(view).toMatchObject({ publishedBy: "outlet", publishedNote: "גיליון 413" });
   });
 });

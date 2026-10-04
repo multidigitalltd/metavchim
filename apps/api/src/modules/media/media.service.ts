@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from "@nestjs/common";
+import { randomBytes } from "node:crypto";
 import { ulid } from "ulid";
 import {
   MEDIA_ORDER_MAX_AMOUNT_AGOROT,
@@ -13,6 +14,7 @@ import {
   type MediaOrderStatus,
   type MediaOutletKind,
   type MediaProductKind,
+  type MediaPublishedBy,
   type MediaTimelineStep,
 } from "@metavchim/shared";
 import { notifyOnce } from "../../common/notify-once";
@@ -128,8 +130,12 @@ export interface MediaOrderRow {
   /** קובץ המודעה — שם ומועד; ריק = טרם הועלה. */
   creativeName: string | null;
   creativeUploadedAt: Date | null;
+  /** הנציג אישר מהעמוד שלו שההזמנה התקבלה; ריק = טרם אישר (או קיבל בטלפון). */
+  outletConfirmedAt: Date | null;
   publishedAt: Date | null;
   publishedNote: string;
+  /** מי סימן „פורסם” — `platform` | `outlet`; ריק כשטרם סומן. */
+  publishedBy: string;
 }
 
 /** עמוד ההזמנה — השורה, ועוד מה שרק שם מעניין. */
@@ -142,6 +148,38 @@ export interface MediaOrderDetail extends MediaOrderRow {
   timeline: MediaTimelineStep[];
   /** נציג המדיה — למי לפנות; ריק כשלא הוגדר */
   outletContact: { name: string; phone: string } | null;
+}
+
+/** ‏עמוד ההזמנה של נציג המדיה — בלי עמלות, בלי מזהי המשרד. */
+export interface MediaOutletOrderView {
+  outletName: string;
+  productName: string;
+  quantity: number;
+  kind: MediaProductKind;
+  /** נטו באגורות; אפס בהפניה. */
+  amountAgorot: number;
+  brief: string;
+  officeName: string;
+  contactName: string;
+  contactPhone: string;
+  contactEmail: string;
+  createdAt: Date;
+  creative: { name: string; mime: string; uploadedAt: Date } | null;
+  outletConfirmedAt: Date | null;
+  publishedAt: Date | null;
+  publishedNote: string;
+  publishedBy: string;
+  closingText: string;
+  nextClosingAt: Date | null;
+}
+
+/**
+ * ‏אסימון עמוד ההזמנה לנציג — 32 בייט אקראיים, base64url (43 תווים),
+ * ‏אותו דגם כמו אסימון הקובץ ודף ההשוואה לקונה. נוצר עם ההזמנה ואינו
+ * ‏מתחלף: זה הקישור הקבוע שבמייל.
+ */
+function newOutletToken(): string {
+  return randomBytes(32).toString("base64url");
 }
 
 /** ‏מה נדרש כדי לפתוח דף תשלום — המזמין וזהות המשרד. */
@@ -282,6 +320,7 @@ export class MediaService {
         createdAt: row.createdAt,
         paidAt: row.paidAt,
         notifiedAt: row.notifiedAt,
+        outletConfirmedAt: row.outletConfirmedAt,
         creativeUploadedAt: row.creativeUploadedAt,
         publishedAt: row.publishedAt,
       }),
@@ -307,8 +346,10 @@ export class MediaService {
       paidAt: Date | null;
       creativeName: string | null;
       creativeUploadedAt: Date | null;
+      outletConfirmedAt: Date | null;
       publishedAt: Date | null;
       publishedNote: string;
+      publishedBy: string;
     },
     outletSlug: string | null,
   ): MediaOrderRow {
@@ -333,8 +374,10 @@ export class MediaService {
       paidAt: row.paidAt,
       creativeName: row.creativeName,
       creativeUploadedAt: row.creativeUploadedAt,
+      outletConfirmedAt: row.outletConfirmedAt,
       publishedAt: row.publishedAt,
       publishedNote: row.publishedNote,
+      publishedBy: row.publishedBy,
     };
   }
 
@@ -349,7 +392,7 @@ export class MediaService {
    * ‏בטרנזקציה אחת: כישלון באחד מהם מבטל את כולם, ולחיצה חוזרת תנסה שוב
    * ‏במקום להיתקל ב„כבר סומנה” בלי שהלקוח שמע דבר.
    */
-  async markPublished(orderId: string, note: string): Promise<{ publishedAt: Date }> {
+  async markPublished(orderId: string, note: string, by: MediaPublishedBy = "platform"): Promise<{ publishedAt: Date }> {
     const order = await this.prisma.mediaOrder.findUnique({
       where: { id: orderId },
       select: { id: true, tenantId: true, status: true, publishedAt: true, createdBy: true, outletName: true, productName: true },
@@ -366,21 +409,21 @@ export class MediaService {
       // ‏מותנה: רק מי שעדיין אצל המדיה וטרם סומן — שתי לחיצות אינן מסמנות פעמיים
       const claimed = await tx.mediaOrder.updateMany({
         where: { id: order.id, tenantId: order.tenantId, status: { in: ["paid", "referred"] }, publishedAt: null },
-        data: { publishedAt, publishedNote: note },
+        data: { publishedAt, publishedNote: note, publishedBy: by },
       });
       if (claimed.count === 0) throw new BadRequestException("ההזמנה השתנתה בינתיים — רעננו את המסך");
       await this.audit.record(tx, {
         action: "media.order_published",
         entityType: "media_order",
         entityId: order.id,
-        metadata: { note },
+        metadata: { note, by },
       });
       await notifyOnce(tx, {
         tenantId: order.tenantId,
         dedupeKey: `media_published:${order.id}`,
         userId: order.createdBy,
         type: "media_published",
-        title: `המודעה ב${order.outletName} פורסמה`,
+        title: by === "outlet" ? `${order.outletName}: המודעה פורסמה — אישור הנציג` : `המודעה ב${order.outletName} פורסמה`,
         body: note === "" ? order.productName : `${order.productName} — ${note}`,
         entityType: "media_order",
         entityId: order.id,
@@ -390,6 +433,108 @@ export class MediaService {
     const loaded = await this.loadForMail(order.id);
     if (loaded !== null) await this.mail.orderPublished(loaded.order, loaded.outlet);
     return { publishedAt };
+  }
+
+  /* ==================== עמוד ההזמנה לנציג המדיה ==================== */
+
+  /**
+   * מה שהנציג רואה בעמוד שלו — ההזמנה כפי שהיא במייל, ומה שקרה מאז:
+   * קובץ המודעה (אם הועלה), האם אישר קבלה, האם סומן „פורסם”. בלי
+   * מספרי העמלה — הם של הפלטפורמה. הזמנה שאינה אצל המדיה (ממתינה,
+   * נכשלה, בוטלה) אינה נמצאת: לנציג אין בה עניין, ולא כדאי שיתחיל לעבוד.
+   */
+  async outletView(token: string): Promise<MediaOutletOrderView> {
+    const order = await this.orderAtOutletByToken(token);
+    const outlet = await this.prisma.mediaOutlet.findUnique({
+      where: { id: order.outletId },
+      select: { closingText: true, nextClosingAt: true },
+    });
+    return {
+      outletName: order.outletName,
+      productName: order.productName,
+      quantity: order.quantity,
+      kind: order.kind as MediaProductKind,
+      amountAgorot: order.amountAgorot,
+      brief: order.brief,
+      officeName: order.officeName,
+      contactName: order.contactName,
+      contactPhone: order.contactPhone,
+      contactEmail: order.contactEmail,
+      createdAt: order.createdAt,
+      creative:
+        order.creativeName === null || order.creativeMime === null || order.creativeUploadedAt === null
+          ? null
+          : { name: order.creativeName, mime: order.creativeMime, uploadedAt: order.creativeUploadedAt },
+      outletConfirmedAt: order.outletConfirmedAt,
+      publishedAt: order.publishedAt,
+      publishedNote: order.publishedNote,
+      publishedBy: order.publishedBy,
+      closingText: outlet?.closingText ?? "",
+      nextClosingAt: outlet?.nextClosingAt ?? null,
+    };
+  }
+
+  /**
+   * הנציג אישר שההזמנה התקבלה — פעם אחת; לחיצה חוזרת מחזירה את המועד
+   * הקיים בלי לשלוח דבר. הלקוח מקבל התראה בפעמון ומייל, ומנהלי
+   * הפלטפורמה — הודעה. האישור הוא ידיעה, לא מצב: המצב הכספי לא נוגע.
+   */
+  async confirmByOutlet(token: string): Promise<{ confirmedAt: Date }> {
+    const order = await this.orderAtOutletByToken(token);
+    if (order.outletConfirmedAt !== null) return { confirmedAt: order.outletConfirmedAt };
+    const confirmedAt = new Date();
+    let claimed = 0;
+    await this.prisma.withExplicitTenant(order.tenantId, async (tx) => {
+      const result = await tx.mediaOrder.updateMany({
+        where: { id: order.id, tenantId: order.tenantId, outletConfirmedAt: null },
+        data: { outletConfirmedAt: confirmedAt },
+      });
+      claimed = result.count;
+      if (claimed === 0) return;
+      await this.audit.record(tx, {
+        action: "media.outlet_confirmed",
+        entityType: "media_order",
+        entityId: order.id,
+        metadata: { outlet: order.outletName },
+      });
+      await notifyOnce(tx, {
+        tenantId: order.tenantId,
+        dedupeKey: `media_confirmed:${order.id}`,
+        userId: order.createdBy,
+        type: "media_confirmed",
+        title: `${order.outletName} אישר את קבלת ההזמנה`,
+        body:
+          order.creativeUploadedAt === null
+            ? `${order.productName} — הנציג מחכה לקובץ המודעה.`
+            : `${order.productName} — ההזמנה וקובץ המודעה אצל הנציג.`,
+        entityType: "media_order",
+        entityId: order.id,
+      });
+    });
+    if (claimed === 0) {
+      // ‏מישהו אישר בינתיים (לחיצה כפולה) — המועד שנרשם הוא האמת
+      const fresh = await this.prisma.mediaOrder.findUnique({ where: { id: order.id }, select: { outletConfirmedAt: true } });
+      return { confirmedAt: fresh?.outletConfirmedAt ?? confirmedAt };
+    }
+    const loaded = await this.loadForMail(order.id);
+    if (loaded !== null) await this.mail.outletConfirmed(loaded.order, loaded.outlet);
+    return { confirmedAt };
+  }
+
+  /** הנציג סימן מהעמוד שלו שהמודעה פורסמה — אותו מסלול כמו מסך הפלטפורמה. */
+  async publishByOutlet(token: string, note: string): Promise<{ publishedAt: Date }> {
+    const order = await this.orderAtOutletByToken(token);
+    if (order.publishedAt !== null) throw new BadRequestException("ההזמנה כבר סומנה כפורסמה");
+    return this.markPublished(order.id, note, "outlet");
+  }
+
+  /** ההזמנה לפי אסימון הנציג — רק כשהיא אצל המדיה. האסימון הוא ההרשאה. */
+  private async orderAtOutletByToken(token: string) {
+    const order = await this.prisma.mediaOrder.findUnique({ where: { outletToken: token } });
+    if (order === null || (order.status !== "paid" && order.status !== "referred")) {
+      throw new NotFoundException("הקישור אינו בתוקף");
+    }
+    return order;
   }
 
   /**
@@ -418,6 +563,7 @@ export class MediaService {
           productId: product.id,
           kind: "lead",
           status: "referred",
+          outletToken: newOutletToken(),
           outletName: product.outlet.name,
           productName: product.name,
           quantity: input.quantity,
@@ -507,6 +653,7 @@ export class MediaService {
           productId: product.id,
           kind: "paid",
           status: "pending_payment",
+          outletToken: newOutletToken(),
           outletName: product.outlet.name,
           productName: product.name,
           quantity: totals.quantity,
