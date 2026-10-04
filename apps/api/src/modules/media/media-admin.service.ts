@@ -17,6 +17,7 @@ import {
 } from "@metavchim/shared";
 import { loadEnv } from "../../config/env";
 import { PrismaService } from "../../core/prisma.service";
+import { MediaImagesService } from "./media-images.service";
 
 /**
  * רכש מדיה — הצד של בעל הפלטפורמה: הארכיון, המוצרים, וההזמנות של
@@ -154,7 +155,10 @@ export interface AdminMediaOrder {
 
 @Injectable()
 export class MediaAdminService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly images: MediaImagesService,
+  ) {}
 
   async outlets(): Promise<AdminMediaOutlet[]> {
     const rows = await this.prisma.mediaOutlet.findMany({
@@ -389,6 +393,12 @@ export class MediaAdminService {
     if (orders > 0) {
       throw new BadRequestException("למוצר יש הזמנות — אפשר להשבית אותו, לא למחוק");
     }
+    /*
+     * ‏ההדמיות קודם, דרך שירות התמונות: ה-CASCADE היה מוחק את השורות
+     * ‏ומשאיר את הקבצים ב-S3 בלי שורה שמצביעה עליהם (ביקורת Codex).
+     */
+    const images = await this.prisma.mediaOutletImage.findMany({ where: { productId: id }, select: { id: true } });
+    for (const image of images) await this.images.remove(image.id);
     await this.prisma.mediaProduct.deleteMany({ where: { id } });
   }
 

@@ -54,11 +54,33 @@ function harness() {
       },
     },
   };
+  const productImages: { id: string; productId: string }[] = [
+    { id: "img1", productId: "prod1" },
+    { id: "img2", productId: "prod1" },
+    { id: "img3", productId: "prod2" },
+  ];
+  const removedImages: string[] = [];
+  const deletedProducts: string[] = [];
   const prisma = {
     mediaOutlet: { findUnique: async ({ where }: { where: { id: string } }) => (where.id === OUTLET ? { id: OUTLET } : null) },
+    mediaOutletImage: {
+      findMany: async ({ where }: { where: { productId: string } }) =>
+        productImages.filter((i) => i.productId === where.productId).map((i) => ({ id: i.id })),
+    },
+    mediaProduct: {
+      deleteMany: async ({ where }: { where: { id: string } }) => {
+        deletedProducts.push(where.id);
+        return { count: 1 };
+      },
+    },
     $transaction: async <T>(fn: (t: typeof tx) => Promise<T>) => fn(tx),
   };
-  return { service: new MediaAdminService(prisma as never), orders, settlements };
+  // ‏ההזמנות של המוצר: prod1 נקי; prod_ordered — יש לו הזמנה
+  (prisma as Record<string, unknown>)["mediaOrder"] = {
+    count: async ({ where }: { where: { productId: string } }) => (where.productId === "prod_ordered" ? 1 : 0),
+  };
+  const images = { remove: async (id: string) => void removedImages.push(id) };
+  return { service: new MediaAdminService(prisma as never, images as never), orders, settlements, removedImages, deletedProducts };
 }
 
 describe("MediaAdminService.settle", () => {
@@ -88,5 +110,16 @@ describe("MediaAdminService.settle", () => {
     const h = harness();
     await expect(h.service.settle("01NOPE000000000000000000A0", { kind: "payout", reference: "", note: "" }, ME)).rejects.toThrow(/לא נמצאה/u);
     expect(h.settlements).toHaveLength(0);
+  });
+});
+
+describe("MediaAdminService.deleteProduct", () => {
+  it("מוחק את ההדמיות דרך שירות התמונות (שורה + קובץ) לפני המוצר; מוצר עם הזמנות — נדחה", async () => {
+    const h = harness();
+    await h.service.deleteProduct("prod1");
+    expect(h.removedImages).toEqual(["img1", "img2"]);
+    expect(h.deletedProducts).toEqual(["prod1"]);
+    await expect(h.service.deleteProduct("prod_ordered")).rejects.toThrow(/יש הזמנות/u);
+    expect(h.deletedProducts).toEqual(["prod1"]);
   });
 });
