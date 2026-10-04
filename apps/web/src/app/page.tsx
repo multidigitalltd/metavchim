@@ -1175,6 +1175,7 @@ export default function DashboardPage() {
     { label: "חם", value: bm["hot"] ?? 0, domain: "mv-domain-amber", dot: "#8a6217", href: "/buyers?maturity=hot" },
     { label: "מתעניין", value: bm["interested"] ?? 0, domain: "mv-domain-green", dot: "#15803d", href: "/buyers?maturity=interested" },
     { label: "לא בשל", value: bm["not_ripe"] ?? 0, domain: "mv-domain-neutral", dot: "#5e6860", href: "/buyers?maturity=not_ripe" },
+    { label: "לא רלוונטי", value: bm["not_relevant"] ?? 0, domain: "mv-domain-neutral", dot: "var(--color-danger)", href: "/buyers?maturity=not_relevant" },
   ];
 
   /*

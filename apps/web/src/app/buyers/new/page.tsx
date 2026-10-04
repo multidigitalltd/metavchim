@@ -16,7 +16,13 @@ import { PriceField } from "../../price-field";
 import { EntryTimingField } from "../../properties/entry-timing-field";
 import { shekelsToAgorot } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
-import { activeOfficeStatuses, type SearchArea } from "@metavchim/shared";
+import {
+  activeOfficeStatuses,
+  BuyerMaturitySchema,
+  MATURITY_LABELS,
+  type BuyerMaturity,
+  type SearchArea,
+} from "@metavchim/shared";
 import { useOfficeStatuses } from "../../use-office-statuses";
 import { Notice } from "../../notice";
 
@@ -29,6 +35,13 @@ const FEATURES = [
   ["hasSafeRoom", 'ממ"ד'],
   ["hasStorage", "מחסן"],
 ] as const;
+
+/** ‏הסבר קצר ליד הדרגה בטופס — הרשימה עצמה נגזרת מהסכימה. */
+const MATURITY_HINTS: Partial<Record<BuyerMaturity, string>> = {
+  very_hot: "מחפש עכשיו",
+  hot: "בתקופה הקרובה",
+  interested: "בשלב בדיקה",
+};
 
 export default function NewBuyerPage() {
   useRequireAuth();
@@ -263,10 +276,12 @@ export default function NewBuyerPage() {
             <div>
               <label htmlFor="maturity" className="mb-1 block font-medium">רמת בשלות</label>
               <select id="maturity" name="maturity" defaultValue="interested" className="w-full rounded-lg border px-3 py-2.5" style={inputStyle}>
-                <option value="very_hot">חם מאוד — מחפש עכשיו</option>
-                <option value="hot">חם — בתקופה הקרובה</option>
-                <option value="interested">מתעניין — בשלב בדיקה</option>
-                <option value="not_ripe">לא בשל</option>
+                {BuyerMaturitySchema.options.map((value) => (
+                  <option key={value} value={value}>
+                    {MATURITY_LABELS[value]}
+                    {MATURITY_HINTS[value] === undefined ? "" : ` — ${MATURITY_HINTS[value]}`}
+                  </option>
+                ))}
               </select>
             </div>
             {/*

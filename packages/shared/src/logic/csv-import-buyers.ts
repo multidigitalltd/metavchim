@@ -195,6 +195,7 @@ export const MATURITY_MAP: Record<string, BuyerMaturity> = {
   קר: "not_ripe",
   ממתין: "not_ripe",
   מוקפא: "not_ripe",
+  "לא רלוונטי": "not_relevant",
 };
 
 /**
