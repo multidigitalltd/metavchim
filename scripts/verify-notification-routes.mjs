@@ -412,11 +412,13 @@ for (const [entityType, file] of written) {
  * ‏אותה רשימת סוגים שכבר נאספה לטענה הקודמת — היא נסרקת מכל כתיבת
  * התראה בקוד, כולל `createMany` דרך משתנה.
  */
-const notifyPath = join(root, "packages/shared/src/logic/whatsapp-notify.ts");
+/** ‏היעדים לפי סוג (בלי ישות) — נבדקים כאן כנתיב, ובטענה 4 גם כעוגן */
+const typeFallbackUrls = [];
+const notifyPath = join(root, "packages/shared/src/logic/notify-categories.ts");
 const notifySrc = readFileSync(notifyPath, "utf8");
 const categoryBlock = /const TYPE_CATEGORY[^{]*\{([\s\S]*?)\n\};/u.exec(notifySrc);
 if (categoryBlock === null) {
-  errors.push("‏לא נמצאה TYPE_CATEGORY ב-whatsapp-notify.ts — הביטוי שקורא אותה התיישן");
+  errors.push("‏לא נמצאה TYPE_CATEGORY ב-notify-categories.ts — הביטוי שקורא אותה התיישן");
 } else {
   /* ‏מפתח עם נקודה נכתב במרכאות — `"task.due": "tasks"` */
   const categorised = new Set(
@@ -431,6 +433,20 @@ if (categoryBlock === null) {
       `‏${type} נכתבת כהתראה (${file}) ואינה ב-TYPE_CATEGORY — היא תיפול ל-system, ` +
         "כלומר תעקוף את מי שכיבה את הקטגוריה שלה",
     );
+  }
+
+  /*
+   * ‏ובלי ישות שיש לה מסך — כל סוג נוחת על המסך של הנושא שלו
+   * ‏(`CATEGORY_HOME` / `TYPE_HOME` ב-`web-push.ts`). אותה דרישה כמו
+   * ‏בטענה הראשונה: הכתובת קיימת, או שהיא הדשבורד.
+   */
+  for (const type of new Set([...categorised, ...writtenTypes.keys()])) {
+    const url = notificationUrl({ ...note(null, null), type });
+    if (url === "/") continue;
+    typeFallbackUrls.push([type, url]);
+    if (!resolves(url.split(/[?#]/u)[0])) {
+      errors.push(`‏${type} בלי ישות מקשרת ל-${url} — אין מסך כזה ב-apps/web/src/app`);
+    }
   }
 }
 
@@ -492,6 +508,9 @@ const anchorFound = (url, where) => {
 for (const entityType of entityTypes) {
   const url = notificationUrl(note(entityType, "01HQ0000000000000000000001"));
   if (url.includes("#")) anchorFound(url, `web-push.ts (${entityType})`);
+}
+for (const [type, url] of typeFallbackUrls) {
+  if (url.includes("#")) anchorFound(url, `web-push.ts (${type})`);
 }
 for (const match of webSrc.matchAll(/href:\s*[`"']([^`"']*#[^`"']+)[`"']/gu)) {
   anchorFound(match[1], "notification-links.ts");
