@@ -52,7 +52,7 @@ const ALLOWED_WITHOUT_CONCLUSION: readonly {
   why: string;
 }[] = [
   {
-    file: "modules/platform/platform.controller.ts",
+    file: "modules/platform/platform-agencies.controller.ts",
     statement: "data.trialEndsAt = body.trialEndsAt ? new Date(body.trialEndsAt) : null;",
     why: "‏`billing-override`: איפוס התאריך לבדו הוא המצב הזמני שאין להסיק ממנו — היעדר הרישום כאן הוא ההחלטה",
   },
@@ -106,7 +106,7 @@ function writeSites(): { file: string; line: number; statement: string; window: 
      * ‎**כל צורות הכתיבה, ולא רק `update` ו-`create`.**
      *
      * ‏`updateMany` ו-`upsert` הם צורות רגילות לגמרי במאגר הזה —
-     * ‏`tx.tenant.updateMany` כבר יושב ב-`platform.controller.ts` —
+     * ‏`tx.tenant.updateMany` כבר יושב ב-`platform-agencies.controller.ts` —
      * ‏והם היו בלתי נראים לשער: `update|create` דורש `(` צמוד,
      * ‏ולכן `updateMany(` לא נתפס, ומטריצת ההשמה תופסת רק
      * ‏`x.trialEndsAt =` ולא שדה בתוך אובייקט. מסלול המוני שהיה
@@ -175,7 +175,7 @@ describe("שער: מחיקת תאריך ניסיון רושמת את הסיבה"
     expect(sites.length).toBeGreaterThanOrEqual(4);
     const files = new Set(sites.map((site) => site.file));
     expect(files).toContain("modules/billing/billing.service.ts");
-    expect(files).toContain("modules/platform/platform.controller.ts");
+    expect(files).toContain("modules/platform/platform-agencies.controller.ts");
     // ‏ושצורת ההשמה אכן נתפסת, ולא רק צורת האובייקט
     expect(sites.some((site) => /\.trialEndsAt\s*=/u.test(site.window))).toBe(true);
   });
@@ -186,7 +186,7 @@ describe("שער: מחיקת תאריך ניסיון רושמת את הסיבה"
      *
      * ‏פטור ברמת הקובץ היה מכסה גם כותב **חדש** באותו קובץ — כלומר
      * ‏בדיוק את הבאג הבא, בקובץ שכבר יש בו חריג לגיטימי אחד. אימתתי
-     * ‏זאת: עם פטור לפי קובץ, השתלת השמה חדשה ב-`platform.controller`
+     * ‏זאת: עם פטור לפי קובץ, השתלת השמה חדשה בבקר המשרדים של הפלטפורמה
      * ‏עברה בשקט.
      */
     const silent = sites.filter(

@@ -137,7 +137,7 @@ describe("כיסוי הרשאות על נתיבי ה-API", () => {
   });
 
   it("כל נתיבי ניהול הפלטפורמה מוגנים בשער מנהל הפלטפורמה", () => {
-    const platform = routes.filter((route) => route.file.includes("/platform/platform."));
+    const platform = routes.filter((route) => /\/platform\/platform-[a-z]+\.controller\.ts$/u.test(route.file));
     expect(platform.length).toBeGreaterThan(0);
     for (const route of platform) {
       expect(route.gates, `${route.controller}.${route.handler}`).toContain("PlatformAdmin");

@@ -82,7 +82,7 @@ describe("ההגנה מפני חשבונית כפולה", () => {
  */
 describe("רישום חשבונית ידני", () => {
   const CONTROLLER = readFileSync(
-    new URL("../platform/platform.controller.ts", import.meta.url),
+    new URL("../platform/platform-billing.controller.ts", import.meta.url),
     "utf8",
   )
     .replace(/\/\*[\s\S]*?\*\//gu, "")
