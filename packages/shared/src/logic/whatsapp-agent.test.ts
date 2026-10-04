@@ -242,7 +242,7 @@ describe("הקצאת המקום — נספרת, ניתנת להעברה, ומו�
    * להוסיף אותו.
    */
   it("מסך הפלטפורמה מציג ושולח את המקומות הנוספים", () => {
-    const PLATFORM_API = read("../../../../apps/api/src/modules/platform/platform.controller.ts");
+    const PLATFORM_API = read("../../../../apps/api/src/modules/platform/platform-agencies.controller.ts");
     const PLATFORM_UI = read("../../../../apps/web/src/app/platform/page.tsx");
     expect(PLATFORM_API).toMatch(/whatsappAgentSeatsExtra: t\.whatsappAgentSeatsExtra/u);
     expect(PLATFORM_UI).toContain("agency.whatsappAgentSeatsExtra");
@@ -257,7 +257,7 @@ describe("הקצאת המקום — נספרת, ניתנת להעברה, ומו�
    * מעל מה ששולם ללא הגבלת זמן.
    */
   it("הורדת מקומות מתחת למספר המחזיקים נדחית", () => {
-    const PLATFORM_API = read("../../../../apps/api/src/modules/platform/platform.controller.ts");
+    const PLATFORM_API = read("../../../../apps/api/src/modules/platform/platform-agencies.controller.ts");
     expect(PLATFORM_API).toMatch(/if \(holders > seats\)/u);
     const guard = PLATFORM_API.slice(
       PLATFORM_API.indexOf('if ("whatsappAgentSeatsExtra" in body'),

@@ -26,6 +26,14 @@ RUN pnpm build
 # חבילות פרודקשן עצמאיות (כולל תלויות workspace) לכל שירות
 RUN pnpm --filter @metavchim/api deploy --prod --legacy /prod/api \
  && pnpm --filter @metavchim/workers deploy --prod --legacy /prod/workers
+# ‏הקליינט של Prisma נוצר כאן, בתוך העץ הפרוס של כל שירות (node_modules
+# ‏חדש — הקליינט של סביבת הבנייה אינו עובר), ולא בתמונה הסופית: שם הוא
+# ‏היה מוסיף שכבה עם מטמון הורדות של המנוע, וה-Workers היו נושאים את
+# ‏כלי ה-CLI של Prisma (והתלויות שלו) רק בשביל הצעד הזה. ה-API נושא את
+# ‏ה-CLI ממילא — הוא מריץ איתו את המיגרציות בעלייה.
+RUN cd /prod/api && node node_modules/prisma/build/index.js generate --schema=prisma/schema.prisma \
+ && mkdir -p /prod/workers/prisma && cp prisma/schema.prisma /prod/workers/prisma/ \
+ && cd /prod/workers && node /prod/api/node_modules/prisma/build/index.js generate --schema=prisma/schema.prisma
 
 # ---------- API ----------
 FROM base AS api
@@ -37,8 +45,6 @@ ENV NODE_ENV=production
 RUN apk add --no-cache ffmpeg su-exec
 COPY --from=build /prod/api /app
 WORKDIR /app
-# הקליינט של Prisma חייב להיווצר מחדש בתוך העץ הפרוס (node_modules חדש)
-RUN node node_modules/prisma/build/index.js generate --schema=prisma/schema.prisma
 ARG APP_VERSION=dev
 ENV APP_VERSION=$APP_VERSION
 EXPOSE 3001
@@ -52,11 +58,9 @@ CMD ["sh", "-c", "node node_modules/prisma/build/index.js migrate deploy --schem
 # ---------- Workers ----------
 FROM base AS workers
 ENV NODE_ENV=production
+# ‏הקליינט כבר נוצר בשלב הבנייה (מהסכימה של ה-API) — ראו שם
 COPY --from=build /prod/workers /app
-# הסכימה חיה באפליקציית ה-API — ה-Workers רק צורך את הקליינט שנוצר ממנה
-COPY --from=build /repo/apps/api/prisma/schema.prisma /app/prisma/schema.prisma
 WORKDIR /app
-RUN node node_modules/prisma/build/index.js generate --schema=prisma/schema.prisma
 ARG APP_VERSION=dev
 ENV APP_VERSION=$APP_VERSION
 # ‏בלי root: ה-Workers אינו כותב לדיסק, וקוד שנפרץ כאן לא יקבל
