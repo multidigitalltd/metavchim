@@ -2,12 +2,14 @@ import { BadRequestException, Injectable, Logger, NotFoundException } from "@nes
 import { ulid } from "ulid";
 import {
   MEDIA_ORDER_MAX_AMOUNT_AGOROT,
-  MEDIA_ORDER_STATUS_LABEL,
+  MEDIA_ORDER_STAGE_LABEL,
   mediaCanUploadCreative,
   mediaOrderCanPublish,
+  mediaOrderStage,
   mediaOrderTimeline,
   mediaOrderTotals,
   type MediaOrderCreate,
+  type MediaOrderStage,
   type MediaOrderStatus,
   type MediaOutletKind,
   type MediaProductKind,
@@ -112,7 +114,10 @@ export interface MediaOrderRow {
   outletSlug: string | null;
   productName: string;
   kind: MediaProductKind;
+  /** המצב הכספי — מה שההתחשבנות נשענת עליו. */
   status: MediaOrderStatus;
+  /** השלב לתצוגה — המצב, או „פורסם” כשסומן; התווית לפיו. */
+  stage: MediaOrderStage;
   statusLabel: string;
   quantity: number;
   amountAgorot: number;
@@ -308,16 +313,18 @@ export class MediaService {
     outletSlug: string | null,
   ): MediaOrderRow {
     const status = row.status as MediaOrderStatus;
+    const stage = mediaOrderStage(status, row.publishedAt);
     return {
       id: row.id,
       canResume: row.kind === "paid" && (status === "pending_payment" || status === "failed"),
-      canUploadCreative: mediaCanUploadCreative(status),
+      canUploadCreative: mediaCanUploadCreative(status, row.publishedAt),
       outletName: row.outletName,
       outletSlug,
       productName: row.productName,
       kind: row.kind as MediaProductKind,
       status,
-      statusLabel: MEDIA_ORDER_STATUS_LABEL[status] ?? row.status,
+      stage,
+      statusLabel: MEDIA_ORDER_STAGE_LABEL[stage] ?? row.status,
       quantity: row.quantity,
       amountAgorot: row.amountAgorot,
       contactName: row.contactName,
@@ -335,26 +342,33 @@ export class MediaService {
    * „פורסם” — בעל הפלטפורמה מסמן אחרי שהגיליון יצא (או שהנציג אישר).
    * רק הזמנה שכבר אצל המדיה; הלקוח מקבל מייל והתראה בפעמון, ומכאן
    * קובץ המודעה הוא תיעוד ואינו ניתן להחלפה.
+   *
+   * ‏**המצב הכספי נשאר.** הפרסום נרשם ב-`publishedAt` בלבד: הזמנה ששולמה
+   * ‏נשארת `paid`, כדי שההעברה למדיה וסיכומי העמלות — שמסננים לפי המצב —
+   * ‏ימשיכו לראות אותה (ביקורת Codex). הסימון, הביקורת וההתראה נכתבים
+   * ‏בטרנזקציה אחת: כישלון באחד מהם מבטל את כולם, ולחיצה חוזרת תנסה שוב
+   * ‏במקום להיתקל ב„כבר סומנה” בלי שהלקוח שמע דבר.
    */
   async markPublished(orderId: string, note: string): Promise<{ publishedAt: Date }> {
     const order = await this.prisma.mediaOrder.findUnique({
       where: { id: orderId },
-      select: { id: true, tenantId: true, status: true, createdBy: true, outletName: true, productName: true },
+      select: { id: true, tenantId: true, status: true, publishedAt: true, createdBy: true, outletName: true, productName: true },
     });
     if (order === null) throw new NotFoundException("ההזמנה לא נמצאה");
-    if (!mediaOrderCanPublish(order.status as MediaOrderStatus)) {
+    if (!mediaOrderCanPublish(order.status as MediaOrderStatus, order.publishedAt)) {
       throw new BadRequestException(
-        order.status === "published" ? "ההזמנה כבר סומנה כפורסמה" : "מסמנים „פורסם” רק הזמנה ששולמה או הפניה שנשלחה",
+        order.publishedAt !== null ? "ההזמנה כבר סומנה כפורסמה" : "מסמנים „פורסם” רק הזמנה ששולמה או הפניה שנשלחה",
       );
     }
     const publishedAt = new Date();
-    const claimed = await this.prisma.mediaOrder.updateMany({
-      where: { id: order.id, tenantId: order.tenantId, status: order.status },
-      data: { status: "published", publishedAt, publishedNote: note },
-    });
-    if (claimed.count === 0) throw new BadRequestException("ההזמנה השתנתה בינתיים — רעננו את המסך");
 
     await this.prisma.withExplicitTenant(order.tenantId, async (tx) => {
+      // ‏מותנה: רק מי שעדיין אצל המדיה וטרם סומן — שתי לחיצות אינן מסמנות פעמיים
+      const claimed = await tx.mediaOrder.updateMany({
+        where: { id: order.id, tenantId: order.tenantId, status: { in: ["paid", "referred"] }, publishedAt: null },
+        data: { publishedAt, publishedNote: note },
+      });
+      if (claimed.count === 0) throw new BadRequestException("ההזמנה השתנתה בינתיים — רעננו את המסך");
       await this.audit.record(tx, {
         action: "media.order_published",
         entityType: "media_order",

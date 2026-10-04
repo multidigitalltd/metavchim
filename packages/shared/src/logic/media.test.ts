@@ -4,6 +4,7 @@ import {
   DEFAULT_MEDIA_COMMISSION_PERCENT,
   MEDIA_ORDER_MAX_AMOUNT_AGOROT,
   MEDIA_ORDER_MAX_QUANTITY,
+  MEDIA_ORDER_STAGE_LABEL,
   MEDIA_ORDER_STATUSES,
   MEDIA_PRODUCT_PRICE_MAX_AGOROT,
   isMediaSlug,
@@ -12,6 +13,7 @@ import {
   mediaClosingState,
   mediaCreativeMime,
   mediaOrderCanPublish,
+  mediaOrderStage,
   mediaOrderTimeline,
   mediaOrderTotals,
   resolveMediaCommissionPercent,
@@ -139,9 +141,19 @@ describe("mediaCreativeMime / mediaCanUploadCreative", () => {
     expect(mediaCreativeMime(new Uint8Array([]))).toBeNull();
   });
 
-  it("מעלים כל עוד ההזמנה חיה וטרם פורסמה", () => {
-    expect(MEDIA_ORDER_STATUSES.filter(mediaCanUploadCreative)).toEqual(["pending_payment", "paid", "referred"]);
-    expect(MEDIA_ORDER_STATUSES.filter(mediaOrderCanPublish)).toEqual(["paid", "referred"]);
+  it("מעלים כל עוד ההזמנה חיה וטרם פורסמה; מסמנים „פורסם” פעם אחת, על הזמנה שאצל המדיה", () => {
+    expect(MEDIA_ORDER_STATUSES.filter((s) => mediaCanUploadCreative(s, null))).toEqual(["pending_payment", "paid", "referred"]);
+    expect(MEDIA_ORDER_STATUSES.filter((s) => mediaOrderCanPublish(s, null))).toEqual(["paid", "referred"]);
+    const published = new Date("2026-10-01T09:00:00.000Z");
+    expect(MEDIA_ORDER_STATUSES.some((s) => mediaCanUploadCreative(s, published))).toBe(false);
+    expect(MEDIA_ORDER_STATUSES.some((s) => mediaOrderCanPublish(s, published))).toBe(false);
+  });
+
+  it("הפרסום הוא שלב לתצוגה, לא מצב — ההזמנה נשארת שולמה", () => {
+    expect(mediaOrderStage("paid", null)).toBe("paid");
+    expect(mediaOrderStage("paid", new Date("2026-10-01T09:00:00.000Z"))).toBe("published");
+    expect(MEDIA_ORDER_STAGE_LABEL[mediaOrderStage("referred", "2026-10-01T09:00:00.000Z")]).toBe("פורסם");
+    expect(MEDIA_ORDER_STATUSES).not.toContain("published");
   });
 });
 
@@ -180,8 +192,8 @@ describe("mediaOrderTimeline", () => {
 
   it("פורסם — כל מה שקדם מסומן כבוצע, חוץ מקובץ שלא הועלה", () => {
     const steps = mediaOrderTimeline({ ...base, kind: "lead", status: "referred", publishedAt: t1 });
-    expect(steps.at(-1)?.state).toBe("pending");
-    const published = mediaOrderTimeline({ ...base, kind: "lead", status: "published", publishedAt: t1 });
-    expect(published.map((s) => s.state)).toEqual(["done", "done", "pending", "done"]);
+    expect(steps.map((s) => s.state)).toEqual(["done", "done", "pending", "done"]);
+    const paidPublished = mediaOrderTimeline({ ...base, kind: "paid", status: "paid", paidAt: t1, publishedAt: t1 });
+    expect(paidPublished.map((s) => s.state)).toEqual(["done", "done", "done", "pending", "done"]);
   });
 });

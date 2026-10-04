@@ -108,16 +108,24 @@ function harness(options: { cardcom?: boolean; mail?: boolean; contactEmail?: st
       where,
       data,
     }: {
-      where: { tenantId?: string; id?: string | { in: string[] }; status?: string };
+      where: {
+        tenantId?: string;
+        id?: string | { in: string[] };
+        status?: string | { in: string[] };
+        publishedAt?: null;
+      };
       data: Record<string, unknown>;
     }) => {
       const ids =
         where.id === undefined ? null : typeof where.id === "string" ? [where.id] : where.id.in;
+      const statuses =
+        where.status === undefined ? null : typeof where.status === "string" ? [where.status] : where.status.in;
       let count = 0;
       for (const row of orders) {
         if (where.tenantId !== undefined && row["tenantId"] !== where.tenantId) continue;
         if (ids !== null && !ids.includes(row["id"] as string)) continue;
-        if (where.status !== undefined && row["status"] !== where.status) continue;
+        if (statuses !== null && !statuses.includes(row["status"] as string)) continue;
+        if (where.publishedAt === null && row["publishedAt"] !== null) continue;
         Object.assign(row, data);
         count += 1;
       }
@@ -602,7 +610,8 @@ describe("MediaService — פעמון, עמוד ההזמנה ו„פורסם”"
 
     const sentBefore = h.sent.length;
     await h.service.markPublished(orderId, "גיליון 412, עמ׳ 7");
-    expect(h.orders[0]).toMatchObject({ status: "published", publishedNote: "גיליון 412, עמ׳ 7" });
+    // ‏המצב הכספי נשאר — ההעברה למדיה וסיכומי העמלות עדיין רואים את ההזמנה
+    expect(h.orders[0]).toMatchObject({ status: "paid", publishedNote: "גיליון 412, עמ׳ 7" });
     expect(h.orders[0]?.["publishedAt"]).toBeInstanceOf(Date);
     expect(h.sent).toHaveLength(sentBefore + 1);
     expect(h.sent.at(-1)).toMatchObject({ to: "dana@office.example" });
@@ -610,7 +619,11 @@ describe("MediaService — פעמון, עמוד ההזמנה ו„פורסם”"
     expect(h.adminNotices.at(-1)).toContain("פורסם");
     expect(h.notifications.map((n) => n.type)).toEqual(["media_paid", "media_published"]);
     expect(h.audits).toContain("media.order_published");
-    expect((await h.service.order(TENANT, orderId)).canUploadCreative).toBe(false);
+    const detail = await h.service.order(TENANT, orderId);
+    expect(detail.canUploadCreative).toBe(false);
+    expect(detail).toMatchObject({ status: "paid", stage: "published", statusLabel: "פורסם" });
+    expect(detail.timeline.at(-1)).toMatchObject({ key: "published", state: "done" });
     await expect(h.service.markPublished(orderId, "")).rejects.toThrow(/כבר סומנה/u);
+    expect(h.notifications.filter((n) => n.type === "media_published")).toHaveLength(1);
   });
 });

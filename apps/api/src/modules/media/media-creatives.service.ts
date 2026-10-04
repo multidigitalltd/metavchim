@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, Logger, NotFoundException } from "@nestjs/common";
+import { BadRequestException, GoneException, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { randomBytes } from "node:crypto";
 import { ulid } from "ulid";
 import {
@@ -54,6 +54,14 @@ export class MediaCreativesService {
    * העלאה או החלפה. ההזמנה חייבת להיות חיה (לא נכשלה, לא בוטלה,
    * לא פורסמה). כשההזמנה כבר אצל המדיה, הנציג מקבל מייל עם הקישור
    * החדש — אחרת הוא יחכה לקובץ שכבר הועלה.
+   *
+   * ‏**הבדיקה חוזרת בכתיבה.** בין הקריאה לעדכון ההזמנה יכולה להתבטל,
+   * ‏להיכשל או להיות מסומנת „פורסם” — ו-`updateMany` מותנה במצב שנקרא
+   * ‏וב-`publishedAt` ריק, כדי שקובץ לא ייכתב על הזמנה שכבר ננעלה ושהמייל
+   * ‏לנציג לא יצא על סמך מצב ישן. באותו אופן, המשרד יכול להיכנס למחיקה
+   * ‏בזמן ההעלאה: אחרי שהשורה מצביעה על הקובץ נבדק שוב `filesLockedAt`,
+   * ‏כי איסוף הקבצים למחיקה קורה אחרי הנעילה — קובץ שנרשם רגע אחריו היה
+   * ‏נשאר בלי שורה ובלי איסוף (ביקורת Codex).
    */
   async upload(
     ctx: { tenantId: string; userId: string },
@@ -64,9 +72,9 @@ export class MediaCreativesService {
       where: { id: orderId, tenantId: ctx.tenantId },
     });
     if (order === null) throw new NotFoundException("ההזמנה לא נמצאה");
-    if (!mediaCanUploadCreative(order.status as MediaOrderStatus)) {
+    if (!mediaCanUploadCreative(order.status as MediaOrderStatus, order.publishedAt)) {
       throw new BadRequestException(
-        order.status === "published" ? "המודעה כבר פורסמה — אין להחליף את הקובץ" : "ההזמנה אינה פעילה",
+        order.publishedAt !== null ? "המודעה כבר פורסמה — אין להחליף את הקובץ" : "ההזמנה אינה פעילה",
       );
     }
     if (file.buffer.length === 0) throw new BadRequestException("הקובץ ריק");
@@ -84,24 +92,39 @@ export class MediaCreativesService {
     const creativeName = safeName(file.originalname, MEDIA_CREATIVE_EXT[mime]);
     const previousKey = order.creativeKey;
 
-    await this.prisma.withTenant(async (tx) => {
-      await tx.mediaOrder.updateMany({
-        where: { tenantId: ctx.tenantId, id: order.id },
-        data: {
-          creativeKey: key,
-          creativeMime: mime,
-          creativeName,
-          creativeToken: token,
-          creativeUploadedAt: uploadedAt,
-        },
+    try {
+      await this.prisma.withTenant(async (tx) => {
+        const claimed = await tx.mediaOrder.updateMany({
+          // ‏מותנה במה שנקרא: הזמנה שבינתיים בוטלה, נכשלה או פורסמה — לא מקבלת קובץ
+          where: { tenantId: ctx.tenantId, id: order.id, status: order.status, publishedAt: null },
+          data: {
+            creativeKey: key,
+            creativeMime: mime,
+            creativeName,
+            creativeToken: token,
+            creativeUploadedAt: uploadedAt,
+          },
+        });
+        if (claimed.count === 0) throw new BadRequestException("ההזמנה השתנתה בינתיים — רעננו את המסך ונסו שוב");
+        await this.audit.record(tx, {
+          action: previousKey === null ? "media.creative_uploaded" : "media.creative_replaced",
+          entityType: "media_order",
+          entityId: order.id,
+          metadata: { creativeName, creativeMime: mime },
+        });
       });
-      await this.audit.record(tx, {
-        action: previousKey === null ? "media.creative_uploaded" : "media.creative_replaced",
-        entityType: "media_order",
-        entityId: order.id,
-        metadata: { creativeName, creativeMime: mime },
-      });
-    });
+    } catch (error) {
+      // ‏השורה לא נכתבה — הקובץ שהועלה הוא יתום, ונמחק כאן ולא בסריקה
+      await this.discard(key, "העלאה שנדחתה");
+      throw error;
+    }
+
+    // ‏המשרד נכנס למחיקה בזמן ההעלאה? איסוף הקבצים כבר עבר — הקובץ נמחק כאן
+    const tenant = await this.prisma.tenant.findUnique({ where: { id: ctx.tenantId }, select: { filesLockedAt: true } });
+    if (tenant === null || tenant.filesLockedAt !== null) {
+      await this.discard(key, "משרד שנמחק");
+      throw new GoneException("המשרד נמחק — לא ניתן להעלות אליו קבצים");
+    }
 
     if (previousKey !== null && previousKey !== key) {
       try {
@@ -126,6 +149,15 @@ export class MediaCreativesService {
     }
 
     return { creativeName, creativeMime: mime, uploadedAt };
+  }
+
+  /** מחיקת קובץ שהועלה ולא נרשם; כשל במחיקה נרשם ואינו מסתיר את הסיבה המקורית. */
+  private async discard(key: string, reason: string): Promise<void> {
+    try {
+      await this.storage.delete(key);
+    } catch (error) {
+      this.logger.error(`מחיקת קובץ מודעה יתום (${reason}, ${key}) נכשלה: ${(error as Error).message}`);
+    }
   }
 
   /** הקובץ למשרד עצמו — אותו משרד בלבד. */

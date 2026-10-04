@@ -55,7 +55,11 @@ export const MEDIA_PRODUCT_KIND_LABEL: Record<MediaProductKind, string> = {
  * - `referred` — הפניה שנשלחה לנציג (מוצר בלי סליקה).
  * - `failed` — התשלום נכשל; ההזמנה לא נשלחה.
  * - `cancelled` — בוטלה לפני תשלום.
- * - `published` — המודעה פורסמה; בעל הפלטפורמה מסמן אחרי שהגיליון יצא.
+ *
+ * ‏**הפרסום אינו מצב.** „פורסם” נרשם ב-`publishedAt` לצד המצב, ולא
+ * ‏במקומו: הזמנה ששולמה נשארת `paid` גם אחרי שהגיליון יצא, כי ההתחשבנות
+ * ‏(ההעברה למדיה, סיכומי העמלות) נשענת על המצב הכספי ואסור שסימון
+ * ‏תפעולי יוציא אותה ממנו (ביקורת Codex). למסך יש `mediaOrderStage`.
  */
 export const MEDIA_ORDER_STATUSES = [
   "pending_payment",
@@ -63,7 +67,6 @@ export const MEDIA_ORDER_STATUSES = [
   "referred",
   "failed",
   "cancelled",
-  "published",
 ] as const;
 export type MediaOrderStatus = (typeof MEDIA_ORDER_STATUSES)[number];
 
@@ -73,12 +76,26 @@ export const MEDIA_ORDER_STATUS_LABEL: Record<MediaOrderStatus, string> = {
   referred: "נשלח לנציג",
   failed: "התשלום נכשל",
   cancelled: "בוטל",
+};
+
+/**
+ * ‏השלב שהמסך מציג: המצב הכספי, או „פורסם” כשבעל הפלטפורמה סימן.
+ * ‏`published` חי רק כאן — בבסיס הנתונים הוא `publishedAt`.
+ */
+export type MediaOrderStage = MediaOrderStatus | "published";
+
+export const MEDIA_ORDER_STAGE_LABEL: Record<MediaOrderStage, string> = {
+  ...MEDIA_ORDER_STATUS_LABEL,
   published: "פורסם",
 };
 
-/** ‏הזמנה שכבר אצל המדיה — זו שאפשר לסמן כפורסמה. */
-export function mediaOrderCanPublish(status: MediaOrderStatus): boolean {
-  return status === "paid" || status === "referred";
+export function mediaOrderStage(status: MediaOrderStatus, publishedAt: Date | string | null): MediaOrderStage {
+  return publishedAt !== null ? "published" : status;
+}
+
+/** ‏הזמנה שכבר אצל המדיה וטרם סומנה — זו שאפשר לסמן כפורסמה. */
+export function mediaOrderCanPublish(status: MediaOrderStatus, publishedAt: Date | string | null): boolean {
+  return (status === "paid" || status === "referred") && publishedAt === null;
 }
 
 /* ==================== קובץ המודעה ==================== */
@@ -127,8 +144,8 @@ export function mediaCreativeMime(bytes: Uint8Array): MediaCreativeMime | null {
  * ‏מתי אפשר להעלות (או להחליף) את קובץ המודעה: כל עוד ההזמנה חיה
  * ‏והמודעה טרם פורסמה. אחרי הפרסום הקובץ הוא תיעוד, לא טיוטה.
  */
-export function mediaCanUploadCreative(status: MediaOrderStatus): boolean {
-  return status === "pending_payment" || status === "paid" || status === "referred";
+export function mediaCanUploadCreative(status: MediaOrderStatus, publishedAt: Date | string | null): boolean {
+  return (status === "pending_payment" || status === "paid" || status === "referred") && publishedAt === null;
 }
 
 /* ==================== ציר הזמן של ההזמנה ==================== */
@@ -168,7 +185,8 @@ export function mediaOrderTimeline(order: {
     });
   }
   const sentDone = order.notifiedAt !== null;
-  const atOutlet = order.status === "paid" || order.status === "referred" || order.status === "published";
+  const published = order.publishedAt !== null;
+  const atOutlet = order.status === "paid" || order.status === "referred";
   steps.push({
     key: "sent",
     label: order.kind === "paid" ? "נשלח למדיה" : "נשלח לנציג",
@@ -185,9 +203,9 @@ export function mediaOrderTimeline(order: {
     key: "published",
     label: "פורסם",
     at: order.publishedAt,
-    state: order.status === "published" ? "done" : "pending",
+    state: published ? "done" : "pending",
   });
-  if (order.status === "published") {
+  if (published) {
     // ‏מה שקדם לפרסום בהכרח קרה — גם כשלא נרשם מועד (למשל נציג שקיבל בטלפון)
     for (const step of steps) if (step.state !== "done" && step.key !== "creative") step.state = "done";
   }

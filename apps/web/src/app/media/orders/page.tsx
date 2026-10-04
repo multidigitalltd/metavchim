@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { type MediaOrderStatus, type MediaProductKind } from "@metavchim/shared";
+import { type MediaOrderStage, type MediaOrderStatus, type MediaProductKind } from "@metavchim/shared";
 import { apiGet, apiList, apiPost, ApiError } from "@/lib/api";
 import { formatDateTime, formatPrice } from "@/lib/format";
 import { can, useRequireAuth } from "@/lib/use-auth";
@@ -28,6 +28,7 @@ interface OrderRow {
   productName: string;
   kind: MediaProductKind;
   status: MediaOrderStatus;
+  stage: MediaOrderStage;
   statusLabel: string;
   quantity: number;
   amountAgorot: number;
@@ -42,7 +43,7 @@ interface OrderRow {
   publishedNote: string;
 }
 
-const STATUS_TONE: Record<MediaOrderStatus, string> = {
+const STATUS_TONE: Record<MediaOrderStage, string> = {
   pending_payment: "mv-domain-amber",
   paid: "mv-domain-green",
   referred: "mv-domain-blue",
@@ -141,7 +142,7 @@ export default function MediaOrdersPage(): React.JSX.Element | null {
           {items.map((order) => (
             <li key={order.id} className="mv-card mv-card--pad">
               <div className="flex flex-wrap items-center gap-2">
-                <span className={`mv-pill ${STATUS_TONE[order.status] ?? "mv-domain-neutral"}`}>
+                <span className={`mv-pill ${STATUS_TONE[order.stage] ?? "mv-domain-neutral"}`}>
                   {order.statusLabel}
                 </span>
                 <h2 className="m-0 text-[length:var(--type-row-title)] font-extrabold">
@@ -165,8 +166,8 @@ export default function MediaOrdersPage(): React.JSX.Element | null {
                 <p className="m-0 mt-1 whitespace-pre-line text-[length:var(--type-body-sm)]">{order.brief}</p>
               ) : null}
               <p className="m-0 mt-1 text-[length:var(--type-caption-lg)]" style={{ color: "var(--color-text-muted)" }}>
-                {order.status === "published"
-                  ? `פורסם ${order.publishedAt ? formatDateTime(order.publishedAt) : ""}${order.publishedNote ? ` · ${order.publishedNote}` : ""}`
+                {order.publishedAt
+                  ? `פורסם ${formatDateTime(order.publishedAt)}${order.publishedNote ? ` · ${order.publishedNote}` : ""}`
                   : order.creativeName
                     ? `קובץ המודעה: ${order.creativeName}`
                     : order.canUploadCreative

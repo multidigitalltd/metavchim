@@ -3200,7 +3200,7 @@ model MediaOrder {
   productId         String    @map("product_id") @db.Char(26)
   /// paid | lead — צילום מהמוצר
   kind              String    @db.VarChar(10)
-  /// pending_payment | paid | referred | failed | cancelled | published
+  /// pending_payment | paid | referred | failed | cancelled — המצב הכספי; „פורסם” הוא published_at
   status            String    @default("pending_payment") @db.VarChar(20)
   /// צילומים לתצוגה — ההזמנה נקראת גם אחרי שהמוצר שונה או הוסר
   outletName        String    @map("outlet_name") @db.VarChar(120)

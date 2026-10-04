@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import {
   MEDIA_CREATIVE_MAX_BYTES,
+  type MediaOrderStage,
   type MediaOrderStatus,
   type MediaProductKind,
   type MediaTimelineState,
@@ -46,6 +47,8 @@ interface OrderDetail {
   productName: string;
   kind: MediaProductKind;
   status: MediaOrderStatus;
+  /** המצב, או „פורסם” כשסומן — מה שהתג מציג. */
+  stage: MediaOrderStage;
   statusLabel: string;
   quantity: number;
   amountAgorot: number;
@@ -66,7 +69,7 @@ interface OrderDetail {
   outletContact: { name: string; phone: string } | null;
 }
 
-const STATUS_TONE: Record<MediaOrderStatus, string> = {
+const STATUS_TONE: Record<MediaOrderStage, string> = {
   pending_payment: "mv-domain-amber",
   paid: "mv-domain-green",
   referred: "mv-domain-blue",
@@ -196,7 +199,7 @@ export default function MediaOrderPage({ params }: { params: Promise<{ id: strin
             </span>
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2">
-                <span className={`mv-pill ${STATUS_TONE[order.status] ?? "mv-domain-neutral"}`}>{order.statusLabel}</span>
+                <span className={`mv-pill ${STATUS_TONE[order.stage] ?? "mv-domain-neutral"}`}>{order.statusLabel}</span>
                 <span className="text-[length:var(--type-caption-lg)]" style={{ color: "var(--color-text-muted)" }}>
                   הזמנה מ-{formatDateTime(order.createdAt)}
                 </span>
@@ -341,7 +344,7 @@ export default function MediaOrderPage({ params }: { params: Promise<{ id: strin
                     </span>
                   ) : null}
                 </div>
-              ) : order.status === "published" ? (
+              ) : order.publishedAt ? (
                 <p className="m-0 mt-3 text-[length:var(--type-caption-lg)]" style={{ color: "var(--color-text-muted)" }}>
                   המודעה פורסמה — הקובץ נשמר כתיעוד ואינו ניתן להחלפה.
                 </p>

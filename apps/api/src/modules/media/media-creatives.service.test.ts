@@ -23,7 +23,7 @@ const JPEG = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46]);
 const PDF = Buffer.from("%PDF-1.7 fake");
 const GIF = Buffer.from("GIF89a....");
 
-function harness(status = "paid") {
+function harness(status = "paid", options: { publishedAt?: Date; filesLockedAt?: Date } = {}) {
   const order: Record<string, unknown> = {
     id: ORDER,
     tenantId: TENANT,
@@ -48,7 +48,7 @@ function harness(status = "paid") {
     creativeName: null,
     creativeToken: null,
     creativeUploadedAt: null,
-    publishedAt: null,
+    publishedAt: options.publishedAt ?? null,
     publishedNote: "",
   };
   const stored = new Map<string, { body: Buffer; mime: string }>();
@@ -58,8 +58,16 @@ function harness(status = "paid") {
   const adminNotices: string[] = [];
   const tx = {
     mediaOrder: {
-      updateMany: async ({ where, data }: { where: { id: string; tenantId: string }; data: Record<string, unknown> }) => {
+      updateMany: async ({
+        where,
+        data,
+      }: {
+        where: { id: string; tenantId: string; status?: string; publishedAt?: null };
+        data: Record<string, unknown>;
+      }) => {
         if (order["id"] !== where.id || order["tenantId"] !== where.tenantId) return { count: 0 };
+        if (where.status !== undefined && order["status"] !== where.status) return { count: 0 };
+        if (where.publishedAt === null && order["publishedAt"] !== null) return { count: 0 };
         Object.assign(order, data);
         return { count: 1 };
       },
@@ -85,6 +93,7 @@ function harness(status = "paid") {
         nextClosingAt: null,
       }),
     },
+    tenant: { findUnique: async () => ({ filesLockedAt: options.filesLockedAt ?? null }) },
     withTenant: async <T>(fn: (t: typeof tx) => Promise<T>) => fn(tx),
   };
   const storage = {
@@ -114,7 +123,7 @@ function harness(status = "paid") {
     audit as never,
     new MediaMailService(email as never, admins as never),
   );
-  return { service, order, stored, deleted, audits, sent, adminNotices };
+  return { service, prisma, order, stored, deleted, audits, sent, adminNotices };
 }
 
 const asTenant = <T>(fn: () => Promise<T>) =>
@@ -160,10 +169,35 @@ describe("MediaCreativesService.upload", () => {
     expect(pending.sent).toHaveLength(0);
     expect(pending.adminNotices).toHaveLength(0);
 
-    const published = harness("published");
+    // ‏„פורסם” אינו מצב — ההזמנה נשארת שולמה, והנעילה היא לפי מועד הפרסום
+    const published = harness("paid", { publishedAt: new Date("2026-10-02T08:00:00.000Z") });
     await expect(
       asTenant(() => published.service.upload({ tenantId: TENANT, userId: ME }, ORDER, { buffer: PDF, originalname: "ad.pdf" })),
     ).rejects.toThrow(/כבר פורסמה/u);
+    expect(published.stored.size).toBe(0);
+  });
+
+  it("ההזמנה השתנתה בין הקריאה לכתיבה — הקובץ שהועלה נמחק, הנציג אינו שומע", async () => {
+    const h = harness("paid");
+    // ‏בעל הפלטפורמה סימן „פורסם” בדיוק אחרי שההעלאה קראה את ההזמנה
+    h.prisma.mediaOrder.findFirst = async () => ({ ...h.order });
+    h.order["publishedAt"] = new Date("2026-10-02T08:00:00.000Z");
+    await expect(
+      asTenant(() => h.service.upload({ tenantId: TENANT, userId: ME }, ORDER, { buffer: PDF, originalname: "ad.pdf" })),
+    ).rejects.toThrow(/השתנתה בינתיים|כבר פורסמה/u);
+    expect(h.order["creativeKey"]).toBeNull();
+    expect(h.sent).toHaveLength(0);
+    expect(h.audits).toHaveLength(0);
+  });
+
+  it("המשרד ננעל למחיקה בזמן ההעלאה — הקובץ נמחק ו-410", async () => {
+    const h = harness("paid", { filesLockedAt: new Date("2026-10-02T08:00:00.000Z") });
+    await expect(
+      asTenant(() => h.service.upload({ tenantId: TENANT, userId: ME }, ORDER, { buffer: JPEG, originalname: "ad.jpg" })),
+    ).rejects.toThrow(/המשרד נמחק/u);
+    const key = h.order["creativeKey"] as string;
+    expect(h.deleted).toEqual([key]);
+    expect(h.sent).toHaveLength(0);
   });
 
   it("סוג לא נתמך, קובץ ריק, ומשרד אחר — נדחים לפני שנשמר דבר", async () => {

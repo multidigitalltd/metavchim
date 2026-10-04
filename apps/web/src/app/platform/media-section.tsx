@@ -13,6 +13,7 @@ import {
   jerusalemWallIsoToUtc,
   jerusalemWallParts,
   type MediaImageKind,
+  type MediaOrderStage,
   type MediaOrderStatus,
   type MediaOutletKind,
   type MediaProductKind,
@@ -116,7 +117,9 @@ interface AdminOrder {
   outletName: string;
   productName: string;
   kind: MediaProductKind;
+  /** המצב הכספי; „פורסם” אינו משנה אותו — הוא `publishedAt`. */
   status: MediaOrderStatus;
+  stage: MediaOrderStage;
   statusLabel: string;
   quantity: number;
   amountAgorot: number;
@@ -834,9 +837,9 @@ export function MediaSection(): React.JSX.Element {
                       )}
                     </td>
                     <td className="p-2 whitespace-nowrap">
-                      {order.status === "published" ? (
+                      {order.publishedAt ? (
                         <>
-                          {order.publishedAt ? formatDateTime(order.publishedAt) : "פורסם"}
+                          {formatDateTime(order.publishedAt)}
                           {order.publishedNote ? (
                             <span className="block" style={{ color: "var(--color-text-muted)" }}>
                               {order.publishedNote}
@@ -860,7 +863,7 @@ export function MediaSection(): React.JSX.Element {
                       )}
                     </td>
                     <td className="p-2 whitespace-nowrap">
-                      {order.kind !== "paid" || (order.status !== "paid" && order.status !== "published")
+                      {order.kind !== "paid" || order.status !== "paid"
                         ? "—"
                         : order.settlementId
                           ? "הועבר"
