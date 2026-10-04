@@ -754,6 +754,27 @@ export class MatchingService {
       return { kept: false, created: false, strong: false };
     }
 
+    /*
+     * ‎**„לא רלוונטי” נבדק שוב, נעול, רגע לפני הכתיבה** (ביקורת Codex, P2).
+     *
+     * ‏בחירת המועמדים היא צילום של רגע השאילתה. אם הקונה סומן „לא
+     * ‏רלוונטי” וניקוי ההצעות שלו הסתיים בזמן שהסבב הזה רץ, הכתיבה כאן
+     * ‏הייתה מחזירה את ההצעה. ‏`FOR SHARE` ממתין לעריכה פתוחה של הכרטיס
+     * ‏(היא נועלת `FOR UPDATE`) וקורא את מה שנשמר בה; ועריכה שתבוא אחרי
+     * ‏הנעילה הזו ממתינה לסיום הסבב — והניקוי שאחריה מוחק את מה שנכתב.
+     * ‏נעילה רק על מה שעומד להיכתב, לא על כל המועמדים.
+     */
+    const inPlay = await tx.$queryRaw<{ id: string }[]>`
+      SELECT id FROM buyers
+      WHERE id = ${buyerId} AND tenant_id = ${tenantId} AND maturity <> ${NOT_RELEVANT_MATURITY}
+      FOR SHARE`;
+    if (inPlay.length === 0) {
+      if (existing && existing.status === "suggested") {
+        await tx.match.delete({ where: { id: existing.id } });
+      }
+      return { kept: false, created: false, strong: false };
+    }
+
     if (existing) {
       /*
        * ‎**`createdAt` אינו ברשימה, וזו כל הנקודה.**

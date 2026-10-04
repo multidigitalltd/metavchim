@@ -602,6 +602,14 @@ export class CollaborationService {
     const commissionSplit = headlineCommissionSplit(terms, "buyer");
 
     await this.prisma.withTenant(async (tx) => {
+      /*
+       * ‎**נעילת שורת הקונה** (ביקורת Codex, P2) — אותה נעילה שעריכת הכרטיס
+       * ‏לוקחת. בלעדיה שיתוף שקרא „רלוונטי” יכול היה להיכתב אחרי שהעריכה
+       * ‏סימנה „לא רלוונטי” וסגרה ביקושים — כשעוד לא היה מה לסגור. עכשיו
+       * ‏אחד מהשניים ממתין: או שהשיתוף רואה את הסימון ונחסם, או שהעריכה
+       * ‏באה אחריו וסוגרת את הביקוש שנוצר.
+       */
+      await tx.$queryRaw`SELECT id FROM buyers WHERE id = ${buyerId} AND tenant_id = ${tenantId} FOR UPDATE`;
       const buyer = await tx.buyer.findFirst({
         where: { id: buyerId, tenantId, deletedAt: null },
       });
