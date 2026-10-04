@@ -6,7 +6,7 @@ import { IdSchema, TELEPHONY_PROVIDERS } from "@metavchim/shared";
 import { Public, RequireCapability } from "../../common/auth.decorators";
 import { RequireFeature } from "../../common/feature.guard";
 import { TenantContext } from "../../common/tenant-context";
-import { ZodValidationPipe } from "../../common/zod-validation.pipe";
+import { ZodValidationPipe, IdParam } from "../../common/zod-validation.pipe";
 import { RecordingFetchService } from "./recording-fetch.service";
 import { TelephonyService } from "./telephony.service";
 
@@ -175,7 +175,7 @@ export class TelephonyController {
   @RequireCapability("settings.manage")
   @HttpCode(200)
   async saveLine(
-    @Param("userId", new ZodValidationPipe(IdSchema)) userId: string,
+    @Param("userId", IdParam) userId: string,
     @Body(new ZodValidationPipe(MyLineSchema)) body: z.infer<typeof MyLineSchema>,
   ): Promise<{ ok: true }> {
     return this.telephony.saveLineFor(userId, body);

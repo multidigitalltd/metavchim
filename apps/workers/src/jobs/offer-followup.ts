@@ -1,7 +1,7 @@
 import { type Job } from "bullmq";
 import { ulid } from "ulid";
 import { z } from "zod";
-import { prisma } from "../runtime.js";
+import { withTenant } from "../runtime.js";
 import { automationOn } from "../tenant-settings.js";
 
 const FollowupJobSchema = z.object({
@@ -26,9 +26,7 @@ const FOLLOWUP_TITLE = "פולו-אפ: הקונה פתח את ההצעה ולא 
 export async function processOfferFollowup(job: Job): Promise<void> {
   const { tenantId, offerId } = FollowupJobSchema.parse(job.data);
   if (!(await automationOn(tenantId, "offer_followup"))) return;
-  await prisma.$transaction(async (tx) => {
-    await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
-
+  await withTenant(tenantId, async (tx) => {
     const offer = await tx.offer.findFirst({
       where: { id: offerId, tenantId },
     });

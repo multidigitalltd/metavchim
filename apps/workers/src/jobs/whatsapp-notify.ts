@@ -42,7 +42,7 @@ import {
   whatsappNotifyRecipient,
   type WhatsAppNotifyPrefs,
 } from "@metavchim/shared";
-import { prisma } from "../runtime.js";
+import { prisma, withTenant } from "../runtime.js";
 import { tenantHasFeature } from "../tenant-settings.js";
 import {
   jerusalemHour,
@@ -134,8 +134,7 @@ export async function notificationAnchorSubjects(
 ): Promise<Map<string, AnchorSubject>> {
   const { leadIds, buyerIds, callIds } = notificationAnchorIds(rows);
   if (leadIds.length + buyerIds.length + callIds.length === 0) return new Map();
-  return prisma.$transaction(async (tx) => {
-    await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
+  return withTenant(tenantId, async (tx) => {
     const [buyers, calls] = await Promise.all([
       buyerIds.length === 0
         ? []
@@ -184,8 +183,7 @@ export async function visibleContactIdSet(
 ): Promise<Set<string> | null> {
   if (seesAllContactsWith(capabilities)) return null;
   const filters = visibleContactFilters(tenantId, userId, capabilities);
-  return prisma.$transaction(async (tx) => {
-    await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
+  return withTenant(tenantId, async (tx) => {
     const [buyers, leads, properties] = await Promise.all([
       filters.buyers === null
         ? []
@@ -211,8 +209,7 @@ export async function capabilitiesByUser(
   blockedModules: readonly string[],
   now: Date,
 ): Promise<Map<string, Set<Capability>>> {
-  const overrides = await prisma.$transaction(async (tx) => {
-    await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
+  const overrides = await withTenant(tenantId, async (tx) => {
     return tx.userCapability.findMany({
       where: { tenantId, userId: { in: users.map((u) => u.id) } },
       select: { userId: true, capability: true, effect: true, expiresAt: true },
@@ -273,8 +270,7 @@ export async function processWhatsAppNotifySweep(): Promise<void> {
     // אותו שער כמו הסוכן עצמו: הדחיפה היא חלק מהפיצ'ר, לא תוספת חינם
     if (!(await tenantHasFeature(tenant.id, "voice_intake"))) continue;
 
-    const pending = await prisma.$transaction(async (tx) => {
-      await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenant.id}, true)`;
+    const pending = await withTenant(tenant.id, async (tx) => {
       return tx.notification.findMany({
         where: { tenantId: tenant.id, whatsappAt: null, createdAt: { gte: since } },
         orderBy: { createdAt: "asc" },
@@ -334,8 +330,7 @@ export async function processWhatsAppNotifySweep(): Promise<void> {
      */
     const notifyDetails = await loadNotifyDetails(tenant.id, pending);
 
-    const chats = await prisma.$transaction(async (tx) => {
-      await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenant.id}, true)`;
+    const chats = await withTenant(tenant.id, async (tx) => {
       return tx.whatsAppChat.findMany({
         where: { tenantId: tenant.id, userId: { in: users.map((u) => u.id) } },
         select: {
@@ -585,8 +580,7 @@ export async function processWhatsAppNotifySweep(): Promise<void> {
      * ומאבד את החותמת — כלומר כפילות בסבב הבא.
      */
     if (delivered.size > 0) {
-      await prisma.$transaction(async (tx) => {
-        await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenant.id}, true)`;
+      await withTenant(tenant.id, async (tx) => {
         /*
          * ההיסטוריה נקראת ונכתבת כאן, ולא נבנית מאפס: המתווך יכול
          * לכתוב לסוכן בדיוק בין הקריאה לכתיבה, ודריסה עיוורת הייתה
@@ -667,8 +661,7 @@ export async function processWhatsAppNotifySweep(): Promise<void> {
 /** ‏סימון התראות כסגורות — הסבב לא יחזור אליהן. ניקיון בלבד, ראו למעלה. */
 async function closeNotifications(tenantId: string, ids: string[]): Promise<void> {
   if (ids.length === 0) return;
-  await prisma.$transaction(async (tx) => {
-    await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
+  await withTenant(tenantId, async (tx) => {
     await tx.notification.updateMany({
       where: { tenantId, id: { in: ids } },
       data: { whatsappAt: new Date() },

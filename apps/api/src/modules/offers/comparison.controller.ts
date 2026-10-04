@@ -1,19 +1,16 @@
 import { Body, Controller, Get, HttpCode, Param, ParseIntPipe, Post, Req, Res } from "@nestjs/common";
 import { Throttle } from "@nestjs/throttler";
 import type { Request, Response } from "express";
-import { z } from "zod";
-import { ComparisonCreateSchema, ComparisonInterestSchema, IdSchema, type ComparisonCreate } from "@metavchim/shared";
+import { ComparisonCreateSchema, ComparisonInterestSchema, type ComparisonCreate } from "@metavchim/shared";
 import { Public, RequireCapability } from "../../common/auth.decorators";
 import { objectResponse } from "../../common/object-response";
-import { ZodValidationPipe } from "../../common/zod-validation.pipe";
+import { ZodValidationPipe, IdParam, PublicTokenParam } from "../../common/zod-validation.pipe";
 import { ComparisonService, type ComparisonDto, type PublicComparisonView } from "./comparison.service";
 
 /**
  * ‏דף השוואה לקונה — יצירה ושליחה עם `offers.send` (אותה יכולת של
  * ‏הצעה בודדת), רשימה למי שרואה את הקונה, ודף ציבורי לפי טוקן.
  */
-const IdParam = new ZodValidationPipe(IdSchema);
-const TokenParam = new ZodValidationPipe(z.string().regex(/^[A-Za-z0-9_-]{43}$/u));
 
 @Controller()
 export class ComparisonController {
@@ -43,7 +40,7 @@ export class ComparisonController {
 
   @Public()
   @Get("public/compare/:token")
-  publicView(@Param("token", TokenParam) token: string): Promise<PublicComparisonView> {
+  publicView(@Param("token", PublicTokenParam) token: string): Promise<PublicComparisonView> {
     return this.comparisons.publicView(token);
   }
 
@@ -52,7 +49,7 @@ export class ComparisonController {
   async publicImage(
     @Req() req: Request,
     @Res() res: Response,
-    @Param("token", TokenParam) token: string,
+    @Param("token", PublicTokenParam) token: string,
     @Param("p", ParseIntPipe) propertyIndex: number,
     @Param("i", ParseIntPipe) mediaIndex: number,
   ): Promise<void> {
@@ -65,7 +62,7 @@ export class ComparisonController {
   @Post("public/compare/:token/interest")
   @HttpCode(200)
   async interest(
-    @Param("token", TokenParam) token: string,
+    @Param("token", PublicTokenParam) token: string,
     @Body(new ZodValidationPipe(ComparisonInterestSchema)) body: { propertyId: string },
   ): Promise<{ ok: true }> {
     await this.comparisons.publicInterest(token, body.propertyId);

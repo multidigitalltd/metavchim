@@ -27,7 +27,7 @@ import {
 } from "@metavchim/shared";
 import { RequireCapability } from "../../common/auth.decorators";
 import { RequireFeature } from "../../common/feature.guard";
-import { ZodValidationPipe } from "../../common/zod-validation.pipe";
+import { ZodValidationPipe, IdParam } from "../../common/zod-validation.pipe";
 import { officeMembers } from "../../common/office-members";
 import { PrismaService } from "../../core/prisma.service";
 import { MatchingService, type MatchDto } from "../matching/matching.service";
@@ -310,7 +310,7 @@ export class PropertiesController {
   @Post("from-lead/:leadId")
   @RequireCapability("properties.create")
   async convertFromLead(
-    @Param("leadId", new ZodValidationPipe(IdSchema)) leadId: string,
+    @Param("leadId", IdParam) leadId: string,
     @Body(new ZodValidationPipe(PropertyFieldsSchema))
     body: z.infer<typeof PropertyFieldsSchema>,
   ): Promise<{ id: string }> {
@@ -432,7 +432,7 @@ export class PropertiesController {
   @Get(":id")
   @RequireCapability("properties.view")
   async get(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
   ): Promise<PropertyDto> {
     return this.properties.getById(id);
   }
@@ -448,7 +448,7 @@ export class PropertiesController {
   @Patch(":id/shared-tabu")
   @RequireCapability("properties.edit")
   async confirmSharedTabu(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
     @Body(new ZodValidationPipe(SharedTabuAnswerSchema))
     body: z.infer<typeof SharedTabuAnswerSchema>,
   ): Promise<{ remaining: number }> {
@@ -458,7 +458,7 @@ export class PropertiesController {
   @Patch(":id")
   @RequireCapability("properties.edit")
   async update(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
     @Body(new ZodValidationPipe(UpdatePropertySchema))
     body: z.infer<typeof UpdatePropertySchema>,
   ): Promise<PropertyDto> {
@@ -506,7 +506,7 @@ export class PropertiesController {
   @RequireFeature("whatsapp")
   @HttpCode(200)
   async ownerUpdate(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
   ): Promise<{ waUrl: string; message: string }> {
     return this.properties.prepareOwnerUpdate(id);
   }
@@ -542,7 +542,7 @@ export class PropertiesController {
   @RequireCapability("properties.delete")
   @HttpCode(204)
   async remove(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
   ): Promise<void> {
     await this.properties.softDelete(id);
   }
@@ -562,7 +562,7 @@ export class PropertiesController {
   @Get(":id/permanent/preview")
   @RequireCapability("properties.delete")
   async purgePreview(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
   ): Promise<{ contacts: number }> {
     return this.properties.purgePreview(id);
   }
@@ -571,7 +571,7 @@ export class PropertiesController {
   @RequireCapability("properties.delete")
   @HttpCode(204)
   async purge(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
   ): Promise<void> {
     await this.properties.purge(id);
   }
@@ -580,7 +580,7 @@ export class PropertiesController {
   @Get(":id/matches")
   @RequireCapability("matches.view")
   async matchesFor(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
   ): Promise<MatchDto[]> {
     return this.matching.listForProperty(id);
   }
@@ -602,7 +602,7 @@ export class PropertiesController {
   @Get(":id/price-benchmark")
   @RequireCapability("properties.view")
   async priceBenchmark(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
   ): ReturnType<PropertiesService["priceBenchmark"]> {
     return this.properties.priceBenchmark(id);
   }
@@ -610,7 +610,7 @@ export class PropertiesController {
   @Get(":id/activity")
   @RequireCapability("properties.view")
   async activity(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
     @Query(new ZodValidationPipe(ActivityQuerySchema)) query: ActivityQuery,
   ): Promise<OwnerActivityReportDto> {
     return this.activityReport.report(id, query);
@@ -628,7 +628,7 @@ export class PropertiesController {
   @Header("Content-Type", "text/csv; charset=utf-8")
   @Header("Content-Disposition", 'attachment; filename="property-activity.csv"')
   async activityCsv(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
     @Query(new ZodValidationPipe(ActivityQuerySchema)) query: ActivityQuery,
   ): Promise<string> {
     return this.activityReport.csv(id, query);
@@ -644,7 +644,7 @@ export class PropertiesController {
   @Post(":id/activity/send")
   @RequireCapability("properties.edit")
   async activitySend(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
     @Query(new ZodValidationPipe(ActivityQuerySchema)) query: ActivityQuery,
     @Body(new ZodValidationPipe(ActivitySendSchema)) body: ActivitySend,
   ): Promise<OwnerReportSentDto> {

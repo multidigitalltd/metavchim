@@ -1,4 +1,4 @@
-import { prisma } from "../runtime.js";
+import { prisma, withTenant } from "../runtime.js";
 
 /*
  * הערך נבדק, לא רק נקרא: משתנה ריק או שלילי היה הופך את קו החיתוך
@@ -18,8 +18,7 @@ export async function processAgentEventsRetention(): Promise<void> {
   let removed = 0;
   for (const tenant of tenants) {
     try {
-      const result = await prisma.$transaction(async (tx) => {
-        await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenant.id}, true)`;
+      const result = await withTenant(tenant.id, async (tx) => {
         return tx.agentEvent.deleteMany({
           where: { tenantId: tenant.id, createdAt: { lt: cutoff } },
         });

@@ -1,9 +1,9 @@
 import { Body, Controller, Get, HttpCode, Param, Post } from "@nestjs/common";
 import { z } from "zod";
-import { IdSchema, type PlanDefinition } from "@metavchim/shared";
+import { type PlanDefinition } from "@metavchim/shared";
 import { AnyAuthenticated, BillingAllowed, RequireCapability } from "../../common/auth.decorators";
 import { TenantContext } from "../../common/tenant-context";
-import { ZodValidationPipe } from "../../common/zod-validation.pipe";
+import { ZodValidationPipe, IdParam } from "../../common/zod-validation.pipe";
 import { CardcomService } from "../../core/cardcom.service";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { BillingService } from "./billing.service";
@@ -87,7 +87,7 @@ export class BillingController {
   @Get("invoices/:id/download")
   @RequireCapability("billing.manage")
   async invoiceDownload(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
   ): Promise<{ url: string }> {
     return { url: await this.invoices.downloadUrl(id, TenantContext.current().tenantId) };
   }

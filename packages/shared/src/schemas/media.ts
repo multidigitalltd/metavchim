@@ -11,7 +11,7 @@ import {
   MEDIA_SETTLEMENT_KINDS,
   isMediaSlug,
 } from "../logic/media.js";
-import { IdSchema, PhoneInputSchema } from "./common.js";
+import { IdSchema, PhoneInputSchema, EmailSchema, OptionalEmailSchema } from "./common.js";
 
 const PRICE_AGOROT_MAX = MEDIA_PRODUCT_PRICE_MAX_AGOROT;
 
@@ -38,7 +38,7 @@ export const MediaOrderCreateSchema = z
     brief: z.string().trim().max(MEDIA_ORDER_BRIEF_MAX).default(""),
     contactName: z.string().trim().min(2).max(120),
     contactPhone: PhoneInputSchema,
-    contactEmail: z.string().trim().email().max(254),
+    contactEmail: EmailSchema,
   })
   .strict();
 export type MediaOrderCreate = z.infer<typeof MediaOrderCreateSchema>;
@@ -62,7 +62,7 @@ export const MediaOutletUpsertSchema = z
     /** נקודות "מה כלול" — שורה לכל נקודה. */
     highlights: z.array(z.string().trim().min(1).max(200)).max(12).default([]),
     contactName: z.string().trim().max(120).default(""),
-    contactEmail: z.union([z.string().trim().email().max(254), z.literal("")]).default(""),
+    contactEmail: OptionalEmailSchema.default(""),
     contactPhone: z.union([PhoneInputSchema, z.literal("")]).default(""),
     commissionPercent: z.number().int().min(0).max(MAX_MEDIA_COMMISSION_PERCENT),
     /** "יום שני 12:00 לגיליון של אותו שבוע" — הכלל במילים. */

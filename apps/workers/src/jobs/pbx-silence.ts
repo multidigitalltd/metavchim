@@ -6,7 +6,7 @@ import {
   pbxSilenceMessage,
   shouldAlertPbxSilence,
 } from "@metavchim/shared";
-import { prisma } from "../runtime.js";
+import { prisma, withTenant } from "../runtime.js";
 import { automationSettings } from "../tenant-settings.js";
 
 /**
@@ -58,8 +58,7 @@ export async function processPbxSilenceSweep(): Promise<void> {
        * „שותק” — הוא פשוט לא חיבר, והתראה עליו היא רעש שמלמד
        * להתעלם משאר ההתראות.
        */
-      const connected = await prisma.$transaction(async (tx) => {
-        await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
+      const connected = await withTenant(tenantId, async (tx) => {
         return tx.integration.findFirst({
           where: { tenantId, kind: "telephony", status: "active" },
           select: { id: true, createdAt: true },
@@ -75,8 +74,7 @@ export async function processPbxSilenceSweep(): Promise<void> {
        * פנייה שלא נותחה — כלומר גם כשהמרכזייה עצמה שותקת. מה
        * שמעניין הוא שיחה נכנסת שנרשמה בפועל.
        */
-      const last = await prisma.$transaction(async (tx) => {
-        await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
+      const last = await withTenant(tenantId, async (tx) => {
         return tx.call.findFirst({
           where: { tenantId, direction: "inbound", providerCallId: { not: null } },
           orderBy: { occurredAt: "desc" },
@@ -105,8 +103,7 @@ export async function processPbxSilenceSweep(): Promise<void> {
 
       // הנוסח עדיין מבחין בין „הפסיקו להגיע” לבין „מעולם לא הגיעו”
       const message = pbxSilenceMessage({ lastInboundAt, now, window });
-      const written = await prisma.$transaction(async (tx) => {
-        await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
+      const written = await withTenant(tenantId, async (tx) => {
         /*
          * ‎**מפתח ליום, ולא בדיקה של „כבר התרענו”.** מרכזייה שנפלה
          * נשארת נפולה, והסבב רץ כל שעה — בלי המפתח המשרד היה מקבל

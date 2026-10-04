@@ -10,7 +10,7 @@ import {
 } from "@metavchim/shared";
 import { RequireCapability } from "../../common/auth.decorators";
 import { TenantContext } from "../../common/tenant-context";
-import { ZodValidationPipe } from "../../common/zod-validation.pipe";
+import { ZodValidationPipe, IdParam } from "../../common/zod-validation.pipe";
 import { MatchRefreshService } from "./match-refresh.service";
 import {
   MatchingService,
@@ -75,7 +75,7 @@ export class MatchingController {
   @RequireCapability("matches.manage")
   @HttpCode(200)
   async dismiss(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
     @Body(new ZodValidationPipe(DismissSchema)) body: z.infer<typeof DismissSchema>,
   ): Promise<{ ok: true }> {
     await this.matching.dismiss(
@@ -134,7 +134,7 @@ export class MatchingController {
   @Get("property/:propertyId/partners")
   @RequireCapability("matches.view")
   async partners(
-    @Param("propertyId", new ZodValidationPipe(IdSchema)) propertyId: string,
+    @Param("propertyId", IdParam) propertyId: string,
     @Query(new ZodValidationPipe(PartnersQuerySchema))
     query: z.infer<typeof PartnersQuerySchema>,
   ): Promise<PartnerPairDto[]> {

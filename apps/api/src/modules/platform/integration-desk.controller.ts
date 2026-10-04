@@ -3,7 +3,7 @@ import { z } from "zod";
 import { IdSchema } from "@metavchim/shared";
 import { PlatformAdmin } from "../../common/auth.decorators";
 import { PlatformAdminGuard } from "../../common/platform-admin.guard";
-import { ZodValidationPipe } from "../../common/zod-validation.pipe";
+import { ZodValidationPipe, IdParam } from "../../common/zod-validation.pipe";
 import {
   IntegrationDeskService,
   type DeskTelephonyStatus,
@@ -13,9 +13,9 @@ import {
 /**
  * שולחן החיבורים של מנהל הפלטפורמה.
  *
- * **קונטרולר נפרד ולא עוד נתיב ב-`PlatformController`**, ובכוונה:
+ * **קונטרולר נפרד ולא עוד נתיב בבקרי הפלטפורמה הכלליים**, ובכוונה:
  * הגבול של השולחן הזה הוא שהוא נוגע בטבלת החיבורים בלבד, וגבול
- * שאפשר להצביע עליו כקובץ שלם קל יותר לשמור מגבול שנטמע בתוך אלפיים
+ * שאפשר להצביע עליו כקובץ שלם קל יותר לשמור מגבול שנטמע בתוך אלפי
  * שורות. המבחן המבני קורא בדיוק את הקובץ הזה ואת השירות שלו.
  *
  * מה שאין כאן חשוב לא פחות ממה שיש: אין יצירת סשן, אין החלפת עוגייה,
@@ -80,7 +80,7 @@ export class IntegrationDeskController {
    * נקלט אם לא נקלט.
    */
   @Get(":id/integrations")
-  async status(@Param("id", new ZodValidationPipe(IdSchema)) id: string): Promise<{
+  async status(@Param("id", IdParam) id: string): Promise<{
     agencyName: string;
     telephony: DeskTelephonyStatus;
     providers: { id: string; label: string; fields: { key: string; label: string; secret: boolean }[] }[];
@@ -109,7 +109,7 @@ export class IntegrationDeskController {
   @Post(":id/integrations/telephony")
   @HttpCode(200)
   async saveTelephony(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
     @Body(new ZodValidationPipe(SaveTelephonySchema)) body: z.infer<typeof SaveTelephonySchema>,
   ): Promise<{ ok: true }> {
     return this.desk.saveTelephony(id, {
@@ -125,7 +125,7 @@ export class IntegrationDeskController {
    */
   @Get(":id/integrations/virtual-numbers")
   async virtualNumbers(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
   ): Promise<DeskVirtualNumbers> {
     return this.desk.virtualNumbers(id);
   }
@@ -139,7 +139,7 @@ export class IntegrationDeskController {
   @Post(":id/integrations/virtual-numbers")
   @HttpCode(200)
   async assignVirtualNumbers(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
     @Body(new ZodValidationPipe(AssignVirtualNumbersSchema))
     body: z.infer<typeof AssignVirtualNumbersSchema>,
   ): Promise<{ ok: true; saved: number }> {
@@ -153,8 +153,8 @@ export class IntegrationDeskController {
   @Delete(":id/integrations/virtual-numbers/:numberId")
   @HttpCode(200)
   async deleteVirtualNumber(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
-    @Param("numberId", new ZodValidationPipe(IdSchema)) numberId: string,
+    @Param("id", IdParam) id: string,
+    @Param("numberId", IdParam) numberId: string,
   ): Promise<{ ok: true }> {
     return this.desk.deleteVirtualNumber(id, numberId);
   }

@@ -42,7 +42,7 @@ const CONTROLLER = join(
   "..",
   "modules",
   "platform",
-  "platform.controller.ts",
+  "platform-settings.controller.ts",
 );
 
 /**

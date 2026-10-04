@@ -1,11 +1,10 @@
 import { Body, Controller, HttpCode, Param, Post, UseGuards } from "@nestjs/common";
 import { Throttle } from "@nestjs/throttler";
 import { z } from "zod";
-import { IdSchema } from "@metavchim/shared";
 import { PlatformAdmin } from "../../common/auth.decorators";
 import { PlatformAdminGuard } from "../../common/platform-admin.guard";
 import { actingPlatformAdminEmail } from "../../common/platform-admin-email";
-import { ZodValidationPipe } from "../../common/zod-validation.pipe";
+import { ZodValidationPipe, IdParam } from "../../common/zod-validation.pipe";
 import { PrismaService } from "../../core/prisma.service";
 import { RecordingFetchService } from "./recording-fetch.service";
 
@@ -68,7 +67,7 @@ export class PlatformRecordingsController {
   @Throttle({ default: { limit: 3, ttl: 60_000 } })
   @HttpCode(200)
   async importRecordings(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
     @Body(new ZodValidationPipe(ImportSchema)) body: z.infer<typeof ImportSchema>,
   ): ReturnType<RecordingFetchService["importRange"]> {
     const to = new Date();

@@ -31,7 +31,7 @@ import {
   RequireCapability,
 } from "../../common/auth.decorators";
 import { RequireFeature } from "../../common/feature.guard";
-import { ZodValidationPipe } from "../../common/zod-validation.pipe";
+import { ZodValidationPipe, IdParam } from "../../common/zod-validation.pipe";
 import {
   MentorPracticeService,
   type MentorPracticeDto,
@@ -74,8 +74,6 @@ const PlanSchema = z
 const ReflectionSchema = z
   .object({ answer: z.string().trim().min(1).max(1000) })
   .strict();
-/* ‏מזהה שיחה הוא מזהה ההודעה הפותחת שלה — ULID, כמו כל מזהה כאן */
-const ThreadIdSchema = z.string().regex(/^[0-9A-HJKMNP-TV-Z]{26}$/u);
 
 const MessageFeedbackSchema = z
   .object({ verdict: z.enum(MENTOR_MESSAGE_VERDICTS).nullable() })
@@ -96,7 +94,7 @@ const AskSchema = z
      * ‏לאיזו שיחה: `"new"` הוא „שיחה חדשה” מפורש, ומזהה הוא המשך
      * ‏שיחה שנפתחה מההיסטוריה. בהיעדרו מכריע השקט.
      */
-    into: z.union([z.literal("new"), ThreadIdSchema]).optional(),
+    into: z.union([z.literal("new"), IdSchema]).optional(),
     /*
      * ‏הכרטיס שצורף לשאלה — קונה או נכס של המתווך עצמו (§7.7).
      * ‎`null` מנתק את מה שצורף קודם בשיחה; היעדרו ממשיך אותו.
@@ -104,7 +102,7 @@ const AskSchema = z
     attach: z
       .object({
         kind: z.enum(MENTOR_SUBJECT_KINDS),
-        id: ThreadIdSchema,
+        id: IdSchema,
       })
       .strict()
       .nullish(),
@@ -117,7 +115,6 @@ const PracticeStartSchema = z
 const PracticeReplySchema = z
   .object({ text: z.string().trim().min(1).max(PRACTICE_TEXT_MAX) })
   .strict();
-const IdParam = new ZodValidationPipe(IdSchema);
 
 /**
  * המנטור האישי (docs/14).
@@ -238,11 +235,11 @@ export class MentorController {
     threadId: string | null;
     subject: MentorSubjectRef | null;
   }> {
-    const parsed = thread === undefined ? undefined : ThreadIdSchema.safeParse(thread);
+    const parsed = thread === undefined ? undefined : IdSchema.safeParse(thread);
     if (parsed !== undefined && !parsed.success) {
       throw new BadRequestException("מזהה שיחה לא תקין");
     }
-    const anchor = from === undefined ? undefined : ThreadIdSchema.safeParse(from);
+    const anchor = from === undefined ? undefined : IdSchema.safeParse(from);
     if (anchor !== undefined && !anchor.success) {
       throw new BadRequestException("מזהה הודעה לא תקין");
     }

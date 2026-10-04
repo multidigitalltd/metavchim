@@ -19,14 +19,13 @@ import type { Request, Response } from "express";
 import { z } from "zod";
 import {
   afterLoginTarget,
-  IdSchema,
   MOBILE_HANDOFF_CODE_PATTERN,
   mobileGoogleReturnUrl,
   safeLoginReturnPath,
   type MobileGoogleError,
 } from "@metavchim/shared";
 import { loadEnv } from "../../config/env";
-import { ZodValidationPipe } from "../../common/zod-validation.pipe";
+import { ZodValidationPipe, IdParam, PublicTokenSchema } from "../../common/zod-validation.pipe";
 import { AnyAuthenticated, BillingAllowed, Public } from "../../common/auth.decorators";
 import { SESSION_COOKIE, sessionTokenOf, setSessionCookie } from "../../common/session-token";
 import { TenantContext } from "../../common/tenant-context";
@@ -144,7 +143,7 @@ const GoogleExchangeSchema = z
 
 const ResetPasswordSchema = z
   .object({
-    token: z.string().regex(/^[A-Za-z0-9_-]{43}$/u),
+    token: PublicTokenSchema,
     newPassword: z.string().min(10).max(200),
   })
   .strict();
@@ -701,7 +700,7 @@ export class AuthController {
   @Delete("sessions/:id")
   @HttpCode(200)
   async revokeSession(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
     @Req() req: Request,
   ): Promise<{ ok: true }> {
     const user = (req as Request & { authUser?: AuthenticatedUser }).authUser;

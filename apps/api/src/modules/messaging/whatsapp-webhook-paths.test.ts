@@ -126,7 +126,7 @@ describe("שני נתיבי Webhook, וגבול שנאכף בעיבוד", () => 
    */
   it("מצב אפליקציית החיבור חוזר למסך", () => {
     const controller = readFileSync(
-      new URL("../platform/platform.controller.ts", import.meta.url),
+      new URL("../platform/platform-settings.controller.ts", import.meta.url),
       "utf8",
     );
     for (const field of ["appId:", "signupConfigId:", "secretSet:", "verifyTokenSet:"]) {
@@ -164,7 +164,7 @@ describe("שני נתיבי Webhook, וגבול שנאכף בעיבוד", () => 
       "utf8",
     );
     const controller = readFileSync(
-      new URL("../platform/platform.controller.ts", import.meta.url),
+      new URL("../platform/platform-settings.controller.ts", import.meta.url),
       "utf8",
     );
     expect(service).toContain('| "whatsappConnectVerifyToken"');

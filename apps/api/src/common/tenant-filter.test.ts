@@ -56,7 +56,10 @@ const GUARDED_OPS = new Set([
  * ‏הדיירים.
  */
 const CROSS_TENANT_BY_DESIGN: Record<string, string> = {
-  "modules/platform/platform.controller.ts": "מסך בעל הפלטפורמה — רואה את כל המשרדים בהגדרה",
+  "modules/platform/platform-agencies.controller.ts": "מסך בעל הפלטפורמה — רואה את כל המשרדים בהגדרה",
+  "modules/platform/platform-billing.controller.ts": "אותו מסך — תשלומים, קופונים וחשבוניות של כל המשרדים",
+  "modules/platform/platform-settings.controller.ts": "אותו מסך — הגדרות הפלטפורמה ובדיקות החיבור",
+  "modules/platform/platform-system.controller.ts": "אותו מסך — יומן הוובהוק של המרכזיות, על כל המשרדים",
   "modules/platform/platform.service.ts": "אותו מסך, שכבת השירות שלו",
   "modules/settings/account-deletion.service.ts": "מחיקת משרד — נקראת עם tenantId מפורש כפרמטר",
   "modules/billing/renewal.service.ts": "סבב חידושים — עובר על כל המנויים שפג תוקפם",

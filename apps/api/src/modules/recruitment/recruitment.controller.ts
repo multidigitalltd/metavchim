@@ -8,7 +8,7 @@ import {
   RECRUITMENT_STATUSES,
 } from "@metavchim/shared";
 import { RequireCapability } from "../../common/auth.decorators";
-import { ZodValidationPipe } from "../../common/zod-validation.pipe";
+import { ZodValidationPipe, IdParam } from "../../common/zod-validation.pipe";
 import { RecruitmentService, type RecruitmentTargetDto } from "./recruitment.service";
 
 /**
@@ -165,7 +165,7 @@ export class RecruitmentController {
   @Get(":id")
   @RequireCapability("properties.view")
   async getOne(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
   ): Promise<RecruitmentTargetDto> {
     return this.recruitment.getById(id);
   }
@@ -182,7 +182,7 @@ export class RecruitmentController {
   @Patch(":id")
   @RequireCapability("properties.edit")
   async update(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
     @Body(new ZodValidationPipe(RecruitmentBodySchema.partial()))
     body: z.infer<typeof RecruitmentBodySchema>,
   ): Promise<RecruitmentTargetDto> {
@@ -192,7 +192,7 @@ export class RecruitmentController {
   @Delete(":id")
   @RequireCapability("properties.delete")
   @HttpCode(204)
-  async remove(@Param("id", new ZodValidationPipe(IdSchema)) id: string): Promise<void> {
+  async remove(@Param("id", IdParam) id: string): Promise<void> {
     await this.recruitment.remove(id);
   }
 
@@ -207,7 +207,7 @@ export class RecruitmentController {
   @RequireCapability("properties.create")
   @HttpCode(200)
   async convert(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
   ): Promise<{ propertyId: string }> {
     return this.recruitment.convert(id);
   }

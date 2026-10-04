@@ -1,11 +1,10 @@
 import { Body, Controller, Get, HttpCode, Param, Post, Req, Res, type StreamableFile } from "@nestjs/common";
 import { Throttle } from "@nestjs/throttler";
 import type { Request, Response } from "express";
-import { z } from "zod";
 import { MediaPublishSchema, type MediaPublish } from "@metavchim/shared";
 import { Public } from "../../common/auth.decorators";
 import { objectResponse } from "../../common/object-response";
-import { ZodValidationPipe } from "../../common/zod-validation.pipe";
+import { PublicTokenParam, ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { MediaCreativesService } from "./media-creatives.service";
 import { MediaService, type MediaOutletOrderView } from "./media.service";
 
@@ -22,7 +21,6 @@ import { MediaService, type MediaOutletOrderView } from "./media.service";
  * ‏- **אסימון ההזמנה** (`/outlet/<token>`) קבוע: עמוד ההזמנה של הנציג,
  * ‏  שם הוא מאשר קבלה, מוריד את הקובץ העדכני ומסמן שהמודעה פורסמה.
  */
-const TokenParam = new ZodValidationPipe(z.string().regex(/^[A-Za-z0-9_-]{43}$/u));
 const PublishBody = new ZodValidationPipe(MediaPublishSchema);
 
 @Controller("public/media")
@@ -36,7 +34,7 @@ export class MediaPublicController {
   @Public()
   @Throttle({ default: { ttl: 60_000, limit: 60 } })
   @Get("creatives/:token")
-  describe(@Param("token", TokenParam) token: string): Promise<{
+  describe(@Param("token", PublicTokenParam) token: string): Promise<{
     outletName: string;
     productName: string;
     quantity: number;
@@ -55,7 +53,7 @@ export class MediaPublicController {
   async file(
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
-    @Param("token", TokenParam) token: string,
+    @Param("token", PublicTokenParam) token: string,
   ): Promise<StreamableFile | undefined> {
     const object = await this.creatives.getByToken(token);
     res.setHeader("Content-Disposition", `inline; filename*=UTF-8''${encodeURIComponent(object.name)}`);
@@ -68,7 +66,7 @@ export class MediaPublicController {
   @Public()
   @Throttle({ default: { ttl: 60_000, limit: 60 } })
   @Get("orders/:token")
-  order(@Param("token", TokenParam) token: string): Promise<MediaOutletOrderView> {
+  order(@Param("token", PublicTokenParam) token: string): Promise<MediaOutletOrderView> {
     return this.media.outletView(token);
   }
 
@@ -79,7 +77,7 @@ export class MediaPublicController {
   async orderCreative(
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
-    @Param("token", TokenParam) token: string,
+    @Param("token", PublicTokenParam) token: string,
   ): Promise<StreamableFile | undefined> {
     const object = await this.creatives.getByOutletToken(token);
     res.setHeader("Content-Disposition", `inline; filename*=UTF-8''${encodeURIComponent(object.name)}`);
@@ -91,7 +89,7 @@ export class MediaPublicController {
   @Throttle({ default: { ttl: 60_000, limit: 20 } })
   @Post("orders/:token/confirm")
   @HttpCode(200)
-  confirm(@Param("token", TokenParam) token: string): Promise<{ confirmedAt: Date }> {
+  confirm(@Param("token", PublicTokenParam) token: string): Promise<{ confirmedAt: Date }> {
     return this.media.confirmByOutlet(token);
   }
 
@@ -100,7 +98,7 @@ export class MediaPublicController {
   @Throttle({ default: { ttl: 60_000, limit: 20 } })
   @Post("orders/:token/publish")
   @HttpCode(200)
-  publish(@Param("token", TokenParam) token: string, @Body(PublishBody) body: MediaPublish): Promise<{ publishedAt: Date }> {
+  publish(@Param("token", PublicTokenParam) token: string, @Body(PublishBody) body: MediaPublish): Promise<{ publishedAt: Date }> {
     return this.media.publishByOutlet(token, body.note);
   }
 }

@@ -16,7 +16,7 @@ import { Public, RequireCapability } from "../../common/auth.decorators";
 import { RequireFeature } from "../../common/feature.guard";
 import type { Request, Response } from "express";
 import { objectResponse } from "../../common/object-response";
-import { ZodValidationPipe } from "../../common/zod-validation.pipe";
+import { ZodValidationPipe, IdParam, PublicTokenParam } from "../../common/zod-validation.pipe";
 import { OfferEmailService } from "./offer-email.service";
 import {
   OffersService,
@@ -33,7 +33,6 @@ const BulkOfferSchema = z
   })
   .strict();
 const RespondSchema = z.object({ response: z.enum(["interested", "declined"]) }).strict();
-const TokenSchema = z.string().regex(/^[A-Za-z0-9_-]{43}$/u);
 const ListQuerySchema = z
   .object({
     /*
@@ -109,7 +108,7 @@ export class OffersController {
   @RequireCapability("offers.send")
   @HttpCode(200)
   async prepareWhatsApp(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
   ): Promise<{ waUrl: string; message: string }> {
     return this.offers.prepareWhatsApp(id);
   }
@@ -128,7 +127,7 @@ export class OffersController {
   @RequireCapability("offers.send")
   @HttpCode(200)
   async sendEmail(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
   ): Promise<{ sentTo: string }> {
     return this.offerEmail.sendOne(id);
   }
@@ -137,7 +136,7 @@ export class OffersController {
   @Public()
   @Get("public/offers/:token")
   async view(
-    @Param("token", new ZodValidationPipe(TokenSchema)) token: string,
+    @Param("token", PublicTokenParam) token: string,
   ): Promise<PublicOfferView> {
     return this.offers.publicView(token);
   }
@@ -151,7 +150,7 @@ export class OffersController {
   async image(
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
-    @Param("token", new ZodValidationPipe(TokenSchema)) token: string,
+    @Param("token", PublicTokenParam) token: string,
     @Param("index", new ZodValidationPipe(z.coerce.number().int().min(0).max(19))) index: number,
   ): Promise<StreamableFile | undefined> {
     return objectResponse(req, res, await this.offers.publicImage(token, index), "public");
@@ -162,7 +161,7 @@ export class OffersController {
   @Post("public/offers/:token/email-optout")
   @HttpCode(200)
   async emailOptOut(
-    @Param("token", new ZodValidationPipe(TokenSchema)) token: string,
+    @Param("token", PublicTokenParam) token: string,
   ): Promise<{ ok: true }> {
     await this.offers.publicEmailOptOut(token);
     return { ok: true };
@@ -172,7 +171,7 @@ export class OffersController {
   @Post("public/offers/:token/respond")
   @HttpCode(200)
   async respond(
-    @Param("token", new ZodValidationPipe(TokenSchema)) token: string,
+    @Param("token", PublicTokenParam) token: string,
     @Body(new ZodValidationPipe(RespondSchema)) body: z.infer<typeof RespondSchema>,
   ): Promise<{ ok: true }> {
     await this.offers.publicRespond(token, body.response);

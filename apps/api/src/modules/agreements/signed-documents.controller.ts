@@ -22,7 +22,7 @@ import {
   parseSignedOnDate,
 } from "@metavchim/shared";
 import { RequireCapability } from "../../common/auth.decorators";
-import { ZodValidationPipe } from "../../common/zod-validation.pipe";
+import { ZodValidationPipe, IdParam } from "../../common/zod-validation.pipe";
 import {
   SignedDocumentsService,
   type SignedDocumentDto,
@@ -99,7 +99,6 @@ const UploadSchema = z
     message: "הסכם חתום נוגע לנכס מסוים — בחרו את הנכס שההסכם חל עליו",
   });
 
-const IdParam = new ZodValidationPipe(IdSchema);
 
 @Controller()
 export class SignedDocumentsController {

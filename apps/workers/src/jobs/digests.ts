@@ -5,7 +5,7 @@ import {
   summarizeViewingFeedback,
   viewingFeedbackSentences,
 } from "@metavchim/shared";
-import { prisma } from "../runtime.js";
+import { prisma, withTenant } from "../runtime.js";
 import { automationOn } from "../tenant-settings.js";
 
 /**
@@ -22,8 +22,7 @@ export async function processDailyBrief(): Promise<void> {
     if (!(await automationOn(tenant.id, "daily_brief"))) continue;
     // מספר שאילתות קבוע פר דייר (groupBy + createMany), לא פר סוכן —
     // כדי שהטרנזקציה תישאר הרחק מתחת ל-timeout של Prisma (ביקורת Codex)
-    await prisma.$transaction(async (tx) => {
-      await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenant.id}, true)`;
+    await withTenant(tenant.id, async (tx) => {
       const users = await tx.user.findMany({
         where: { tenantId: tenant.id, isActive: true },
         select: { id: true, role: true },
@@ -154,8 +153,7 @@ export async function processViewingFeedbackDigest(): Promise<void> {
     select: { id: true },
   });
   for (const tenant of tenants) {
-    await prisma.$transaction(async (tx) => {
-      await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenant.id}, true)`;
+    await withTenant(tenant.id, async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`viewing-feedback:${tenant.id}`}))`;
       const rows = await tx.appointment.findMany({
         where: {
@@ -224,8 +222,7 @@ export async function processWeeklySummary(): Promise<void> {
   const tenants = await prisma.tenant.findMany({ select: { id: true } });
   for (const tenant of tenants) {
     if (!(await automationOn(tenant.id, "weekly_summary"))) continue;
-    await prisma.$transaction(async (tx) => {
-      await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenant.id}, true)`;
+    await withTenant(tenant.id, async (tx) => {
       // נעילת advisory פר-דייר: התור רץ ב-concurrency: 2, ושני Jobs
       // כפולים היו עוברים שניהם את בדיקת הקיום לפני שאחד כותב (ביקורת Codex)
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`weekly-summary:${tenant.id}`}))`;

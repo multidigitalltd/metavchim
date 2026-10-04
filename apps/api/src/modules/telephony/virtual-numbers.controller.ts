@@ -19,7 +19,7 @@ import {
 import { RequireCapability } from "../../common/auth.decorators";
 import { RequireFeature } from "../../common/feature.guard";
 import { TenantContext } from "../../common/tenant-context";
-import { ZodValidationPipe } from "../../common/zod-validation.pipe";
+import { ZodValidationPipe, IdParam } from "../../common/zod-validation.pipe";
 import { AuditService } from "../../core/audit.service";
 import { PrismaService } from "../../core/prisma.service";
 
@@ -181,7 +181,7 @@ export class VirtualNumbersController {
   @Patch(":id")
   @RequireCapability("settings.manage")
   async update(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
     @Body(new ZodValidationPipe(InputSchema)) body: Input,
   ): Promise<{ ok: true }> {
     const phone = this.assertValid(body);
@@ -233,7 +233,7 @@ export class VirtualNumbersController {
   @RequireCapability("settings.manage")
   @HttpCode(200)
   async remove(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
   ): Promise<{ ok: true }> {
     const tenantId = TenantContext.current().tenantId;
     await this.prisma.withTenant(async (tx) => {

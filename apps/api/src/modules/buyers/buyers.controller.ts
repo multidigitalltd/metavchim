@@ -18,9 +18,10 @@ import {
   PhoneInputSchema,
   SharedTabuStanceSchema,
   type Page,
+  EmailSchema,
 } from "@metavchim/shared";
 import { RequireCapability } from "../../common/auth.decorators";
-import { ZodValidationPipe } from "../../common/zod-validation.pipe";
+import { ZodValidationPipe, IdParam } from "../../common/zod-validation.pipe";
 import { MatchingService, type MatchDto } from "../matching/matching.service";
 import { FeatureCatalogueService } from "../properties/feature-catalogue.service";
 import { BuyersService, type BuyerDto } from "./buyers.service";
@@ -33,7 +34,7 @@ const CreateBuyerSchema = z
      * ‎`.strict()` למטה הוא מה שהופך את זה לחובה ולא לנוחות: בלי
      * המפתח כאן, טופס ששולח כתובת מקבל 400 ולא „נשמר בלי המייל”.
      */
-    contactEmail: z.string().trim().email().max(254).optional(),
+    contactEmail: EmailSchema.optional(),
     /*
      * ‎`.strict()` גם על האובייקט הפנימי: `.strict()` של החיצוני
      * אינו יורד לתוכו, ומפתח שגוי (`minRooms` במקום `roomsMin`)
@@ -217,7 +218,7 @@ export class BuyersController {
   @Get(":id")
   @RequireCapability("buyers.view_own")
   async get(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
   ): Promise<BuyerDto & { lastActivityAt: Date }> {
     return this.buyers.getById(id);
   }
@@ -225,7 +226,7 @@ export class BuyersController {
   @Patch(":id")
   @RequireCapability("buyers.edit")
   async update(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
     @Body(new ZodValidationPipe(UpdateBuyerSchema))
     body: z.infer<typeof UpdateBuyerSchema>,
   ): Promise<BuyerDto> {
@@ -236,7 +237,7 @@ export class BuyersController {
   @Get(":id/deletion-preview")
   @RequireCapability("buyers.delete")
   async deletionPreview(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
   ): Promise<Awaited<ReturnType<BuyersService["deletionPreview"]>>> {
     return this.buyers.deletionPreview(id);
   }
@@ -289,7 +290,7 @@ export class BuyersController {
   @RequireCapability("buyers.delete")
   @HttpCode(204)
   async archive(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
   ): Promise<void> {
     await this.buyers.archive(id);
   }
@@ -298,7 +299,7 @@ export class BuyersController {
   @RequireCapability("buyers.delete")
   @HttpCode(204)
   async purge(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
   ): Promise<void> {
     await this.buyers.purge(id);
   }
@@ -307,7 +308,7 @@ export class BuyersController {
   @Get(":id/matches")
   @RequireCapability("matches.view")
   async matchesFor(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
   ): Promise<MatchDto[]> {
     return this.matching.listForBuyer(id);
   }
@@ -316,7 +317,7 @@ export class BuyersController {
   @Get(":id/interactions")
   @RequireCapability("buyers.view_own")
   async interactions(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
     @Query(new ZodValidationPipe(InteractionsQuerySchema))
     query: z.infer<typeof InteractionsQuerySchema>,
   ) {
@@ -326,7 +327,7 @@ export class BuyersController {
   @Post(":id/interactions")
   @RequireCapability("buyers.edit")
   async addInteraction(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
     @Body(new ZodValidationPipe(AddInteractionSchema))
     body: z.infer<typeof AddInteractionSchema>,
   ): Promise<{ ok: true }> {

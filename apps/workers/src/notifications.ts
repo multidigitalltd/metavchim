@@ -1,14 +1,12 @@
 import { type Job } from "bullmq";
 import { ulid } from "ulid";
 import { NotificationJobSchema } from "@metavchim/shared";
-import { prisma } from "./runtime.js";
+import { withTenant } from "./runtime.js";
 
 /** כתיבת התראה תחת הקשר הדייר — פוליסות ה-RLS חלות גם על ה-Worker. */
 export async function processNotification(job: Job): Promise<void> {
   const data = NotificationJobSchema.parse(job.data);
-  await prisma.$transaction(async (tx) => {
-    await tx.$executeRaw`SELECT set_config('app.tenant_id', ${data.tenantId}, true)`;
-
+  await withTenant(data.tenantId, async (tx) => {
     // תזכורת מושהית נבדקת בזמן הריצה: פגישה שבוטלה/הסתיימה בינתיים —
     // אין תזכורת מטעה (ביקורת Codex, PR #2).
     if (data.type === "appointment_reminder" && data.entityId) {
