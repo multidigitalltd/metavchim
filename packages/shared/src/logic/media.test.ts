@@ -12,11 +12,13 @@ import {
   mediaClosingReminderDue,
   mediaClosingState,
   mediaCreativeMime,
+  mediaEarliestClosingAt,
   mediaOrderCanPublish,
   mediaOrderStage,
   mediaOrderTimeline,
   mediaOrderTotals,
   mediaOutletReminderDue,
+  mediaProductClosingAt,
   resolveMediaCommissionPercent,
 } from "./media.js";
 
@@ -218,5 +220,21 @@ describe("mediaOutletReminderDue", () => {
     expect(mediaOutletReminderDue({ ...base, notifiedAt: hoursAgo(72), outletConfirmedAt: hoursAgo(1) })).toBe(false);
     expect(mediaOutletReminderDue({ ...base, notifiedAt: hoursAgo(72), publishedAt: hoursAgo(1) })).toBe(false);
     expect(mediaOutletReminderDue({ ...base, notifiedAt: hoursAgo(72), outletReminderAt: hoursAgo(20) })).toBe(false);
+  });
+});
+
+describe("מועד סגירה לכל מוצר", () => {
+  const a = new Date("2026-10-10T10:00:00.000Z");
+  const b = new Date("2026-10-12T10:00:00.000Z");
+
+  it("המוצר גובר על המדיה; בלעדיו — המדיה", () => {
+    expect(mediaProductClosingAt(a, b)).toBe(a);
+    expect(mediaProductClosingAt(null, b)).toBe(b);
+    expect(mediaProductClosingAt(null, null)).toBeNull();
+  });
+
+  it("הקרוב ביותר לכרטיס — ומתעלם מריקים", () => {
+    expect(mediaEarliestClosingAt([null, b, a])).toBe(a);
+    expect(mediaEarliestClosingAt([null, null])).toBeNull();
   });
 });

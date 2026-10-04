@@ -59,10 +59,17 @@ export class MediaClosingReminderService {
     }
   }
 
-  /** ציבורי ועם `now` — כדי שבדיקה תריץ אותו בלי לחכות שעה. */
+  /**
+   * ציבורי ועם `now` — כדי שבדיקה תריץ אותו בלי לחכות שעה.
+   *
+   * ‏שתי רמות של מועד: **המוצר** יכול לקבוע מועד משלו (שער נסגר לפני
+   * ‏העמודים הפנימיים), ואז ההזמנות שלו מקבלות תזכורת לפי המועד שלו
+   * ‏ו-`reminded_for_closing_at` נרשם על המוצר; **המדיה** מכסה את שאר
+   * ‏המוצרים — אלה בלי מועד משלהם. אותו כלל כמו `mediaProductClosingAt`.
+   */
   async sweep(now: Date): Promise<{ reminded: number }> {
     const outlets = await this.prisma.mediaOutlet.findMany({
-      where: { active: true, nextClosingAt: { not: null } },
+      where: { active: true },
       select: {
         id: true,
         name: true,
@@ -72,44 +79,49 @@ export class MediaClosingReminderService {
         contactEmail: true,
         contactPhone: true,
         closingText: true,
+        products: {
+          where: { nextClosingAt: { not: null } },
+          select: { id: true, nextClosingAt: true, remindedForClosingAt: true },
+        },
       },
     });
     let reminded = 0;
     for (const outlet of outlets) {
+      const contact = {
+        name: outlet.name,
+        contactName: outlet.contactName,
+        contactEmail: outlet.contactEmail,
+        contactPhone: outlet.contactPhone,
+        closingText: outlet.closingText,
+      };
+      // ‏מוצרים עם מועד משלהם — לפי המועד שלהם
+      for (const product of outlet.products) {
+        if (!mediaClosingReminderDue({ nextClosingAt: product.nextClosingAt, remindedForClosingAt: product.remindedForClosingAt, now })) {
+          continue;
+        }
+        const closingAt = product.nextClosingAt as Date;
+        const done = await this.remindOrders({ outletId: outlet.id, productId: product.id }, { ...contact, closingAt });
+        reminded += done.reminded;
+        if (done.complete) {
+          await this.prisma.mediaProduct.update({ where: { id: product.id }, data: { remindedForClosingAt: closingAt } });
+        }
+      }
+      // ‏המדיה — שאר המוצרים
       if (!mediaClosingReminderDue({ nextClosingAt: outlet.nextClosingAt, remindedForClosingAt: outlet.remindedForClosingAt, now })) {
         continue;
       }
       const closingAt = outlet.nextClosingAt as Date;
-      const orders = await this.prisma.mediaOrder.findMany({
-        where: {
-          outletId: outlet.id,
-          status: "pending_payment",
-          OR: [{ closingReminderAt: null }, { closingReminderAt: { lt: closingAt } }],
-        },
-        orderBy: { createdAt: "asc" },
-        take: MAX_ORDERS_PER_SWEEP,
-      });
-      for (const order of orders) {
-        try {
-          await this.remind(order, {
-            name: outlet.name,
-            contactName: outlet.contactName,
-            contactEmail: outlet.contactEmail,
-            contactPhone: outlet.contactPhone,
-            closingText: outlet.closingText,
-            closingAt,
-          });
-          reminded += 1;
-        } catch (error) {
-          // כישלון בהזמנה אחת אינו עוצר את השאר — הוא נרשם ונחזור אליו בסבב הבא
-          this.logger.warn(`תזכורת סגירה להזמנה ${order.id} נכשלה: ${String(error)}`);
-        }
-      }
+      const ownClosing = outlet.products.map((p) => p.id);
+      const done = await this.remindOrders(
+        { outletId: outlet.id, ...(ownClosing.length === 0 ? {} : { productId: { notIn: ownClosing } }) },
+        { ...contact, closingAt },
+      );
+      reminded += done.reminded;
       /*
        * המדיה מסומנת רק כשכל ההזמנות שלה טופלו (או שאין כאלה): סימון
        * מוקדם היה משתיק את הסבב הבא על הזמנה שנכשלה בשליחה.
        */
-      if (orders.length < MAX_ORDERS_PER_SWEEP) {
+      if (done.complete) {
         await this.prisma.mediaOutlet.update({
           where: { id: outlet.id },
           data: { remindedForClosingAt: closingAt },
@@ -117,6 +129,40 @@ export class MediaClosingReminderService {
       }
     }
     return { reminded };
+  }
+
+  /** ההזמנות הממתינות שהמועד הזה חל עליהן — תזכורת לכל אחת, פעם אחת למועד. */
+  private async remindOrders(
+    scope: { outletId: string; productId?: string | { notIn: string[] } },
+    outlet: {
+      name: string;
+      contactName: string;
+      contactEmail: string;
+      contactPhone: string;
+      closingText: string;
+      closingAt: Date;
+    },
+  ): Promise<{ reminded: number; complete: boolean }> {
+    const orders = await this.prisma.mediaOrder.findMany({
+      where: {
+        ...scope,
+        status: "pending_payment",
+        OR: [{ closingReminderAt: null }, { closingReminderAt: { lt: outlet.closingAt } }],
+      },
+      orderBy: { createdAt: "asc" },
+      take: MAX_ORDERS_PER_SWEEP,
+    });
+    let reminded = 0;
+    for (const order of orders) {
+      try {
+        await this.remind(order, outlet);
+        reminded += 1;
+      } catch (error) {
+        // כישלון בהזמנה אחת אינו עוצר את השאר — הוא נרשם ונחזור אליו בסבב הבא
+        this.logger.warn(`תזכורת סגירה להזמנה ${order.id} נכשלה: ${String(error)}`);
+      }
+    }
+    return { reminded, complete: orders.length < MAX_ORDERS_PER_SWEEP };
   }
 
   private async remind(

@@ -3178,6 +3178,11 @@ model MediaProduct {
   /// מחיר ליחידה נטו באגורות. ריק במוצר הפניה.
   priceAgorot   Int?     @map("price_agorot")
   leadFeeAgorot Int?     @map("lead_fee_agorot")
+  /// מועד סגירה למוצר הזה — גובר על מועד המדיה כשהוא קיים (שער נסגר
+  /// לפני העמודים הפנימיים; באנר שבועי נסגר במועד אחר). ריק = כמו המדיה.
+  nextClosingAt        DateTime? @map("next_closing_at")
+  /// לאיזה מועד סגירה של המוצר כבר נשלחה תזכורת — פעם אחת לגיליון
+  remindedForClosingAt DateTime? @map("reminded_for_closing_at")
   active        Boolean  @default(true)
   sortOrder     Int      @default(0) @map("sort_order")
   createdAt     DateTime @default(now()) @map("created_at")

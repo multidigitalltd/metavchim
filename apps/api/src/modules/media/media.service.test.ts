@@ -46,6 +46,7 @@ function harness(options: { cardcom?: boolean; mail?: boolean; contactEmail?: st
       kind: "paid",
       priceAgorot: 90_000,
       active: true,
+      nextClosingAt: null,
       outlet: { name: "מגזין טאבו", slug: "tabu-magazine", commissionPercent: 10 },
     },
     [BIG]: {
@@ -56,6 +57,7 @@ function harness(options: { cardcom?: boolean; mail?: boolean; contactEmail?: st
       // ‏מעל תקרת הסכימה — מוצר שנוצר לפני התקרה. השרת בודק בכל מקרה.
       priceAgorot: 20_000_000,
       active: true,
+      nextClosingAt: null,
       outlet: { name: "מגזין טאבו", slug: "tabu-magazine", commissionPercent: 10 },
     },
     [LEAD]: {
@@ -66,6 +68,7 @@ function harness(options: { cardcom?: boolean; mail?: boolean; contactEmail?: st
       priceAgorot: null,
       leadFeeAgorot: 5_000,
       active: true,
+      nextClosingAt: null,
       outlet: { name: "מגזין טאבו", slug: "tabu-magazine", commissionPercent: 10 },
     },
   };
@@ -205,6 +208,7 @@ function harness(options: { cardcom?: boolean; mail?: boolean; contactEmail?: st
     withExplicitTenant: async <T>(_tenantId: string, fn: (t: typeof tx) => Promise<T>): Promise<T> => fn(tx),
     mediaProduct: {
       findFirst: async ({ where }: { where: { id: string } }) => products[where.id] ?? null,
+      findUnique: async ({ where }: { where: { id: string } }) => products[where.id] ?? null,
     },
     mediaOutlet: {
       findUnique: async () => ({

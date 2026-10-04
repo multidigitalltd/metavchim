@@ -5,10 +5,12 @@ import {
   MEDIA_ORDER_MAX_AMOUNT_AGOROT,
   MEDIA_ORDER_STAGE_LABEL,
   mediaCanUploadCreative,
+  mediaEarliestClosingAt,
   mediaOrderCanPublish,
   mediaOrderStage,
   mediaOrderTimeline,
   mediaOrderTotals,
+  mediaProductClosingAt,
   type MediaOrderCreate,
   type MediaOrderStage,
   type MediaOrderStatus,
@@ -80,6 +82,8 @@ export interface MediaProductRow {
   specs: string;
   kind: MediaProductKind;
   priceAgorot: number | null;
+  /** מועד סגירה של המוצר עצמו, ISO — ריק כשחל מועד המדיה. */
+  nextClosingAt: string | null;
 }
 
 export interface MediaOutletDetail {
@@ -209,7 +213,7 @@ export class MediaService {
       include: {
         products: {
           where: { active: true },
-          select: { kind: true, priceAgorot: true },
+          select: { kind: true, priceAgorot: true, nextClosingAt: true },
         },
         images: { where: { kind: "cover" }, orderBy: { sortOrder: "asc" }, take: 1, select: { id: true } },
       },
@@ -229,7 +233,9 @@ export class MediaService {
         productCount: outlet.products.length,
         priceFromAgorot: paid.length === 0 ? null : Math.min(...paid),
         hasLeadProducts: outlet.products.some((p) => p.kind === "lead"),
-        nextClosingAt: outlet.nextClosingAt?.toISOString() ?? null,
+        // ‏הקרוב ביותר — של המדיה או של אחד המוצרים — זה מה שהכרטיס מזהיר עליו
+        nextClosingAt:
+          mediaEarliestClosingAt([outlet.nextClosingAt, ...outlet.products.map((p) => p.nextClosingAt)])?.toISOString() ?? null,
         coverImageId: outlet.images[0]?.id ?? null,
       };
     });
@@ -278,6 +284,7 @@ export class MediaService {
         specs: p.specs,
         kind: p.kind as MediaProductKind,
         priceAgorot: p.priceAgorot,
+        nextClosingAt: p.nextClosingAt?.toISOString() ?? null,
       })),
       checkoutAvailable,
       vatPercent,
@@ -445,10 +452,10 @@ export class MediaService {
    */
   async outletView(token: string): Promise<MediaOutletOrderView> {
     const order = await this.orderAtOutletByToken(token);
-    const outlet = await this.prisma.mediaOutlet.findUnique({
-      where: { id: order.outletId },
-      select: { closingText: true, nextClosingAt: true },
-    });
+    const [outlet, product] = await Promise.all([
+      this.prisma.mediaOutlet.findUnique({ where: { id: order.outletId }, select: { closingText: true, nextClosingAt: true } }),
+      this.prisma.mediaProduct.findUnique({ where: { id: order.productId }, select: { nextClosingAt: true } }),
+    ]);
     return {
       outletName: order.outletName,
       productName: order.productName,
@@ -470,7 +477,7 @@ export class MediaService {
       publishedNote: order.publishedNote,
       publishedBy: order.publishedBy,
       closingText: outlet?.closingText ?? "",
-      nextClosingAt: outlet?.nextClosingAt ?? null,
+      nextClosingAt: mediaProductClosingAt(product?.nextClosingAt ?? null, outlet?.nextClosingAt ?? null),
     };
   }
 
@@ -1052,18 +1059,28 @@ export class MediaService {
   private async loadForMail(orderId: string) {
     const order = await this.prisma.mediaOrder.findUnique({ where: { id: orderId } });
     if (order === null) return null;
-    const outlet = await this.prisma.mediaOutlet.findUnique({
-      where: { id: order.outletId },
-      select: {
-        name: true,
-        contactName: true,
-        contactEmail: true,
-        contactPhone: true,
-        closingText: true,
-        nextClosingAt: true,
-      },
-    });
-    return { order, outlet };
+    const [outlet, product] = await Promise.all([
+      this.prisma.mediaOutlet.findUnique({
+        where: { id: order.outletId },
+        select: {
+          name: true,
+          contactName: true,
+          contactEmail: true,
+          contactPhone: true,
+          closingText: true,
+          nextClosingAt: true,
+        },
+      }),
+      this.prisma.mediaProduct.findUnique({ where: { id: order.productId }, select: { nextClosingAt: true } }),
+    ]);
+    // ‏מועד הסגירה שבמייל הוא זה שחל על המוצר — שלו, ובלעדיו של המדיה
+    return {
+      order,
+      outlet:
+        outlet === null
+          ? null
+          : { ...outlet, nextClosingAt: mediaProductClosingAt(product?.nextClosingAt ?? null, outlet.nextClosingAt) },
+    };
   }
 
   private async activeProduct(productId: string) {

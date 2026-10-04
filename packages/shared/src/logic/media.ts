@@ -252,6 +252,24 @@ export type MediaImageKind = (typeof MEDIA_IMAGE_KINDS)[number];
 /** כמה דוגמאות מודעה למדיה — מספיק להראות, לא גלריה. */
 export const MEDIA_IMAGES_MAX = 8;
 
+/**
+ * ‏מועד הסגירה שחל על מוצר: המוצר יכול לקבוע מועד משלו (שער נסגר לפני
+ * ‏העמודים הפנימיים), ואז הוא גובר; בלעדיו — מועד המדיה. מקור אחד
+ * ‏למסך, למייל ולסורק התזכורות.
+ */
+export function mediaProductClosingAt<T extends Date | string>(productClosingAt: T | null, outletClosingAt: T | null): T | null {
+  return productClosingAt ?? outletClosingAt;
+}
+
+/** ‏המועד הקרוב ביותר מבין כמה — לכרטיס המדיה בארכיון; ריק כשאין אף אחד. */
+export function mediaEarliestClosingAt(dates: readonly (Date | null)[]): Date | null {
+  let earliest: Date | null = null;
+  for (const date of dates) {
+    if (date !== null && (earliest === null || date.getTime() < earliest.getTime())) earliest = date;
+  }
+  return earliest;
+}
+
 /** ‏כמה זמן לפני סגירת הגיליון נשלחת התזכורת למשרד עם הזמנה ממתינה. */
 export const MEDIA_CLOSING_REMINDER_HOURS = 24;
 

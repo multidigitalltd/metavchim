@@ -36,6 +36,8 @@ export interface AdminMediaProduct {
   kind: MediaProductKind;
   priceAgorot: number | null;
   leadFeeAgorot: number | null;
+  /** מועד סגירה של המוצר, ISO ב-UTC — ריק כשחל מועד המדיה. */
+  nextClosingAt: string | null;
   active: boolean;
   sortOrder: number;
 }
@@ -226,6 +228,7 @@ export class MediaAdminService {
         kind: p.kind as MediaProductKind,
         priceAgorot: p.priceAgorot,
         leadFeeAgorot: p.leadFeeAgorot,
+        nextClosingAt: p.nextClosingAt?.toISOString() ?? null,
         active: p.active,
         sortOrder: p.sortOrder,
       })),
@@ -345,7 +348,8 @@ export class MediaAdminService {
     });
     if (outlet === null) throw new NotFoundException("המדיה לא נמצאה");
     const id = ulid();
-    await this.prisma.mediaProduct.create({ data: { id, outletId, ...input } });
+    const { nextClosingAt, ...rest } = input;
+    await this.prisma.mediaProduct.create({ data: { id, outletId, ...rest, nextClosingAt: closingDate(nextClosingAt) } });
     return { id };
   }
 
@@ -362,7 +366,11 @@ export class MediaAdminService {
     if (kind === "paid" && (price === null || price < 1)) {
       throw new BadRequestException("מוצר בתשלום חייב מחיר");
     }
-    await this.prisma.mediaProduct.update({ where: { id }, data: patch });
+    const { nextClosingAt, ...rest } = patch;
+    await this.prisma.mediaProduct.update({
+      where: { id },
+      data: { ...rest, ...(nextClosingAt === undefined ? {} : { nextClosingAt: closingDate(nextClosingAt) }) },
+    });
   }
 
   /**
