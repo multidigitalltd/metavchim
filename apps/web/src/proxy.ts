@@ -155,7 +155,7 @@ function safeOrigin(value: string): string | null {
   }
 }
 
-export function middleware(request: NextRequest): NextResponse {
+export function proxy(request: NextRequest): NextResponse {
   /*
    * ‎**לוכסן מקודד — כפתור „פתח במערכת” שנחת על „העמוד לא נמצא”.**
    *
@@ -197,7 +197,7 @@ export function middleware(request: NextRequest): NextResponse {
 export const config = {
   /*
    * הכל חוץ מנכסים סטטיים: הם אינם מריצים סקריפטים, והרצת
-   * Middleware על כל אריח ותמונה היא עלות בלי תמורה.
+   * ה-proxy על כל אריח ותמונה היא עלות בלי תמורה.
    */
   matcher: ["/((?!_next/static|_next/image|favicon.ico|icons/|guides/|fonts/|.*\\.(?:png|jpg|jpeg|svg|webp|ico|webmanifest|woff|woff2)$).*)"],
 };

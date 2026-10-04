@@ -64,7 +64,7 @@ const FILES = ["maplibre-gl-worker.mjs", "maplibre-gl-shared.mjs"];
  * **הסיומת לבדה אינה מספיקה.** התוסף הוא WebAssembly, וההידור שלו
  * חסום בלי `wasm-unsafe-eval` ב-`script-src`. שני התנאים יחד הם
  * התיקון; אחד מהם לבדו משאיר את המפה בלי תוויות בעברית. ראו
- * `src/middleware.ts`.
+ * `src/proxy.ts`.
  */
 const RTL_SOURCE = "mapbox-gl-rtl-text.js";
 const RTL_PLUGIN = "mapbox-gl-rtl-text.mjs";
