@@ -28,7 +28,7 @@
     "@mapbox/mapbox-gl-rtl-text": "^0.4.0",
     "@metavchim/shared": "workspace:*",
     "@metavchim/ui": "workspace:*",
-    "maplibre-gl": "^6.8.0",
+    "maplibre-gl": "^6.12.0",
     "next": "^15.5.26",
     "qrcode.react": "^4.2.0",
     "react": "^19.0.0",
@@ -40,7 +40,7 @@
     "@types/node": "^22.10.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
-    "postcss": "^8.5.0",
+    "postcss": "^8.5.28",
     "tailwindcss": "^4.0.0"
   }
 }
