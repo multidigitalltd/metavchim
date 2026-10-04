@@ -245,12 +245,21 @@ export function mediaOrderTimeline(order: {
   return steps;
 }
 
-/** ‏תמונות של מדיה: `cover` — לוגו/שער אחד; `sample` — דוגמאות מודעה. */
-export const MEDIA_IMAGE_KINDS = ["cover", "sample"] as const;
+/**
+ * ‏תמונות של מדיה: `cover` — לוגו/שער אחד; `sample` — דוגמאות מודעה;
+ * ‏`product` — הדמיה של מוצר מסוים (שייכת למוצר, לא למדיה כולה).
+ */
+export const MEDIA_IMAGE_KINDS = ["cover", "sample", "product"] as const;
 export type MediaImageKind = (typeof MEDIA_IMAGE_KINDS)[number];
+
+/** ‏הסוגים שמעלים על המדיה עצמה — הדמיות מועלות על המוצר. */
+export const MEDIA_OUTLET_IMAGE_KINDS = ["cover", "sample"] as const;
 
 /** כמה דוגמאות מודעה למדיה — מספיק להראות, לא גלריה. */
 export const MEDIA_IMAGES_MAX = 8;
+
+/** ‏כמה הדמיות למוצר — איך זה נראה בעמוד, מזוויות ספורות. */
+export const MEDIA_PRODUCT_IMAGES_MAX = 4;
 
 /**
  * ‏מועד הסגירה שחל על מוצר: המוצר יכול לקבוע מועד משלו (שער נסגר לפני

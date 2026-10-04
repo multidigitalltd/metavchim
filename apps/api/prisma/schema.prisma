@@ -3117,7 +3117,10 @@ model MediaOutlet {
 model MediaOutletImage {
   id          String   @id @db.Char(26)
   outletId    String   @map("outlet_id") @db.Char(26)
-  /// cover | sample
+  /// הדמיה של מוצר — התמונה שייכת למוצר הזה (kind = product); ריק
+  /// בשער ובדוגמאות, שהן של המדיה כולה. יורדת עם המוצר.
+  productId   String?  @map("product_id") @db.Char(26)
+  /// cover | sample | product
   kind        String   @default("sample") @db.VarChar(10)
   s3Key       String   @map("s3_key") @db.VarChar(512)
   contentType String   @default("image/jpeg") @map("content_type") @db.VarChar(80)
@@ -3125,9 +3128,11 @@ model MediaOutletImage {
   sortOrder   Int      @default(0) @map("sort_order")
   createdAt   DateTime @default(now()) @map("created_at")
 
-  outlet MediaOutlet @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  outlet  MediaOutlet   @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  product MediaProduct? @relation(fields: [productId], references: [id], onDelete: Cascade)
 
   @@index([outletId, kind, sortOrder])
+  @@index([productId, sortOrder])
   @@map("media_outlet_images")
 }
 
@@ -3183,7 +3188,9 @@ model MediaProduct {
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt     DateTime @updatedAt @map("updated_at")
 
-  outlet MediaOutlet @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  outlet MediaOutlet       @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  /// הדמיות — איך המודעה נראית בעמוד; עד MEDIA_PRODUCT_IMAGES_MAX
+  images MediaOutletImage[]
 
   @@index([outletId, active, sortOrder])
   @@map("media_products")

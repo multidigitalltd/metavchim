@@ -22,7 +22,10 @@ import { LoadError } from "../../load-error";
 import { Notice } from "../../notice";
 
 /**
- * העמוד הפנימי של מדיה — מה כלול, מה החשיפה, ומה אפשר להזמין.
+ * העמוד הפנימי של מדיה — מה אפשר להזמין, ומתחת: מה כלול ומה החשיפה.
+ *
+ * ‏הסדר: כותרת, **המוצרים**, דוגמאות המודעה, ואז „על המדיה” ו„החשיפה”.
+ * ‏המוצרים ראשונים כי בשבילם באים; מי שרוצה לקרוא קודם — גולל.
  *
  * ## שני כפתורים, שני מסלולים
  *
@@ -46,6 +49,8 @@ interface ProductRow {
   priceAgorot: number | null;
   /** מועד סגירה של המוצר עצמו — כשקיים הוא גובר על מועד המדיה. */
   nextClosingAt: string | null;
+  /** הדמיות — איך המודעה נראית בעמוד. */
+  images: { id: string; caption: string }[];
 }
 
 interface OutletDetail {
@@ -170,6 +175,127 @@ export default function MediaOutletPage(): React.JSX.Element | null {
         ) : null}
       </header>
 
+      {/* ‏המוצרים קודם — זה מה שבאים בשבילו; על המדיה והחשיפה מתחת, למי שרוצה לקרוא לפני שמזמין */}
+      <section className="mb-4" aria-labelledby="media-products">
+        <h2 id="media-products" className="m-0 mb-3 text-[length:var(--type-card-title)] font-extrabold">
+          מוצרים לרכישה
+        </h2>
+
+        {!outlet.checkoutAvailable && outlet.products.some((p) => p.kind === "paid") ? (
+          <Notice tone="info">
+            הסליקה טרם הופעלה במערכת — מוצרים בתשלום מוצגים לעיון, וההזמנה דרך הנציג.
+          </Notice>
+        ) : null}
+
+        {outlet.products.length === 0 ? (
+          <div className="mv-card mv-card--pad text-center">
+            <p className="m-0 font-bold">טרם הוגדרו מוצרים למדיה הזו</p>
+          </div>
+        ) : (
+          <ul className="m-0 grid list-none gap-3 p-0 sm:grid-cols-2 lg:grid-cols-3">
+            {outlet.products.map((product) => {
+              const paid = product.kind === "paid" && product.priceAgorot !== null;
+              return (
+                <li key={product.id} className="mv-card mv-card--pad flex flex-col">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className={`mv-pill ${paid ? "mv-domain-green" : "mv-domain-amber"}`}>
+                      {paid ? "הזמנה ותשלום במערכת" : "פנייה לנציג"}
+                    </span>
+                    {product.nextClosingAt ? <ClosingBadge nextClosingAt={product.nextClosingAt} compact /> : null}
+                  </div>
+                  <h3 className="m-0 mt-2 text-[length:var(--type-row-title)] font-extrabold leading-snug">
+                    {product.name}
+                  </h3>
+                  {product.specs ? (
+                    <p className="m-0 mt-1 text-[length:var(--type-caption-lg)]" style={{ color: "var(--color-text-muted)" }}>
+                      {product.specs}
+                    </p>
+                  ) : null}
+                  {product.images.length > 0 ? (
+                    <div className="mt-3">
+                      <a
+                        href={mediaSrc(`media/${outlet.slug}/images/${product.images[0]!.id}`)}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="block overflow-hidden rounded-xl"
+                        aria-label={`הדמיה — ${product.name}`}
+                      >
+                        <img
+                          src={mediaSrc(`media/${outlet.slug}/images/${product.images[0]!.id}`)}
+                          alt={product.images[0]!.caption || `הדמיה — ${product.name}`}
+                          className="aspect-[4/3] w-full object-cover"
+                          loading="lazy"
+                        />
+                      </a>
+                      {product.images.length > 1 ? (
+                        <ul className="m-0 mt-2 flex list-none gap-2 p-0">
+                          {product.images.slice(1).map((img) => (
+                            <li key={img.id} className="m-0">
+                              <a
+                                href={mediaSrc(`media/${outlet.slug}/images/${img.id}`)}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="block overflow-hidden rounded-lg"
+                              >
+                                <img
+                                  src={mediaSrc(`media/${outlet.slug}/images/${img.id}`)}
+                                  alt={img.caption || `הדמיה נוספת — ${product.name}`}
+                                  className="h-14 w-14 object-cover"
+                                  loading="lazy"
+                                />
+                              </a>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : null}
+                      <p className="m-0 mt-1 text-[length:var(--type-caption-lg)]" style={{ color: "var(--color-text-muted)" }}>
+                        {product.images[0]!.caption || "הדמיה — לחיצה פותחת בגודל מלא"}
+                      </p>
+                    </div>
+                  ) : null}
+                  {product.description ? (
+                    <p className="m-0 mt-2 text-[length:var(--type-body-sm)]" style={{ color: "var(--color-text-soft)" }}>
+                      {product.description}
+                    </p>
+                  ) : null}
+                  <p className="m-0 mt-3 text-[length:var(--type-metric)] font-extrabold">
+                    {paid ? (
+                      <>
+                        {formatPrice(product.priceAgorot ?? 0)}{" "}
+                        <span className="text-[length:var(--type-caption-lg)] font-semibold" style={{ color: "var(--color-text-muted)" }}>
+                          + מע&quot;מ
+                        </span>
+                      </>
+                    ) : (
+                      <span className="text-[length:var(--type-body)] font-bold">מחיר לפי תיאום</span>
+                    )}
+                  </p>
+                  <div className="mt-auto pt-4">
+                    {paid ? (
+                      outlet.checkoutAvailable && mayPay ? (
+                        <button type="button" className="mv-btn-action" onClick={() => setOrdering(product)}>
+                          <IconCard s={15} /> הזמנה ותשלום
+                        </button>
+                      ) : (
+                        <p className="m-0 text-[length:var(--type-caption-lg)]" style={{ color: "var(--color-text-muted)" }}>
+                          {outlet.checkoutAvailable
+                            ? "רק מי שמנהל את החיוב במשרד יכול להזמין בתשלום."
+                            : "ההזמנה כרגע דרך נציג המדיה."}
+                        </p>
+                      )
+                    ) : (
+                      <button type="button" className="mv-btn-soft" onClick={() => setOrdering(product)}>
+                        <IconSend s={15} /> פנייה לנציג
+                      </button>
+                    )}
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </section>
+
       {samples.length > 0 ? (
         <section className="mv-card mv-card--pad mb-4" aria-labelledby="media-samples">
           <h2 id="media-samples" className="m-0 text-[length:var(--type-card-title)] font-extrabold">
@@ -236,84 +362,6 @@ export default function MediaOutletPage(): React.JSX.Element | null {
           </p>
         </section>
       </div>
-
-      <section className="mt-4" aria-labelledby="media-products">
-        <h2 id="media-products" className="m-0 mb-3 text-[length:var(--type-card-title)] font-extrabold">
-          מוצרים לרכישה
-        </h2>
-
-        {!outlet.checkoutAvailable && outlet.products.some((p) => p.kind === "paid") ? (
-          <Notice tone="info">
-            הסליקה טרם הופעלה במערכת — מוצרים בתשלום מוצגים לעיון, וההזמנה דרך הנציג.
-          </Notice>
-        ) : null}
-
-        {outlet.products.length === 0 ? (
-          <div className="mv-card mv-card--pad text-center">
-            <p className="m-0 font-bold">טרם הוגדרו מוצרים למדיה הזו</p>
-          </div>
-        ) : (
-          <ul className="m-0 grid list-none gap-3 p-0 sm:grid-cols-2 lg:grid-cols-3">
-            {outlet.products.map((product) => {
-              const paid = product.kind === "paid" && product.priceAgorot !== null;
-              return (
-                <li key={product.id} className="mv-card mv-card--pad flex flex-col">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className={`mv-pill ${paid ? "mv-domain-green" : "mv-domain-amber"}`}>
-                      {paid ? "הזמנה ותשלום במערכת" : "פנייה לנציג"}
-                    </span>
-                    {product.nextClosingAt ? <ClosingBadge nextClosingAt={product.nextClosingAt} compact /> : null}
-                  </div>
-                  <h3 className="m-0 mt-2 text-[length:var(--type-row-title)] font-extrabold leading-snug">
-                    {product.name}
-                  </h3>
-                  {product.specs ? (
-                    <p className="m-0 mt-1 text-[length:var(--type-caption-lg)]" style={{ color: "var(--color-text-muted)" }}>
-                      {product.specs}
-                    </p>
-                  ) : null}
-                  {product.description ? (
-                    <p className="m-0 mt-2 text-[length:var(--type-body-sm)]" style={{ color: "var(--color-text-soft)" }}>
-                      {product.description}
-                    </p>
-                  ) : null}
-                  <p className="m-0 mt-3 text-[length:var(--type-metric)] font-extrabold">
-                    {paid ? (
-                      <>
-                        {formatPrice(product.priceAgorot ?? 0)}{" "}
-                        <span className="text-[length:var(--type-caption-lg)] font-semibold" style={{ color: "var(--color-text-muted)" }}>
-                          + מע&quot;מ
-                        </span>
-                      </>
-                    ) : (
-                      <span className="text-[length:var(--type-body)] font-bold">מחיר לפי תיאום</span>
-                    )}
-                  </p>
-                  <div className="mt-auto pt-4">
-                    {paid ? (
-                      outlet.checkoutAvailable && mayPay ? (
-                        <button type="button" className="mv-btn-action" onClick={() => setOrdering(product)}>
-                          <IconCard s={15} /> הזמנה ותשלום
-                        </button>
-                      ) : (
-                        <p className="m-0 text-[length:var(--type-caption-lg)]" style={{ color: "var(--color-text-muted)" }}>
-                          {outlet.checkoutAvailable
-                            ? "רק מי שמנהל את החיוב במשרד יכול להזמין בתשלום."
-                            : "ההזמנה כרגע דרך נציג המדיה."}
-                        </p>
-                      )
-                    ) : (
-                      <button type="button" className="mv-btn-soft" onClick={() => setOrdering(product)}>
-                        <IconSend s={15} /> פנייה לנציג
-                      </button>
-                    )}
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </section>
 
       {/* ‏נבנה מחדש לכל מוצר — התדריך של מודעה אחת אינו של השנייה */}
       {ordering !== null ? (
