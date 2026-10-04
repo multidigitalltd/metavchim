@@ -15,6 +15,7 @@ import {
   scoreMatch,
   MATCH_THRESHOLDS,
   MATCHABLE_PROPERTY_STATUSES,
+  NOT_RELEVANT_MATURITY,
   type BuyerRequirements,
   type MatchWeights,
   SCORE_NOTE_MAX,
@@ -463,6 +464,8 @@ export class MatchingService {
         where: {
           tenantId,
           deletedAt: null,
+          /* ‏„לא רלוונטי” אינו מועמד — וההתאמות המוצעות שלו נמחקות למטה */
+          maturity: { not: NOT_RELEVANT_MATURITY },
           dealType: property.dealType,
           /*
            * שני תנאי-או נפרדים, ולכן `AND` מפורש: מפתח `OR` יחיד
@@ -567,6 +570,15 @@ export class MatchingService {
     return this.prisma.withTenant(async (tx) => {
       const buyer = await tx.buyer.findFirst({ where: { id: buyerId, tenantId, deletedAt: null } });
       if (!buyer) return NO_MATCHES;
+      /*
+       * ‎**„לא רלוונטי” — בלי התאמות, וההצעות שעוד ממתינות יורדות.**
+       * ‏רק `suggested`: התאמה שכבר נשלחה או נדחתה היא היסטוריה של הקונה.
+       * ‏בלי `matches.computed` — אין כאן התאמות חדשות לבשר עליהן.
+       */
+      if (buyer.maturity === NOT_RELEVANT_MATURITY) {
+        await tx.match.deleteMany({ where: { tenantId, buyerId, status: "suggested" } });
+        return NO_MATCHES;
+      }
       const parsed = BuyerRequirementsSchema.safeParse(buyer.requirements);
       if (!parsed.success) return NO_MATCHES;
       const requirements = parsed.data;
@@ -736,6 +748,27 @@ export class MatchingService {
 
     if (result.excluded || result.score < MATCH_THRESHOLDS.review) {
       // התאמה שאינה רלוונטית עוד — מוסרת רק אם המתווך לא נגע בה
+      if (existing && existing.status === "suggested") {
+        await tx.match.delete({ where: { id: existing.id } });
+      }
+      return { kept: false, created: false, strong: false };
+    }
+
+    /*
+     * ‎**„לא רלוונטי” נבדק שוב, נעול, רגע לפני הכתיבה** (ביקורת Codex, P2).
+     *
+     * ‏בחירת המועמדים היא צילום של רגע השאילתה. אם הקונה סומן „לא
+     * ‏רלוונטי” וניקוי ההצעות שלו הסתיים בזמן שהסבב הזה רץ, הכתיבה כאן
+     * ‏הייתה מחזירה את ההצעה. ‏`FOR SHARE` ממתין לעריכה פתוחה של הכרטיס
+     * ‏(היא נועלת `FOR UPDATE`) וקורא את מה שנשמר בה; ועריכה שתבוא אחרי
+     * ‏הנעילה הזו ממתינה לסיום הסבב — והניקוי שאחריה מוחק את מה שנכתב.
+     * ‏נעילה רק על מה שעומד להיכתב, לא על כל המועמדים.
+     */
+    const inPlay = await tx.$queryRaw<{ id: string }[]>`
+      SELECT id FROM buyers
+      WHERE id = ${buyerId} AND tenant_id = ${tenantId} AND maturity <> ${NOT_RELEVANT_MATURITY}
+      FOR SHARE`;
+    if (inPlay.length === 0) {
       if (existing && existing.status === "suggested") {
         await tx.match.delete({ where: { id: existing.id } });
       }
@@ -1153,6 +1186,7 @@ export class MatchingService {
       const scanWhere = {
         tenantId,
         deletedAt: null,
+        maturity: { not: NOT_RELEVANT_MATURITY },
         dealType: "sale",
         sharedTabuStance: "accepts",
         budgetMaxAgorot: { lt: BigInt(price - band) },

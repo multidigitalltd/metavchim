@@ -47,6 +47,7 @@ import {
   type LeadSourcePrice,
   NETWORK_MATCH_MIN_SCORE,
   MAX_FOLLOWS_PER_USER,
+  NOT_RELEVANT_MATURITY,
   jerusalemMonthStart,
   demandMatchCopy,
   demandMatchDedupeKey,
@@ -601,10 +602,22 @@ export class CollaborationService {
     const commissionSplit = headlineCommissionSplit(terms, "buyer");
 
     await this.prisma.withTenant(async (tx) => {
+      /*
+       * ‎**נעילת שורת הקונה** (ביקורת Codex, P2) — אותה נעילה שעריכת הכרטיס
+       * ‏לוקחת. בלעדיה שיתוף שקרא „רלוונטי” יכול היה להיכתב אחרי שהעריכה
+       * ‏סימנה „לא רלוונטי” וסגרה ביקושים — כשעוד לא היה מה לסגור. עכשיו
+       * ‏אחד מהשניים ממתין: או שהשיתוף רואה את הסימון ונחסם, או שהעריכה
+       * ‏באה אחריו וסוגרת את הביקוש שנוצר.
+       */
+      await tx.$queryRaw`SELECT id FROM buyers WHERE id = ${buyerId} AND tenant_id = ${tenantId} FOR UPDATE`;
       const buyer = await tx.buyer.findFirst({
         where: { id: buyerId, tenantId, deletedAt: null },
       });
       if (!buyer) throw new NotFoundException("קונה לא נמצא");
+      /* ‏ידני, מרובה ואוטומטי עוברים כולם כאן — החסימה כאן מכסה את שלושתם */
+      if (buyer.maturity === NOT_RELEVANT_MATURITY) {
+        throw new BadRequestException("קונה שסומן „לא רלוונטי” אינו מתפרסם ברשת");
+      }
 
       /*
        * בלי אזור חיפוש אין מה לפרסם.
@@ -827,6 +840,21 @@ export class CollaborationService {
         where: { id: buyerId, tenantId, deletedAt: null },
       });
       if (!buyer) return;
+      /*
+       * ‎**„לא רלוונטי” יורד מהרשת.** ביקוש פעיל על קונה שהמשרד עצמו
+       * ‏סימן שאינו בעבודה מזמין משרדים אחרים להשקיע בו נכסים לשווא.
+       * ‏סגירה ולא עדכון — כמו `unshare`, עם אותה רשומת יומן.
+       */
+      if (buyer.maturity === NOT_RELEVANT_MATURITY) {
+        await tx.sharedDemand.update({ where: { id: demand.id }, data: { status: "closed" } });
+        await this.audit.record(tx, {
+          action: "collaboration.unshare",
+          entityType: "shared_demand",
+          entityId: demand.id,
+          metadata: { reason: "buyer_not_relevant" },
+        });
+        return;
+      }
       await tx.sharedDemand.update({
         where: { id: demand.id },
         // התיאור החופשי וחלוקת העמלה **אינם** נדרסים: הם נכתבו

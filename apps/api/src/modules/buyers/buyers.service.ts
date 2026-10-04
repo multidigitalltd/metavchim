@@ -33,6 +33,7 @@ import { readOfficeStatuses } from "../../common/office-buyer-statuses";
 import {
   cleanVocabulary,
   freeTextTerms,
+  NOT_RELEVANT_MATURITY,
   neighborhoodKey,
   neighborhoodKeyMatches,
   normalizeRange,
@@ -237,6 +238,18 @@ export class BuyersService {
    * לא נקרא מ-`createForImport` — ראו הנימוק בצד הנכסים.
    */
   private async autoShareToNetwork(buyerId: string): Promise<void> {
+    /*
+     * ‏„לא רלוונטי” אינו מתפרסם (`shareBuyer` חוסם) — ובלי הבדיקה כאן
+     * ‏החסימה הייתה הופכת להתראת „לא פורסם אוטומטית” על החלטה מכוונת.
+     */
+    const tenantId = TenantContext.current().tenantId;
+    const buyer = await this.prisma.withTenant((tx) =>
+      tx.buyer.findFirst({
+        where: { id: buyerId, tenantId, deletedAt: null },
+        select: { maturity: true },
+      }),
+    );
+    if (buyer?.maturity === NOT_RELEVANT_MATURITY) return;
     await autoNetworkPublish(
       { prisma: this.prisma, logger: this.logger },
       "buyer",
@@ -689,6 +702,8 @@ export class BuyersService {
     const tenantId = TenantContext.current().tenantId;
     /** ראו ההסבר ליד ההשמה, בתוך הטרנזקציה. */
     let trigger: MatchTrigger | undefined;
+    /* ‏נכנס ל„לא רלוונטי” או יצא ממנו — ההתאמות צריכות להתחשב מחדש */
+    let relevanceMoved = false;
     await this.prisma.withTenant(async (tx) => {
       // נעילת השורה: עדכונים מקבילים מסתדרים בתור, כך שהערך הישן שנקרא
       // לרשומת ה-status_change הוא המעבר שבאמת קרה (ביקורת Codex)
@@ -839,6 +854,9 @@ export class BuyersService {
         (nextOfficeStatus ?? null) !== (existing.officeStatus ?? null);
       const maturityMoved =
         nextMaturity !== undefined && nextMaturity !== existing.maturity;
+      relevanceMoved =
+        maturityMoved &&
+        (existing.maturity === NOT_RELEVANT_MATURITY) !== (nextMaturity === NOT_RELEVANT_MATURITY);
       const timeline = buyerStatusChangeLine({
         statuses,
         pickedStatus: patch.officeStatus !== undefined,
@@ -899,7 +917,11 @@ export class BuyersService {
      * והיומן נדלגים, ושליחה חוזרת כבר לא תשחזר אותם כי היא אינה
      * משנה דבר.
      */
-    if (patch.requirements) {
+    /*
+     * ‏גם מעבר אל „לא רלוונטי” וממנו: פנימה — ההתאמות המוצעות יורדות;
+     * ‏החוצה — הקונה חוזר לעבודה ומקבל אותן מחדש, בלי לחכות לרענון.
+     */
+    if (patch.requirements || relevanceMoved) {
       try {
         await this.matching.recomputeForBuyer(id, { trigger });
       } catch (error: unknown) {

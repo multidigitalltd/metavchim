@@ -1,7 +1,7 @@
 import { type Job } from "bullmq";
 import { ulid } from "ulid";
 import { z } from "zod";
-import { shekelsLabel } from "@metavchim/shared";
+import { NOT_RELEVANT_MATURITY, shekelsLabel } from "@metavchim/shared";
 import { withTenant } from "../runtime.js";
 import { automationOn } from "../tenant-settings.js";
 
@@ -78,7 +78,8 @@ export async function processPriceDropReoffer(job: Job): Promise<void> {
     const ids = [...new Set([...saidHigh, ...declined])];
     if (ids.length === 0) return;
     const buyers = await tx.buyer.findMany({
-      where: { tenantId, id: { in: ids }, deletedAt: null },
+      /* ‏„לא רלוונטי” מחוץ לעבודה — מחיר שירד אינו סיבה לחזור אליו */
+      where: { tenantId, id: { in: ids }, deletedAt: null, maturity: { not: NOT_RELEVANT_MATURITY } },
       select: { id: true, ownerUserId: true },
     });
     if (buyers.length === 0) return;
@@ -184,7 +185,7 @@ export async function processPropertyDelisted(job: Job): Promise<void> {
     if (buyerId === "") continue;
     await withTenant(tenantId, async (tx) => {
       const buyer = await tx.buyer.findFirst({
-        where: { id: buyerId, tenantId, deletedAt: null },
+        where: { id: buyerId, tenantId, deletedAt: null, maturity: { not: NOT_RELEVANT_MATURITY } },
         select: { id: true, ownerUserId: true },
       });
       if (!buyer?.ownerUserId) return;

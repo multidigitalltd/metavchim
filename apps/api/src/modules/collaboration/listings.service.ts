@@ -12,6 +12,7 @@ import {
 
   BuyerRequirementsSchema,
   DEFAULT_COMMISSION_SPLIT,
+  NOT_RELEVANT_MATURITY,
   commissionSplitRejectionReason,
   commissionTermsColumns,
   commissionTermsFromRow,
@@ -864,6 +865,18 @@ export class ListingsService {
   }
 
   /**
+   * ‏הקונים שלי **שבעבודה** — ‏`ownBuyersWhere` בלי „לא רלוונטי”.
+   *
+   * ‏הפיד („התאמות שלי”) וההצעה לפרסם מדברים על קונה שבעבודה; קונה
+   * ‏שהמשרד סימן שאינו רלוונטי אינו התאמה לנכס של משרד אחר (ביקורת
+   * ‏Codex, P1). ‏`ownBuyersWhere` עצמו נשאר תנאי נראוּת בלבד: נתיב שמקבל
+   * ‏מזהה קונה צריך למצוא אותו, ולהחליט בעצמו מה לעשות בו.
+   */
+  private inPlayBuyersWhere(tenantId: string): Prisma.BuyerWhereInput {
+    return { ...this.ownBuyersWhere(tenantId), maturity: { not: NOT_RELEVANT_MATURITY } };
+  }
+
+  /**
    * תנאי הסינון של פיד הנכסים.
    *
    * רץ בשרת ולפני חיתוך ה-100, כדי ש"אין תוצאות" יהיה תשובה על הרשת
@@ -951,7 +964,7 @@ export class ListingsService {
     const { buyers, names, alreadySent } = await this.prisma.withTenant(
       async (tx) => {
         const rows = await tx.buyer.findMany({
-          where: this.ownBuyersWhere(tenantId),
+          where: this.inPlayBuyersWhere(tenantId),
           take: 200,
         });
         const sent = await tx.coopInterest.findMany({
@@ -1040,6 +1053,8 @@ export class ListingsService {
       }),
     );
     if (!buyer) throw new NotFoundException("קונה לא נמצא");
+    /* ‏„לא רלוונטי” — הכרטיס נפתח, אבל אין לו התאמות ברשת */
+    if (buyer.maturity === NOT_RELEVANT_MATURITY) return [];
 
     /*
      * ‎`tenantId: { not: tenantId }` — הנכסים שלי כבר יושבים בעמודה
@@ -1306,6 +1321,8 @@ export class ListingsService {
           where: {
             tenantId,
             deletedAt: null,
+            /* ‏„לא רלוונטי” — נכס חדש ברשת אינו סיבה להתריע עליו */
+            maturity: { not: NOT_RELEVANT_MATURITY },
             ...(cursor === undefined ? {} : { id: { gt: cursor } }),
           },
           orderBy: { id: "asc" },
@@ -1504,6 +1521,9 @@ export class ListingsService {
         where: { id: buyerId, ...this.ownBuyersWhere(ctx.tenantId) },
       });
       if (!buyer) throw new NotFoundException("קונה לא נמצא");
+      if (buyer.maturity === NOT_RELEVANT_MATURITY) {
+        throw new BadRequestException("קונה שסומן „לא רלוונטי” אינו נשלח למשרדים אחרים");
+      }
 
       /*
        * פנייה כפולה נחסמת כאן ולא רק במפתח הייחודי שבמסד.
@@ -1947,7 +1967,7 @@ export class ListingsService {
           take: 200,
         }),
         await tx.buyer.findMany({
-          where: this.ownBuyersWhere(tenantId),
+          where: this.inPlayBuyersWhere(tenantId),
           take: 200,
         }),
         await tx.sharedListing.findMany({
