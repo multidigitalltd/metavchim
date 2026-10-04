@@ -5,22 +5,24 @@ import { describe, expect, it } from "vitest";
 /**
  * ‎**כלל אימות אחד לכל דבר שחוזר.**
  *
- * ‏מזהה, טוקן ציבורי ואימייל נכתבו שוב ושוב בכל בקר — ועותק שנכתב לבד
- * ‏נפרד מהמקור: מזהה בכללי האוטומציה קיבל כל 26 תווים, לא רק ULID.
+ * ‏מזהה, טוקן ציבורי, אימייל וטלפון נכתבו שוב ושוב בכל בקר — ועותק
+ * ‏שנכתב לבד נפרד מהמקור: מזהה בכללי האוטומציה קיבל כל 26 תווים, לא
+ * ‏רק ULID; וטלפון בפרופיל ובצוות פסל `(054) 1234567`.
  * ‏המקור: `IdParam` / `PublicTokenParam` ב-`zod-validation.pipe.ts`,
- * ‏ו-`IdSchema` / `EmailSchema` ב-`@metavchim/shared`.
+ * ‏ו-`IdSchema` / `EmailSchema` / `OptionalPhoneInputSchema` ב-`@metavchim/shared`.
  */
 
 const ROOT = join(import.meta.dirname, "../../../..");
 
 function sources(dir: string): { path: string; text: string }[] {
   return readdirSync(join(ROOT, dir), { recursive: true, encoding: "utf8" })
-    .filter((name) => name.endsWith(".ts") && !/\.(test|int\.test|testkit)\.ts$/u.test(name))
+    .filter((name) => /\.tsx?$/u.test(name) && !/\.(test|int\.test|testkit)\.ts$/u.test(name))
     .map((name) => ({ path: `${dir}/${name}`, text: readFileSync(join(ROOT, dir, name), "utf8") }));
 }
 
 const API = sources("apps/api/src");
 const SHARED = sources("packages/shared/src");
+const WEB = sources("apps/web/src");
 
 function offenders(
   files: { path: string; text: string }[],
@@ -55,6 +57,10 @@ describe("כללי אימות משותפים", () => {
         "apps/api/src/common/session-token.ts": "כותרת Bearer — אותו טוקן בתוך תבנית של כותרת",
       }),
     ).toEqual([]);
+  });
+
+  it("טלפון שאדם מקליד — `OptionalPhoneInputSchema` המשותף", () => {
+    expect(offenders([...API, ...WEB], /\[\\d\\-\+ \]\{9,20\}/u, {})).toEqual([]);
   });
 
   it("אימייל — `EmailSchema` המשותף", () => {
