@@ -13,7 +13,7 @@ import {
   shouldRetireAfterFailure,
   type Capability,
 } from "@metavchim/shared";
-import { prisma } from "../runtime.js";
+import { prisma, withTenant } from "../runtime.js";
 import {
   capabilitiesByUser,
   notificationAnchorSubjects,
@@ -102,8 +102,7 @@ export async function processPushSweep(): Promise<void> {
     // השליחה עצמה יוצאת החוצה לרשת ולכן אינה יושבת בתוך טרנזקציה:
     // עשרות בקשות HTTP בתוך טרנזקציה אחת היו מחזיקות חיבור DB פתוח
     // לשניות ארוכות. קוראים בטרנזקציה, שולחים מחוצה לה, מסמנים בשנייה.
-    const pending = await prisma.$transaction(async (tx) => {
-      await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenant.id}, true)`;
+    const pending = await withTenant(tenant.id, async (tx) => {
       return tx.notification.findMany({
         where: {
           tenantId: tenant.id,
@@ -126,8 +125,7 @@ export async function processPushSweep(): Promise<void> {
     });
     if (pending.length === 0) continue;
 
-    const { subscriptions, devices } = await prisma.$transaction(async (tx) => {
-      await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenant.id}, true)`;
+    const { subscriptions, devices } = await withTenant(tenant.id, async (tx) => {
       return {
         subscriptions: webPushConfigured
           ? await tx.pushSubscription.findMany({ where: { tenantId: tenant.id } })
@@ -196,8 +194,7 @@ export async function processPushSweep(): Promise<void> {
       const badge =
         recipients.devices.length === 0
           ? undefined
-          : await prisma.$transaction(async (tx) => {
-              await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenant.id}, true)`;
+          : await withTenant(tenant.id, async (tx) => {
               return tx.notification.count({
                 where: { tenantId: tenant.id, OR: [{ userId: null }, { userId }], readAt: null },
               });
@@ -284,8 +281,7 @@ export async function processPushSweep(): Promise<void> {
     }
     for (const id of deviceSucceeded) deviceFailed.delete(id);
 
-    await prisma.$transaction(async (tx) => {
-      await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenant.id}, true)`;
+    await withTenant(tenant.id, async (tx) => {
       // כולן מסומנות, גם המסוננות — אחרת הן יישלפו שוב בכל סריקה
       await tx.notification.updateMany({
         where: { tenantId: tenant.id, id: { in: pending.map((n) => n.id) } },

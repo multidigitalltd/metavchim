@@ -16,7 +16,7 @@ import {
   type SpeakerTurn,
   type TranscriptSegment,
 } from "@metavchim/shared";
-import { prisma } from "../runtime.js";
+import { prisma, withTenant } from "../runtime.js";
 import { storageGet } from "../storage.js";
 import { tenantHasFeature } from "../tenant-settings.js";
 import { decryptSetting } from "../whatsapp/config.js";
@@ -210,8 +210,7 @@ export async function transcribeOneCall(): Promise<void> {
   for (const tenant of tenants) {
     // המסלול נבדק לפני התפיסה: תור קיים אינו עוקף ביטול של הפיצ'ר
     if (!(await tenantHasFeature(tenant.id, "transcription"))) continue;
-    const pending = await prisma.$transaction(async (tx) => {
-      await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenant.id}, true)`;
+    const pending = await withTenant(tenant.id, async (tx) => {
       const row = await tx.call.findFirst({
         where: { tenantId: tenant.id, transcriptionStatus: "pending" },
         orderBy: { occurredAt: "asc" },
@@ -364,8 +363,7 @@ export async function transcribeOneCall(): Promise<void> {
           }
         | undefined;
 
-      await prisma.$transaction(async (tx) => {
-        await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenant.id}, true)`;
+      await withTenant(tenant.id, async (tx) => {
         await tx.call.updateMany({
           where: { id: pending.id, tenantId: tenant.id },
           data: {
@@ -545,8 +543,7 @@ export async function transcribeOneCall(): Promise<void> {
       });
     } catch (error) {
       console.error(`[call-transcribe] ${pending.id} failed: ${String(error)}`);
-      await prisma.$transaction(async (tx) => {
-        await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenant.id}, true)`;
+      await withTenant(tenant.id, async (tx) => {
         await tx.call.updateMany({
           where: { id: pending.id, tenantId: tenant.id },
           data: { transcriptionStatus: "failed" },
