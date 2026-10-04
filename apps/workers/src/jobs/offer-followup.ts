@@ -1,6 +1,7 @@
 import { type Job } from "bullmq";
 import { ulid } from "ulid";
 import { z } from "zod";
+import { NOT_RELEVANT_MATURITY } from "@metavchim/shared";
 import { withTenant } from "../runtime.js";
 import { automationOn } from "../tenant-settings.js";
 
@@ -40,7 +41,8 @@ export async function processOfferFollowup(job: Job): Promise<void> {
     });
     if (!match) return;
     const buyer = await tx.buyer.findFirst({
-      where: { id: match.buyerId, tenantId, deletedAt: null },
+      /* ‏„לא רלוונטי” — אין למי לחזור על ההצעה */
+      where: { id: match.buyerId, tenantId, deletedAt: null, maturity: { not: NOT_RELEVANT_MATURITY } },
       select: { id: true, ownerUserId: true },
     });
     if (!buyer?.ownerUserId) return;
