@@ -3252,6 +3252,8 @@ model MediaOrder {
   outletToken        String?   @unique @map("outlet_token") @db.VarChar(64)
   /// הנציג אישר מהעמוד שלו שההזמנה התקבלה
   outletConfirmedAt  DateTime? @map("outlet_confirmed_at")
+  /// תזכורת „טרם אישרתם קבלה” שנשלחה לנציג — פעם אחת להזמנה
+  outletReminderAt   DateTime? @map("outlet_reminder_at")
   createdBy         String?   @map("created_by") @db.Char(26)
   createdAt         DateTime  @default(now()) @map("created_at")
   updatedAt         DateTime  @updatedAt @map("updated_at")

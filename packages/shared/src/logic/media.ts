@@ -255,6 +255,27 @@ export const MEDIA_IMAGES_MAX = 8;
 /** ‏כמה זמן לפני סגירת הגיליון נשלחת התזכורת למשרד עם הזמנה ממתינה. */
 export const MEDIA_CLOSING_REMINDER_HOURS = 24;
 
+/** ‏כמה זמן אחרי שההזמנה נמסרה לנציג, בלי אישור קבלה, יוצאת לו תזכורת. */
+export const MEDIA_OUTLET_CONFIRM_REMINDER_HOURS = 48;
+
+/**
+ * ‏האם הגיע הזמן להזכיר לנציג: ההזמנה נמסרה לו לפני יותר מ-48 שעות,
+ * ‏הוא לא אישר קבלה, המודעה לא סומנה „פורסם” (מי שפרסם — קיבל), ולא
+ * ‏נשלחה תזכורת. פעם אחת להזמנה — נציג שלא ענה לשתי הודעות יקבל טלפון
+ * ‏מבעל הפלטפורמה, לא מייל שלישי.
+ */
+export function mediaOutletReminderDue(input: {
+  notifiedAt: Date | null;
+  outletConfirmedAt: Date | null;
+  publishedAt: Date | null;
+  outletReminderAt: Date | null;
+  now: Date;
+}): boolean {
+  if (input.notifiedAt === null || input.outletConfirmedAt !== null || input.publishedAt !== null) return false;
+  if (input.outletReminderAt !== null) return false;
+  return input.now.getTime() - input.notifiedAt.getTime() >= MEDIA_OUTLET_CONFIRM_REMINDER_HOURS * 60 * 60 * 1000;
+}
+
 /**
  * ‏מצב סגירת הגיליון לתצוגה — מה שהכרטיס והעמוד אומרים ליד המועד.
  *

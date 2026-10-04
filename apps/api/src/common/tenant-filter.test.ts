@@ -93,6 +93,8 @@ const CROSS_TENANT_BY_DESIGN: Record<string, string> = {
     "‏נתיבי המשרד מסננים לפי tenantId; הקריאה לפי creative_token היא לנציג המדיה שאין לו משרד — האסימון האקראי (32 בייט) הוא ההרשאה, ומנהל הפלטפורמה חוצה משרדים בהגדרה",
   "modules/media/media-closing-reminder.service.ts":
     "סורק תזכורות סגירת גיליון — עובר על ההזמנות הממתינות של כל המשרדים; ההתראה נכתבת בתוך withExplicitTenant",
+  "modules/media/media-outlet-reminder.service.ts":
+    "סורק תזכורות לנציגי מדיה — עובר על ההזמנות שנמסרו ולא אושרו בכל המשרדים; כותב רק media_orders (מחוץ ל-RLS) ושולח מייל",
 };
 
 /**
