@@ -16,7 +16,7 @@ import { Throttle } from "@nestjs/throttler";
 import { Public, RequireCapability } from "../../common/auth.decorators";
 import { assertContactAccess } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
-import { ZodValidationPipe } from "../../common/zod-validation.pipe";
+import { ZodValidationPipe, IdParam } from "../../common/zod-validation.pipe";
 import { PrismaService } from "../../core/prisma.service";
 import {
   AgreementsService,
@@ -150,7 +150,7 @@ export class AgreementsController {
   @RequireCapability("offers.send")
   @HttpCode(200)
   async send(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
     @Body(new ZodValidationPipe(SendSchema)) body: z.infer<typeof SendSchema>,
   ): Promise<{ waUrl?: string; sentTo?: string; message: string }> {
     return this.prisma.withTenant((tx) => this.agreements.deliver(tx, id, body.channel));
@@ -168,7 +168,7 @@ export class AgreementsController {
   @Get("agreements/contact/:contactId")
   @RequireCapability("buyers.view_own")
   async listForContact(
-    @Param("contactId", new ZodValidationPipe(IdSchema)) contactId: string,
+    @Param("contactId", IdParam) contactId: string,
   ): Promise<AgreementSummary[]> {
     const tenantId = TenantContext.current().tenantId;
     return this.prisma.withTenant(async (tx) => {
@@ -207,7 +207,7 @@ export class AgreementsController {
   @Get("agreements/:id/document")
   @RequireCapability("buyers.view_own", "settings.manage")
   async document(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
   ): Promise<Awaited<ReturnType<AgreementsService["document"]>>> {
     return this.prisma.withTenant((tx) => this.agreements.document(tx, id));
   }

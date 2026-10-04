@@ -67,7 +67,7 @@ describe("כתובת איש הקשר מגיעה מהטופס עד המסד", () 
       expect(
         body,
         `${entry.schema} אינה מקבלת contactEmail — ‎.strict()‎ תדחה את הטופס ב-400`,
-      ).toMatch(/contactEmail:\s*z\./u);
+      ).toMatch(/contactEmail:\s*(?:z\.|EmailSchema\b)/u);
     });
   }
 

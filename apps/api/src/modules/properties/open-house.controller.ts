@@ -1,8 +1,6 @@
 import { Body, Controller, Get, HttpCode, Param, Patch, Post } from "@nestjs/common";
 import { Throttle } from "@nestjs/throttler";
-import { z } from "zod";
 import {
-  IdSchema,
   OpenHouseCreateSchema,
   OpenHouseRegisterSchema,
   OpenHouseStatusUpdateSchema,
@@ -15,7 +13,7 @@ import {
   type OpenHouseWalkIn,
 } from "@metavchim/shared";
 import { Public, RequireCapability } from "../../common/auth.decorators";
-import { ZodValidationPipe } from "../../common/zod-validation.pipe";
+import { ZodValidationPipe, IdParam, PublicTokenParam } from "../../common/zod-validation.pipe";
 import { OpenHouseService, type OpenHousesDto, type PublicOpenHouseDto } from "./open-house.service";
 
 /**
@@ -23,8 +21,6 @@ import { OpenHouseService, type OpenHousesDto, type PublicOpenHouseDto } from ".
  * ‏והרשמה מהדף הציבורי דרך טוקן דף הנחיתה (אותו טוקן, אותה מגבלת
  * ‏קצב ואותו honeypot כמו טופס הפנייה).
  */
-const IdParam = new ZodValidationPipe(IdSchema);
-const TokenParam = new ZodValidationPipe(z.string().regex(/^[A-Za-z0-9_-]{43}$/u));
 
 @Controller()
 export class OpenHouseController {
@@ -78,7 +74,7 @@ export class OpenHouseController {
 
   @Public()
   @Get("public/landing/:token/open-house")
-  publicView(@Param("token", TokenParam) token: string): Promise<PublicOpenHouseDto> {
+  publicView(@Param("token", PublicTokenParam) token: string): Promise<PublicOpenHouseDto> {
     return this.openHouse.publicView(token);
   }
 
@@ -87,7 +83,7 @@ export class OpenHouseController {
   @Post("public/landing/:token/open-house/:ohId/register")
   @HttpCode(200)
   async register(
-    @Param("token", TokenParam) token: string,
+    @Param("token", PublicTokenParam) token: string,
     @Param("ohId", IdParam) openHouseId: string,
     @Body(new ZodValidationPipe(OpenHouseRegisterSchema)) body: OpenHouseRegister,
   ): Promise<{ ok: true }> {

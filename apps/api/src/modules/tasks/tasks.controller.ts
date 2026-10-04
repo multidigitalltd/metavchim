@@ -7,7 +7,7 @@ import {
   TASK_PRIORITIES,
 } from "@metavchim/shared";
 import { RequireCapability } from "../../common/auth.decorators";
-import { ZodValidationPipe } from "../../common/zod-validation.pipe";
+import { ZodValidationPipe, IdParam } from "../../common/zod-validation.pipe";
 import { TasksService, type TaskDto } from "./tasks.service";
 
 /**
@@ -67,7 +67,6 @@ const ListQuerySchema = z
 
 const EntityTypeSchema = z.enum(TASK_ENTITY_TYPES);
 
-const IdParam = new ZodValidationPipe(IdSchema);
 
 @Controller("tasks")
 export class TasksController {

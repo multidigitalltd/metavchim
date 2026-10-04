@@ -1,21 +1,18 @@
 import { Body, Controller, Get, Param, Patch, Post } from "@nestjs/common";
 import {
-  IdSchema,
   PropertyBidCreateSchema,
   PropertyBidDecisionSchema,
   type PropertyBidCreate,
   type PropertyBidDecision,
 } from "@metavchim/shared";
 import { RequireCapability } from "../../common/auth.decorators";
-import { ZodValidationPipe } from "../../common/zod-validation.pipe";
+import { ZodValidationPipe, IdParam } from "../../common/zod-validation.pipe";
 import { PropertyBidsService, type PropertyBidsDto } from "./property-bids.service";
 
 /**
  * ‏הצעות מחיר על נכס — קריאה עם `properties.view`, רישום והכרעה עם
  * ‎`properties.edit`. שמות הקונים מסוננים בשירות לפי יכולת הקונים.
  */
-const IdParam = new ZodValidationPipe(IdSchema);
-
 @Controller("properties/:id/bids")
 export class PropertyBidsController {
   constructor(private readonly bids: PropertyBidsService) {}

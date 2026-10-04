@@ -18,10 +18,11 @@ import {
   PhoneInputSchema,
   type ContactPerson,
   type DuplicateGroup,
+  OptionalEmailSchema,
 } from "@metavchim/shared";
 import { assertContactAccess, leadOwnershipFilter, ownershipFilter } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
-import { ZodValidationPipe } from "../../common/zod-validation.pipe";
+import { ZodValidationPipe, IdParam } from "../../common/zod-validation.pipe";
 import { AuditService } from "../../core/audit.service";
 import { PrismaService } from "../../core/prisma.service";
 import { AnyAuthenticated, RequireCapability } from "../../common/auth.decorators";
@@ -43,7 +44,7 @@ const DismissSchema = z
 
 /** אימייל תקין או מחרוזת ריקה למחיקה — אין מצב "לא נשלח" דו-משמעי. */
 const UpdateEmailSchema = z
-  .object({ email: z.union([z.string().trim().email().max(254), z.literal("")]) })
+  .object({ email: OptionalEmailSchema })
   .strict();
 
 /**
@@ -101,7 +102,7 @@ const AddPersonSchema = z
     phone: PhoneField,
     role: z.enum(CONTACT_ROLES).default("spouse"),
     // אופציונלי: המתווך לא תמיד יודע את האימייל בזמן ההוספה
-    email: z.union([z.string().trim().email().max(254), z.literal("")]).optional(),
+    email: OptionalEmailSchema.optional(),
   })
   .strict();
 
@@ -148,7 +149,7 @@ export class ContactsController {
   @RequireCapability("contacts.delete")
   @Get(":id/erasure-preview")
   async erasurePreview(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
   ): Promise<ErasurePreviewDto> {
     return this.erasure.preview(id);
   }
@@ -165,7 +166,7 @@ export class ContactsController {
   @Delete(":id")
   @HttpCode(200)
   async erase(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
     @Body(new ZodValidationPipe(EraseContactSchema)) body: z.infer<typeof EraseContactSchema>,
   ): Promise<{ ok: true }> {
     return this.erasure.erase(id, body.confirmName);
@@ -217,7 +218,7 @@ export class ContactsController {
   @AnyAuthenticated()
   @Get(":id/related")
   async related(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
   ): Promise<RelatedEntitiesDto> {
     const tenantId = TenantContext.current().tenantId;
     return this.prisma.withTenant(async (tx) => {
@@ -285,7 +286,7 @@ export class ContactsController {
   @AnyAuthenticated()
   @Get(":id/people")
   async people(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
   ): Promise<{
     people: ContactPerson[];
     phones: { id: string | null; phone: string; label: string; primary: boolean }[];
@@ -323,7 +324,7 @@ export class ContactsController {
   @Patch(":id/name")
   @HttpCode(200)
   async setName(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
     @Body(new ZodValidationPipe(UpdateNameSchema)) body: z.infer<typeof UpdateNameSchema>,
   ): Promise<{ ok: true; changed: boolean }> {
     const tenantId = TenantContext.current().tenantId;
@@ -348,7 +349,7 @@ export class ContactsController {
   @Patch(":id/email")
   @HttpCode(200)
   async setEmail(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
     @Body(new ZodValidationPipe(UpdateEmailSchema)) body: z.infer<typeof UpdateEmailSchema>,
   ): Promise<{ ok: true }> {
     const tenantId = TenantContext.current().tenantId;
@@ -377,7 +378,7 @@ export class ContactsController {
   @Patch(":id/phone")
   @HttpCode(200)
   async setPhone(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
     @Body(new ZodValidationPipe(UpdatePhoneSchema)) body: z.infer<typeof UpdatePhoneSchema>,
   ): Promise<{ ok: true; changed: boolean; phone: string }> {
     const tenantId = TenantContext.current().tenantId;
@@ -425,7 +426,7 @@ export class ContactsController {
   @Patch(":id/marketing-consent")
   @HttpCode(200)
   async setMarketingConsent(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
     @Body(new ZodValidationPipe(MarketingConsentSchema))
     body: z.infer<typeof MarketingConsentSchema>,
   ): Promise<{ ok: true; changed: boolean }> {
@@ -459,7 +460,7 @@ export class ContactsController {
   @Patch(":id/shared-tabu")
   @HttpCode(200)
   async setSharedTabu(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
     @Body(new ZodValidationPipe(SharedTabuSchema))
     body: z.infer<typeof SharedTabuSchema>,
   ): Promise<{ ok: true; changed: boolean }> {
@@ -485,7 +486,7 @@ export class ContactsController {
   @Post(":id/people")
   @HttpCode(200)
   async addPerson(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
     @Body(new ZodValidationPipe(AddPersonSchema)) body: z.infer<typeof AddPersonSchema>,
   ): Promise<{ ok: true }> {
     const tenantId = TenantContext.current().tenantId;
@@ -506,8 +507,8 @@ export class ContactsController {
   @Patch(":id/people/:relatedId/email")
   @HttpCode(200)
   async setPersonEmail(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
-    @Param("relatedId", new ZodValidationPipe(IdSchema)) relatedId: string,
+    @Param("id", IdParam) id: string,
+    @Param("relatedId", IdParam) relatedId: string,
     @Body(new ZodValidationPipe(UpdateEmailSchema)) body: z.infer<typeof UpdateEmailSchema>,
   ): Promise<{ ok: true }> {
     const tenantId = TenantContext.current().tenantId;
@@ -523,8 +524,8 @@ export class ContactsController {
   @Delete(":id/people/:relatedId")
   @HttpCode(200)
   async removePerson(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
-    @Param("relatedId", new ZodValidationPipe(IdSchema)) relatedId: string,
+    @Param("id", IdParam) id: string,
+    @Param("relatedId", IdParam) relatedId: string,
   ): Promise<{ ok: true }> {
     const tenantId = TenantContext.current().tenantId;
     await this.prisma.withTenant(async (tx) => {
@@ -542,7 +543,7 @@ export class ContactsController {
   @Post(":id/phones")
   @HttpCode(200)
   async addPhone(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
     @Body(new ZodValidationPipe(AddPhoneSchema)) body: z.infer<typeof AddPhoneSchema>,
   ): Promise<{ ok: true }> {
     const tenantId = TenantContext.current().tenantId;
@@ -560,8 +561,8 @@ export class ContactsController {
   @Delete(":id/phones/:phoneId")
   @HttpCode(200)
   async removePhone(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
-    @Param("phoneId", new ZodValidationPipe(IdSchema)) phoneId: string,
+    @Param("id", IdParam) id: string,
+    @Param("phoneId", IdParam) phoneId: string,
   ): Promise<{ ok: true }> {
     const tenantId = TenantContext.current().tenantId;
     await this.prisma.withTenant(async (tx) => {

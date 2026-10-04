@@ -25,7 +25,6 @@ import {
   asSupportSeverity,
   EMAIL_ATTACHMENT_MAX_BYTES,
   EMAIL_ATTACHMENT_MAX_COUNT,
-  IdSchema,
   MAX_SUPPORT_MESSAGE,
   MAX_SUPPORT_REPLY,
   MAX_SUPPORT_SCREENSHOT_BYTES,
@@ -41,7 +40,7 @@ import {
   PlatformAdmin,
 } from "../../common/auth.decorators";
 import { PlatformAdminGuard } from "../../common/platform-admin.guard";
-import { ZodValidationPipe } from "../../common/zod-validation.pipe";
+import { ZodValidationPipe, IdParam } from "../../common/zod-validation.pipe";
 import { SupportInboxService } from "./support-inbox.service";
 import {
   SupportService,
@@ -89,8 +88,6 @@ const RespondSchema = z
     reply: z.string().trim().max(MAX_SUPPORT_REPLY).optional(),
   })
   .strict();
-
-const IdParam = new ZodValidationPipe(IdSchema);
 
 @Controller("support")
 export class SupportController {

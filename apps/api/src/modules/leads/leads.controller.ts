@@ -4,7 +4,6 @@ import {
   BuyerMaturitySchema,
   BuyerRequirementsSchema,
   FinancingStatusSchema,
-  IdSchema,
   LeadSourceSchema,
   LeadIntentSchema,
   LeadStatusSchema,
@@ -12,9 +11,10 @@ import {
   leadDeletionKeepsContact,
   type LeadDeletionScope,
   type Page,
+  EmailSchema,
 } from "@metavchim/shared";
 import { RequireCapability } from "../../common/auth.decorators";
-import { ZodValidationPipe } from "../../common/zod-validation.pipe";
+import { ZodValidationPipe, IdParam } from "../../common/zod-validation.pipe";
 import { BuyersService, type BuyerDto } from "../buyers/buyers.service";
 import { LeadsService, type InteractionDto, type LeadDto } from "./leads.service";
 
@@ -23,7 +23,7 @@ const CreateLeadSchema = z
     contactName: z.string().min(2).max(120),
     contactPhone: PhoneInputSchema,
     /* אותו פער בדיוק כמו בקונה: השירות ידע לשמור, הסכימה לא קיבלה */
-    contactEmail: z.string().trim().email().max(254).optional(),
+    contactEmail: EmailSchema.optional(),
     source: LeadSourceSchema,
     /* ‏רוחב העמודה (`VarChar(60)`), לא מספר שנבחר כאן */
     sourceNote: z.string().trim().max(60).optional(),
@@ -146,7 +146,7 @@ export class LeadsController {
   @Get(":id")
   @RequireCapability("leads.view_own")
   async get(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
   ): Promise<{ lead: LeadDto; timeline: InteractionDto[] }> {
     return this.leads.getById(id);
   }
@@ -155,7 +155,7 @@ export class LeadsController {
   @RequireCapability("leads.edit")
   @HttpCode(200)
   async updateStatus(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
     @Body(new ZodValidationPipe(StatusSchema)) body: z.infer<typeof StatusSchema>,
   ): Promise<{ ok: true }> {
     await this.leads.updateStatus(id, body.status);
@@ -177,7 +177,7 @@ export class LeadsController {
   @RequireCapability("leads.edit")
   @HttpCode(200)
   async updateSource(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
     @Body(new ZodValidationPipe(SourceSchema)) body: z.infer<typeof SourceSchema>,
   ): Promise<{ ok: true }> {
     await this.leads.updateSource(id, body.source, body.sourceNote);
@@ -191,7 +191,7 @@ export class LeadsController {
   @Post(":id/convert")
   @RequireCapability("buyers.edit")
   async convert(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
     @Body(new ZodValidationPipe(ConvertSchema)) body: z.infer<typeof ConvertSchema>,
   ): Promise<BuyerDto> {
     return this.buyers.convertFromLead(id, body);
@@ -216,7 +216,7 @@ export class LeadsController {
   @Get(":id/deletion-preview")
   @RequireCapability("leads.delete")
   async deletionPreview(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
   ): Promise<Awaited<ReturnType<LeadsService["deletionPreview"]>>> {
     return this.leads.deletionPreview(id);
   }
@@ -225,7 +225,7 @@ export class LeadsController {
   @RequireCapability("leads.delete")
   @HttpCode(200)
   async remove(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
     @Body(new ZodValidationPipe(DeleteLeadSchema)) body: z.infer<typeof DeleteLeadSchema>,
   ): Promise<{ contactDeleted: boolean }> {
     return this.leads.remove(id, leadDeletionKeepsContact(body.scope ?? "lead_and_contact"));
@@ -234,7 +234,7 @@ export class LeadsController {
   @Post(":id/notes")
   @RequireCapability("leads.edit")
   async addNote(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
     @Body(new ZodValidationPipe(NoteSchema)) body: z.infer<typeof NoteSchema>,
   ): Promise<InteractionDto> {
     return this.leads.addNote(id, body.content);

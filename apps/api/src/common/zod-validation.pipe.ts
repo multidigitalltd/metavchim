@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, PipeTransform } from "@nestjs/common";
-import type { ZodSchema } from "zod";
+import { IdSchema } from "@metavchim/shared";
+import { z, type ZodSchema } from "zod";
 
 /**
  * כל Body/Query עובר סכמת Zod מפורשת — שדות לא מוצהרים נדחים (strict),
@@ -23,3 +24,14 @@ export class ZodValidationPipe implements PipeTransform {
     return result.data;
   }
 }
+
+/** ‏מזהה ישות בנתיב (`:id`) — ULID. הצינור חסר מצב, ולכן מופע אחד לכולם. */
+export const IdParam = new ZodValidationPipe(IdSchema);
+
+/**
+ * ‎**טוקן ציבורי** — קישור שנשלח ללקוח (הצעה, דף נחיתה, טופס קליטה, בית
+ * ‏פתוח, השוואה, מודעה, אימות). כולם 32 בתים אקראיים ב-base64url, כלומר
+ * ‏43 תווים בדיוק: מה שאינו בצורה הזו אינו טוקן שלנו, ואין טעם לחפש אותו.
+ */
+export const PublicTokenSchema = z.string().regex(/^[A-Za-z0-9_-]{43}$/u);
+export const PublicTokenParam = new ZodValidationPipe(PublicTokenSchema);

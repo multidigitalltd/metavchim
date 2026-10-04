@@ -19,12 +19,11 @@ import { z } from "zod";
 import {
   EMAIL_ATTACHMENT_MAX_BYTES,
   EMAIL_ATTACHMENT_MAX_COUNT,
-  IdSchema,
   SUPPORT_STATUSES,
 } from "@metavchim/shared";
 import { PlatformAdmin } from "../../common/auth.decorators";
 import { PlatformAdminGuard } from "../../common/platform-admin.guard";
-import { ZodValidationPipe } from "../../common/zod-validation.pipe";
+import { ZodValidationPipe, IdParam } from "../../common/zod-validation.pipe";
 import { SupportInboxService } from "./support-inbox.service";
 
 /**
@@ -54,7 +53,7 @@ export class SupportInboxDeskController {
 
   @Get(":id")
   async thread(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
   ): Promise<Awaited<ReturnType<SupportInboxService["thread"]>>> {
     return this.inbox.thread(id);
   }
@@ -73,7 +72,7 @@ export class SupportInboxDeskController {
     }),
   )
   async reply(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
     @Body(new ZodValidationPipe(ReplySchema)) body: z.infer<typeof ReplySchema>,
     @UploadedFiles()
     files:
@@ -90,7 +89,7 @@ export class SupportInboxDeskController {
   @Post(":id/status")
   @HttpCode(200)
   async setStatus(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
     @Body(new ZodValidationPipe(StatusSchema)) body: z.infer<typeof StatusSchema>,
   ): Promise<{ ok: true }> {
     return this.inbox.setStatus(id, body.status);
@@ -103,7 +102,7 @@ export class SupportInboxDeskController {
   @Get("attachments/:id/raw")
   @Header("Cache-Control", "private, max-age=600")
   async attachment(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
     @Res({ passthrough: true }) res: Response,
   ): Promise<StreamableFile> {
     const object = await this.inbox.attachmentRaw(id);

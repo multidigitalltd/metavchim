@@ -16,10 +16,10 @@ import {
 import { FileInterceptor } from "@nestjs/platform-express";
 import type { Request, Response } from "express";
 import { z } from "zod";
-import { IdSchema, PhotoBlurSchema, type PhotoBlurRequest } from "@metavchim/shared";
+import { PhotoBlurSchema, type PhotoBlurRequest } from "@metavchim/shared";
 import { RequireCapability } from "../../common/auth.decorators";
 import { objectResponse } from "../../common/object-response";
-import { ZodValidationPipe } from "../../common/zod-validation.pipe";
+import { ZodValidationPipe, IdParam } from "../../common/zod-validation.pipe";
 import { MAX_IMAGE_BYTES, MediaService, type MediaDto } from "./media.service";
 
 /**
@@ -28,8 +28,6 @@ import { MAX_IMAGE_BYTES, MediaService, type MediaDto } from "./media.service";
  */
 const AltTextSchema = z.object({ altText: z.string().max(300) }).strict();
 const UploadFieldsSchema = z.object({ altText: z.string().max(300).optional() }).strict();
-
-const IdParam = new ZodValidationPipe(IdSchema);
 
 @Controller("properties/:id/media")
 export class MediaController {

@@ -12,7 +12,6 @@ import {
   ForumThreadEditSchema,
   ForumThreadInputSchema,
   ForumThreadListSchema,
-  IdSchema,
   type ForumListingInput,
   type ForumListingList,
   type ForumModeration,
@@ -27,7 +26,7 @@ import type { TaxTables } from "@metavchim/shared";
 import { AnyAuthenticated, PlatformAdmin } from "../../common/auth.decorators";
 import { TaxTablesService } from "../../core/tax-tables.service";
 import { PlatformAdminGuard } from "../../common/platform-admin.guard";
-import { ZodValidationPipe } from "../../common/zod-validation.pipe";
+import { ZodValidationPipe, IdParam } from "../../common/zod-validation.pipe";
 import {
   ForumService,
   type ForumListingDto,
@@ -48,7 +47,6 @@ import {
  * היחידה במערכת שמגיעה לעיני כל המשרדים, ולכן יש לה תקרה לשעה.
  * הניהול — הסתרה, נעיצה, דיווחים — של הפלטפורמה בלבד.
  */
-const IdParam = new ZodValidationPipe(IdSchema);
 const TargetParam = new ZodValidationPipe(z.enum(["thread", "post", "listing", "rating"]));
 const VoteTargetParam = new ZodValidationPipe(z.enum(["thread", "post"]));
 const FollowSchema = z.object({ following: z.boolean() }).strict();

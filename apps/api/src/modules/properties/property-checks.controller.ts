@@ -1,13 +1,12 @@
 import { Body, Controller, Get, Param, Patch, Post } from "@nestjs/common";
 import {
-  IdSchema,
   PropertyCheckKeySchema,
   PropertyCheckUpdateSchema,
   type PropertyCheckKey,
   type PropertyCheckUpdate,
 } from "@metavchim/shared";
 import { RequireCapability } from "../../common/auth.decorators";
-import { ZodValidationPipe } from "../../common/zod-validation.pipe";
+import { ZodValidationPipe, IdParam } from "../../common/zod-validation.pipe";
 import type { TaskDto } from "../tasks/tasks.service";
 import { PropertyChecksService, type PropertyChecksDto } from "./property-checks.service";
 
@@ -18,7 +17,6 @@ import { PropertyChecksService, type PropertyChecksDto } from "./property-checks
  * הייתה פותחת דלת צדדית למי שנחסם במפורש מניהול משימות (ביקורת
  * Codex). המפתח נבדק מול הרשימה הסגורה בשער.
  */
-const IdParam = new ZodValidationPipe(IdSchema);
 const KeyParam = new ZodValidationPipe(PropertyCheckKeySchema);
 
 @Controller("properties/:id/checks")
