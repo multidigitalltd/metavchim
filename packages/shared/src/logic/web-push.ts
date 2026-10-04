@@ -181,9 +181,16 @@ const CATEGORY_HOME: Partial<Record<WhatsAppNotifyCategory, string>> = {
   forum: "/forum",
 };
 
-/** ‏סוגים שהמסך שלהם צר מהקטגוריה: תשובה במייל יושבת בתיבת המייל. */
+/**
+ * ‏סוגים שהמסך שלהם אינו רשימת הקטגוריה. הקטגוריה היא העדפת
+ * ‏ההשתקה בוואטסאפ, לא בהכרח המסך: החלטה על משיכה שייכת לרשת, אבל
+ * ‏היסטוריית המשיכות יושבת בלשונית החיוב; והכיול האוטומטי שייך
+ * ‏להתאמות, אבל ההודעה עצמה אומרת שמשנים אותו בהגדרות ההתאמות.
+ */
 const TYPE_HOME: Readonly<Record<string, string>> = {
   email_reply: "/inbox",
+  payout_decision: "/settings?tab=billing",
+  match_weights_calibrated: "/settings#match-weights",
 };
 
 /**

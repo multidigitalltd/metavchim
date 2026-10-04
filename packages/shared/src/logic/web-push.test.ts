@@ -69,6 +69,16 @@ describe("notificationUrl", () => {
     expect(notificationUrl(note({ type: "email_reply", entityType: "contact", entityId: "c1" }))).toBe("/inbox");
   });
 
+  /* ‏הקטגוריה היא העדפת השתקה, לא המסך — ההודעות האלה מדברות על מסך אחר */
+  it("סוג שהמסך שלו אינו רשימת הקטגוריה נוחת על המסך שלו", () => {
+    expect(
+      notificationUrl(note({ type: "payout_decision", entityType: "payout_request", entityId: "p1" })),
+    ).toBe("/settings?tab=billing");
+    expect(notificationUrl(note({ type: "match_weights_calibrated", entityType: null, entityId: null }))).toBe(
+      "/settings#match-weights",
+    );
+  });
+
   /* ‏ישות עם מסך עדיין קובעת — הנושא הוא רק מה שבא במקום כשאין */
   it("ישות עם מסך גוברת על הנושא", () => {
     expect(notificationUrl(note({ type: "incoming_call", entityType: "lead", entityId: "l1" }))).toBe("/leads/l1");
