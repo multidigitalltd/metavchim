@@ -315,15 +315,15 @@ describe("pbxSilenceEmail", () => {
 });
 
 describe("pbxSilenceEmailDue", () => {
-  const due = (hasSeat: boolean, receivedOnWhatsApp: boolean, whatsappClosed: boolean): boolean =>
-    pbxSilenceEmailDue({ hasSeat, receivedOnWhatsApp, whatsappClosed });
+  const due = (onWhatsApp: boolean, receivedOnWhatsApp: boolean, whatsappClosed: boolean): boolean =>
+    pbxSilenceEmailDue({ onWhatsApp, receivedOnWhatsApp, whatsappClosed });
 
-  it("‏בלי מקום בסוכן — מייל מיד, בלי לחכות לוואטסאפ", () => {
+  it("‏מי שהוואטסאפ לא ישיג — מייל מיד, בלי לחכות לסבב שלו", () => {
     expect(due(false, false, false)).toBe(true);
     expect(due(false, false, true)).toBe(true);
   });
 
-  it("‏מחזיק מקום — לא במייל כל עוד הוואטסאפ עוד בדרך אליו", () => {
+  it("‏מי שהוואטסאפ ישיג — לא במייל כל עוד הוא עוד בדרך אליו", () => {
     expect(due(true, false, false)).toBe(false);
   });
 
@@ -331,7 +331,7 @@ describe("pbxSilenceEmailDue", () => {
    * ‏המרוץ שנמצא בביקורת: קיבל מקום אחרי שהוואטסאפ כבר סגר את ההתראה
    * ‏בלעדיו. בלי זה הוא לא היה מקבל אותה בשום ערוץ.
    */
-  it("‏מחזיק מקום שהוואטסאפ סגר את ההתראה בלעדיו — מייל", () => {
+  it("‏הוואטסאפ סגר את ההתראה בלעדיו — מייל", () => {
     expect(due(true, false, true)).toBe(true);
   });
 

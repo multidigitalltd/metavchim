@@ -28,10 +28,8 @@ import {
   type AgentHistoryTurn,
   fitsInteractive,
   type WhatsAppButton,
-  normalizePhoneForWhatsapp,
   replyButtonsPayload,
   splitForWhatsApp,
-  parseWhatsAppNotifyPrefs,
   sessionWindowOpen,
   shouldNotifyByWhatsApp,
   templateParams,
@@ -41,6 +39,8 @@ import {
   whatsappTemplateButton,
   whatsappTemplateParams,
   webOriginFromEnv,
+  whatsappNotifyRecipient,
+  type WhatsAppNotifyPrefs,
 } from "@metavchim/shared";
 import { prisma } from "../runtime.js";
 import { tenantHasFeature } from "../tenant-settings.js";
@@ -59,7 +59,7 @@ interface WaRecipient {
   phone: string;
   /** היכולות בפועל — שער הפרטים שההודעה נושאת */
   capabilities: readonly string[];
-  prefs: ReturnType<typeof parseWhatsAppNotifyPrefs>;
+  prefs: WhatsAppNotifyPrefs;
   windowOpen: boolean;
   /**
    * „שקט לשעתיים” פעיל — דחייה, לא ויתור.
@@ -71,11 +71,6 @@ interface WaRecipient {
   snoozed: boolean;
   /** עד מתי כבר קיבל — מונע כפילות כשנמען אחר של אותה התראה נכשל */
   notifiedThrough: Date | null;
-  /**
-   * ‏מחזיק מקום בסוכן (`whatsappAccess`). בעל המשרד נמען גם בלעדיו,
-   * ‏ולכן זה אינו נגזר מעצם היותו ברשימה — ראו `whatsappNeedsSeat`.
-   */
-  hasSeat: boolean;
   /**
    * ‎**מזהי הפעולות** שמותרות לו — לא היכולות שלו.
    *
@@ -309,19 +304,16 @@ export async function processWhatsAppNotifySweep(): Promise<void> {
     const notifyDetails = await loadNotifyDetails(tenant.id, pending);
 
     /*
-     * הנמענים: מי שהמנוי שלו פעיל (בעל המשרד תמיד), יש לו טלפון,
-     * והוא הדליק את ההתראות. אותם שערים בדיוק כמו במענה של הסוכן —
+     * הנמענים: מחזיקי מקום בסוכן, עם טלפון, שהדליקו את ההתראות
+     * (`whatsappNotifyRecipient`). אותם שערים בדיוק כמו במענה של הסוכן —
      * דחיפה למי שאינו מנוי הייתה מוצר בחינם, ולמי שכיבה היא ספאם.
-     *
-     * ‏„בעל המשרד תמיד” — חוץ מסוגים שדורשים מקום בסוכן
-     * ‏(`whatsappNeedsSeat`): אותם בעל משרד בלי מקום מקבל במייל בלבד.
      */
     const users = await prisma.user.findMany({
       where: {
         tenantId: tenant.id,
         isActive: true,
         phone: { not: null },
-        OR: [{ whatsappAccess: true }, { role: "owner" }],
+        whatsappAccess: true,
       },
       select: { id: true, phone: true, preferences: true, role: true, whatsappAccess: true },
     });
@@ -354,16 +346,9 @@ export async function processWhatsAppNotifySweep(): Promise<void> {
 
     const recipients = new Map<string, WaRecipient>();
     for (const user of users) {
-      const prefs = parseWhatsAppNotifyPrefs(user.preferences);
-      if (!prefs.enabled) continue;
-      /*
-       * המספר מנורמל לצורה הבינלאומית שהיא היחידה ש-Meta מקבלת.
-       * בפרופיל הוא נשמר כפי שהוקלד ("050-123-4567"), ושליחה שלו
-       * כמו שהוא נדחית (ביקורת Codex). מספר שאינו ניתן לנרמול
-       * אינו נמען.
-       */
-      const phone = normalizePhoneForWhatsapp(user.phone ?? "");
-      if (phone === "") continue;
+      const target = whatsappNotifyRecipient(user);
+      if (target === null) continue;
+      const { phone, prefs } = target;
       const chat = chatOf.get(user.id);
       /*
        * ‏אותה קבוצת יכולות משרתת שניים: אילו פעולות הכפתור רשאי
@@ -378,7 +363,6 @@ export async function processWhatsAppNotifySweep(): Promise<void> {
         windowOpen: sessionWindowOpen(chat?.lastInboundAt ?? null, now),
         snoozed: chat?.notifySnoozeUntil ? chat.notifySnoozeUntil > now : false,
         notifiedThrough: chat?.notifiedThrough ?? null,
-        hasSeat: user.whatsappAccess,
         allowedActionIds: allowedActionsFor(capabilities),
         capabilities: [...capabilities],
       });
@@ -401,7 +385,7 @@ export async function processWhatsAppNotifySweep(): Promise<void> {
       const queued = pending.filter(
         (notification) =>
           (!notification.userId || notification.userId === recipient.userId) &&
-          shouldNotifyByWhatsApp(notification.type, recipient.prefs, recipient) &&
+          shouldNotifyByWhatsApp(notification.type, recipient.prefs) &&
           notification.createdAt.getTime() > watermark,
       );
       if (queued.length === 0) continue;
@@ -657,7 +641,7 @@ export async function processWhatsAppNotifySweep(): Promise<void> {
         const targets = [...recipients.values()].filter(
           (recipient) =>
             (!notification.userId || notification.userId === recipient.userId) &&
-            shouldNotifyByWhatsApp(notification.type, recipient.prefs, recipient),
+            shouldNotifyByWhatsApp(notification.type, recipient.prefs),
         );
         return targets.every((recipient) => {
           const through = delivered.get(recipient.userId) ?? recipient.notifiedThrough;
