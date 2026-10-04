@@ -14,7 +14,7 @@ import {
   parseWhatsAppNotifyPrefs,
   sessionWindowOpen,
   shouldNotifyByWhatsApp,
-  whatsappNeedsSeat,
+  whatsappNotifyRecipient,
   templateParams,
   templateLineParams,
   NOTIFY_TEMPLATE_LINES,
@@ -27,9 +27,6 @@ import {
 import { mentorMessageBody } from "./mentor.js";
 import { WA_BUTTON_TITLE_MAX } from "./whatsapp-buttons.js";
 import { agentAction } from "../agent/actions.js";
-
-/** נמען שמחזיק מקום בסוכן — המקרה הרגיל של כל הבדיקות כאן. */
-const SEAT = { hasSeat: true };
 
 const item = (over: Partial<NotifyItem> = {}): NotifyItem => ({
   type: "lead",
@@ -85,8 +82,8 @@ describe("notifyCategory", () => {
 
   it("מי שכיבה „התאמות” מפסיק לקבל גם את פתיחת ההצעה", () => {
     const prefs = parseWhatsAppNotifyPrefs({ categories: { matches: false } });
-    expect(shouldNotifyByWhatsApp("offer_opened", prefs, SEAT)).toBe(false);
-    expect(shouldNotifyByWhatsApp("matches_found", prefs, SEAT)).toBe(false);
+    expect(shouldNotifyByWhatsApp("offer_opened", prefs)).toBe(false);
+    expect(shouldNotifyByWhatsApp("matches_found", prefs)).toBe(false);
   });
 });
 
@@ -170,41 +167,57 @@ describe("shouldNotifyByWhatsApp", () => {
 
   it("המתג הראשי חוסם הכול כשכיבו אותו", () => {
     const off = { ...DEFAULT_WHATSAPP_NOTIFY_PREFS, enabled: false };
-    expect(shouldNotifyByWhatsApp("lead", off, SEAT)).toBe(false);
+    expect(shouldNotifyByWhatsApp("lead", off)).toBe(false);
   });
 
   it("קטגוריה שלא נכתבה נחשבת דלוקה", () => {
-    expect(shouldNotifyByWhatsApp("lead", on, SEAT)).toBe(true);
+    expect(shouldNotifyByWhatsApp("lead", on)).toBe(true);
   });
 
   it("קטגוריה שכובתה חוסמת רק את עצמה", () => {
     const prefs = { ...on, categories: { digests: false } };
-    expect(shouldNotifyByWhatsApp("daily_brief", prefs, SEAT)).toBe(false);
-    expect(shouldNotifyByWhatsApp("call_missed", prefs, SEAT)).toBe(true);
+    expect(shouldNotifyByWhatsApp("daily_brief", prefs)).toBe(false);
+    expect(shouldNotifyByWhatsApp("call_missed", prefs)).toBe(true);
   });
 
-  /*
-   * ‏בקשת המשתמש: „רק מי שמנוי על הסוכן בוואטסאפ יקבל הודעה שהוובהוק
-   * ‏במרכזייה כנראה לא פעיל”. מי שאינו מנוי מקבל אותה במייל.
-   */
-  it("„המרכזייה השתתקה” יוצאת בוואטסאפ רק למחזיק מקום בסוכן", () => {
-    expect(shouldNotifyByWhatsApp("pbx_silent", on, { hasSeat: true })).toBe(true);
-    expect(shouldNotifyByWhatsApp("pbx_silent", on, { hasSeat: false })).toBe(false);
-  });
-
-  it("בלי מקום בסוכן — שאר ההתראות ממשיכות כרגיל", () => {
-    expect(shouldNotifyByWhatsApp("call_missed", on, { hasSeat: false })).toBe(true);
-    expect(shouldNotifyByWhatsApp("lead", on, { hasSeat: false })).toBe(true);
-  });
-
-  it("מקום בסוכן אינו עוקף מתג שכובה", () => {
+  it("מתג קטגוריה חל גם על „המרכזייה השתתקה” — היא בקטגוריית השיחות", () => {
     const callsOff = { ...on, categories: { calls: false } };
-    expect(shouldNotifyByWhatsApp("pbx_silent", callsOff, { hasSeat: true })).toBe(false);
+    expect(shouldNotifyByWhatsApp("pbx_silent", callsOff)).toBe(false);
+  });
+});
+
+/*
+ * ‏בקשת המשתמש: בעל משרד בלי מקום בסוכן מפסיק לקבל את כל התראות
+ * ‏הוואטסאפ — לא רק את „המרכזייה השתתקה”.
+ */
+describe("whatsappNotifyRecipient", () => {
+  const seat = { whatsappAccess: true, phone: "050-123-4567", preferences: {} };
+
+  it("מחזיק מקום עם טלפון — נמען, והמספר בצורה הבינלאומית", () => {
+    expect(whatsappNotifyRecipient(seat)).toEqual({
+      phone: "972501234567",
+      prefs: DEFAULT_WHATSAPP_NOTIFY_PREFS,
+    });
   });
 
-  it("רק „המרכזייה השתתקה” דורשת מקום", () => {
-    expect(whatsappNeedsSeat("pbx_silent")).toBe(true);
-    expect(whatsappNeedsSeat("call_missed")).toBe(false);
+  it("בלי מקום בסוכן — אינו נמען, גם כשהוא בעל המשרד", () => {
+    expect(whatsappNotifyRecipient({ ...seat, whatsappAccess: false })).toBeNull();
+  });
+
+  it("מי שכיבה את ההתראות — אינו נמען", () => {
+    const preferences = { whatsappNotify: { enabled: false } };
+    expect(whatsappNotifyRecipient({ ...seat, preferences })).toBeNull();
+  });
+
+  it("בלי טלפון, או טלפון שאין בו ספרות — אינו נמען", () => {
+    expect(whatsappNotifyRecipient({ ...seat, phone: null })).toBeNull();
+    expect(whatsappNotifyRecipient({ ...seat, phone: "—" })).toBeNull();
+  });
+
+  it("הקטגוריות עוברות כמו שהן — הסינון לפי סוג נשאר ל-shouldNotifyByWhatsApp", () => {
+    const preferences = { whatsappNotify: { categories: { calls: false } } };
+    const target = whatsappNotifyRecipient({ ...seat, preferences });
+    expect(target?.prefs.categories).toEqual({ calls: false });
   });
 });
 
