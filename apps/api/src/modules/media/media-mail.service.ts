@@ -352,6 +352,8 @@ export class MediaMailService {
       },
       `media-order:${order.id}:outlet-reminder`,
     );
+    // ‏כתובת שיש ושליחה שנכשלה — הסורק ינסה שוב בסבב הבא; המנהלים ישמעו כשייצא
+    if (!outletDelivered && outlet !== null && outlet.contactEmail !== "") return { outletDelivered };
     await this.toAdmins(order, {
       subject: `הנציג טרם אישר קבלה — ${order.outletName} — ${order.officeName}`,
       badge,

@@ -52,14 +52,20 @@ function order(overrides: Record<string, unknown>): Record<string, unknown> {
   };
 }
 
-function harness(orders: Record<string, unknown>[], contactEmail = "ads@tabu.example") {
+function harness(
+  orders: Record<string, unknown>[],
+  contactEmail = "ads@tabu.example",
+  options: { mailFails?: boolean; onList?: () => void } = {},
+) {
   const sent: { to: string; key: string }[] = [];
   const adminNotices: string[] = [];
+  const same = (a: unknown, b: unknown) => (a instanceof Date && b instanceof Date ? a.getTime() === b.getTime() : a === b);
   const prisma = {
     mediaOrder: {
       // ‏הסינון של השאילתה — כמו בבסיס הנתונים: נמסרה לפני הסף, בלי אישור, פרסום או תזכורת
-      findMany: async ({ where }: { where: { notifiedAt: { lte: Date } } }) =>
-        orders.filter(
+      findMany: async ({ where }: { where: { notifiedAt: { lte: Date } } }) => {
+        const snapshot = orders
+          .filter(
           (o) =>
             (o["status"] === "paid" || o["status"] === "referred") &&
             o["notifiedAt"] !== null &&
@@ -67,9 +73,15 @@ function harness(orders: Record<string, unknown>[], contactEmail = "ads@tabu.exa
             o["outletConfirmedAt"] === null &&
             o["publishedAt"] === null &&
             o["outletReminderAt"] === null,
-        ),
-      updateMany: async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
-        const row = orders.find((o) => o["id"] === where.id);
+          )
+          // ‏צילום, כמו שורות שחזרו מבסיס הנתונים — מה שישתנה אחר כך לא ייראה כאן
+          .map((o) => ({ ...o }));
+        options.onList?.();
+        return snapshot;
+      },
+      // ‏מותנה כמו בבסיס הנתונים: כל שדה ב-where חייב להתאים לשורה החיה
+      updateMany: async ({ where, data }: { where: Record<string, unknown>; data: Record<string, unknown> }) => {
+        const row = orders.find((o) => Object.entries(where).every(([k, v]) => same(o[k], v)));
         if (row) Object.assign(row, data);
         return { count: row ? 1 : 0 };
       },
@@ -87,6 +99,7 @@ function harness(orders: Record<string, unknown>[], contactEmail = "ads@tabu.exa
   };
   const email = {
     send: async (to: string, _subject: string, _content: unknown, opts: { idempotency: { key: string }; required?: boolean }) => {
+      if (options.mailFails) throw new Error("ספק הדואר לא זמין");
       sent.push({ to, key: opts.idempotency.key });
     },
   };
@@ -130,5 +143,31 @@ describe("MediaOutletReminderService.sweep", () => {
     expect(h.sent).toHaveLength(0);
     expect(h.adminNotices).toHaveLength(1);
     expect(h.orders[0]?.["outletReminderAt"]).toEqual(NOW);
+  });
+
+  it("כתובת שיש ושליחה שנכשלה — בלי סימון ובלי הודעה למנהלים; הסבב הבא מנסה שוב ומצליח", async () => {
+    const h = harness([order({})], "ads@tabu.example", { mailFails: true });
+    expect((await h.service.sweep(NOW)).reminded).toBe(0);
+    expect(h.orders[0]?.["outletReminderAt"]).toBeNull();
+    expect(h.adminNotices).toHaveLength(0);
+    // ‏הדואר חזר — אותה הזמנה נתפסת בסבב הבא
+    const later = new Date(NOW.getTime() + 60 * 60 * 1000);
+    const retry = harness(h.orders, "ads@tabu.example");
+    expect((await retry.service.sweep(later)).reminded).toBe(1);
+    expect(retry.sent).toHaveLength(1);
+    expect(h.orders[0]?.["outletReminderAt"]).toEqual(later);
+  });
+
+  it("הנציג אישר בין קריאת הרשימה לתורו — התפיסה המותנית לא תופסת, ואין מייל", async () => {
+    const rows = [order({})];
+    const h = harness(rows, "ads@tabu.example", {
+      onList: () => {
+        rows[0]!["outletConfirmedAt"] = NOW;
+      },
+    });
+    expect((await h.service.sweep(NOW)).reminded).toBe(0);
+    expect(h.sent).toHaveLength(0);
+    expect(h.adminNotices).toHaveLength(0);
+    expect(h.orders[0]?.["outletReminderAt"]).toBeNull();
   });
 });

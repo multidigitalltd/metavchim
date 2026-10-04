@@ -68,26 +68,52 @@ export class MediaOutletReminderService {
     for (const order of orders) {
       // ‏הכלל המשותף — גם אם השאילתה תשתנה, התנאי נשאר אחד
       if (!mediaOutletReminderDue({ ...order, now })) continue;
+      /*
+       * ‏תפיסה מותנית **לפני** השליחה: הרשימה נקראה פעם אחת, ובסבב של עד
+       * ‏200 הזמנות הנציג יכול לאשר קבלה או לסמן „פורסם” בין הקריאה לתורו.
+       * ‏מי שאושר, פורסם או הוזכר בינתיים — העדכון לא תופס, ואין מייל
+       * ‏(ביקורת Codex).
+       */
+      const claimed = await this.prisma.mediaOrder.updateMany({
+        where: { id: order.id, tenantId: order.tenantId, outletConfirmedAt: null, publishedAt: null, outletReminderAt: null },
+        data: { outletReminderAt: now },
+      });
+      if (claimed.count === 0) continue;
       try {
         const outlet = await this.prisma.mediaOutlet.findUnique({
           where: { id: order.outletId },
           select: { name: true, contactName: true, contactEmail: true, contactPhone: true, closingText: true, nextClosingAt: true },
         });
-        await this.mail.outletReminder(order, outlet);
+        const { outletDelivered } = await this.mail.outletReminder(order, outlet);
         /*
-         * ‏מסומן גם כשאין כתובת לנציג: אין טעם לנסות שוב בכל שעה — מנהלי
-         * ‏הפלטפורמה קיבלו הודעה, והם מי שמתקשר.
+         * ‏הסימון נשאר כשהמייל יצא, וגם כשאין לנציג כתובת (אין למי לשלוח;
+         * ‏מנהלי הפלטפורמה קיבלו הודעה והם מי שמתקשר). כתובת שיש ושליחה
+         * ‏שנכשלה — ספק דואר שנפל — אינה „נשלח”: הסימון משוחרר והסבב הבא
+         * ‏מנסה שוב (ביקורת Codex).
          */
-        await this.prisma.mediaOrder.updateMany({
-          where: { id: order.id, tenantId: order.tenantId, outletReminderAt: null },
-          data: { outletReminderAt: now },
-        });
+        if (!outletDelivered && outlet !== null && outlet.contactEmail !== "") {
+          await this.release(order.id, order.tenantId, now);
+          continue;
+        }
         reminded += 1;
       } catch (error) {
-        // כישלון בהזמנה אחת אינו עוצר את השאר — נחזור אליה בסבב הבא
+        // כישלון בהזמנה אחת אינו עוצר את השאר — הסימון משוחרר ונחזור אליה בסבב הבא
         this.logger.warn(`תזכורת לנציג על הזמנה ${order.id} נכשלה: ${String(error)}`);
+        await this.release(order.id, order.tenantId, now);
       }
     }
     return { reminded };
+  }
+
+  /** שחרור התפיסה — רק אם היא עדיין שלנו (אותו `now`). */
+  private async release(orderId: string, tenantId: string, now: Date): Promise<void> {
+    try {
+      await this.prisma.mediaOrder.updateMany({
+        where: { id: orderId, tenantId, outletReminderAt: now },
+        data: { outletReminderAt: null },
+      });
+    } catch (error) {
+      this.logger.error(`שחרור סימון התזכורת על הזמנה ${orderId} נכשל: ${String(error)}`);
+    }
   }
 }
