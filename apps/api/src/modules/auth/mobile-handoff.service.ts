@@ -1,7 +1,7 @@
-import { Injectable, OnModuleDestroy, UnauthorizedException } from "@nestjs/common";
+import { Inject, Injectable, UnauthorizedException } from "@nestjs/common";
 import { createHash, randomBytes } from "node:crypto";
-import IORedis from "ioredis";
-import { loadEnv } from "../../config/env";
+import type IORedis from "ioredis";
+import { REDIS } from "../../core/redis";
 
 /**
  * ‏מסירת כניסה בין הדפדפן לאפליקציה לנייד — קוד חד-פעמי, בשני הכיוונים.
@@ -41,19 +41,8 @@ type HandoffRecord =
   | { kind: "web"; token: string };
 
 @Injectable()
-export class MobileHandoffService implements OnModuleDestroy {
-  private readonly redis: IORedis;
-
-  constructor() {
-    this.redis = new IORedis(loadEnv().REDIS_URL, { maxRetriesPerRequest: 1, lazyConnect: false });
-    this.redis.on("error", () => {
-      /* נרשם באזהרות — אין קריסה על ניתוק Redis */
-    });
-  }
-
-  async onModuleDestroy(): Promise<void> {
-    await this.redis.quit().catch(() => undefined);
-  }
+export class MobileHandoffService {
+  constructor(@Inject(REDIS) private readonly redis: IORedis) {}
 
   private static key(code: string): string {
     return `mobile-handoff:${createHash("sha256").update(code).digest("hex")}`;

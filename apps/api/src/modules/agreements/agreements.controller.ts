@@ -23,6 +23,7 @@ import {
   type AgreementSummary,
   type PublicAgreementView,
 } from "./agreements.service";
+import { signerText } from "./signer-text";
 
 const CreateSchema = z
   .object({
@@ -46,7 +47,7 @@ const SendSchema = z.object({ channel: z.enum(["whatsapp", "email"]) }).strict()
 const CreateOpenSchema = z.object({ kind: z.enum(AGREEMENT_KINDS) }).strict();
 
 /** ‏כתובת מגורים שהחותם מזין — אותו כלל בהסכם רגיל ובקישור פתוח. */
-const SignerAddressSchema = z.string().min(2).max(200);
+const SignerAddressSchema = signerText(2, 200);
 
 /*
  * "מספר זיהוי" בתקנות אינו בהכרח תעודת זהות ישראלית — רוכשים תושבי
@@ -55,7 +56,7 @@ const SignerAddressSchema = z.string().min(2).max(200);
  */
 const SignSchema = z
   .object({
-    signerName: z.string().min(2).max(120),
+    signerName: signerText(2, 120),
     signerIdNumber: z.string().regex(/^[0-9A-Za-z]{5,20}$/u, "מספר הזיהוי אינו תקין"),
     /** ‏הסכם רגיל שמבקש כתובת — רשות כאן, חובה בשירות (רק לו יש את השורה). */
     signerAddress: SignerAddressSchema.optional(),
@@ -95,8 +96,8 @@ const SignSchema = z
          */
         phone: PhoneInputSchema,
         dealType: z.enum(["sale", "rent"]),
-        propertyText: z.string().min(4).max(300),
-        priceText: z.string().min(1).max(60),
+        propertyText: signerText(4, 300),
+        priceText: signerText(1, 60),
       })
       .strict()
       .optional(),

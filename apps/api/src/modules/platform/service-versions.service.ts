@@ -1,11 +1,12 @@
-import { Injectable, Logger, OnModuleDestroy } from "@nestjs/common";
-import IORedis from "ioredis";
+import { Inject, Injectable, Logger } from "@nestjs/common";
+import type IORedis from "ioredis";
 import {
   WORKERS_VERSION_KEY,
   type ServiceKey,
   type ServiceVersion,
 } from "@metavchim/shared";
 import { loadEnv } from "../../config/env";
+import { REDIS } from "../../core/redis";
 
 /**
  * הגרסה של כל שירות — לאיסוף במסך הפלטפורמה.
@@ -16,18 +17,10 @@ import { loadEnv } from "../../config/env";
  * `apps/web/src/app/version/route.ts`.
  */
 @Injectable()
-export class ServiceVersionsService implements OnModuleDestroy {
+export class ServiceVersionsService {
   private readonly logger = new Logger(ServiceVersionsService.name);
-  private redis: IORedis | null = null;
 
-  private client(): IORedis {
-    this.redis ??= new IORedis(loadEnv().REDIS_URL, {
-      // קריאה יחידה במסך ניהול. עדיף להודות ב"לא ידוע" מלתלות את המסך.
-      maxRetriesPerRequest: 1,
-      lazyConnect: false,
-    });
-    return this.redis;
-  }
+  constructor(@Inject(REDIS) private readonly redis: IORedis) {}
 
   /** גרסת השירותים שה-API יכול לדעת עליהם: הוא עצמו וה-Workers. */
   async collect(): Promise<ServiceVersion[]> {
@@ -39,7 +32,7 @@ export class ServiceVersionsService implements OnModuleDestroy {
 
   private async workersVersion(): Promise<string | null> {
     try {
-      const raw = await this.client().get(WORKERS_VERSION_KEY);
+      const raw = await this.redis.get(WORKERS_VERSION_KEY);
       if (raw === null) return null;
       const parsed: unknown = JSON.parse(raw);
       if (
@@ -59,9 +52,5 @@ export class ServiceVersionsService implements OnModuleDestroy {
       this.logger.warn(`workers version unavailable: ${String(error)}`);
       return null;
     }
-  }
-
-  async onModuleDestroy(): Promise<void> {
-    await this.redis?.quit().catch(() => undefined);
   }
 }
