@@ -53,6 +53,7 @@ import {
   PROPERTY_FACING_LABELS,
 } from "../schemas/property.js";
 import { ASSIGNABLE_ROLES, roleLabel } from "../schemas/user.js";
+import { BuyerMaturitySchema, MATURITY_LABELS } from "../schemas/buyer.js";
 import { NOTIFY_CATEGORIES, NOTIFY_CATEGORY_LABELS } from "../logic/notify-categories.js";
 import { DEAL_TYPE_LABELS, PROPERTY_TYPE_LABELS } from "./vocabulary.js";
 import {
@@ -600,13 +601,8 @@ const F_MATURITY: AgentFieldSpec = {
   label: "בשלות",
   type: "enum",
   hint: "עד כמה הלקוח קרוב לעסקה, לפי מה שנאמר",
-  values: ["very_hot", "hot", "interested", "not_ripe"],
-  valueLabels: {
-    very_hot: "חם מאוד",
-    hot: "חם",
-    interested: "מתעניין",
-    not_ripe: "לא בשל",
-  },
+  values: BuyerMaturitySchema.options,
+  valueLabels: MATURITY_LABELS,
 };
 
 const F_FINANCING: AgentFieldSpec = {

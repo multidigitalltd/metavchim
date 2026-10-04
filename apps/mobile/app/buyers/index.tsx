@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { FlatList, View } from "react-native";
 import { useRouter } from "expo-router";
+import { BuyerMaturitySchema, MATURITY_LABELS, type BuyerMaturity } from "@metavchim/shared";
 import { routeFor } from "@/lib/nav";
 import { apiGet, apiList } from "@/lib/api";
 import { can, useAuth } from "@/lib/auth";
@@ -23,17 +24,14 @@ import {
 import { space } from "@/theme";
 import { makeStyles } from "@/lib/theme";
 
-type Filter = "all" | "very_hot" | "hot" | "interested" | "not_ripe";
+type Filter = "all" | BuyerMaturity;
 
 const FILTERS: { key: Filter; label: string }[] = [
   { key: "all", label: "הכול" },
-  { key: "very_hot", label: "חם מאוד" },
-  { key: "hot", label: "חם" },
-  { key: "interested", label: "מתעניין" },
-  { key: "not_ripe", label: "לא בשל" },
+  ...BuyerMaturitySchema.options.map((key) => ({ key, label: MATURITY_LABELS[key] })),
 ];
 
-const MATURITY_ORDER = ["very_hot", "hot", "interested", "not_ripe"];
+const MATURITY_ORDER: readonly string[] = BuyerMaturitySchema.options;
 
 /** ‏לקוחות (קונים ושוכרים) — החמים למעלה. */
 export default function BuyersScreen() {

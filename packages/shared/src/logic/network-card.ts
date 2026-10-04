@@ -93,6 +93,7 @@ const MATURITY_CHIP: Record<
   very_hot: { icon: "flame", tone: "hot" },
   hot: { icon: "flame", tone: "hot" },
   not_ripe: { icon: "clock", tone: "plain" },
+  not_relevant: { icon: "tag", tone: "plain" },
 };
 
 /**

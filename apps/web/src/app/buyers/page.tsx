@@ -11,6 +11,7 @@ import { useRouter } from "next/navigation";
 import { Button } from "@metavchim/ui";
 import { apiGet, apiList, apiPost } from "@/lib/api";
 import { formatPrice, lastActivityText, MATURITY_LABELS } from "@/lib/format";
+import { MATURITY_ORDER, maturityTone } from "@/lib/maturity";
 import { can, useRequireAuth } from "@/lib/use-auth";
 import { useFeature } from "@/lib/use-features";
 import { IconMic, IconPlus, IconSheet } from "../icons";
@@ -56,16 +57,6 @@ interface BuyerRow {
   lastActivityAt?: string;
 }
 
-const MATURITY_ORDER = ["very_hot", "hot", "interested", "not_ripe"];
-
-/* גלולות הבשלות — הפלטה המדויקת מקובץ העיצוב (mat()) */
-const MATURITY_PILL: Record<string, { fg: string; bg: string }> = {
-  very_hot: { fg: "var(--color-danger)", bg: "var(--color-danger-soft)" },
-  hot: { fg: "var(--domain-amber-fg)", bg: "var(--domain-amber-bg)" },
-  interested: { fg: "var(--color-success)", bg: "var(--color-success-soft)" },
-  not_ripe: { fg: "var(--chip-neutral-fg)", bg: "var(--chip-neutral-bg)" },
-};
-
 function budgetText(b: BuyerRow): string {
   // תקציב הוא נתון שמתברר; "לא צוין" הוא מידע, "0 ₪" הוא שקר
   if (b.requirements.budgetMaxAgorot === undefined) return "תקציב לא צוין";
@@ -83,7 +74,7 @@ function wantsText(b: BuyerRow): string {
 }
 
 function MaturityPill({ maturity }: { maturity: string }) {
-  const colors = MATURITY_PILL[maturity] ?? MATURITY_PILL["not_ripe"]!;
+  const colors = maturityTone(maturity);
   return (
     <span className="mv-pill" style={{ color: colors.fg, background: colors.bg }}>
       {labelOf(MATURITY_LABELS, maturity) ?? maturity}
@@ -471,7 +462,17 @@ export default function BuyersPage() {
           דירוג בשלות: <b style={{ color: "var(--color-danger)" }}>חם מאוד</b> ·{" "}
           <b style={{ color: "#8a6414" }}>חם</b> ·{" "}
           <b style={{ color: "var(--color-primary)" }}>מתעניין</b> ·{" "}
-          <b style={{ color: "var(--color-text-muted)" }}>לא בשל</b>
+          <b style={{ color: "var(--color-text-muted)" }}>לא בשל</b> ·{" "}
+          <b
+            style={{
+              color: maturityTone("not_relevant").fg,
+              background: maturityTone("not_relevant").bg,
+              borderRadius: 99,
+              paddingInline: 7,
+            }}
+          >
+            לא רלוונטי
+          </b>
         </div>
         <div className="ms-auto flex flex-wrap items-center gap-2.5">
           {/* כפתור שמוביל לפיצ'ר שאינו במסלול נחסם בשרת ממילא —

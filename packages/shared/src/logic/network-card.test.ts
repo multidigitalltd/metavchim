@@ -8,6 +8,7 @@ import {
   withNetworkSafeTitle,
 } from "./network-card.js";
 import { SHARED_TABU_NETWORK_LABEL } from "./shared-tabu.js";
+import { BuyerMaturitySchema, MATURITY_LABELS } from "../schemas/buyer.js";
 
 const base = {
   dealType: "sale",
@@ -89,6 +90,14 @@ describe("demandChips", () => {
       (c) => c.text,
     );
     expect(text).not.toContain("מתעניין");
+  });
+
+  /* ‏כל דרגה שאינה ברירת המחדל מגיעה לכרטיס — גם זו שנוספה אחרונה */
+  it("כל בשלות חוץ מ„מתעניין” מייצרת תגית", () => {
+    for (const maturity of BuyerMaturitySchema.options.filter((m) => m !== "interested")) {
+      const text = demandChips({ ...base, maturity }).map((c) => c.text);
+      expect(text, maturity).toContain(MATURITY_LABELS[maturity]);
+    }
   });
 
   it("מאפיין מותאם מוצג בשמו בלי הקידומת הפנימית", () => {
