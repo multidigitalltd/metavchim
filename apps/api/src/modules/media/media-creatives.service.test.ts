@@ -50,6 +50,9 @@ function harness(status = "paid", options: { publishedAt?: Date; filesLockedAt?:
     creativeUploadedAt: null,
     publishedAt: options.publishedAt ?? null,
     publishedNote: "",
+    publishedBy: "",
+    outletToken: "o".repeat(43),
+    outletConfirmedAt: null,
   };
   const stored = new Map<string, { body: Buffer; mime: string }>();
   const deleted: string[] = [];
@@ -77,9 +80,10 @@ function harness(status = "paid", options: { publishedAt?: Date; filesLockedAt?:
     mediaOrder: {
       findFirst: async ({ where }: { where: { id: string; tenantId: string } }) =>
         order["id"] === where.id && order["tenantId"] === where.tenantId ? order : null,
-      findUnique: async ({ where }: { where: { id?: string; creativeToken?: string } }) =>
+      findUnique: async ({ where }: { where: { id?: string; creativeToken?: string; outletToken?: string } }) =>
         (where.id !== undefined && order["id"] === where.id) ||
-        (where.creativeToken !== undefined && order["creativeToken"] === where.creativeToken)
+        (where.creativeToken !== undefined && order["creativeToken"] === where.creativeToken) ||
+        (where.outletToken !== undefined && order["outletToken"] === where.outletToken)
           ? order
           : null,
     },
@@ -222,6 +226,9 @@ describe("MediaCreativesService.upload", () => {
     const described = await h.service.describeByToken(h.order["creativeToken"] as string);
     expect(described).toMatchObject({ outletName: "מגזין טאבו", creativeName: "ad.pdf", creativeMime: "application/pdf" });
     expect(Object.keys(described)).not.toContain("officeName");
+    // ‏מעמוד ההזמנה של הנציג — תמיד הקובץ העדכני, לפי האסימון הקבוע
+    expect((await h.service.getByOutletToken("o".repeat(43))).name).toBe("ad.pdf");
+    await expect(h.service.getByOutletToken("z".repeat(43))).rejects.toThrow(/אין קובץ/u);
   });
 });
 

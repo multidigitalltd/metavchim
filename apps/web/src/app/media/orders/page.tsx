@@ -39,8 +39,10 @@ interface OrderRow {
   canUploadCreative: boolean;
   creativeName: string | null;
   creativeUploadedAt: string | null;
+  outletConfirmedAt: string | null;
   publishedAt: string | null;
   publishedNote: string;
+  publishedBy: string;
 }
 
 const STATUS_TONE: Record<MediaOrderStage, string> = {
@@ -167,12 +169,17 @@ export default function MediaOrdersPage(): React.JSX.Element | null {
               ) : null}
               <p className="m-0 mt-1 text-[length:var(--type-caption-lg)]" style={{ color: "var(--color-text-muted)" }}>
                 {order.publishedAt
-                  ? `פורסם ${formatDateTime(order.publishedAt)}${order.publishedNote ? ` · ${order.publishedNote}` : ""}`
-                  : order.creativeName
-                    ? `קובץ המודעה: ${order.creativeName}`
-                    : order.canUploadCreative
-                      ? "עדיין בלי קובץ מודעה — מעלים בעמוד ההזמנה"
-                      : ""}
+                  ? `פורסם ${formatDateTime(order.publishedAt)}${order.publishedNote ? ` · ${order.publishedNote}` : ""}${order.publishedBy === "outlet" ? " · אישור הנציג" : ""}`
+                  : [
+                      order.outletConfirmedAt ? "הנציג אישר קבלה" : null,
+                      order.creativeName
+                        ? `קובץ המודעה: ${order.creativeName}`
+                        : order.canUploadCreative
+                          ? "עדיין בלי קובץ מודעה — מעלים בעמוד ההזמנה"
+                          : null,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
               </p>
               {order.canResume ? (
                 <div className="mt-3 flex flex-wrap items-center gap-2">

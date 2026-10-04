@@ -198,6 +198,7 @@ const TYPE_CATEGORY: Record<string, WhatsAppNotifyCategory> = {
    * ‏`system` כמו הסגירה: מי שהזמין פרסום בכסף רוצה לדעת מה קרה
    * ‏איתו, ואין קטגוריה „פרסום” שמישהו היה מכבה בנפרד.
    */
+  media_confirmed: "system",
   media_paid: "system",
   media_referred: "system",
   media_published: "system",

@@ -10,11 +10,13 @@ import {
   MEDIA_IMAGE_KINDS,
   MEDIA_PRODUCT_KINDS,
   MEDIA_PRODUCT_KIND_LABEL,
+  MEDIA_SETTLEMENT_KIND_LABEL,
   jerusalemWallIsoToUtc,
   jerusalemWallParts,
   type MediaImageKind,
   type MediaOrderStage,
   type MediaOrderStatus,
+  type MediaSettlementKind,
   type MediaOutletKind,
   type MediaProductKind,
 } from "@metavchim/shared";
@@ -87,6 +89,9 @@ interface AdminOutlet {
   images: AdminImage[];
   owedAgorot: number;
   owedOrders: number;
+  /** התמורה על הפניות שהמדיה טרם שילמה לפלטפורמה. */
+  leadFeesOwedAgorot: number;
+  leadFeesOwedOrders: number;
 }
 
 interface AdminTotals {
@@ -96,12 +101,14 @@ interface AdminTotals {
   owedAgorot: number;
   referrals: number;
   referralFeesAgorot: number;
+  leadFeesOwedAgorot: number;
 }
 
 interface AdminSettlement {
   id: string;
   outletId: string;
   outletName: string;
+  kind: MediaSettlementKind;
   amountAgorot: number;
   orderCount: number;
   reference: string;
@@ -135,8 +142,11 @@ interface AdminOrder {
   settlementId: string | null;
   creativeName: string | null;
   creativeUploadedAt: string | null;
+  outletConfirmedAt: string | null;
   publishedAt: string | null;
   publishedNote: string;
+  /** מי סימן „פורסם” — `platform` | `outlet`. */
+  publishedBy: string;
   createdAt: string;
 }
 
@@ -175,7 +185,8 @@ export function MediaSection(): React.JSX.Element {
   const [orders, setOrders] = useState<AdminOrder[] | null>(null);
   const [totals, setTotals] = useState<AdminTotals | null>(null);
   const [settlements, setSettlements] = useState<AdminSettlement[] | null>(null);
-  const [settling, setSettling] = useState<AdminOutlet | null>(null);
+  /** ‏רישום התחשבנות — המדיה, והכיוון: העברה אליה או תקבול ממנה על הפניות. */
+  const [settling, setSettling] = useState<{ outlet: AdminOutlet; kind: MediaSettlementKind } | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -400,8 +411,13 @@ export function MediaSection(): React.JSX.Element {
                       {outlet.active ? "" : " · מוסתרת"}
                     </span>
                     {outlet.owedOrders > 0 ? (
-                      <button type="button" className="mv-btn-soft" onClick={() => setSettling(outlet)}>
+                      <button type="button" className="mv-btn-soft" onClick={() => setSettling({ outlet, kind: "payout" })}>
                         לתשלום למדיה: {formatPrice(outlet.owedAgorot)} ({outlet.owedOrders} הזמנות)
+                      </button>
+                    ) : null}
+                    {outlet.leadFeesOwedOrders > 0 ? (
+                      <button type="button" className="mv-btn-soft" onClick={() => setSettling({ outlet, kind: "lead_fees" })}>
+                        לקבל על הפניות: {formatPrice(outlet.leadFeesOwedAgorot)} ({outlet.leadFeesOwedOrders} הפניות)
                       </button>
                     ) : null}
                     {outlet.contactEmail === "" ? (
@@ -728,7 +744,10 @@ export function MediaSection(): React.JSX.Element {
               ["שולם במערכת", `${formatPrice(totals.paidAgorot)} · ${totals.paidOrders} הזמנות`],
               ["עמלות הפלטפורמה", formatPrice(totals.commissionAgorot)],
               ["טרם הועבר למדיות", formatPrice(totals.owedAgorot)],
-              ["הפניות", `${totals.referrals} · תמורה ${formatPrice(totals.referralFeesAgorot)}`],
+              [
+                "הפניות",
+                `${totals.referrals} · תמורה ${formatPrice(totals.referralFeesAgorot)}${totals.leadFeesOwedAgorot > 0 ? ` · טרם נגבה ${formatPrice(totals.leadFeesOwedAgorot)}` : ""}`,
+              ],
             ].map(([label, value]) => (
               <div key={label} className="rounded-xl px-4 py-3" style={{ background: "var(--color-bg)" }}>
                 <dt className="m-0 text-sm font-bold" style={{ color: "var(--color-text-muted)" }}>{label}</dt>
@@ -756,7 +775,7 @@ export function MediaSection(): React.JSX.Element {
                   <th className="p-2 text-start">נשלח לנציג</th>
                   <th className="p-2 text-start">קובץ המודעה</th>
                   <th className="p-2 text-start">פרסום</th>
-                  <th className="p-2 text-start">הועבר למדיה</th>
+                  <th className="p-2 text-start">התחשבנות</th>
                 </tr>
               </thead>
               <tbody>
@@ -776,7 +795,14 @@ export function MediaSection(): React.JSX.Element {
                         </span>
                       ) : null}
                     </td>
-                    <td className="p-2 whitespace-nowrap">{order.statusLabel}</td>
+                    <td className="p-2 whitespace-nowrap">
+                      {order.statusLabel}
+                      {order.outletConfirmedAt ? (
+                        <span className="block" style={{ color: "var(--color-text-muted)" }}>
+                          הנציג אישר קבלה {formatDateTime(order.outletConfirmedAt)}
+                        </span>
+                      ) : null}
+                    </td>
                     <td className="p-2 whitespace-nowrap">
                       {order.kind === "paid" ? formatPrice(order.amountAgorot) : "הפניה"}
                     </td>
@@ -845,6 +871,11 @@ export function MediaSection(): React.JSX.Element {
                               {order.publishedNote}
                             </span>
                           ) : null}
+                          {order.publishedBy === "outlet" ? (
+                            <span className="block" style={{ color: "var(--color-text-muted)" }}>
+                              אישור הנציג
+                            </span>
+                          ) : null}
                         </>
                       ) : order.status === "paid" || order.status === "referred" ? (
                         <button
@@ -863,11 +894,15 @@ export function MediaSection(): React.JSX.Element {
                       )}
                     </td>
                     <td className="p-2 whitespace-nowrap">
-                      {order.kind !== "paid" || order.status !== "paid"
-                        ? "—"
-                        : order.settlementId
-                          ? "הועבר"
-                          : "ממתין"}
+                      {order.kind === "paid" && order.status === "paid"
+                        ? order.settlementId
+                          ? "הועבר למדיה"
+                          : "ממתין להעברה"
+                        : order.kind === "lead" && order.status === "referred" && (order.leadFeeAgorot ?? 0) > 0
+                          ? order.settlementId
+                            ? "התקבל מהמדיה"
+                            : "ממתין לתקבול"
+                          : "—"}
                     </td>
                   </tr>
                 ))}
@@ -883,12 +918,12 @@ export function MediaSection(): React.JSX.Element {
         aria-labelledby="media-settlements-heading"
       >
         <h2 id="media-settlements-heading" className="mb-1 text-lg font-semibold">
-          <IconBanknote s={16} /> העברות למדיה
+          <IconBanknote s={16} /> התחשבנות מול המדיות
         </h2>
         <p className="mb-3 text-sm" style={{ color: "var(--color-text-muted)" }}>
-          רישום של מה שהועבר למדיה — לא העברה בנקאית. כל מדיה עם הזמנות ששולמו וטרם הועברו
-          מציגה למעלה כפתור „לתשלום למדיה” עם היתרה (הסכום פחות העמלה); לוחצים, מקלידים אסמכתה,
-          וההזמנות מסומנות כהועברו.
+          רישום, לא העברה בנקאית — בשני הכיוונים. מדיה עם הזמנות ששולמו וטרם הועברו מציגה למעלה
+          „לתשלום למדיה” עם היתרה (הסכום פחות העמלה); מדיה עם הפניות שטרם שילמה עליהן מציגה „לקבל
+          על הפניות”. לוחצים, מקלידים אסמכתה, וההזמנות מסומנות.
         </p>
         {loadFailed ? null : settlements === null ? (
           <p aria-live="polite">טוען…</p>
@@ -900,7 +935,12 @@ export function MediaSection(): React.JSX.Element {
               <li key={s.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t py-2 text-sm" style={{ borderColor: "var(--color-row-border)" }}>
                 <span className="whitespace-nowrap">{formatDateTime(s.createdAt)}</span>
                 <span className="font-bold">{s.outletName}</span>
-                <span>{formatPrice(s.amountAgorot)} · {s.orderCount} הזמנות</span>
+                <span className={`mv-pill ${s.kind === "lead_fees" ? "mv-domain-blue" : "mv-domain-green"}`}>
+                  {MEDIA_SETTLEMENT_KIND_LABEL[s.kind]}
+                </span>
+                <span>
+                  {formatPrice(s.amountAgorot)} · {s.orderCount} {s.kind === "lead_fees" ? "הפניות" : "הזמנות"}
+                </span>
                 {s.reference ? <span dir="ltr">{s.reference}</span> : null}
                 {s.note ? <span style={{ color: "var(--color-text-muted)" }}>{s.note}</span> : null}
               </li>
@@ -911,18 +951,23 @@ export function MediaSection(): React.JSX.Element {
 
       <ConfirmDialog
         open={settling !== null}
-        title={settling ? `רישום העברה — ${settling.name}` : ""}
-        confirmLabel="רישום ההעברה"
+        title={settling ? `${MEDIA_SETTLEMENT_KIND_LABEL[settling.kind]} — ${settling.outlet.name}` : ""}
+        confirmLabel={settling?.kind === "lead_fees" ? "רישום התקבול" : "רישום ההעברה"}
         busy={busy}
         busyLabel="רושמים…"
         onConfirm={() => {
           if (settling === null) return;
-          const outlet = settling;
+          const { outlet, kind } = settling;
           const reference = (document.getElementById("settle-reference") as HTMLInputElement | null)?.value ?? "";
           const note = (document.getElementById("settle-note") as HTMLTextAreaElement | null)?.value ?? "";
           void run(
-            () => apiPost(`/platform/media/outlets/${outlet.id}/settlements`, { reference: reference.trim(), note: note.trim() }),
-            `✓ נרשמה העברה ל${outlet.name}`,
+            () =>
+              apiPost(`/platform/media/outlets/${outlet.id}/settlements`, {
+                kind,
+                reference: reference.trim(),
+                note: note.trim(),
+              }),
+            kind === "lead_fees" ? `✓ נרשם תקבול מ${outlet.name} על הפניות` : `✓ נרשמה העברה ל${outlet.name}`,
           ).then(() => setSettling(null));
         }}
         onClose={() => {
@@ -932,8 +977,9 @@ export function MediaSection(): React.JSX.Element {
         {settling ? (
           <>
             <p className="m-0 mb-3">
-              כל ההזמנות ששולמו וטרם הועברו — {settling.owedOrders} הזמנות, {formatPrice(settling.owedAgorot)} (אחרי
-              העמלה) — יסומנו כהועברו. הסכום מחושב בשרת מההזמנות עצמן.
+              {settling.kind === "lead_fees"
+                ? `כל ההפניות עם תמורה שטרם נגבתה — ${settling.outlet.leadFeesOwedOrders} הפניות, ${formatPrice(settling.outlet.leadFeesOwedAgorot)} — יסומנו כהתקבלו מהמדיה. הסכום מחושב בשרת מההפניות עצמן.`
+                : `כל ההזמנות ששולמו וטרם הועברו — ${settling.outlet.owedOrders} הזמנות, ${formatPrice(settling.outlet.owedAgorot)} (אחרי העמלה) — יסומנו כהועברו. הסכום מחושב בשרת מההזמנות עצמן.`}
             </p>
             <div className="grid gap-3">
               <label>

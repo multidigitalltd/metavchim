@@ -98,6 +98,26 @@ export function mediaOrderCanPublish(status: MediaOrderStatus, publishedAt: Date
   return (status === "paid" || status === "referred") && publishedAt === null;
 }
 
+/**
+ * ‏מי סימן „פורסם”: בעל הפלטפורמה ממסך הפלטפורמה, או נציג המדיה עצמו
+ * ‏מהקישור הציבורי שקיבל במייל. ריק = טרם סומן.
+ */
+export const MEDIA_PUBLISHED_BY = ["platform", "outlet"] as const;
+export type MediaPublishedBy = (typeof MEDIA_PUBLISHED_BY)[number];
+
+/**
+ * ‏רישומי התחשבנות מול המדיה — שני כיוונים:
+ * ‏`payout` — הפלטפורמה העבירה למדיה את חלקה בהזמנות ששולמו במערכת;
+ * ‏`lead_fees` — המדיה שילמה לפלטפורמה את התמורה על ההפניות שקיבלה.
+ */
+export const MEDIA_SETTLEMENT_KINDS = ["payout", "lead_fees"] as const;
+export type MediaSettlementKind = (typeof MEDIA_SETTLEMENT_KINDS)[number];
+
+export const MEDIA_SETTLEMENT_KIND_LABEL: Record<MediaSettlementKind, string> = {
+  payout: "העברה למדיה",
+  lead_fees: "תקבול על הפניות",
+};
+
 /* ==================== קובץ המודעה ==================== */
 
 /**
@@ -153,7 +173,7 @@ export function mediaCanUploadCreative(status: MediaOrderStatus, publishedAt: Da
 export type MediaTimelineState = "done" | "current" | "pending" | "failed";
 
 export interface MediaTimelineStep {
-  key: "created" | "paid" | "sent" | "creative" | "published";
+  key: "created" | "paid" | "sent" | "confirmed" | "creative" | "published";
   label: string;
   at: Date | null;
   state: MediaTimelineState;
@@ -164,6 +184,10 @@ export interface MediaTimelineStep {
  *
  * ‏הפניה אינה עוברת תשלום, ולכן שלב „שולם” אינו מופיע בה כלל. הזמנה
  * ‏שנכשלה או בוטלה מסתיימת בשלב שבו עצרה, בלי להבטיח המשך.
+ *
+ * ‏„הנציג אישר קבלה” ו„קובץ המודעה” הם שלבים שאינם חובה: פרסום בלי
+ * ‏אישור מפורש ובלי קובץ במערכת קורה (נציג שקיבל בטלפון), ולכן הפרסום
+ * ‏אינו מסמן אותם כבוצעו.
  */
 export function mediaOrderTimeline(order: {
   kind: MediaProductKind;
@@ -171,6 +195,7 @@ export function mediaOrderTimeline(order: {
   createdAt: Date;
   paidAt: Date | null;
   notifiedAt: Date | null;
+  outletConfirmedAt: Date | null;
   creativeUploadedAt: Date | null;
   publishedAt: Date | null;
 }): MediaTimelineStep[] {
@@ -194,6 +219,12 @@ export function mediaOrderTimeline(order: {
     state: stopped ? "pending" : sentDone ? "done" : atOutlet ? "current" : "pending",
   });
   steps.push({
+    key: "confirmed",
+    label: "הנציג אישר קבלה",
+    at: order.outletConfirmedAt,
+    state: order.outletConfirmedAt !== null ? "done" : "pending",
+  });
+  steps.push({
     key: "creative",
     label: "קובץ המודעה",
     at: order.creativeUploadedAt,
@@ -207,7 +238,9 @@ export function mediaOrderTimeline(order: {
   });
   if (published) {
     // ‏מה שקדם לפרסום בהכרח קרה — גם כשלא נרשם מועד (למשל נציג שקיבל בטלפון)
-    for (const step of steps) if (step.state !== "done" && step.key !== "creative") step.state = "done";
+    for (const step of steps) {
+      if (step.state !== "done" && step.key !== "creative" && step.key !== "confirmed") step.state = "done";
+    }
   }
   return steps;
 }
