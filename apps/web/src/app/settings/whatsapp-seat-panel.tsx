@@ -158,10 +158,10 @@ export function WhatsAppSeatPanel(): React.JSX.Element | null {
         ‎**כשאי אפשר לקנות — אומרים למה, ולא מציעים כפתור.** אותה
         הכרעה כמו במסך החיבור: כפתור שיכשל גרוע מהיעדר כפתור.
 
-        ‎**והסיבה הנכונה.** ההצעה חוזרת „פנו אלינו” גם כשהסליקה כבויה
-        (`whatsappSeatOffer`), ולכן הבדיקה של הסליקה קודמת: אחרת מסלול
-        שנמכר בו מקום, במערכת שהסליקה בה טרם הופעלה, נקרא „אינו כולל
-        מקומות נוספים” — טענה שאינה נכונה על המסלול.
+        ‎**והסיבה הנכונה** — מההצעה עצמה (`offer.reason`). עד כה שתי
+        הסיבות קיבלו נוסח אחד, ומסלול שנמכר בו מקום, במערכת שהסליקה בה
+        טרם הופעלה, נקרא „אינו כולל מקומות נוספים”. מסלול בלי מחיר קודם
+        לסליקה: הפעלת הסליקה לבדה לא תאפשר בו רכישה.
       */}
       {!mayPay ? (
         <p className="m-0 text-sm" style={{ color: "var(--color-text-muted)" }}>
@@ -173,7 +173,7 @@ export function WhatsAppSeatPanel(): React.JSX.Element | null {
             ? "פותח תשלום…"
             : `הוספת מקום למנוי — ${formatPlanPrice(offering.offer.monthlyAgorot)} לחודש ${VAT_EXCLUDED_SUFFIX}`}
         </button>
-      ) : offering.checkoutAvailable === false ? (
+      ) : offering.offer.reason === "checkout_off" ? (
         <p className="m-0 text-sm" style={{ color: "var(--color-text-muted)" }}>
           התשלום המקוון טרם הופעל במערכת — פנו אלינו ונוסיף מקום.
         </p>

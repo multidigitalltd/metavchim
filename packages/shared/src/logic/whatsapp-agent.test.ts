@@ -328,7 +328,7 @@ describe("whatsappSeatsFullText", () => {
   });
 
   it("מסלול שאינו מוכר מקומות — „פנו אלינו”, ובלי מחיר מומצא", () => {
-    const text = whatsappSeatsFullText({ seats: 1, offer: { kind: "contact" } });
+    const text = whatsappSeatsFullText({ seats: 1, offer: { kind: "contact", reason: "unpriced" } });
     expect(text).toContain("פנו אלינו");
     expect(text).not.toContain("₪");
   });
@@ -347,7 +347,8 @@ describe("whatsappSeatsFullText", () => {
     for (const seats of [1, 2]) {
       for (const offer of [
         { kind: "purchase", monthlyAgorot: 4_900 } as const,
-        { kind: "contact" } as const,
+        { kind: "contact", reason: "unpriced" } as const,
+        { kind: "contact", reason: "checkout_off" } as const,
       ]) {
         expect(whatsappSeatsFullText({ seats, offer })).not.toContain("כבו");
       }
@@ -365,7 +366,7 @@ describe("whatsappSeatsFullText", () => {
  */
 describe("whatsappSeatOffer — סליקה", () => {
   it("מחיר קיים אך הסליקה לא הופעלה — פנייה אנושית, ולא כפתור קנייה", () => {
-    expect(whatsappSeatOffer(19_950, false)).toEqual({ kind: "contact" });
+    expect(whatsappSeatOffer(19_950, false)).toEqual({ kind: "contact", reason: "checkout_off" });
     expect(whatsappSeatOfferText(whatsappSeatOffer(19_950, false))).not.toMatch(/\d/u);
   });
 
@@ -374,7 +375,13 @@ describe("whatsappSeatOffer — סליקה", () => {
   });
 
   it("בלי מחיר — גם סליקה פעילה אינה הופכת את זה להצעה", () => {
-    expect(whatsappSeatOffer(null, true)).toEqual({ kind: "contact" });
+    expect(whatsappSeatOffer(null, true)).toEqual({ kind: "contact", reason: "unpriced" });
+  });
+
+  /* ‏שני החסרים יחד — המחיר הוא הסיבה, כי הפעלת הסליקה לבדה לא תאפשר רכישה */
+  it("בלי מחיר וגם בלי סליקה — הסיבה היא המחיר", () => {
+    expect(whatsappSeatOffer(null, false)).toEqual({ kind: "contact", reason: "unpriced" });
+    expect(whatsappSeatOffer(0, false)).toEqual({ kind: "contact", reason: "unpriced" });
   });
 
   /*
