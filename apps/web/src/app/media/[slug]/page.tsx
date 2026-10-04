@@ -22,7 +22,10 @@ import { LoadError } from "../../load-error";
 import { Notice } from "../../notice";
 
 /**
- * העמוד הפנימי של מדיה — מה כלול, מה החשיפה, ומה אפשר להזמין.
+ * העמוד הפנימי של מדיה — מה אפשר להזמין, ומתחת: מה כלול ומה החשיפה.
+ *
+ * ‏הסדר: כותרת, **המוצרים**, דוגמאות המודעה, ואז „על המדיה” ו„החשיפה”.
+ * ‏המוצרים ראשונים כי בשבילם באים; מי שרוצה לקרוא קודם — גולל.
  *
  * ## שני כפתורים, שני מסלולים
  *
@@ -170,74 +173,8 @@ export default function MediaOutletPage(): React.JSX.Element | null {
         ) : null}
       </header>
 
-      {samples.length > 0 ? (
-        <section className="mv-card mv-card--pad mb-4" aria-labelledby="media-samples">
-          <h2 id="media-samples" className="m-0 text-[length:var(--type-card-title)] font-extrabold">
-            דוגמאות מודעה
-          </h2>
-          <ul className="m-0 mt-3 grid list-none grid-cols-2 gap-3 p-0 sm:grid-cols-3 lg:grid-cols-4">
-            {samples.map((img) => (
-              <li key={img.id} className="m-0">
-                <a
-                  href={mediaSrc(`media/${outlet.slug}/images/${img.id}`)}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="block overflow-hidden rounded-xl"
-                >
-                  <img
-                    src={mediaSrc(`media/${outlet.slug}/images/${img.id}`)}
-                    alt={img.caption || "דוגמת מודעה"}
-                    className="aspect-[3/4] w-full object-cover"
-                    loading="lazy"
-                  />
-                </a>
-                {img.caption ? (
-                  <p className="m-0 mt-1 text-[length:var(--type-caption-lg)]" style={{ color: "var(--color-text-muted)" }}>
-                    {img.caption}
-                  </p>
-                ) : null}
-              </li>
-            ))}
-          </ul>
-        </section>
-      ) : null}
-
-      <div className="grid gap-4 md:grid-cols-2">
-        <section className="mv-card mv-card--pad" aria-labelledby="media-about">
-          <h2 id="media-about" className="m-0 text-[length:var(--type-card-title)] font-extrabold">
-            על המדיה
-          </h2>
-          <p className="m-0 mt-2 whitespace-pre-line leading-relaxed">
-            {outlet.description || "תיאור המדיה יתווסף בקרוב."}
-          </p>
-          {outlet.highlights.length > 0 ? (
-            <>
-              <h3 className="m-0 mt-4 text-[length:var(--type-body)] font-extrabold">מה כלול</h3>
-              <ul className="m-0 mt-2 list-none space-y-1.5 p-0">
-                {outlet.highlights.map((line) => (
-                  <li key={line} className="flex items-start gap-2">
-                    <span aria-hidden="true" style={{ color: "var(--color-primary)" }}>
-                      <IconCheck s={16} />
-                    </span>
-                    <span>{line}</span>
-                  </li>
-                ))}
-              </ul>
-            </>
-          ) : null}
-        </section>
-
-        <section className="mv-card mv-card--pad" aria-labelledby="media-audience">
-          <h2 id="media-audience" className="m-0 text-[length:var(--type-card-title)] font-extrabold">
-            החשיפה
-          </h2>
-          <p className="m-0 mt-2 whitespace-pre-line leading-relaxed">
-            {outlet.audience || "פרטי החשיפה יתווספו בקרוב."}
-          </p>
-        </section>
-      </div>
-
-      <section className="mt-4" aria-labelledby="media-products">
+      {/* ‏המוצרים קודם — זה מה שבאים בשבילו; על המדיה והחשיפה מתחת, למי שרוצה לקרוא לפני שמזמין */}
+      <section className="mb-4" aria-labelledby="media-products">
         <h2 id="media-products" className="m-0 mb-3 text-[length:var(--type-card-title)] font-extrabold">
           מוצרים לרכישה
         </h2>
@@ -314,6 +251,73 @@ export default function MediaOutletPage(): React.JSX.Element | null {
           </ul>
         )}
       </section>
+
+      {samples.length > 0 ? (
+        <section className="mv-card mv-card--pad mb-4" aria-labelledby="media-samples">
+          <h2 id="media-samples" className="m-0 text-[length:var(--type-card-title)] font-extrabold">
+            דוגמאות מודעה
+          </h2>
+          <ul className="m-0 mt-3 grid list-none grid-cols-2 gap-3 p-0 sm:grid-cols-3 lg:grid-cols-4">
+            {samples.map((img) => (
+              <li key={img.id} className="m-0">
+                <a
+                  href={mediaSrc(`media/${outlet.slug}/images/${img.id}`)}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="block overflow-hidden rounded-xl"
+                >
+                  <img
+                    src={mediaSrc(`media/${outlet.slug}/images/${img.id}`)}
+                    alt={img.caption || "דוגמת מודעה"}
+                    className="aspect-[3/4] w-full object-cover"
+                    loading="lazy"
+                  />
+                </a>
+                {img.caption ? (
+                  <p className="m-0 mt-1 text-[length:var(--type-caption-lg)]" style={{ color: "var(--color-text-muted)" }}>
+                    {img.caption}
+                  </p>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
+      <div className="grid gap-4 md:grid-cols-2">
+        <section className="mv-card mv-card--pad" aria-labelledby="media-about">
+          <h2 id="media-about" className="m-0 text-[length:var(--type-card-title)] font-extrabold">
+            על המדיה
+          </h2>
+          <p className="m-0 mt-2 whitespace-pre-line leading-relaxed">
+            {outlet.description || "תיאור המדיה יתווסף בקרוב."}
+          </p>
+          {outlet.highlights.length > 0 ? (
+            <>
+              <h3 className="m-0 mt-4 text-[length:var(--type-body)] font-extrabold">מה כלול</h3>
+              <ul className="m-0 mt-2 list-none space-y-1.5 p-0">
+                {outlet.highlights.map((line) => (
+                  <li key={line} className="flex items-start gap-2">
+                    <span aria-hidden="true" style={{ color: "var(--color-primary)" }}>
+                      <IconCheck s={16} />
+                    </span>
+                    <span>{line}</span>
+                  </li>
+                ))}
+              </ul>
+            </>
+          ) : null}
+        </section>
+
+        <section className="mv-card mv-card--pad" aria-labelledby="media-audience">
+          <h2 id="media-audience" className="m-0 text-[length:var(--type-card-title)] font-extrabold">
+            החשיפה
+          </h2>
+          <p className="m-0 mt-2 whitespace-pre-line leading-relaxed">
+            {outlet.audience || "פרטי החשיפה יתווספו בקרוב."}
+          </p>
+        </section>
+      </div>
 
       {/* ‏נבנה מחדש לכל מוצר — התדריך של מודעה אחת אינו של השנייה */}
       {ordering !== null ? (
