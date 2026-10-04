@@ -135,8 +135,13 @@ export const WHATSAPP_SEAT_LIVE_STATUSES = ["active", "past_due"] as const;
 export type WhatsappSeatOffer =
   /** אפשר לרכוש כאן ועכשיו, במחיר הזה */
   | { kind: "purchase"; monthlyAgorot: number }
-  /** המסלול אינו מוכר מקומות נוספים — פנייה אנושית */
-  | { kind: "contact" };
+  /**
+   * ‏אי אפשר לרכוש כאן — פנייה אנושית. ‏`reason` אומר למה, כי שתי
+   * ‏הסיבות מובילות לשתי פעולות שונות: מחיר למסלול נקבע במסך המסלולים,
+   * ‏והסליקה מופעלת בהגדרות הפלטפורמה. מסלול בלי מחיר קודם — הפעלת
+   * ‏הסליקה לבדה לא תאפשר בו רכישה.
+   */
+  | { kind: "contact"; reason: "unpriced" | "checkout_off" };
 
 export function whatsappSeatOffer(
   planSeatMonthlyAgorot: number | null,
@@ -154,9 +159,12 @@ export function whatsappSeatOffer(
    */
   checkoutAvailable: boolean,
 ): WhatsappSeatOffer {
-  return planSeatMonthlyAgorot !== null && planSeatMonthlyAgorot > 0 && checkoutAvailable
+  if (planSeatMonthlyAgorot === null || planSeatMonthlyAgorot <= 0) {
+    return { kind: "contact", reason: "unpriced" };
+  }
+  return checkoutAvailable
     ? { kind: "purchase", monthlyAgorot: planSeatMonthlyAgorot }
-    : { kind: "contact" };
+    : { kind: "contact", reason: "checkout_off" };
 }
 
 /**
@@ -216,7 +224,7 @@ export function whatsappSeatsFullText(input: {
 
 export function whatsappSeatOfferText(offer: WhatsappSeatOffer): string {
   if (offer.kind === "contact") {
-    return "המסלול הנוכחי אינו כולל מקומות נוספים — פנו אלינו ונתאים.";
+    return "אפשר להוסיף מקומות נוספים למנוי — פנו אלינו ונוסיף.";
   }
   return (
     `מקום נוסף לסוכן במשרד: ${formatPlanPrice(offer.monthlyAgorot)} לחודש ` +
