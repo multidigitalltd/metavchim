@@ -143,6 +143,9 @@ interface AdminOrder {
   creativeName: string | null;
   creativeUploadedAt: string | null;
   outletConfirmedAt: string | null;
+  /** עמוד ההזמנה של הנציג — להעתקה כשהמייל שלו הלך לאיבוד. */
+  outletUrl: string | null;
+  outletReminderAt: string | null;
   publishedAt: string | null;
   publishedNote: string;
   /** מי סימן „פורסם” — `platform` | `outlet`. */
@@ -842,6 +845,16 @@ export function MediaSection(): React.JSX.Element {
                         >
                           {order.notifiedAt ? "שליחה חוזרת" : "שליחה לנציג"}
                         </button>
+                      ) : null}
+                      {order.outletUrl && (order.status === "paid" || order.status === "referred") ? (
+                        <a href={order.outletUrl} target="_blank" rel="noreferrer" className="block">
+                          עמוד הנציג
+                        </a>
+                      ) : null}
+                      {order.outletReminderAt ? (
+                        <span className="block" style={{ color: "var(--color-text-muted)" }}>
+                          תזכורת לנציג {formatDateTime(order.outletReminderAt)}
+                        </span>
                       ) : null}
                     </td>
                     <td className="p-2">

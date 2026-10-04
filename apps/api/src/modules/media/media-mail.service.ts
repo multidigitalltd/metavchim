@@ -330,6 +330,43 @@ export class MediaMailService {
     });
   }
 
+  /**
+   * יומיים בלי אישור קבלה — תזכורת לנציג עם אותו קישור, והודעה למנהלי
+   * הפלטפורמה (גם כשאין לנציג כתובת: אז הם מי שמתקשר).
+   */
+  async outletReminder(order: MailOrder, outlet: MailOutlet | null): Promise<{ outletDelivered: boolean }> {
+    const badge: EmailBadge = { label: "ממתין לאישור קבלה", tone: "warning" };
+    const outletDelivered = await this.toOutlet(
+      order,
+      outlet,
+      "reminder",
+      {
+        badge,
+        heading: "ההזמנה ממתינה לאישור קבלה",
+        paragraphs: [
+          `לפני יומיים נשלחה אליכם הזמנה ממשרד ${order.officeName} — ${order.productName} ב${order.outletName} — וטרם אישרתם שהתקבלה.`,
+          "בעמוד ההזמנה לוחצים „קיבלנו את ההזמנה”, ושם גם קובץ המודעה כשיועלה. אם כבר טיפלתם — האישור לוקח רגע ומרגיע את המשרד.",
+        ],
+        ...this.outletButton(order),
+        footnote: "הודעה אוטומטית ממערכת מתווכים — נשלחת פעם אחת להזמנה.",
+      },
+      `media-order:${order.id}:outlet-reminder`,
+    );
+    // ‏כתובת שיש ושליחה שנכשלה — הסורק ינסה שוב בסבב הבא; המנהלים ישמעו כשייצא
+    if (!outletDelivered && outlet !== null && outlet.contactEmail !== "") return { outletDelivered };
+    await this.toAdmins(order, {
+      subject: `הנציג טרם אישר קבלה — ${order.outletName} — ${order.officeName}`,
+      badge,
+      heading: "יומיים בלי אישור קבלה מנציג המדיה",
+      paragraphs: [
+        `${this.officeLine(order)} — ${order.productName} ב${order.outletName}: ההזמנה נמסרה לנציג וטרם אושרה.`,
+        outletDelivered ? "נשלחה לו תזכורת עם הקישור לעמוד ההזמנה." : this.deliveryLine(outlet, false),
+      ],
+      details: this.adminDetails(order, outlet),
+    });
+    return { outletDelivered };
+  }
+
   /** הנציג אישר מהעמוד שלו שההזמנה התקבלה — הלקוח יודע שמישהו קרא. */
   async outletConfirmed(order: MailOrder, outlet: MailOutlet | null): Promise<void> {
     const badge: EmailBadge = { label: "הנציג אישר קבלה", tone: "success" };
