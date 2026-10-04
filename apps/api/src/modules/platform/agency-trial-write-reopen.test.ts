@@ -1,6 +1,5 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { platformControllersSource } from "./platform-controllers.testkit";
 
 /**
  * ‎**כל כתיבה שנוגעת ב„ניסיון חי” שואלת על הפתיחה מחדש.**
@@ -23,7 +22,7 @@ import { describe, expect, it } from "vitest";
  * ‏מסלול, מודולים חסומים, תכונות — אינה נדרשת לדבר.
  */
 
-const SOURCE = readFileSync(join(__dirname, "platform.controller.ts"), "utf8");
+const SOURCE = platformControllersSource();
 
 /** ‏השדות ש„ניסיון חי” מורכב מהם. */
 const TRIAL_FIELDS = ["status", "trialEndsAt"];

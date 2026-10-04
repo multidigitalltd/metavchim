@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
+import { PLATFORM_CONTROLLERS } from "./platform-controllers.testkit";
 
 /**
  * ‎**נתוני משרד נקראים משולחן הפלטפורמה רק דרך `withExplicitTenant`.**
@@ -22,7 +23,6 @@ import { describe, expect, it } from "vitest";
  * ‏ואין בהן תוכן של לקוחות.
  */
 describe("שולחן המשרדים — תוכן של משרד עובר ב-RLS", () => {
-  const file = join(import.meta.dirname, "platform.controller.ts");
 
   /** ‏טבלאות שיש בהן תוכן של הלקוחות של המשרד. */
   const CUSTOMER_TABLES = new Set([
@@ -41,25 +41,28 @@ describe("שולחן המשרדים — תוכן של משרד עובר ב-RLS",
   ]);
 
   it("‏אין קריאה ישירה ל-prisma על טבלה של לקוחות", () => {
-    const text = readFileSync(file, "utf8");
-    const source = ts.createSourceFile(file, text, ts.ScriptTarget.ES2023, true);
     const offenders: string[] = [];
+    for (const name of PLATFORM_CONTROLLERS) {
+      const file = join(import.meta.dirname, name);
+      const text = readFileSync(file, "utf8");
+      const source = ts.createSourceFile(file, text, ts.ScriptTarget.ES2023, true);
 
-    /* ‎`this.prisma.<model>` — הצורה שעוקפת את הקשר הדייר. */
-    const visit = (node: ts.Node): void => {
-      if (
-        ts.isPropertyAccessExpression(node) &&
-        ts.isPropertyAccessExpression(node.expression) &&
-        node.expression.name.text === "prisma" &&
-        node.expression.expression.kind === ts.SyntaxKind.ThisKeyword &&
-        CUSTOMER_TABLES.has(node.name.text)
-      ) {
-        const { line } = source.getLineAndCharacterOfPosition(node.getStart(source));
-        offenders.push(`${node.name.text} (platform.controller.ts:${line + 1})`);
-      }
-      ts.forEachChild(node, visit);
-    };
-    ts.forEachChild(source, visit);
+      /* ‎`this.prisma.<model>` — הצורה שעוקפת את הקשר הדייר. */
+      const visit = (node: ts.Node): void => {
+        if (
+          ts.isPropertyAccessExpression(node) &&
+          ts.isPropertyAccessExpression(node.expression) &&
+          node.expression.name.text === "prisma" &&
+          node.expression.expression.kind === ts.SyntaxKind.ThisKeyword &&
+          CUSTOMER_TABLES.has(node.name.text)
+        ) {
+          const { line } = source.getLineAndCharacterOfPosition(node.getStart(source));
+          offenders.push(`${node.name.text} (${name}:${line + 1})`);
+        }
+        ts.forEachChild(node, visit);
+      };
+      ts.forEachChild(source, visit);
+    }
 
     expect(
       offenders,
@@ -98,7 +101,7 @@ describe("שולחן המשרדים — תוכן של משרד עובר ב-RLS",
    * ‏הלא נכון.
    */
   it("‏נמען המייל הוא בעלים פעיל בלבד", () => {
-    const text = readFileSync(file, "utf8");
+    const text = readFileSync(join(import.meta.dirname, "platform-agencies.controller.ts"), "utf8");
     const owner = /agencyOwner\([\s\S]{0,600}?role: "owner"[\s\S]{0,200}?isActive: true/u;
     expect(owner.test(text)).toBe(true);
   });
