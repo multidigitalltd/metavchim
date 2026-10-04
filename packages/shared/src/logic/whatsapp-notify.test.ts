@@ -290,8 +290,17 @@ describe("formatNotifyMessage", () => {
   });
 
   it("אינו מצרף קישור לדשבורד — הוא אינו מוסיף דבר", () => {
-    const text = formatNotifyMessage([item({ entityType: null })], "https://x");
+    const text = formatNotifyMessage([item({ type: "daily_brief", entityType: null })], "https://x");
     expect(text).not.toContain("https://x/");
+  });
+
+  /* ‏שיחה נכנסת על איש קשר — עד עכשיו בלי קישור בכלל, כי היעד היה `"/"` */
+  it("שיחה נכנסת על איש קשר מקשרת למסך השיחות", () => {
+    const text = formatNotifyMessage(
+      [item({ type: "incoming_call", entityType: "contact", entityId: "c1" })],
+      "https://x",
+    );
+    expect(text).toContain("https://x/calls");
   });
 
   it("רשימה ריקה אינה מייצרת הודעה", () => {

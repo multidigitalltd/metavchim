@@ -8,6 +8,8 @@
  * ומנוי מת שלא נמחק ממשיך להיכשל לנצח.
  */
 
+import { notifyCategory, type WhatsAppNotifyCategory } from "./notify-categories.js";
+
 /** התראה כפי שהיא נשמרת — רק השדות שהפוש צריך. */
 export interface PushableNotification {
   type: string;
@@ -158,16 +160,51 @@ const ENTITY_ROUTES: Record<string, (id?: string) => string> = {
 };
 
 /**
+ * ‎**כשלישות אין מסך — המסך של הנושא, לא מסך ההתראות.**
+ *
+ * ‏„שיחה נכנסת” מלקוח מוכר נכתבת על איש הקשר, ולאיש קשר אין עמוד
+ * ‏(ראו `FALLBACK_BY_DESIGN` ב-`verify-notification-routes.mjs`).
+ * ‏בלי השורה הזו היא נפלה ל-`"/"`, והכפתור „צפייה במערכת” נחת על
+ * ‏מסך ההתראות — במקום על השיחות, שזה מה שההודעה מדברת עליו (בקשת
+ * ‏המשתמש). כך גם „שיחה שלא נענתה” ממספר לא מוכר, „ההתאמות רועננו”
+ * ‏ו„ההצעה נדחתה” ברשת.
+ *
+ * ‏סיכומים והודעות מערכת אינם כאן בכוונה: אין להם מסך נושא, ומסך
+ * ‏ההתראות הוא המקום היחיד שבו גוף ההודעה מוצג במלואו.
+ */
+const CATEGORY_HOME: Partial<Record<WhatsAppNotifyCategory, string>> = {
+  calls: "/calls",
+  leads: "/leads",
+  tasks: "/tasks",
+  matches: "/matches",
+  network: "/collaboration",
+  forum: "/forum",
+};
+
+/**
+ * ‏סוגים שהמסך שלהם אינו רשימת הקטגוריה. הקטגוריה היא העדפת
+ * ‏ההשתקה בוואטסאפ, לא בהכרח המסך: החלטה על משיכה שייכת לרשת, אבל
+ * ‏היסטוריית המשיכות יושבת בלשונית החיוב; והכיול האוטומטי שייך
+ * ‏להתאמות, אבל ההודעה עצמה אומרת שמשנים אותו בהגדרות ההתאמות.
+ */
+const TYPE_HOME: Readonly<Record<string, string>> = {
+  email_reply: "/inbox",
+  payout_decision: "/settings?tab=billing",
+  match_weights_calibrated: "/settings#match-weights",
+};
+
+/**
  * נתיב היעד. ישות מוכרת עם מזהה → הכרטיס עצמו; ישות מוכרת בלי מזהה →
- * הרשימה; לא מוכרת → הדשבורד. אף פעם לא כתובת שבורה: לחיצה על התראה
- * שנוחתת על 404 גרועה מהתראה שלא נשלחה.
+ * הרשימה; אין לישות מסך → המסך של סוג ההתראה; גם לו אין → הדשבורד.
+ * אף פעם לא כתובת שבורה: לחיצה על התראה שנוחתת על 404 גרועה מהתראה
+ * שלא נשלחה.
  */
 export function notificationUrl(notification: PushableNotification): string {
   const route = notification.entityType
     ? ENTITY_ROUTES[notification.entityType]
     : undefined;
-  if (!route) return "/";
-  return route(notification.entityId ?? undefined);
+  if (route) return route(notification.entityId ?? undefined);
+  return TYPE_HOME[notification.type] ?? CATEGORY_HOME[notifyCategory(notification.type)] ?? "/";
 }
 
 export function pushPayload(notification: PushableNotification): PushPayload {

@@ -43,13 +43,46 @@ describe("notificationUrl", () => {
     expect(notificationUrl(note({ entityType: "offer", entityId: null }))).toBe("/offers");
   });
 
-  it("נופל לדשבורד כשאין ישות", () => {
-    expect(notificationUrl(note({ entityType: null, entityId: null }))).toBe("/");
+  /* ‏סיכום יומי — אין לו מסך נושא, ומסך ההתראות מציג את גופו במלואו */
+  it("נופל לדשבורד כשאין ישות ואין מסך לנושא", () => {
+    expect(notificationUrl(note({ type: "daily_brief", entityType: null, entityId: null }))).toBe("/");
   });
 
   // לחיצה על התראה שנוחתת על 404 גרועה מהתראה שלא נשלחה
   it("נופל לדשבורד גם על ישות שאינה מוכרת", () => {
-    expect(notificationUrl(note({ entityType: "widget", entityId: "abc" }))).toBe("/");
+    expect(notificationUrl(note({ type: "daily_brief", entityType: "widget", entityId: "abc" }))).toBe("/");
+  });
+
+  /*
+   * ‏„שיחה נכנסת” מלקוח מוכר נכתבת על איש הקשר, שאין לו עמוד — והכפתור
+   * ‏„צפייה במערכת” נחת על מסך ההתראות במקום על השיחות (בקשת המשתמש).
+   */
+  it("שיחה נכנסת על איש קשר נוחתת על השיחות", () => {
+    expect(notificationUrl(note({ type: "incoming_call", entityType: "contact", entityId: "c1" }))).toBe("/calls");
+    expect(notificationUrl(note({ type: "call_missed", entityType: null, entityId: null }))).toBe("/calls");
+  });
+
+  it("בלי ישות שיש לה מסך — המסך של הנושא", () => {
+    expect(notificationUrl(note({ type: "lead_sla", entityType: null, entityId: null }))).toBe("/leads");
+    expect(notificationUrl(note({ type: "matches_refreshed", entityType: null, entityId: null }))).toBe("/matches");
+    expect(notificationUrl(note({ type: "coop_offer_declined", entityType: null, entityId: null }))).toBe("/collaboration");
+    expect(notificationUrl(note({ type: "email_reply", entityType: "contact", entityId: "c1" }))).toBe("/inbox");
+  });
+
+  /* ‏הקטגוריה היא העדפת השתקה, לא המסך — ההודעות האלה מדברות על מסך אחר */
+  it("סוג שהמסך שלו אינו רשימת הקטגוריה נוחת על המסך שלו", () => {
+    expect(
+      notificationUrl(note({ type: "payout_decision", entityType: "payout_request", entityId: "p1" })),
+    ).toBe("/settings?tab=billing");
+    expect(notificationUrl(note({ type: "match_weights_calibrated", entityType: null, entityId: null }))).toBe(
+      "/settings#match-weights",
+    );
+  });
+
+  /* ‏ישות עם מסך עדיין קובעת — הנושא הוא רק מה שבא במקום כשאין */
+  it("ישות עם מסך גוברת על הנושא", () => {
+    expect(notificationUrl(note({ type: "incoming_call", entityType: "lead", entityId: "l1" }))).toBe("/leads/l1");
+    expect(notificationUrl(note({ type: "email_reply", entityType: "buyer", entityId: "b1" }))).toBe("/buyers/b1");
   });
 
   /*
