@@ -295,20 +295,11 @@ export async function processWhatsAppNotifySweep(): Promise<void> {
     if (pending.length === 0) continue;
 
     /*
-     * ‎**הפרטים נטענים פעם אחת למשרד, לא פעם לכל נמען.**
-     *
-     * ‏אותה התראה משרדית מגיעה לכמה סוכנים; טעינה פר-נמען הייתה
-     * מכפילה את אותן שאילתות בדיוק. מה **מותר** לכל אחד לראות מתוך
-     * מה שנטען מוכרע בהמשך, פר-נמען, ב-`canSeeNotifyDetail`.
-     */
-    const notifyDetails = await loadNotifyDetails(tenant.id, pending);
-
-    /*
      * הנמענים: מחזיקי מקום בסוכן, עם טלפון, שהדליקו את ההתראות
      * (`whatsappNotifyRecipient`). אותם שערים בדיוק כמו במענה של הסוכן —
      * דחיפה למי שאינו מנוי הייתה מוצר בחינם, ולמי שכיבה היא ספאם.
      */
-    const users = await prisma.user.findMany({
+    const candidates = await prisma.user.findMany({
       where: {
         tenantId: tenant.id,
         isActive: true,
@@ -317,7 +308,31 @@ export async function processWhatsAppNotifySweep(): Promise<void> {
       },
       select: { id: true, phone: true, preferences: true, role: true, whatsappAccess: true },
     });
-    if (users.length === 0) continue;
+    const users = candidates.flatMap((user) => {
+      const target = whatsappNotifyRecipient(user);
+      return target === null ? [] : [{ id: user.id, role: user.role, ...target }];
+    });
+    /*
+     * ‎**משרד בלי אף נמען סוגר את מה שממתין** (ביקורת Codex, P2).
+     *
+     * ‏בלי זה השורות נשארות פתוחות, והסבב טוען שוב את אותן מאתיים
+     * ‏התראות ואת הפרטים שלהן בכל דקה, עד שהן מתיישנות אחרי יממה. זה
+     * ‏המצב הרגיל של משרד שאין בו מחזיק מקום בסוכן — גם בעל המשרד אינו
+     * ‏נמען בלעדיו. התראה שאין לה נמענים נסגרת, כמו בסוף הסבב.
+     */
+    if (users.length === 0) {
+      await closeNotifications(tenant.id, pending.map((notification) => notification.id));
+      continue;
+    }
+
+    /*
+     * ‎**הפרטים נטענים פעם אחת למשרד, לא פעם לכל נמען.**
+     *
+     * ‏אותה התראה משרדית מגיעה לכמה סוכנים; טעינה פר-נמען הייתה
+     * מכפילה את אותן שאילתות בדיוק. מה **מותר** לכל אחד לראות מתוך
+     * מה שנטען מוכרע בהמשך, פר-נמען, ב-`canSeeNotifyDetail`.
+     */
+    const notifyDetails = await loadNotifyDetails(tenant.id, pending);
 
     const chats = await prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenant.id}, true)`;
@@ -346,9 +361,6 @@ export async function processWhatsAppNotifySweep(): Promise<void> {
 
     const recipients = new Map<string, WaRecipient>();
     for (const user of users) {
-      const target = whatsappNotifyRecipient(user);
-      if (target === null) continue;
-      const { phone, prefs } = target;
       const chat = chatOf.get(user.id);
       /*
        * ‏אותה קבוצת יכולות משרתת שניים: אילו פעולות הכפתור רשאי
@@ -358,8 +370,8 @@ export async function processWhatsAppNotifySweep(): Promise<void> {
       const capabilities = capsOf.get(user.id) ?? new Set<Capability>();
       recipients.set(user.id, {
         userId: user.id,
-        phone,
-        prefs,
+        phone: user.phone,
+        prefs: user.prefs,
         windowOpen: sessionWindowOpen(chat?.lastInboundAt ?? null, now),
         snoozed: chat?.notifySnoozeUntil ? chat.notifySnoozeUntil > now : false,
         notifiedThrough: chat?.notifiedThrough ?? null,
@@ -367,7 +379,6 @@ export async function processWhatsAppNotifySweep(): Promise<void> {
         capabilities: [...capabilities],
       });
     }
-    if (recipients.size === 0) continue;
 
     /*
      * החלוקה היא **פר-נמען**, וכל נמען מסונן מול החותמת שלו.
@@ -649,14 +660,18 @@ export async function processWhatsAppNotifySweep(): Promise<void> {
         });
       })
       .map((notification) => notification.id);
-    if (settled.length === 0) continue;
-
-    await prisma.$transaction(async (tx) => {
-      await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenant.id}, true)`;
-      await tx.notification.updateMany({
-        where: { tenantId: tenant.id, id: { in: settled } },
-        data: { whatsappAt: new Date() },
-      });
-    });
+    if (settled.length > 0) await closeNotifications(tenant.id, settled);
   }
+}
+
+/** ‏סימון התראות כסגורות — הסבב לא יחזור אליהן. ניקיון בלבד, ראו למעלה. */
+async function closeNotifications(tenantId: string, ids: string[]): Promise<void> {
+  if (ids.length === 0) return;
+  await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
+    await tx.notification.updateMany({
+      where: { tenantId, id: { in: ids } },
+      data: { whatsappAt: new Date() },
+    });
+  });
 }

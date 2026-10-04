@@ -59,9 +59,39 @@ describe("העשרת ההתראות בעובד", () => {
      */
     const at = WORKERS.indexOf("      const capabilities = ");
     expect(at, "חישוב היכולות פר-נמען נעלם").toBeGreaterThan(0);
-    const build = WORKERS.slice(at, WORKERS.indexOf("if (recipients.size === 0) continue;"));
+    const build = WORKERS.slice(at, WORKERS.indexOf("const delivered = new Map<string, Date>();"));
     expect(build).toContain("allowedActionIds: allowedActionsFor(capabilities)");
     expect(build).toContain("capabilities: [...capabilities]");
+  });
+
+  /*
+   * ‏בקשת המשתמש: בעל משרד בלי מקום בסוכן אינו מקבל התראות בוואטסאפ.
+   * ‏הכלל עצמו נבדק ב-`whatsapp-notify.test.ts` (`whatsappNotifyRecipient`);
+   * ‏כאן — שהסבב משתמש בו, ושאינו מחזיר את החריג בשאילתה.
+   */
+  it("הנמענים הם מחזיקי מקום בלבד — לפי הכלל המשותף", () => {
+    const pick = WORKERS.slice(
+      WORKERS.indexOf("const candidates = await prisma.user.findMany("),
+      WORKERS.indexOf("if (users.length === 0) {"),
+    );
+    expect(pick).toContain("whatsappAccess: true,");
+    expect(pick, "החריג של בעל המשרד חזר").not.toContain('role: "owner"');
+    expect(pick).toContain("whatsappNotifyRecipient(user)");
+  });
+
+  /*
+   * ‏ביקורת Codex: משרד בלי נמענים השאיר את ההתראות פתוחות, והסבב טען
+   * ‏אותן ואת הפרטים שלהן מחדש בכל דקה, עד יממה.
+   */
+  it("משרד בלי נמענים סוגר את מה שממתין, לפני טעינת הפרטים", () => {
+    const empty = WORKERS.slice(
+      WORKERS.indexOf("if (users.length === 0) {"),
+      WORKERS.indexOf("continue;", WORKERS.indexOf("if (users.length === 0) {")),
+    );
+    expect(empty).toContain("closeNotifications(tenant.id, pending.map(");
+    expect(WORKERS.indexOf("if (users.length === 0) {")).toBeLessThan(
+      WORKERS.indexOf("const notifyDetails = await loadNotifyDetails("),
+    );
   });
 
   it("„מה דחוף היום?” נשאר לתקציר בלבד ואינו ברירת מחדל", () => {
