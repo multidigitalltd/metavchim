@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { ulid } from "ulid";
-import { MEDIA_IMAGES_MAX, type MediaImageKind, type MediaImagePatch } from "@metavchim/shared";
+import { MEDIA_IMAGES_MAX, MEDIA_PRODUCT_IMAGES_MAX, type MediaImageKind, type MediaImagePatch } from "@metavchim/shared";
 import { PHOTO_EXT, PHOTO_MIME, UnreadablePhotoError, enhancePhoto } from "../../core/photo-enhancer";
 import { PrismaService } from "../../core/prisma.service";
 import { StorageService, type StoredObject } from "../../core/storage.service";
@@ -16,6 +16,10 @@ import { StorageService, type StoredObject } from "../../core/storage.service";
  *
  * שער הוא אחד: העלאת שער חדש מחליפה את הקודם (הקובץ נמחק). דוגמאות
  * מוגבלות ל-`MEDIA_IMAGES_MAX` — להראות, לא גלריה.
+ *
+ * **הדמיה של מוצר** (`kind = product`) — אותה טבלה, אותו מסלול, עם
+ * `product_id`: התמונה שייכת למוצר ולא למדיה, מוצגת על כרטיס המוצר,
+ * ויורדת איתו. עד `MEDIA_PRODUCT_IMAGES_MAX` למוצר.
  */
 
 export const MAX_MEDIA_IMAGE_BYTES = 10 * 1024 * 1024;
@@ -50,16 +54,33 @@ export class MediaImagesService {
     private readonly storage: StorageService,
   ) {}
 
+  /** הדמיה למוצר — המדיה נגזרת מהמוצר, והתמונה נקשרת אליו. */
+  async uploadForProduct(productId: string, file: Buffer, caption: string): Promise<{ id: string }> {
+    const product = await this.prisma.mediaProduct.findUnique({ where: { id: productId }, select: { outletId: true } });
+    if (product === null) throw new NotFoundException("המוצר לא נמצא");
+    return this.upload(product.outletId, file, { kind: "product", caption, productId });
+  }
+
   async upload(
     outletId: string,
     file: Buffer,
-    input: { kind: MediaImageKind; caption: string },
+    input: { kind: MediaImageKind; caption: string; productId?: string },
   ): Promise<{ id: string }> {
     const outlet = await this.prisma.mediaOutlet.findUnique({
       where: { id: outletId },
       select: { id: true },
     });
     if (outlet === null) throw new NotFoundException("המדיה לא נמצאה");
+    // ‏הדמיה בלי מוצר, או מוצר בלי הדמיה — אין דבר כזה; הסוג והשיוך הולכים יחד
+    if ((input.kind === "product") !== (input.productId !== undefined)) {
+      throw new BadRequestException("הדמיה מועלית על מוצר; שער ודוגמאות — על המדיה");
+    }
+    if (input.productId !== undefined) {
+      const count = await this.prisma.mediaOutletImage.count({ where: { productId: input.productId } });
+      if (count >= MEDIA_PRODUCT_IMAGES_MAX) {
+        throw new BadRequestException(`עד ${MEDIA_PRODUCT_IMAGES_MAX} הדמיות למוצר — מחקו אחת כדי להוסיף`);
+      }
+    }
     if (file.length === 0) throw new BadRequestException("קובץ ריק");
     if (file.length > MAX_MEDIA_IMAGE_BYTES) throw new BadRequestException("תמונה גדולה מדי — עד 10MB");
     if (!isSupportedImage(file)) throw new BadRequestException("פורמט לא נתמך — רק JPEG, PNG או WebP");
@@ -87,13 +108,14 @@ export class MediaImagesService {
           ? await this.prisma.mediaOutletImage.findMany({ where: { outletId, kind: "cover" } })
           : [];
       const last = await this.prisma.mediaOutletImage.aggregate({
-        where: { outletId, kind: input.kind },
+        where: input.productId === undefined ? { outletId, kind: input.kind } : { productId: input.productId },
         _max: { sortOrder: true },
       });
       await this.prisma.mediaOutletImage.create({
         data: {
           id,
           outletId,
+          productId: input.productId ?? null,
           kind: input.kind,
           s3Key,
           contentType: PHOTO_MIME,
@@ -113,6 +135,10 @@ export class MediaImagesService {
   async patch(id: string, input: MediaImagePatch): Promise<void> {
     const existing = await this.prisma.mediaOutletImage.findUnique({ where: { id } });
     if (existing === null) throw new NotFoundException("התמונה לא נמצאה");
+    // ‏הדמיה נשארת הדמיה של המוצר שלה; שער ודוגמה אינם הופכים להדמיה בלי מוצר
+    if (input.kind !== undefined && input.kind !== existing.kind && (input.kind === "product" || existing.kind === "product")) {
+      throw new BadRequestException("אי אפשר להפוך הדמיה של מוצר לתמונת מדיה, או להפך — מעלים מחדש במקום הנכון");
+    }
     await this.prisma.mediaOutletImage.update({ where: { id }, data: input });
   }
 

@@ -84,6 +84,8 @@ export interface MediaProductRow {
   priceAgorot: number | null;
   /** מועד סגירה של המוצר עצמו, ISO — ריק כשחל מועד המדיה. */
   nextClosingAt: string | null;
+  /** הדמיות — איך המודעה נראית בעמוד; מוגשות ב-`/media/:slug/images/:id`. */
+  images: { id: string; caption: string }[];
 }
 
 export interface MediaOutletDetail {
@@ -249,8 +251,10 @@ export class MediaService {
         products: {
           where: { active: true },
           orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+          include: { images: { orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }], select: { id: true, caption: true } } },
         },
-        images: { orderBy: [{ kind: "asc" }, { sortOrder: "asc" }, { createdAt: "asc" }] },
+        // ‏של המדיה כולה — הדמיות המוצרים יושבות על המוצרים
+        images: { where: { productId: null }, orderBy: [{ kind: "asc" }, { sortOrder: "asc" }, { createdAt: "asc" }] },
       },
     });
     if (outlet === null) throw new NotFoundException("המדיה לא נמצאה");
@@ -285,6 +289,7 @@ export class MediaService {
         kind: p.kind as MediaProductKind,
         priceAgorot: p.priceAgorot,
         nextClosingAt: p.nextClosingAt?.toISOString() ?? null,
+        images: p.images,
       })),
       checkoutAvailable,
       vatPercent,

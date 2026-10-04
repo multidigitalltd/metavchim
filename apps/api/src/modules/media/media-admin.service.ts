@@ -40,6 +40,8 @@ export interface AdminMediaProduct {
   nextClosingAt: string | null;
   active: boolean;
   sortOrder: number;
+  /** הדמיות של המוצר — נמחקות ב-`DELETE images/:id` כמו שאר התמונות. */
+  images: { id: string; caption: string; sortOrder: number }[];
 }
 
 export interface AdminMediaImage {
@@ -158,8 +160,11 @@ export class MediaAdminService {
     const rows = await this.prisma.mediaOutlet.findMany({
       orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
       include: {
-        products: { orderBy: [{ sortOrder: "asc" }, { name: "asc" }] },
-        images: { orderBy: [{ kind: "asc" }, { sortOrder: "asc" }, { createdAt: "asc" }] },
+        products: {
+          orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+          include: { images: { orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }], select: { id: true, caption: true, sortOrder: true } } },
+        },
+        images: { where: { productId: null }, orderBy: [{ kind: "asc" }, { sortOrder: "asc" }, { createdAt: "asc" }] },
       },
     });
     /*
@@ -231,6 +236,7 @@ export class MediaAdminService {
         nextClosingAt: p.nextClosingAt?.toISOString() ?? null,
         active: p.active,
         sortOrder: p.sortOrder,
+        images: p.images,
       })),
     }));
   }

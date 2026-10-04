@@ -18,7 +18,7 @@ import { FileInterceptor } from "@nestjs/platform-express";
 import type { Request, Response } from "express";
 import { z } from "zod";
 import {
-  MEDIA_IMAGE_KINDS,
+  MEDIA_OUTLET_IMAGE_KINDS,
   MediaImagePatchSchema,
   MediaOutletPatchSchema,
   MediaOutletUpsertSchema,
@@ -53,10 +53,12 @@ import { MAX_MEDIA_IMAGE_BYTES, MediaImagesService } from "./media-images.servic
 /** שדות הטקסט שלצד הקובץ ב-multipart — סגורים, כמו בתמונות הנכסים. */
 const UploadFieldsSchema = z
   .object({
-    kind: z.enum(MEDIA_IMAGE_KINDS).default("sample"),
+    /** ‏על המדיה — שער או דוגמה; הדמיה של מוצר מועלית בנתיב המוצר */
+    kind: z.enum(MEDIA_OUTLET_IMAGE_KINDS).default("sample"),
     caption: z.string().trim().max(200).default(""),
   })
   .strict();
+const ProductImageFieldsSchema = z.object({ caption: z.string().trim().max(200).default("") }).strict();
 
 /**
  * ניהול הארכיון במסך הפלטפורמה — מדיות, מוצרים, אנשי קשר, עמלה,
@@ -179,6 +181,17 @@ export class MediaAdminController {
     @Body(new ZodValidationPipe(UploadFieldsSchema)) body: z.infer<typeof UploadFieldsSchema>,
   ): Promise<{ id: string }> {
     return this.images.upload(outletId, file?.buffer ?? Buffer.alloc(0), body);
+  }
+
+  /** הדמיה של מוצר — איך המודעה נראית בעמוד; עד 4 למוצר, אותו מסלול כמו תמונות המדיה. */
+  @Post("products/:id/images")
+  @UseInterceptors(FileInterceptor("file", { limits: { fileSize: MAX_MEDIA_IMAGE_BYTES, files: 1 } }))
+  uploadProductImage(
+    @Param("id", IdParam) productId: string,
+    @UploadedFile() file: Express.Multer.File | undefined,
+    @Body(new ZodValidationPipe(ProductImageFieldsSchema)) body: z.infer<typeof ProductImageFieldsSchema>,
+  ): Promise<{ id: string }> {
+    return this.images.uploadForProduct(productId, file?.buffer ?? Buffer.alloc(0), body.caption);
   }
 
   @Patch("images/:id")

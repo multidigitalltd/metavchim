@@ -49,6 +49,8 @@ interface ProductRow {
   priceAgorot: number | null;
   /** מועד סגירה של המוצר עצמו — כשקיים הוא גובר על מועד המדיה. */
   nextClosingAt: string | null;
+  /** הדמיות — איך המודעה נראית בעמוד. */
+  images: { id: string; caption: string }[];
 }
 
 interface OutletDetail {
@@ -208,6 +210,48 @@ export default function MediaOutletPage(): React.JSX.Element | null {
                     <p className="m-0 mt-1 text-[length:var(--type-caption-lg)]" style={{ color: "var(--color-text-muted)" }}>
                       {product.specs}
                     </p>
+                  ) : null}
+                  {product.images.length > 0 ? (
+                    <div className="mt-3">
+                      <a
+                        href={mediaSrc(`media/${outlet.slug}/images/${product.images[0]!.id}`)}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="block overflow-hidden rounded-xl"
+                        aria-label={`הדמיה — ${product.name}`}
+                      >
+                        <img
+                          src={mediaSrc(`media/${outlet.slug}/images/${product.images[0]!.id}`)}
+                          alt={product.images[0]!.caption || `הדמיה — ${product.name}`}
+                          className="aspect-[4/3] w-full object-cover"
+                          loading="lazy"
+                        />
+                      </a>
+                      {product.images.length > 1 ? (
+                        <ul className="m-0 mt-2 flex list-none gap-2 p-0">
+                          {product.images.slice(1).map((img) => (
+                            <li key={img.id} className="m-0">
+                              <a
+                                href={mediaSrc(`media/${outlet.slug}/images/${img.id}`)}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="block overflow-hidden rounded-lg"
+                              >
+                                <img
+                                  src={mediaSrc(`media/${outlet.slug}/images/${img.id}`)}
+                                  alt={img.caption || `הדמיה נוספת — ${product.name}`}
+                                  className="h-14 w-14 object-cover"
+                                  loading="lazy"
+                                />
+                              </a>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : null}
+                      <p className="m-0 mt-1 text-[length:var(--type-caption-lg)]" style={{ color: "var(--color-text-muted)" }}>
+                        {product.images[0]!.caption || "הדמיה — לחיצה פותחת בגודל מלא"}
+                      </p>
+                    </div>
                   ) : null}
                   {product.description ? (
                     <p className="m-0 mt-2 text-[length:var(--type-body-sm)]" style={{ color: "var(--color-text-soft)" }}>

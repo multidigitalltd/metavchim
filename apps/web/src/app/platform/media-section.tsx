@@ -7,7 +7,8 @@ import {
   MEDIA_OUTLET_KINDS,
   MEDIA_OUTLET_KIND_LABEL,
   MEDIA_IMAGES_MAX,
-  MEDIA_IMAGE_KINDS,
+  MEDIA_OUTLET_IMAGE_KINDS,
+  MEDIA_PRODUCT_IMAGES_MAX,
   MEDIA_PRODUCT_KINDS,
   MEDIA_PRODUCT_KIND_LABEL,
   MEDIA_SETTLEMENT_KIND_LABEL,
@@ -59,6 +60,8 @@ interface AdminProduct {
   nextClosingAt: string | null;
   active: boolean;
   sortOrder: number;
+  /** הדמיות של המוצר. */
+  images: { id: string; caption: string; sortOrder: number }[];
 }
 
 interface AdminImage {
@@ -171,7 +174,7 @@ function shekelsValue(agorot: number | null): string {
   return agorot === null ? "" : String(agorot / 100);
 }
 
-const IMAGE_KIND_LABEL: Record<MediaImageKind, string> = { cover: "שער / לוגו", sample: "דוגמת מודעה" };
+const IMAGE_KIND_LABEL: Record<MediaImageKind, string> = { cover: "שער / לוגו", sample: "דוגמת מודעה", product: "הדמיה" };
 
 /**
  * ‏שעת קיר ישראלית משני שדות ⟵ ISO ב-UTC; ריק ⟵ null (אין מועד).
@@ -347,6 +350,34 @@ export function MediaSection(): React.JSX.Element {
       }
       element.reset();
     }, "✓ התמונה הועלתה");
+  }
+
+  /** הדמיה למוצר — אותו multipart, לנתיב המוצר. */
+  function uploadProductImage(event: FormEvent<HTMLFormElement>, product: AdminProduct): void {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const element = event.currentTarget;
+    const file = form.get("file");
+    if (!(file instanceof File) || file.size === 0) {
+      setError("בחרו קובץ תמונה");
+      return;
+    }
+    void run(async () => {
+      const body = new FormData();
+      body.append("file", file);
+      const caption = text(form, "caption");
+      if (caption !== "") body.append("caption", caption);
+      const res = await fetch(`${API_BASE}/platform/media/products/${product.id}/images`, {
+        method: "POST",
+        credentials: "include",
+        body,
+      });
+      if (!res.ok) {
+        const payload = (await res.json().catch(() => null)) as { message?: string } | null;
+        throw new ApiError(res.status, payload?.message ?? "ההעלאה נכשלה");
+      }
+      element.reset();
+    }, "✓ ההדמיה הועלתה");
   }
 
   function saveImage(event: FormEvent<HTMLFormElement>, image: AdminImage): void {
@@ -588,7 +619,7 @@ export function MediaSection(): React.JSX.Element {
                         <label>
                           <span className="mb-1 block text-sm font-medium">סוג</span>
                           <select name="kind" defaultValue="sample" className={inputClass} style={inputStyle}>
-                            {MEDIA_IMAGE_KINDS.map((kind) => (
+                            {MEDIA_OUTLET_IMAGE_KINDS.map((kind) => (
                               <option key={kind} value={kind}>{IMAGE_KIND_LABEL[kind]}</option>
                             ))}
                           </select>
@@ -675,6 +706,54 @@ export function MediaSection(): React.JSX.Element {
                                 </button>
                               </div>
                             </form>
+                            {/* ‏הדמיות — איך המודעה נראית בעמוד; מוצגות על כרטיס המוצר */}
+                            <div className="mt-3 border-t pt-3" style={{ borderColor: "var(--color-row-border)" }}>
+                              <p className="m-0 mb-2 text-sm font-medium">
+                                הדמיה ({product.images.length}/{MEDIA_PRODUCT_IMAGES_MAX})
+                                <span className="font-normal" style={{ color: "var(--color-text-muted)" }}>
+                                  {" "}— איך המודעה נראית בעמוד; מוצגת על כרטיס המוצר, לחיצה פותחת בגודל מלא
+                                </span>
+                              </p>
+                              {product.images.length > 0 ? (
+                                <ul className="m-0 mb-2 flex list-none flex-wrap gap-2 p-0">
+                                  {product.images.map((image) => (
+                                    <li key={image.id} className="m-0 flex items-start gap-1">
+                                      <img
+                                        src={mediaSrc(`media/${outlet.slug}/images/${image.id}`)}
+                                        alt={image.caption || `הדמיה — ${product.name}`}
+                                        className="h-20 w-20 rounded object-cover"
+                                        loading="lazy"
+                                      />
+                                      <button
+                                        type="button"
+                                        className="mv-btn-plain mv-btn-plain--danger"
+                                        disabled={busy}
+                                        aria-label="מחיקת ההדמיה"
+                                        title="מחיקת ההדמיה"
+                                        onClick={() => void run(() => apiDelete(`/platform/media/images/${image.id}`), "✓ ההדמיה נמחקה")}
+                                      >
+                                        <IconTrash s={14} />
+                                      </button>
+                                    </li>
+                                  ))}
+                                </ul>
+                              ) : null}
+                              {product.images.length < MEDIA_PRODUCT_IMAGES_MAX ? (
+                                <form onSubmit={(e) => uploadProductImage(e, product)} className="flex flex-wrap items-end gap-2">
+                                  <label className="grow" style={{ minWidth: "200px" }}>
+                                    <span className="mb-1 block text-sm font-medium">הדמיה חדשה</span>
+                                    <input name="file" type="file" accept="image/jpeg,image/png,image/webp" required className={inputClass} style={inputStyle} />
+                                  </label>
+                                  <label className="grow" style={{ minWidth: "160px" }}>
+                                    <span className="mb-1 block text-sm font-medium">כיתוב</span>
+                                    <input name="caption" maxLength={200} className={inputClass} style={inputStyle} />
+                                  </label>
+                                  <Button type="submit" variant="secondary" disabled={busy}>
+                                    <IconPlus s={14} /> העלאה
+                                  </Button>
+                                </form>
+                              ) : null}
+                            </div>
                           </li>
                         ))}
                       </ul>
