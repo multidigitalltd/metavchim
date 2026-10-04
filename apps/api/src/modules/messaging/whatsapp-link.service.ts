@@ -1,13 +1,13 @@
 import {
   ForbiddenException,
+  Inject,
   Injectable,
   Logger,
-  OnModuleDestroy,
   ServiceUnavailableException,
 } from "@nestjs/common";
 import { createHmac, randomInt, timingSafeEqual } from "node:crypto";
 import { Prisma } from "@prisma/client";
-import IORedis from "ioredis";
+import type IORedis from "ioredis";
 import { ulid } from "ulid";
 import {
   WHATSAPP_LINK_CODE_ALPHABET,
@@ -21,6 +21,7 @@ import {
 import { loadEnv } from "../../config/env";
 import { CryptoService } from "../../core/crypto.service";
 import { PrismaService } from "../../core/prisma.service";
+import { REDIS } from "../../core/redis";
 import { waPhoneVariants } from "./assistant-lang";
 import { phoneDigitsCondition, phoneLockKey } from "./phone-match";
 
@@ -102,25 +103,16 @@ export interface LinkStatus {
 }
 
 @Injectable()
-export class WhatsAppLinkService implements OnModuleDestroy {
+export class WhatsAppLinkService {
   private readonly logger = new Logger(WhatsAppLinkService.name);
-  private readonly redis: IORedis;
   private readonly hmacKey: string;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly crypto: CryptoService,
+    @Inject(REDIS) private readonly redis: IORedis,
   ) {
-    const env = loadEnv();
-    this.redis = new IORedis(env.REDIS_URL, { maxRetriesPerRequest: 1, lazyConnect: false });
-    this.hmacKey = env.PHONE_HASH_KEY;
-    this.redis.on("error", () => {
-      /* נרשם באזהרות — אין קריסה על ניתוק Redis */
-    });
-  }
-
-  async onModuleDestroy(): Promise<void> {
-    await this.redis.quit().catch(() => undefined);
+    this.hmacKey = loadEnv().PHONE_HASH_KEY;
   }
 
   private hmac(value: string): string {
