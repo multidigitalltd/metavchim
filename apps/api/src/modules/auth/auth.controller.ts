@@ -21,6 +21,7 @@ import {
   afterLoginTarget,
   MOBILE_HANDOFF_CODE_PATTERN,
   mobileGoogleReturnUrl,
+  OptionalPhoneInputSchema,
   safeLoginReturnPath,
   type MobileGoogleError,
 } from "@metavchim/shared";
@@ -88,8 +89,8 @@ const UpdateProfileSchema = z
     // trim לפני הבדיקה: בלעדיו שם של רווחים בלבד עובר min(2) ואז
     // נשמר כמחרוזת ריקה, ושובר את כותרת הפרופיל (ביקורת Codex)
     name: z.string().trim().min(2).max(120).optional(),
-    /** ספרות, רווחים ומקפים; "" מנקה את השדה */
-    phone: z.union([z.string().regex(/^[\d\-+ ]{9,20}$/u), z.literal("")]).optional(),
+    /** ‏הכלל המשותף — כל צורה שאדם מקליד, נשמר מנורמל; "" מנקה את השדה */
+    phone: OptionalPhoneInputSchema,
     email: z.string().email().max(254).optional(),
     currentPassword: z.string().min(1).max(200).optional(),
     preferences: z.record(z.string(), z.unknown()).optional(),

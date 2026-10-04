@@ -313,7 +313,7 @@ export default function ProfilePage() {
                     inputMode="tel"
                     placeholder="050-1234567"
                     defaultValue={profile.phone}
-                    maxLength={20}
+                    maxLength={25}
                     className="w-full rounded-lg border px-3 py-2.5"
                     style={inputStyle}
                   />
