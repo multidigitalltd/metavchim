@@ -28,12 +28,14 @@ RUN pnpm --filter @metavchim/api deploy --prod --legacy /prod/api \
  && pnpm --filter @metavchim/workers deploy --prod --legacy /prod/workers
 # ‏הקליינט של Prisma נוצר כאן, בתוך העץ הפרוס של כל שירות (node_modules
 # ‏חדש — הקליינט של סביבת הבנייה אינו עובר), ולא בתמונה הסופית: שם הוא
-# ‏היה מוסיף שכבה עם מטמון הורדות של המנוע, וה-Workers היו נושאים את
-# ‏כלי ה-CLI של Prisma (והתלויות שלו) רק בשביל הצעד הזה. ה-API נושא את
-# ‏ה-CLI ממילא — הוא מריץ איתו את המיגרציות בעלייה.
+# ‏היה מוסיף שכבה עם מטמון הורדות של המנוע. ה-Workers אינם צריכים את
+# ‏כלי ה-CLI של Prisma בזמן ריצה, ו-`prune-prisma-cli.mjs` מסיר אותו ואת
+# ‏התלויות שרק הוא צריך (מחושב מהגרף, ונבדק). ה-API נושא את ה-CLI ממילא —
+# ‏הוא מריץ איתו את המיגרציות בעלייה.
 RUN cd /prod/api && node node_modules/prisma/build/index.js generate --schema=prisma/schema.prisma \
  && mkdir -p /prod/workers/prisma && cp prisma/schema.prisma /prod/workers/prisma/ \
- && cd /prod/workers && node /prod/api/node_modules/prisma/build/index.js generate --schema=prisma/schema.prisma
+ && cd /prod/workers && node /prod/api/node_modules/prisma/build/index.js generate --schema=prisma/schema.prisma \
+ && cd /repo && node infra/docker/prune-prisma-cli.mjs @metavchim/workers /prod/workers
 
 # ---------- API ----------
 FROM base AS api
