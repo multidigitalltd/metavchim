@@ -7,11 +7,15 @@ import {
   Param,
   Patch,
   Post,
+  Req,
+  Res,
   UploadedFile,
   UseGuards,
   UseInterceptors,
+  type StreamableFile,
 } from "@nestjs/common";
 import { FileInterceptor } from "@nestjs/platform-express";
+import type { Request, Response } from "express";
 import { z } from "zod";
 import {
   IdSchema,
@@ -21,15 +25,18 @@ import {
   MediaOutletUpsertSchema,
   MediaProductPatchSchema,
   MediaProductUpsertSchema,
+  MediaPublishSchema,
   MediaSettlementCreateSchema,
   type MediaImagePatch,
   type MediaOutletPatch,
   type MediaOutletUpsert,
   type MediaProductPatch,
   type MediaProductUpsert,
+  type MediaPublish,
   type MediaSettlementCreate,
 } from "@metavchim/shared";
 import { PlatformAdmin } from "../../common/auth.decorators";
+import { objectResponse } from "../../common/object-response";
 import { PlatformAdminGuard } from "../../common/platform-admin.guard";
 import { TenantContext } from "../../common/tenant-context";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
@@ -41,6 +48,7 @@ import {
   type AdminMediaTotals,
 } from "./media-admin.service";
 import { MediaService } from "./media.service";
+import { MediaCreativesService } from "./media-creatives.service";
 import { MAX_MEDIA_IMAGE_BYTES, MediaImagesService } from "./media-images.service";
 
 /** שדות הטקסט שלצד הקובץ ב-multipart — סגורים, כמו בתמונות הנכסים. */
@@ -68,6 +76,7 @@ export class MediaAdminController {
     private readonly admin: MediaAdminService,
     private readonly images: MediaImagesService,
     private readonly media: MediaService,
+    private readonly creatives: MediaCreativesService,
   ) {}
 
   @Get()
@@ -86,6 +95,28 @@ export class MediaAdminController {
   @HttpCode(200)
   resend(@Param("id", IdParam) id: string): Promise<{ notified: boolean }> {
     return this.media.resendNotification(id);
+  }
+
+  /** „פורסם” — אחרי שהגיליון יצא; הלקוח מקבל מייל והתראה. */
+  @Post("orders/:id/publish")
+  @HttpCode(200)
+  publish(
+    @Param("id", IdParam) id: string,
+    @Body(new ZodValidationPipe(MediaPublishSchema)) body: MediaPublish,
+  ): Promise<{ publishedAt: Date }> {
+    return this.media.markPublished(id, body.note);
+  }
+
+  /** קובץ המודעה של כל הזמנה — לבדיקה לפני שמעבירים למדיה. */
+  @Get("orders/:id/creative")
+  async creative(
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+    @Param("id", IdParam) id: string,
+  ): Promise<StreamableFile | undefined> {
+    const object = await this.creatives.getForAdmin(id);
+    res.setHeader("Content-Disposition", `inline; filename*=UTF-8''${encodeURIComponent(object.name)}`);
+    return objectResponse(req, res, object, "private");
   }
 
   @Get("settlements")

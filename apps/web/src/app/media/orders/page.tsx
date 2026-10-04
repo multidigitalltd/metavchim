@@ -15,9 +15,9 @@ import { Notice } from "../../notice";
  * ההזמנות של המשרד — מה הוזמן, מתי, ומה קרה איתו.
  *
  * הרשימה עונה על השאלה "שלחנו?" בלי לפתוח את המייל: הזמנה בתשלום
- * שנשלחה למדיה מסומנת כך, והפניה שנשלחה לנציג — כך. הזמנה שממתינה
- * לתשלום היא דף שנפתח ולא הסתיים; אין כאן מה לעשות איתה מלבד
- * להזמין מחדש.
+ * שנשלחה למדיה מסומנת כך, והפניה שנשלחה לנציג — כך. הכותרת מובילה
+ * לעמוד ההזמנה — ציר הזמן, קובץ המודעה, והפעולות. מה שחסר להזמנה
+ * חיה (קובץ המודעה) נאמר כאן בשורה, כדי שלא יתגלה רק כשהמגזין שואל.
  */
 
 interface OrderRow {
@@ -35,6 +35,11 @@ interface OrderRow {
   brief: string;
   createdAt: string;
   paidAt: string | null;
+  canUploadCreative: boolean;
+  creativeName: string | null;
+  creativeUploadedAt: string | null;
+  publishedAt: string | null;
+  publishedNote: string;
 }
 
 const STATUS_TONE: Record<MediaOrderStatus, string> = {
@@ -43,6 +48,7 @@ const STATUS_TONE: Record<MediaOrderStatus, string> = {
   referred: "mv-domain-blue",
   failed: "mv-domain-peach",
   cancelled: "mv-domain-neutral",
+  published: "mv-domain-violet",
 };
 
 export default function MediaOrdersPage(): React.JSX.Element | null {
@@ -139,16 +145,12 @@ export default function MediaOrdersPage(): React.JSX.Element | null {
                   {order.statusLabel}
                 </span>
                 <h2 className="m-0 text-[length:var(--type-row-title)] font-extrabold">
-                  {order.outletSlug ? (
-                    <Link href={`/media/${order.outletSlug}`} className="no-underline hover:underline">
-                      {order.outletName}
-                    </Link>
-                  ) : (
-                    order.outletName
-                  )}
-                  {" — "}
-                  {order.productName}
-                  {order.quantity > 1 ? ` ×${order.quantity}` : ""}
+                  <Link href={`/media/orders/${order.id}`} className="no-underline hover:underline">
+                    {order.outletName}
+                    {" — "}
+                    {order.productName}
+                    {order.quantity > 1 ? ` ×${order.quantity}` : ""}
+                  </Link>
                 </h2>
                 <span className="ms-auto text-[length:var(--type-caption-lg)]" style={{ color: "var(--color-text-muted)" }}>
                   {formatDateTime(order.createdAt)}
@@ -162,6 +164,15 @@ export default function MediaOrdersPage(): React.JSX.Element | null {
               {order.brief ? (
                 <p className="m-0 mt-1 whitespace-pre-line text-[length:var(--type-body-sm)]">{order.brief}</p>
               ) : null}
+              <p className="m-0 mt-1 text-[length:var(--type-caption-lg)]" style={{ color: "var(--color-text-muted)" }}>
+                {order.status === "published"
+                  ? `פורסם ${order.publishedAt ? formatDateTime(order.publishedAt) : ""}${order.publishedNote ? ` · ${order.publishedNote}` : ""}`
+                  : order.creativeName
+                    ? `קובץ המודעה: ${order.creativeName}`
+                    : order.canUploadCreative
+                      ? "עדיין בלי קובץ מודעה — מעלים בעמוד ההזמנה"
+                      : ""}
+              </p>
               {order.canResume ? (
                 <div className="mt-3 flex flex-wrap items-center gap-2">
                   {mayPay ? (

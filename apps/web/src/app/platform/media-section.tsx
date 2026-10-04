@@ -130,6 +130,10 @@ interface AdminOrder {
   notifiedAt: string | null;
   paidAt: string | null;
   settlementId: string | null;
+  creativeName: string | null;
+  creativeUploadedAt: string | null;
+  publishedAt: string | null;
+  publishedNote: string;
   createdAt: string;
 }
 
@@ -175,6 +179,9 @@ export function MediaSection(): React.JSX.Element {
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<AdminProduct | null>(null);
+  /** ‏„פורסם” — ההזמנה שמסמנים, והערה חופשית (גיליון, עמוד). */
+  const [publishing, setPublishing] = useState<AdminOrder | null>(null);
+  const [publishNote, setPublishNote] = useState("");
 
   const load = useCallback(() => {
     setLoadFailed(false);
@@ -744,6 +751,8 @@ export function MediaSection(): React.JSX.Element {
                   <th className="p-2 text-start">עמלה / תמורה על הפניה</th>
                   <th className="p-2 text-start">איש קשר</th>
                   <th className="p-2 text-start">נשלח לנציג</th>
+                  <th className="p-2 text-start">קובץ המודעה</th>
+                  <th className="p-2 text-start">פרסום</th>
                   <th className="p-2 text-start">הועבר למדיה</th>
                 </tr>
               </thead>
@@ -806,8 +815,56 @@ export function MediaSection(): React.JSX.Element {
                         </button>
                       ) : null}
                     </td>
+                    <td className="p-2">
+                      {order.creativeName ? (
+                        <a
+                          href={mediaSrc(`platform/media/orders/${order.id}/creative`)}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="block max-w-[14rem] truncate"
+                          dir="auto"
+                          title={order.creativeName}
+                        >
+                          {order.creativeName}
+                        </a>
+                      ) : order.status === "paid" || order.status === "referred" ? (
+                        <span style={{ color: "var(--color-text-muted)" }}>טרם הועלה</span>
+                      ) : (
+                        "—"
+                      )}
+                    </td>
                     <td className="p-2 whitespace-nowrap">
-                      {order.kind !== "paid" || order.status !== "paid" ? "—" : order.settlementId ? "הועבר" : "ממתין"}
+                      {order.status === "published" ? (
+                        <>
+                          {order.publishedAt ? formatDateTime(order.publishedAt) : "פורסם"}
+                          {order.publishedNote ? (
+                            <span className="block" style={{ color: "var(--color-text-muted)" }}>
+                              {order.publishedNote}
+                            </span>
+                          ) : null}
+                        </>
+                      ) : order.status === "paid" || order.status === "referred" ? (
+                        <button
+                          type="button"
+                          className="mv-btn-plain"
+                          disabled={busy}
+                          onClick={() => {
+                            setPublishNote("");
+                            setPublishing(order);
+                          }}
+                        >
+                          סימון „פורסם”
+                        </button>
+                      ) : (
+                        "—"
+                      )}
+                    </td>
+                    <td className="p-2 whitespace-nowrap">
+                      {order.kind !== "paid" || (order.status !== "paid" && order.status !== "published")
+                        ? "—"
+                        : order.settlementId
+                          ? "הועבר"
+                          : "ממתין"}
                     </td>
                   </tr>
                 ))}
@@ -887,6 +944,41 @@ export function MediaSection(): React.JSX.Element {
             </div>
           </>
         ) : null}
+      </ConfirmDialog>
+
+      <ConfirmDialog
+        open={publishing !== null}
+        title={publishing ? `לסמן „פורסם” — ${publishing.outletName}, ${publishing.officeName}?` : ""}
+        confirmLabel="סימון „פורסם”"
+        cancelLabel="ביטול"
+        busy={busy}
+        busyLabel="מסמנים…"
+        onConfirm={() => {
+          if (!publishing) return;
+          const target = publishing;
+          void run(
+            () => apiPost(`/platform/media/orders/${target.id}/publish`, { note: publishNote.trim() }),
+            "✓ סומן כפורסם — הלקוח קיבל מייל והתראה",
+          ).then(() => setPublishing(null));
+        }}
+        onClose={() => {
+          if (!busy) setPublishing(null);
+        }}
+      >
+        <p className="m-0 mb-3">
+          הלקוח מקבל מייל „המודעה שלכם פורסמה” והתראה בפעמון, וקובץ המודעה ננעל להחלפה. הפעולה אינה ניתנת לביטול.
+        </p>
+        <label className="block text-sm font-bold" htmlFor="publish-note">
+          איפה פורסם (לא חובה)
+        </label>
+        <input
+          id="publish-note"
+          className="mv-field mt-1"
+          maxLength={300}
+          placeholder="גיליון 412, עמ׳ 7"
+          value={publishNote}
+          onChange={(e) => setPublishNote(e.target.value)}
+        />
       </ConfirmDialog>
 
       <ConfirmDialog

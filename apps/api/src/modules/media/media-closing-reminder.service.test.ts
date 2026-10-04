@@ -50,6 +50,11 @@ function harness(input: { closingAt: Date | null; remindedFor?: Date | null; ord
       customerNo: 100123,
       createdAt: NOW,
       closingReminderAt: null,
+      creativeToken: null,
+      creativeName: null,
+      creativeUploadedAt: null,
+      publishedAt: null,
+      publishedNote: "",
     },
   ];
   const notifications: { dedupeKey: string; userId: string | null }[] = [];
@@ -143,8 +148,8 @@ describe("MediaClosingReminderService.sweep", () => {
     const h = harness({
       closingAt: hours(20),
       orders: [
-        { id: "01ORDERPA1D0000000000000A0", tenantId: TENANT, outletId: OUTLET, status: "paid", createdBy: null, kind: "paid", outletName: "x", productName: "x", quantity: 1, amountAgorot: 0, commissionAgorot: 0, leadFeeAgorot: null, brief: "", contactName: "y", contactPhone: "", contactEmail: "a@b.c", officeName: "o", customerNo: null, createdAt: NOW, closingReminderAt: null },
-        { id: "01ORDERREF00000000000000A0", tenantId: TENANT, outletId: OUTLET, status: "referred", createdBy: null, kind: "lead", outletName: "x", productName: "x", quantity: 1, amountAgorot: 0, commissionAgorot: 0, leadFeeAgorot: null, brief: "", contactName: "y", contactPhone: "", contactEmail: "a@b.c", officeName: "o", customerNo: null, createdAt: NOW, closingReminderAt: null },
+        { id: "01ORDERPA1D0000000000000A0", tenantId: TENANT, outletId: OUTLET, status: "paid", createdBy: null, kind: "paid", outletName: "x", productName: "x", quantity: 1, amountAgorot: 0, commissionAgorot: 0, leadFeeAgorot: null, brief: "", contactName: "y", contactPhone: "", contactEmail: "a@b.c", officeName: "o", customerNo: null, createdAt: NOW, closingReminderAt: null, creativeToken: null, creativeName: null, creativeUploadedAt: null, publishedAt: null, publishedNote: "" },
+        { id: "01ORDERREF00000000000000A0", tenantId: TENANT, outletId: OUTLET, status: "referred", createdBy: null, kind: "lead", outletName: "x", productName: "x", quantity: 1, amountAgorot: 0, commissionAgorot: 0, leadFeeAgorot: null, brief: "", contactName: "y", contactPhone: "", contactEmail: "a@b.c", officeName: "o", customerNo: null, createdAt: NOW, closingReminderAt: null, creativeToken: null, creativeName: null, creativeUploadedAt: null, publishedAt: null, publishedNote: "" },
       ],
     });
     expect((await h.service.sweep(NOW)).reminded).toBe(0);

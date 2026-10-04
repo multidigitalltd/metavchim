@@ -118,6 +118,11 @@ export interface AdminMediaOrder {
   paidAt: Date | null;
   /** ההעברה למדיה שההזמנה נכללה בה; ריק = טרם הועבר. */
   settlementId: string | null;
+  /** קובץ המודעה — שם ומועד; ריק = המשרד טרם העלה. */
+  creativeName: string | null;
+  creativeUploadedAt: Date | null;
+  publishedAt: Date | null;
+  publishedNote: string;
   createdAt: Date;
 }
 
@@ -382,6 +387,10 @@ export class MediaAdminService {
       notifiedAt: row.notifiedAt,
       paidAt: row.paidAt,
       settlementId: row.settlementId,
+      creativeName: row.creativeName,
+      creativeUploadedAt: row.creativeUploadedAt,
+      publishedAt: row.publishedAt,
+      publishedNote: row.publishedNote,
       createdAt: row.createdAt,
     }));
   }

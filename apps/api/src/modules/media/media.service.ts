@@ -3,12 +3,17 @@ import { ulid } from "ulid";
 import {
   MEDIA_ORDER_MAX_AMOUNT_AGOROT,
   MEDIA_ORDER_STATUS_LABEL,
+  mediaCanUploadCreative,
+  mediaOrderCanPublish,
+  mediaOrderTimeline,
   mediaOrderTotals,
   type MediaOrderCreate,
   type MediaOrderStatus,
   type MediaOutletKind,
   type MediaProductKind,
+  type MediaTimelineStep,
 } from "@metavchim/shared";
+import { notifyOnce } from "../../common/notify-once";
 import { TenantContext } from "../../common/tenant-context";
 import { loadEnv } from "../../config/env";
 import { AuditService } from "../../core/audit.service";
@@ -101,6 +106,8 @@ export interface MediaOrderRow {
   id: string;
   /** אפשר להמשיך לתשלום או לבטל — ממתינה או נכשלה, בתשלום. */
   canResume: boolean;
+  /** אפשר להעלות או להחליף את קובץ המודעה — ההזמנה חיה וטרם פורסמה. */
+  canUploadCreative: boolean;
   outletName: string;
   outletSlug: string | null;
   productName: string;
@@ -113,6 +120,23 @@ export interface MediaOrderRow {
   brief: string;
   createdAt: Date;
   paidAt: Date | null;
+  /** קובץ המודעה — שם ומועד; ריק = טרם הועלה. */
+  creativeName: string | null;
+  creativeUploadedAt: Date | null;
+  publishedAt: Date | null;
+  publishedNote: string;
+}
+
+/** עמוד ההזמנה — השורה, ועוד מה שרק שם מעניין. */
+export interface MediaOrderDetail extends MediaOrderRow {
+  contactPhone: string;
+  contactEmail: string;
+  unitPriceAgorot: number;
+  notifiedAt: Date | null;
+  creativeMime: string | null;
+  timeline: MediaTimelineStep[];
+  /** נציג המדיה — למי לפנות; ריק כשלא הוגדר */
+  outletContact: { name: string; phone: string } | null;
 }
 
 /** ‏מה נדרש כדי לפתוח דף תשלום — המזמין וזהות המשרד. */
@@ -229,22 +253,129 @@ export class MediaService {
       select: { id: true, slug: true },
     });
     const slugById = new Map(slugs.map((s) => [s.id, s.slug]));
-    return rows.map((row) => ({
+    return rows.map((row) => this.toRow(row, slugById.get(row.outletId) ?? null));
+  }
+
+  /** עמוד ההזמנה — של המשרד הזה בלבד. */
+  async order(tenantId: string, orderId: string): Promise<MediaOrderDetail> {
+    const row = await this.prisma.mediaOrder.findFirst({ where: { id: orderId, tenantId } });
+    if (row === null) throw new NotFoundException("ההזמנה לא נמצאה");
+    const outlet = await this.prisma.mediaOutlet.findUnique({
+      where: { id: row.outletId },
+      select: { slug: true, contactName: true, contactPhone: true },
+    });
+    return {
+      ...this.toRow(row, outlet?.slug ?? null),
+      contactPhone: row.contactPhone,
+      contactEmail: row.contactEmail,
+      unitPriceAgorot: row.unitPriceAgorot,
+      notifiedAt: row.notifiedAt,
+      creativeMime: row.creativeMime,
+      timeline: mediaOrderTimeline({
+        kind: row.kind as MediaProductKind,
+        status: row.status as MediaOrderStatus,
+        createdAt: row.createdAt,
+        paidAt: row.paidAt,
+        notifiedAt: row.notifiedAt,
+        creativeUploadedAt: row.creativeUploadedAt,
+        publishedAt: row.publishedAt,
+      }),
+      outletContact:
+        outlet === null || (outlet.contactName === "" && outlet.contactPhone === "")
+          ? null
+          : { name: outlet.contactName, phone: outlet.contactPhone },
+    };
+  }
+
+  private toRow(
+    row: {
+      id: string;
+      kind: string;
+      status: string;
+      outletName: string;
+      productName: string;
+      quantity: number;
+      amountAgorot: number;
+      contactName: string;
+      brief: string;
+      createdAt: Date;
+      paidAt: Date | null;
+      creativeName: string | null;
+      creativeUploadedAt: Date | null;
+      publishedAt: Date | null;
+      publishedNote: string;
+    },
+    outletSlug: string | null,
+  ): MediaOrderRow {
+    const status = row.status as MediaOrderStatus;
+    return {
       id: row.id,
-      canResume: row.kind === "paid" && (row.status === "pending_payment" || row.status === "failed"),
+      canResume: row.kind === "paid" && (status === "pending_payment" || status === "failed"),
+      canUploadCreative: mediaCanUploadCreative(status),
       outletName: row.outletName,
-      outletSlug: slugById.get(row.outletId) ?? null,
+      outletSlug,
       productName: row.productName,
       kind: row.kind as MediaProductKind,
-      status: row.status as MediaOrderStatus,
-      statusLabel: MEDIA_ORDER_STATUS_LABEL[row.status as MediaOrderStatus] ?? row.status,
+      status,
+      statusLabel: MEDIA_ORDER_STATUS_LABEL[status] ?? row.status,
       quantity: row.quantity,
       amountAgorot: row.amountAgorot,
       contactName: row.contactName,
       brief: row.brief,
       createdAt: row.createdAt,
       paidAt: row.paidAt,
-    }));
+      creativeName: row.creativeName,
+      creativeUploadedAt: row.creativeUploadedAt,
+      publishedAt: row.publishedAt,
+      publishedNote: row.publishedNote,
+    };
+  }
+
+  /**
+   * „פורסם” — בעל הפלטפורמה מסמן אחרי שהגיליון יצא (או שהנציג אישר).
+   * רק הזמנה שכבר אצל המדיה; הלקוח מקבל מייל והתראה בפעמון, ומכאן
+   * קובץ המודעה הוא תיעוד ואינו ניתן להחלפה.
+   */
+  async markPublished(orderId: string, note: string): Promise<{ publishedAt: Date }> {
+    const order = await this.prisma.mediaOrder.findUnique({
+      where: { id: orderId },
+      select: { id: true, tenantId: true, status: true, createdBy: true, outletName: true, productName: true },
+    });
+    if (order === null) throw new NotFoundException("ההזמנה לא נמצאה");
+    if (!mediaOrderCanPublish(order.status as MediaOrderStatus)) {
+      throw new BadRequestException(
+        order.status === "published" ? "ההזמנה כבר סומנה כפורסמה" : "מסמנים „פורסם” רק הזמנה ששולמה או הפניה שנשלחה",
+      );
+    }
+    const publishedAt = new Date();
+    const claimed = await this.prisma.mediaOrder.updateMany({
+      where: { id: order.id, tenantId: order.tenantId, status: order.status },
+      data: { status: "published", publishedAt, publishedNote: note },
+    });
+    if (claimed.count === 0) throw new BadRequestException("ההזמנה השתנתה בינתיים — רעננו את המסך");
+
+    await this.prisma.withExplicitTenant(order.tenantId, async (tx) => {
+      await this.audit.record(tx, {
+        action: "media.order_published",
+        entityType: "media_order",
+        entityId: order.id,
+        metadata: { note },
+      });
+      await notifyOnce(tx, {
+        tenantId: order.tenantId,
+        dedupeKey: `media_published:${order.id}`,
+        userId: order.createdBy,
+        type: "media_published",
+        title: `המודעה ב${order.outletName} פורסמה`,
+        body: note === "" ? order.productName : `${order.productName} — ${note}`,
+        entityType: "media_order",
+        entityId: order.id,
+      });
+    });
+
+    const loaded = await this.loadForMail(order.id);
+    if (loaded !== null) await this.mail.orderPublished(loaded.order, loaded.outlet);
+    return { publishedAt };
   }
 
   /**
@@ -716,6 +847,31 @@ export class MediaService {
         data: { notifiedAt: new Date() },
       });
     }
+    /*
+     * ‏הפעמון — פעם אחת להזמנה (המפתח), גם כששליחה חוזרת מהמסך קוראת
+     * ‏לכאן שוב. ‎`withExplicitTenant`: הוובהוק של קארדקום מגיע בלי
+     * ‏הקשר דייר, ו-`notifications` תחת RLS.
+     */
+    await this.prisma.withExplicitTenant(order.tenantId, async (tx) => {
+      await notifyOnce(tx, {
+        tenantId: order.tenantId,
+        dedupeKey: `media_${order.kind === "paid" ? "paid" : "referred"}:${order.id}`,
+        userId: order.createdBy,
+        type: order.kind === "paid" ? "media_paid" : "media_referred",
+        title:
+          order.kind === "paid"
+            ? `התשלום על ${order.productName} ב${order.outletName} התקבל`
+            : `הפנייה ל${order.outletName} נשלחה לנציג`,
+        body:
+          order.creativeUploadedAt === null
+            ? "השלב הבא: להעלות את קובץ המודעה בעמוד ההזמנה."
+            : outletDelivered
+              ? "ההזמנה וקובץ המודעה אצל המדיה."
+              : "ההזמנה נרשמה; מנהלי הפלטפורמה יעבירו אותה למדיה.",
+        entityType: "media_order",
+        entityId: order.id,
+      });
+    });
   }
 
   /** שלב שאינו מסירה לנציג — ללקוח ולמנהלים בלבד. */

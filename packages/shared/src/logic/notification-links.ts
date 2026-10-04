@@ -122,7 +122,7 @@ function targetFor(entityType: string, entityId: string): Target | null {
       return { href: "/settings#virtual-numbers", needs: ["settings.manage"] };
     // הזמנות המדיה פתוחות לכל משתמש במשרד — אין יכולת נדרשת
     case "media_order":
-      return { href: "/media/orders" };
+      return { href: entityId ? `/media/orders/${entityId}` : "/media/orders" };
     default:
       return null;
   }

@@ -213,7 +213,7 @@ export class AccountDeletionService {
          * כרגיל. הסכנה שהערה קודמת הזהירה ממנה — אפס מפתחות בשקט —
          * נשארת בעינה בכל קריאה שתיכתב **מחוץ** לטרנזקציה הזו.
          */
-        const [media, documents, calls, tickets, emailFiles, supportFiles, ticketFiles, tenantRow] =
+        const [media, documents, calls, tickets, emailFiles, supportFiles, ticketFiles, tenantRow, creatives] =
           await Promise.all([
             tx.propertyMedia.findMany({ where: { tenantId }, select: { s3Key: true } }),
             /*
@@ -258,10 +258,20 @@ export class AccountDeletionService {
              * היה נשאר ב-S3 אחרי מחיקת המשרד.
              */
             tx.tenant.findUnique({ where: { id: tenantId }, select: { settings: true } }),
+            /*
+             * קבצי המודעות של הזמנות המדיה — המודעה של המשרד לדפוס,
+             * לעיתים עם שם הסוכן וטלפון. `media_orders` מחוץ ל-RLS,
+             * ולכן הסינון לפי המשרד מפורש.
+             */
+            tx.mediaOrder.findMany({
+              where: { tenantId, creativeKey: { not: null } },
+              select: { creativeKey: true },
+            }),
           ]);
         const logoKey = (tenantRow?.settings as Record<string, unknown> | null)?.["logoKey"];
         s3Keys = [
           ...media.map((m) => m.s3Key),
+          ...creatives.map((c) => c.creativeKey).filter((k): k is string => k !== null),
           ...documents.map((d) => d.s3Key),
           ...emailFiles.map((f) => f.s3Key),
           ...supportFiles.map((f) => f.s3Key),

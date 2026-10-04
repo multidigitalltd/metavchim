@@ -4,10 +4,15 @@ import {
   DEFAULT_MEDIA_COMMISSION_PERCENT,
   MEDIA_ORDER_MAX_AMOUNT_AGOROT,
   MEDIA_ORDER_MAX_QUANTITY,
+  MEDIA_ORDER_STATUSES,
   MEDIA_PRODUCT_PRICE_MAX_AGOROT,
   isMediaSlug,
+  mediaCanUploadCreative,
   mediaClosingReminderDue,
   mediaClosingState,
+  mediaCreativeMime,
+  mediaOrderCanPublish,
+  mediaOrderTimeline,
   mediaOrderTotals,
   resolveMediaCommissionPercent,
 } from "./media.js";
@@ -118,5 +123,65 @@ describe("isMediaSlug", () => {
     expect(MediaOutletUpsertSchema.safeParse({ ...OUTLET, slug: "orders" }).success).toBe(false);
     expect(MediaOutletPatchSchema.safeParse({ slug: "orders" }).success).toBe(false);
     expect(MediaOutletUpsertSchema.safeParse(OUTLET).success).toBe(true);
+  });
+});
+
+describe("mediaCreativeMime / mediaCanUploadCreative", () => {
+  it("מזהה JPEG, PNG ו-PDF לפי הבייטים — לא לפי השם", () => {
+    expect(mediaCreativeMime(new Uint8Array([0xff, 0xd8, 0xff, 0xe0]))).toBe("image/jpeg");
+    expect(mediaCreativeMime(new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0]))).toBe("image/png");
+    expect(mediaCreativeMime(new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31]))).toBe("application/pdf");
+  });
+
+  it("דוחה כל דבר אחר — גם קובץ קצר מדי", () => {
+    expect(mediaCreativeMime(new Uint8Array([0x47, 0x49, 0x46, 0x38]))).toBeNull();
+    expect(mediaCreativeMime(new Uint8Array([0xff, 0xd8]))).toBeNull();
+    expect(mediaCreativeMime(new Uint8Array([]))).toBeNull();
+  });
+
+  it("מעלים כל עוד ההזמנה חיה וטרם פורסמה", () => {
+    expect(MEDIA_ORDER_STATUSES.filter(mediaCanUploadCreative)).toEqual(["pending_payment", "paid", "referred"]);
+    expect(MEDIA_ORDER_STATUSES.filter(mediaOrderCanPublish)).toEqual(["paid", "referred"]);
+  });
+});
+
+describe("mediaOrderTimeline", () => {
+  const t0 = new Date("2026-10-01T08:00:00.000Z");
+  const t1 = new Date("2026-10-01T09:00:00.000Z");
+  const base = { createdAt: t0, paidAt: null, notifiedAt: null, creativeUploadedAt: null, publishedAt: null };
+
+  it("הזמנה בתשלום שממתינה — „שולם” הוא השלב הנוכחי", () => {
+    const steps = mediaOrderTimeline({ ...base, kind: "paid", status: "pending_payment" });
+    expect(steps.map((s) => `${s.key}:${s.state}`)).toEqual([
+      "created:done",
+      "paid:current",
+      "sent:pending",
+      "creative:pending",
+      "published:pending",
+    ]);
+  });
+
+  it("שולם ונשלח — הקובץ הוא מה שמחכה", () => {
+    const steps = mediaOrderTimeline({ ...base, kind: "paid", status: "paid", paidAt: t1, notifiedAt: t1 });
+    expect(steps.map((s) => s.state)).toEqual(["done", "done", "done", "current", "pending"]);
+  });
+
+  it("הפניה — בלי שלב תשלום; נכשל — נעצר בשלב התשלום", () => {
+    expect(mediaOrderTimeline({ ...base, kind: "lead", status: "referred", notifiedAt: t1 }).map((s) => s.key)).toEqual([
+      "created",
+      "sent",
+      "creative",
+      "published",
+    ]);
+    const failed = mediaOrderTimeline({ ...base, kind: "paid", status: "failed" });
+    expect(failed[1]).toMatchObject({ key: "paid", state: "failed", label: "התשלום נכשל" });
+    expect(failed.slice(2).every((s) => s.state === "pending")).toBe(true);
+  });
+
+  it("פורסם — כל מה שקדם מסומן כבוצע, חוץ מקובץ שלא הועלה", () => {
+    const steps = mediaOrderTimeline({ ...base, kind: "lead", status: "referred", publishedAt: t1 });
+    expect(steps.at(-1)?.state).toBe("pending");
+    const published = mediaOrderTimeline({ ...base, kind: "lead", status: "published", publishedAt: t1 });
+    expect(published.map((s) => s.state)).toEqual(["done", "done", "pending", "done"]);
   });
 });

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { MEDIA_OUTLET_KIND_LABEL, type MediaOutletKind } from "@metavchim/shared";
+import { MEDIA_OUTLET_KINDS, MEDIA_OUTLET_KIND_LABEL, type MediaOutletKind } from "@metavchim/shared";
 import { apiGet, apiList, mediaSrc } from "@/lib/api";
 import { formatPrice } from "@/lib/format";
 import { ClosingBadge } from "./closing-badge";
@@ -40,6 +40,8 @@ export default function MediaCatalogPage(): React.JSX.Element | null {
   const { loading } = useRequireAuth();
   const [items, setItems] = useState<OutletCard[] | null>(null);
   const [failed, setFailed] = useState(false);
+  /** ‏סינון לפי סוג מדיה — `null` = הכול. הסינון במסך: הקטלוג קטן, והשרת כבר החזיר אותו. */
+  const [kind, setKind] = useState<MediaOutletKind | null>(null);
 
   const load = useCallback(() => {
     setFailed(false);
@@ -55,6 +57,10 @@ export default function MediaCatalogPage(): React.JSX.Element | null {
   }, [loading, load]);
 
   if (loading) return null;
+
+  // ‏רק סוגים שקיימים בארכיון — צ׳יפ לסוג בלי מדיה היה מסנן לריק
+  const kinds = MEDIA_OUTLET_KINDS.filter((k) => items?.some((o) => o.kind === k) ?? false);
+  const visible = items === null ? null : kind === null ? items : items.filter((o) => o.kind === kind);
 
   return (
     // div ולא main — העטיפה של AppShell היא ה-main landmark היחיד
@@ -75,11 +81,24 @@ export default function MediaCatalogPage(): React.JSX.Element | null {
         </Link>
       </header>
 
+      {items !== null && kinds.length > 1 ? (
+        <div className="mv-chiprow mb-4 flex flex-wrap gap-2" role="group" aria-label="סינון לפי סוג מדיה">
+          <button type="button" className="mv-chip" aria-pressed={kind === null} onClick={() => setKind(null)}>
+            הכול ({items.length})
+          </button>
+          {kinds.map((k) => (
+            <button key={k} type="button" className="mv-chip" aria-pressed={kind === k} onClick={() => setKind(kind === k ? null : k)}>
+              {MEDIA_OUTLET_KIND_LABEL[k]} ({items.filter((o) => o.kind === k).length})
+            </button>
+          ))}
+        </div>
+      ) : null}
+
       {failed ? (
         <LoadError message="לא הצלחנו לטעון את ארכיון המדיות" onRetry={load} />
-      ) : items === null ? (
+      ) : visible === null ? (
         <p aria-live="polite">טוען…</p>
-      ) : items.length === 0 ? (
+      ) : visible.length === 0 ? (
         <div className="mv-card mv-card--pad text-center">
           <p className="m-0 font-bold">עדיין אין מדיות בארכיון</p>
           <p className="m-0 mt-1" style={{ color: "var(--color-text-muted)" }}>
@@ -88,7 +107,7 @@ export default function MediaCatalogPage(): React.JSX.Element | null {
         </div>
       ) : (
         <ul className="m-0 grid list-none gap-3 p-0 sm:grid-cols-2">
-          {items.map((outlet) => (
+          {visible.map((outlet) => (
             <li key={outlet.id} className="mv-card mv-card--pad flex flex-col">
               {outlet.coverImageId ? (
                 // ‏השער — עיצוב, לא מידע: השם והסוג כתובים מתחת
