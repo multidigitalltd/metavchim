@@ -10,7 +10,7 @@ import {
 import { z } from "zod";
 import { IdSchema, TWIN_NOTE_MAX } from "@metavchim/shared";
 import { RequireCapability } from "../../common/auth.decorators";
-import { ZodValidationPipe } from "../../common/zod-validation.pipe";
+import { ZodValidationPipe, IdParam } from "../../common/zod-validation.pipe";
 import {
   PropertyTwinsService,
   type PropertyTwinDto,
@@ -44,7 +44,7 @@ export class PropertyTwinsController {
   @Get(":id/twins")
   @RequireCapability("properties.view")
   async list(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
   ): Promise<PropertyTwinDto[]> {
     return this.twins.list(id);
   }
@@ -53,7 +53,7 @@ export class PropertyTwinsController {
   @RequireCapability("properties.edit")
   @HttpCode(200)
   async add(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
     @Body(new ZodValidationPipe(AddTwinSchema))
     body: z.infer<typeof AddTwinSchema>,
   ): Promise<PropertyTwinDto> {
@@ -64,8 +64,8 @@ export class PropertyTwinsController {
   @RequireCapability("properties.edit")
   @HttpCode(204)
   async remove(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
-    @Param("twinId", new ZodValidationPipe(IdSchema)) twinId: string,
+    @Param("id", IdParam) id: string,
+    @Param("twinId", IdParam) twinId: string,
   ): Promise<void> {
     await this.twins.remove(id, twinId);
   }

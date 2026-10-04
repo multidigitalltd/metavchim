@@ -40,7 +40,7 @@ import { PlatformAdmin } from "../../common/auth.decorators";
 import { TaxTablesService } from "../../core/tax-tables.service";
 import { PlatformAdminGuard } from "../../common/platform-admin.guard";
 import { TenantContext } from "../../common/tenant-context";
-import { ZodValidationPipe } from "../../common/zod-validation.pipe";
+import { ZodValidationPipe, IdParam } from "../../common/zod-validation.pipe";
 import { CardcomService } from "../../core/cardcom.service";
 import { PlatformCreditsService, type PlatformCreditRow, type PlatformCreditsReport } from "./platform-credits.service";
 import { LeadPricingService } from "../../core/lead-pricing.service";
@@ -481,7 +481,7 @@ export class PlatformBillingController {
   @Post("payments/:id/refund")
   @HttpCode(200)
   async refund(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
     @Body(new ZodValidationPipe(RefundSchema)) body: z.infer<typeof RefundSchema>,
   ): Promise<{ refundedAgorot: number; message: string }> {
     const payment = await this.prisma.payment.findUnique({ where: { id } });
@@ -642,7 +642,7 @@ export class PlatformBillingController {
   @Post("invoices/:id/retry")
   @HttpCode(200)
   async retryInvoice(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
   ): Promise<{ ok: boolean; error?: string }> {
     return this.invoices.issueOne(id);
   }
@@ -651,7 +651,7 @@ export class PlatformBillingController {
   @Post("payments/:id/invoice")
   @HttpCode(200)
   async invoiceForPayment(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
   ): Promise<{ ok: boolean; error?: string }> {
     /*
      * ‎**תיקון ידני מדווח מה קרה באמת.** `queueForPayment` בולעת
@@ -830,7 +830,7 @@ export class PlatformBillingController {
   @Post("number-rentals/:id/release")
   @HttpCode(200)
   async releaseNumberRental(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
   ): Promise<{ ok: true }> {
     const result = await this.numberRentals.releaseNow(id);
     if (!result.ok) throw new BadRequestException(result.message);
@@ -887,7 +887,7 @@ export class PlatformBillingController {
   @Delete("offers/:id")
   @HttpCode(200)
   async revokeOffer(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
   ): Promise<{ ok: true }> {
     await this.subscriptionOffers.revoke(id);
     return { ok: true };

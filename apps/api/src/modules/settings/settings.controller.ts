@@ -23,7 +23,6 @@ import { ulid } from "ulid";
 import { z } from "zod";
 import {
   CAPABILITIES,
-  IdSchema,
   PLAN_FEATURES,
   AssignableRoleSchema,
   BuyerMaturitySchema,
@@ -81,7 +80,7 @@ import {
   writeOfficeStatuses,
 } from "../../common/office-buyer-statuses";
 import { TenantContext } from "../../common/tenant-context";
-import { ZodValidationPipe } from "../../common/zod-validation.pipe";
+import { ZodValidationPipe, IdParam } from "../../common/zod-validation.pipe";
 import { AuditService } from "../../core/audit.service";
 import { CardcomService } from "../../core/cardcom.service";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
@@ -141,7 +140,6 @@ const AutomationsSchema = z
   .refine((body) => Object.keys(body).length > 0, {
     message: "לא נשלחה שום הגדרה",
   });
-
 
 // owner אינו ניתן להקצאה דרך ה-API — מוקם בהקמת הסוכנות בלבד.
 // הסכימה מיובאת ואינה מוגדרת כאן שוב: המסכים בונים את התפריט
@@ -280,7 +278,6 @@ const DeleteAccountSchema = z
     currentPassword: z.string().max(200).optional(),
   })
   .strict();
-
 
 @Controller("settings")
 export class SettingsController {
@@ -909,7 +906,7 @@ export class SettingsController {
   @RequireCapability("settings.manage")
   @HttpCode(204)
   async deleteLeadWebhook(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
   ): Promise<void> {
     const tenantId = TenantContext.current().tenantId;
     // deleteMany עם tenantId — מזהה של משרד אחר פשוט לא מוחק כלום
@@ -1083,7 +1080,7 @@ export class SettingsController {
   @RequireCapability("users.manage")
   @HttpCode(200)
   async unlockUser(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
   ): Promise<{ ok: true }> {
     const tenantId = TenantContext.current().tenantId;
     const target = await this.prisma.user.findFirst({
@@ -1115,7 +1112,7 @@ export class SettingsController {
   @Get("users/:id/sessions")
   @RequireCapability("users.manage")
   async userSessions(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
   ): Promise<{ sessions: SessionInfo[] }> {
     const tenantId = TenantContext.current().tenantId;
     const target = await this.prisma.user.findFirst({
@@ -1148,7 +1145,7 @@ export class SettingsController {
   @RequireCapability("users.manage")
   @HttpCode(200)
   async revokeUserSessions(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
   ): Promise<{ revoked: number }> {
     const ctx = TenantContext.current();
     if (id === ctx.userId) {
@@ -1181,7 +1178,7 @@ export class SettingsController {
   @Get("users/:id/capabilities")
   @RequireCapability("users.manage")
   async userCapabilities(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
   ): Promise<UserCapabilitiesDto> {
     const tenantId = TenantContext.current().tenantId;
     const target = await this.prisma.user.findFirst({
@@ -1306,7 +1303,7 @@ export class SettingsController {
   @Put("users/:id/capabilities")
   @RequireCapability("users.manage")
   async setUserCapabilities(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
     @Body(new ZodValidationPipe(SetCapabilitiesSchema))
     body: z.infer<typeof SetCapabilitiesSchema>,
   ): Promise<{ ok: true }> {
@@ -1461,7 +1458,6 @@ export class SettingsController {
    * כאן, מפורשות, ולא נשען על מדיניות שאינה קיימת על הטבלה.
    */
 
-
   @Post("users")
   @RequireCapability("users.manage")
   async createUser(
@@ -1474,7 +1470,7 @@ export class SettingsController {
   @Patch("users/:id")
   @RequireCapability("users.manage")
   async updateUser(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
     @Body(new ZodValidationPipe(UpdateUserSchema))
     body: z.infer<typeof UpdateUserSchema>,
   ): Promise<{ ok: true }> {

@@ -46,7 +46,7 @@ import { PlatformAdminGuard } from "../../common/platform-admin.guard";
 import { whatsappSeatQuotaWhere } from "../../core/whatsapp-seat-quota";
 import { CryptoService } from "../../core/crypto.service";
 import { TenantContext } from "../../common/tenant-context";
-import { ZodValidationPipe } from "../../common/zod-validation.pipe";
+import { ZodValidationPipe, IdParam } from "../../common/zod-validation.pipe";
 import { EmailService } from "../../core/email.service";
 import { WhatsAppSendService } from "../messaging/whatsapp-send.service";
 import { WhatsAppLinkService } from "../messaging/whatsapp-link.service";
@@ -564,7 +564,7 @@ export class PlatformAgenciesController {
    */
   @Get("agencies/:id/plan-preview")
   async planPreview(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
     @Query(new ZodValidationPipe(z.object({ plan: PlanCodeSchema }).strict()))
     query: { plan: string },
   ): Promise<{ warnings: string[] }> {
@@ -600,7 +600,7 @@ export class PlatformAgenciesController {
   /** מעבר מסלול / שינוי סטטוס (השהיה מנתקת את כל המשתמשים מיידית). */
   @Patch("agencies/:id")
   async update(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
     @Body(new ZodValidationPipe(UpdateAgencySchema)) body: z.infer<typeof UpdateAgencySchema>,
   ): Promise<{ ok: true }> {
     const tenant = await this.prisma.tenant.findUnique({
@@ -714,7 +714,7 @@ export class PlatformAgenciesController {
    */
   @Patch("agencies/:id/modules")
   async setBlockedModules(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
     @Body(new ZodValidationPipe(BlockedModulesSchema)) body: z.infer<typeof BlockedModulesSchema>,
   ): Promise<{ ok: true; blockedModules: string[] }> {
     const tenant = await this.prisma.tenant.findUnique({
@@ -760,7 +760,7 @@ export class PlatformAgenciesController {
    */
   @Patch("agencies/:id/features")
   async setTenantFeatures(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
     @Body(new ZodValidationPipe(TenantFeaturesSchema)) body: z.infer<typeof TenantFeaturesSchema>,
   ): Promise<{ ok: true; grants: string[]; denials: string[] }> {
     const tenant = await this.prisma.tenant.findUnique({
@@ -822,7 +822,7 @@ export class PlatformAgenciesController {
    * בדיוק כמו ב-`WhatsAppLinkService.status`, ומאותה סיבה.
    */
   @Get("agencies/:id/whatsapp")
-  async agencyWhatsapp(@Param("id", new ZodValidationPipe(IdSchema)) id: string): Promise<{
+  async agencyWhatsapp(@Param("id", IdParam) id: string): Promise<{
     seats: { total: number; used: number; grantedCounter: number };
     rows: {
       id: string;
@@ -931,7 +931,7 @@ export class PlatformAgenciesController {
    */
   @Post("agencies/:id/whatsapp/link-code")
   async agencyWhatsappLinkCode(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
     @Body(new ZodValidationPipe(z.object({ userId: IdSchema }).strict()))
     body: { userId: string },
   ): Promise<{ code: string; expiresInSeconds: number; botNumber: string | null; link: string | null }> {
@@ -968,7 +968,7 @@ export class PlatformAgenciesController {
    */
   @Post("agencies/:id/whatsapp/seats")
   async grantWhatsappSeat(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
     @Body(new ZodValidationPipe(GrantWhatsappSeatSchema))
     body: z.infer<typeof GrantWhatsappSeatSchema>,
   ): Promise<{ id: string }> {
@@ -1019,8 +1019,8 @@ export class PlatformAgenciesController {
    */
   @Delete("agencies/:id/whatsapp/seats/:seatId")
   async releaseWhatsappSeat(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
-    @Param("seatId", new ZodValidationPipe(IdSchema)) seatId: string,
+    @Param("id", IdParam) id: string,
+    @Param("seatId", IdParam) seatId: string,
   ): Promise<{ ok: true }> {
     const now = new Date();
     const closed = await this.prisma.whatsappSeat.updateMany({
@@ -1047,7 +1047,7 @@ export class PlatformAgenciesController {
    */
   @Patch("agencies/:id/billing-override")
   async setBillingOverride(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
     @Body(new ZodValidationPipe(TenantBillingOverrideSchema))
     body: z.infer<typeof TenantBillingOverrideSchema>,
   ): Promise<{ ok: true }> {
@@ -1189,7 +1189,7 @@ export class PlatformAgenciesController {
   @Delete("agencies/:id")
   @HttpCode(200)
   async deleteAgency(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
     @Body(new ZodValidationPipe(DeleteAgencySchema)) body: z.infer<typeof DeleteAgencySchema>,
   ): Promise<{ ok: true }> {
     return this.accountDeletion.deleteTenantFromPlatform(id, body.confirmName);
@@ -1216,7 +1216,7 @@ export class PlatformAgenciesController {
   @Post("agencies/:id/support-session")
   @HttpCode(200)
   async supportSession(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<{ ok: true; until: string }> {

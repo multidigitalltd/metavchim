@@ -1,6 +1,5 @@
 import { BadRequestException, Body, Controller, Delete, Get, HttpCode, Param, Patch, Post } from "@nestjs/common";
 import { ulid } from "ulid";
-import { z } from "zod";
 import {
   AUTOMATION_TRIGGERS,
   AutomationRuleInputSchema,
@@ -10,7 +9,7 @@ import {
 import { RequireCapability } from "../../common/auth.decorators";
 import { RequireFeature } from "../../common/feature.guard";
 import { TenantContext } from "../../common/tenant-context";
-import { ZodValidationPipe } from "../../common/zod-validation.pipe";
+import { ZodValidationPipe, IdParam } from "../../common/zod-validation.pipe";
 import { AuditService } from "../../core/audit.service";
 import { AutomationQuotaService } from "../../core/automation-quota.service";
 import { PrismaService } from "../../core/prisma.service";
@@ -23,8 +22,6 @@ import { PrismaService } from "../../core/prisma.service";
  * של חסימת מודול או משקלי התאמה. יכולת נפרדת הייתה מרמזת שמדובר
  * בפעולה יומיומית של סוכן, וזה לא המקרה.
  */
-
-const IdSchema = z.string().length(26);
 
 /*
  * שער המסלול על **היצירה בלבד**, ולא על הסעיף כולו.
@@ -140,7 +137,7 @@ export class AutomationRulesController {
   @Patch(":id")
   @RequireCapability("settings.manage")
   async update(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
     @Body(new ZodValidationPipe(AutomationRuleInputSchema)) body: AutomationRuleInput,
   ): Promise<{ ok: true }> {
     await this.assertValid(body);
@@ -177,7 +174,7 @@ export class AutomationRulesController {
   @RequireCapability("settings.manage")
   @HttpCode(200)
   async remove(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
   ): Promise<{ ok: true }> {
     const tenantId = TenantContext.current().tenantId;
     await this.prisma.withTenant(async (tx) => {

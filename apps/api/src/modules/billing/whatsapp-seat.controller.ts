@@ -1,8 +1,7 @@
 import { Controller, Get, HttpCode, Param, Post } from "@nestjs/common";
-import { IdSchema } from "@metavchim/shared";
 import { RequireCapability } from "../../common/auth.decorators";
 import { TenantContext } from "../../common/tenant-context";
-import { ZodValidationPipe } from "../../common/zod-validation.pipe";
+import { IdParam } from "../../common/zod-validation.pipe";
 import { WhatsappSeatService, type SeatRow } from "./whatsapp-seat.service";
 
 /**
@@ -45,7 +44,7 @@ export class WhatsappSeatController {
   @Post(":id/cancel")
   @HttpCode(200)
   @RequireCapability("billing.manage")
-  async cancel(@Param("id", new ZodValidationPipe(IdSchema)) id: string): Promise<{ ok: true }> {
+  async cancel(@Param("id", IdParam) id: string): Promise<{ ok: true }> {
     await this.seats.cancel(TenantContext.current().tenantId, id);
     return { ok: true };
   }

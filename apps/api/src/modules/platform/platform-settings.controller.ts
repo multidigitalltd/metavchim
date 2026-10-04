@@ -34,6 +34,7 @@ import {
   whatsappButtonUrlTemplate,
   whatsappButtonLandsOn,
   whatsappDeepLinkSuffix,
+  OptionalEmailSchema,
 } from "@metavchim/shared";
 import { loadEnv } from "../../config/env";
 import { PlatformAdmin } from "../../common/auth.decorators";
@@ -64,12 +65,12 @@ const UpdateSettingsSchema = z
     postmarkServerToken: z.union([z.string().trim().min(16).max(200), z.literal("")]).optional(),
     /** טוקן ה-Account — ניהול דומיינים שמשרדים מחברים; נפרד מטוקן השרת */
     postmarkAccountToken: z.union([z.string().trim().min(16).max(200), z.literal("")]).optional(),
-    emailFrom: z.union([z.string().trim().email().max(254), z.literal("")]).optional(),
+    emailFrom: OptionalEmailSchema.optional(),
     /** תיבת הדואר הפנימית — כתובת ה-Inbound של שרת Postmark והסוד שבנתיב ה-Webhook */
-    emailInboundAddress: z.union([z.string().trim().email().max(254), z.literal("")]).optional(),
+    emailInboundAddress: OptionalEmailSchema.optional(),
     emailInboundSecret: z.union([z.string().trim().min(16).max(200), z.literal("")]).optional(),
     /** תיבת התמיכה של הפלטפורמה — שרת Inbound נפרד מזה של המשרדים */
-    supportInboundAddress: z.union([z.string().trim().email().max(254), z.literal("")]).optional(),
+    supportInboundAddress: OptionalEmailSchema.optional(),
     supportInboundSecret: z.union([z.string().trim().min(16).max(200), z.literal("")]).optional(),
     /** ה-Server Token של שרת התמיכה — התשובות יוצאות דרכו */
     supportServerToken: z.union([z.string().trim().min(16).max(200), z.literal("")]).optional(),
@@ -224,7 +225,7 @@ const UpdateSettingsSchema = z
      * ריק = בלי התראה, לא "בלי תמיכה": הפנייה נשמרת ומופיעה בתור
      * שבמסך הזה בכל מקרה. הכתובת רק מקצרת את זמן התגובה.
      */
-    supportEmail: z.union([z.string().trim().email().max(254), z.literal("")]).optional(),
+    supportEmail: OptionalEmailSchema.optional(),
 
     /*
      * המסלול שאליו יורד חשבון שלא הופעל. ריק = אין כזה, והתזכורת
@@ -260,8 +261,8 @@ const UpdateSettingsSchema = z
     // ח.פ. ישראלי הוא תשע ספרות; מקפים ורווחים נפוצים בהקלדה ולכן מותרים
     legalCompanyId: z.union([z.string().trim().min(2).max(40), z.literal("")]).optional(),
     legalAddress: z.union([z.string().trim().min(5).max(300), z.literal("")]).optional(),
-    legalPrivacyEmail: z.union([z.string().trim().email().max(254), z.literal("")]).optional(),
-    legalAccessibilityEmail: z.union([z.string().trim().email().max(254), z.literal("")]).optional(),
+    legalPrivacyEmail: OptionalEmailSchema.optional(),
+    legalAccessibilityEmail: OptionalEmailSchema.optional(),
     // מוצג כמות שהוא ("9 באוגוסט 2026") — טקסט ולא תאריך, כי נוסח
     // עברי קריא עדיף כאן על פורמט מכונה
     legalUpdatedAt: z.union([z.string().trim().min(3).max(60), z.literal("")]).optional(),

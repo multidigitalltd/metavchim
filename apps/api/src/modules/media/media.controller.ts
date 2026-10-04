@@ -17,7 +17,6 @@ import { FileInterceptor } from "@nestjs/platform-express";
 import type { Request, Response } from "express";
 import { z } from "zod";
 import {
-  IdSchema,
   MEDIA_CREATIVE_MAX_BYTES,
   MEDIA_SLUG_PATTERN,
   MediaOrderCreateSchema,
@@ -27,7 +26,7 @@ import {
 import { AnyAuthenticated, RequireCapability } from "../../common/auth.decorators";
 import { objectResponse } from "../../common/object-response";
 import { TenantContext } from "../../common/tenant-context";
-import { ZodValidationPipe } from "../../common/zod-validation.pipe";
+import { ZodValidationPipe, IdParam } from "../../common/zod-validation.pipe";
 import { MediaCreativesService } from "./media-creatives.service";
 import { MediaImagesService } from "./media-images.service";
 import { MediaPreviewGuard } from "./media-preview.guard";
@@ -59,7 +58,6 @@ import {
  */
 const SlugSchema = z.string().trim().min(2).max(60).regex(MEDIA_SLUG_PATTERN);
 const SlugParam = new ZodValidationPipe(SlugSchema);
-const IdParam = new ZodValidationPipe(IdSchema);
 const OrderBody = new ZodValidationPipe(MediaOrderCreateSchema);
 
 @Controller("media")

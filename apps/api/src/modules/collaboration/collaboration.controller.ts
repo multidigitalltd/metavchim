@@ -38,7 +38,7 @@ import {
 import type { Request, Response } from "express";
 import { RequireCapability } from "../../common/auth.decorators";
 import { objectResponse } from "../../common/object-response";
-import { ZodValidationPipe } from "../../common/zod-validation.pipe";
+import { ZodValidationPipe, IdParam } from "../../common/zod-validation.pipe";
 import {
   CollaborationService,
   type CoopOfferDto,
@@ -366,7 +366,7 @@ export class CollaborationController {
   @Get("listings/buyer/:buyerId")
   @RequireCapability("collaboration.offer")
   async listingMatchesForBuyer(
-    @Param("buyerId", new ZodValidationPipe(IdSchema)) buyerId: string,
+    @Param("buyerId", IdParam) buyerId: string,
   ): Promise<SharedListingDto[]> {
     return this.listings.matchesForBuyer(buyerId);
   }
@@ -374,7 +374,7 @@ export class CollaborationController {
   @Get("listings/property/:propertyId")
   @RequireCapability("collaboration.share")
   async propertyListing(
-    @Param("propertyId", new ZodValidationPipe(IdSchema)) propertyId: string,
+    @Param("propertyId", IdParam) propertyId: string,
   ): Promise<SharedListingDto | null> {
     return this.listings.activeForProperty(propertyId);
   }
@@ -382,7 +382,7 @@ export class CollaborationController {
   @Patch("listings/property/:propertyId")
   @RequireCapability("collaboration.share")
   async updateListing(
-    @Param("propertyId", new ZodValidationPipe(IdSchema)) propertyId: string,
+    @Param("propertyId", IdParam) propertyId: string,
     @Body(new ZodValidationPipe(UpdateShareSchema))
     body: z.infer<typeof UpdateShareSchema>,
   ): Promise<SharedListingDto> {
@@ -393,7 +393,7 @@ export class CollaborationController {
   @RequireCapability("collaboration.share")
   @HttpCode(204)
   async unpublishListing(
-    @Param("propertyId", new ZodValidationPipe(IdSchema)) propertyId: string,
+    @Param("propertyId", IdParam) propertyId: string,
   ): Promise<void> {
     await this.listings.unpublish(propertyId);
   }
@@ -439,7 +439,7 @@ export class CollaborationController {
   async listingPhoto(
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
     @Param("index", new ZodValidationPipe(PhotoIndexSchema)) index: number,
   ): Promise<StreamableFile | undefined> {
     return objectResponse(req, res, await this.listings.photo(id, index), "private");
@@ -450,7 +450,7 @@ export class CollaborationController {
   async offerPhoto(
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
     @Param("index", new ZodValidationPipe(PhotoIndexSchema)) index: number,
   ): Promise<StreamableFile | undefined> {
     return objectResponse(req, res, await this.collaboration.offerPhoto(id, index), "private");
@@ -467,7 +467,7 @@ export class CollaborationController {
   @Header("Cache-Control", "private, max-age=300")
   @Header("Cross-Origin-Resource-Policy", "same-site")
   async officeLogo(
-    @Param("tenantId", new ZodValidationPipe(IdSchema)) tenantId: string,
+    @Param("tenantId", IdParam) tenantId: string,
   ): Promise<StreamableFile> {
     return streamed(await this.listings.officeLogo(tenantId));
   }
@@ -476,7 +476,7 @@ export class CollaborationController {
   @RequireCapability("collaboration.offer")
   @HttpCode(204)
   async expressInterest(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
     @Body(new ZodValidationPipe(InterestSchema))
     body: z.infer<typeof InterestSchema>,
   ): Promise<void> {
@@ -501,7 +501,7 @@ export class CollaborationController {
   @RequireCapability("collaboration.share")
   @HttpCode(200)
   async respondToInterest(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
     @Body(new ZodValidationPipe(RespondSchema))
     body: z.infer<typeof RespondSchema>,
   ): Promise<{ dealId: string | null }> {
@@ -548,7 +548,7 @@ export class CollaborationController {
   @Get("share/buyer/:buyerId")
   @RequireCapability("collaboration.share")
   async buyerShare(
-    @Param("buyerId", new ZodValidationPipe(IdSchema)) buyerId: string,
+    @Param("buyerId", IdParam) buyerId: string,
   ): Promise<SharedDemandDto | null> {
     return this.collaboration.activeDemandForBuyer(buyerId);
   }
@@ -557,7 +557,7 @@ export class CollaborationController {
   @Patch("share/buyer/:buyerId")
   @RequireCapability("collaboration.share")
   async updateShare(
-    @Param("buyerId", new ZodValidationPipe(IdSchema)) buyerId: string,
+    @Param("buyerId", IdParam) buyerId: string,
     @Body(new ZodValidationPipe(UpdateShareSchema))
     body: z.infer<typeof UpdateShareSchema>,
   ): Promise<SharedDemandDto> {
@@ -568,7 +568,7 @@ export class CollaborationController {
   @RequireCapability("collaboration.share")
   @HttpCode(204)
   async unshare(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
   ): Promise<void> {
     await this.collaboration.unshare(id);
   }
@@ -592,7 +592,7 @@ export class CollaborationController {
   @Get("network-matches/property/:propertyId")
   @RequireCapability("collaboration.offer")
   async networkMatchesForProperty(
-    @Param("propertyId", new ZodValidationPipe(IdSchema)) propertyId: string,
+    @Param("propertyId", IdParam) propertyId: string,
   ): Promise<NetworkDemandMatchDto[]> {
     return this.collaboration.networkMatchesForProperty(propertyId);
   }
@@ -606,7 +606,7 @@ export class CollaborationController {
   @Get("network-matches/buyer/:buyerId")
   @RequireCapability("collaboration.share")
   async networkMatchesForBuyer(
-    @Param("buyerId", new ZodValidationPipe(IdSchema)) buyerId: string,
+    @Param("buyerId", IdParam) buyerId: string,
   ): Promise<{ shared: boolean; offers: NetworkPropertyOfferDto[] }> {
     return this.collaboration.networkMatchesForBuyer(buyerId);
   }
@@ -614,7 +614,7 @@ export class CollaborationController {
   @Post("demands/:id/offer")
   @RequireCapability("collaboration.offer")
   async offer(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
     @Body(new ZodValidationPipe(OfferSchema)) body: z.infer<typeof OfferSchema>,
   ): Promise<CoopOfferDto> {
     return this.collaboration.offerProperty(
@@ -634,7 +634,7 @@ export class CollaborationController {
   @RequireCapability("collaboration.offer")
   @HttpCode(200)
   async respond(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
     @Body(new ZodValidationPipe(RespondSchema))
     body: z.infer<typeof RespondSchema>,
   ): Promise<{ ok: true; dealId: string | null }> {
@@ -664,7 +664,7 @@ export class CollaborationController {
   @Get("deals/:id")
   @RequireCapability("collaboration.share", "collaboration.offer")
   async deal(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
   ): Promise<DealDto> {
     return this.dealRooms.get(id);
   }
@@ -673,7 +673,7 @@ export class CollaborationController {
   @RequireCapability("collaboration.share", "collaboration.offer")
   @HttpCode(204)
   async postDealMessage(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
     @Body(new ZodValidationPipe(DealMessageSchema))
     body: z.infer<typeof DealMessageSchema>,
   ): Promise<void> {
@@ -684,7 +684,7 @@ export class CollaborationController {
   @RequireCapability("collaboration.share", "collaboration.offer")
   @HttpCode(204)
   async moveDeal(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
     @Body(new ZodValidationPipe(DealStageSchema))
     body: z.infer<typeof DealStageSchema>,
   ): Promise<void> {
@@ -725,7 +725,7 @@ export class CollaborationController {
   @RequireCapability("collaboration.offer")
   @HttpCode(200)
   async followDemand(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
   ): Promise<{ following: true }> {
     return this.collaboration.followDemand(id);
   }
@@ -734,7 +734,7 @@ export class CollaborationController {
   @RequireCapability("collaboration.offer")
   @HttpCode(200)
   async unfollowDemand(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
   ): Promise<{ following: false }> {
     return this.collaboration.unfollowDemand(id);
   }
@@ -750,7 +750,7 @@ export class CollaborationController {
   @RequireCapability("collaboration.offer")
   @HttpCode(200)
   async followListing(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
   ): Promise<{ following: true }> {
     return this.listings.followListing(id);
   }
@@ -759,7 +759,7 @@ export class CollaborationController {
   @RequireCapability("collaboration.offer")
   @HttpCode(200)
   async unfollowListing(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
   ): Promise<{ following: false }> {
     return this.listings.unfollowListing(id);
   }
@@ -778,7 +778,7 @@ export class CollaborationController {
   @Get("leads/terms/:leadId")
   @RequireCapability("collaboration.share")
   async referralTerms(
-    @Param("leadId", new ZodValidationPipe(IdSchema)) leadId: string,
+    @Param("leadId", IdParam) leadId: string,
   ): Promise<ReferralTermsDto> {
     return this.collaboration.referralTerms(leadId);
   }
@@ -796,7 +796,7 @@ export class CollaborationController {
   @RequireCapability("collaboration.share")
   @HttpCode(204)
   async withdrawLead(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
   ): Promise<void> {
     await this.collaboration.withdrawLead(id);
   }
@@ -821,7 +821,7 @@ export class CollaborationController {
   @Post("leads/:id/buy")
   @RequireCapability("collaboration.offer")
   async buyLead(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
   ): Promise<{ leadId: string }> {
     return this.collaboration.buyLead(id);
   }
@@ -838,7 +838,7 @@ export class CollaborationController {
   @RequireCapability("collaboration.offer")
   @HttpCode(200)
   async confirmReferral(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
     @Body(new ZodValidationPipe(RateReferralSchema))
     body: z.infer<typeof RateReferralSchema>,
   ): Promise<{ ok: true }> {

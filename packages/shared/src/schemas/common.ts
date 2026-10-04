@@ -39,6 +39,11 @@ export const PhoneInputSchema = z
   .transform(normalizePhone)
   .pipe(PhoneSchema);
 
+/** ‏כתובת אימייל — 254 תווים, התקרה של RFC 5321. */
+export const EmailSchema = z.string().trim().email().max(254);
+/** ‏אימייל לא חובה מטופס: ריק = לא הוזן. */
+export const OptionalEmailSchema = z.union([EmailSchema, z.literal("")]);
+
 /** סכום בשקלים חדשים, באגורות (Integer) — לעולם לא Float לכסף. */
 export const MoneyAgorotSchema = z.number().int().nonnegative();
 export type MoneyAgorot = z.infer<typeof MoneyAgorotSchema>;

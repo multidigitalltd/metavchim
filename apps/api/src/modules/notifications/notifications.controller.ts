@@ -1,7 +1,6 @@
 import { Controller, Get, HttpCode, Param, Patch, Query } from "@nestjs/common";
 import { z } from "zod";
-import { IdSchema } from "@metavchim/shared";
-import { ZodValidationPipe } from "../../common/zod-validation.pipe";
+import { ZodValidationPipe, IdParam } from "../../common/zod-validation.pipe";
 import { AnyAuthenticated } from "../../common/auth.decorators";
 import { NotificationsService, type NotificationDto } from "./notifications.service";
 
@@ -26,7 +25,7 @@ export class NotificationsController {
   @AnyAuthenticated()
   @Patch(":id/read")
   @HttpCode(200)
-  async markRead(@Param("id", new ZodValidationPipe(IdSchema)) id: string): Promise<{ ok: true }> {
+  async markRead(@Param("id", IdParam) id: string): Promise<{ ok: true }> {
     await this.notifications.markRead(id);
     return { ok: true };
   }

@@ -13,6 +13,7 @@ import {
   type AgentHelpGroup,
   type AgentHistoryTurn,
   type AgentProposal,
+  IdSchema,
 } from "@metavchim/shared";
 import { AnyAuthenticated } from "../../common/auth.decorators";
 import { RequireFeature } from "../../common/feature.guard";
@@ -84,7 +85,7 @@ const TurnSchema = z
         z.object({
           label: z.string().trim().min(1).max(AGENT_RESULT_LABEL_MAX),
           entityType: z.enum(["lead", "buyer", "property", "task"]),
-          entityId: z.string().length(26),
+          entityId: IdSchema,
         }),
       )
       .max(AGENT_RESULT_ROWS)

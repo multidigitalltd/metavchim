@@ -13,7 +13,7 @@ import {
   Logger,
 } from "@nestjs/common";
 import { z } from "zod";
-import { type ServiceVersion } from "@metavchim/shared";
+import { IdSchema, type ServiceVersion } from "@metavchim/shared";
 import { loadEnv } from "../../config/env";
 import { PlatformAdmin } from "../../common/auth.decorators";
 import { PlatformAdminGuard } from "../../common/platform-admin.guard";
@@ -74,7 +74,7 @@ export const TelephonyWebhookQuerySchema = z
      * ‏נשבר בדיוק כשמנהל מנסה לראות את השורות החדשות.
      */
     outcome: z.enum(WEBHOOK_HIT_OUTCOMES).optional(),
-    tenantId: z.string().length(26).optional(),
+    tenantId: IdSchema.optional(),
     callId: z.string().max(120).optional(),
     /**
      * ‎**מספר המתקשר — החיפוש שאין לו תחליף.**

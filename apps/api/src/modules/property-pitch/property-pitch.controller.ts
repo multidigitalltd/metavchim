@@ -7,7 +7,7 @@ import {
   PITCH_MAX_PROPERTIES,
 } from "@metavchim/shared";
 import { Public, RequireCapability } from "../../common/auth.decorators";
-import { ZodValidationPipe } from "../../common/zod-validation.pipe";
+import { ZodValidationPipe, PublicTokenParam } from "../../common/zod-validation.pipe";
 import {
   PropertyPitchService,
   type PitchBuyerRow,
@@ -41,7 +41,6 @@ export const SendSchema = z
   })
   .strict();
 
-const TokenSchema = z.string().regex(/^[A-Za-z0-9_-]{43}$/u);
 
 @Controller()
 export class PropertyPitchController {
@@ -81,7 +80,7 @@ export class PropertyPitchController {
   @Post("public/contacts/:token/email-optout")
   @HttpCode(200)
   async optOut(
-    @Param("token", new ZodValidationPipe(TokenSchema)) token: string,
+    @Param("token", PublicTokenParam) token: string,
   ): Promise<{ ok: true }> {
     await this.pitch.publicEmailOptOut(token);
     return { ok: true };
