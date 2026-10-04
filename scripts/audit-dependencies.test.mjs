@@ -11,7 +11,8 @@
  */
 
 import assert from "node:assert/strict";
-import { classifyAudit, blockingCount } from "./audit-dependencies.mjs";
+import { readFileSync } from "node:fs";
+import { classifyAudit, blockingCount, ignoredGhsas, IGNORED_REASONS } from "./audit-dependencies.mjs";
 
 const cases = [];
 function check(name, run) {
@@ -24,10 +25,10 @@ function check(name, run) {
 }
 
 /** דוח אמיתי, בפורמט ש-`pnpm audit --json` מחזיר. */
-function report(vulnerabilities) {
+function report(vulnerabilities, advisories = {}) {
   return JSON.stringify({
     actions: [],
-    advisories: {},
+    advisories,
     metadata: { vulnerabilities, dependencies: 1, devDependencies: 0, totalDependencies: 1 },
   });
 }
@@ -52,6 +53,36 @@ check("פגיעות high נספרת כחוסמת", () => {
 check("critical נספרת גם היא", () => {
   const result = classifyAudit(report({ ...CLEAN, critical: 2 }), "");
   assert.equal(blockingCount(result.report), 2);
+});
+
+/* ---- החרגות של פגיעות בלי תיקון ---- */
+
+const HIGH_TWO = { ...CLEAN, high: 2 };
+
+check("שתיים שהוחרגו (pnpm השמיט אותן מהרשימה) — אינן חוסמות", () => {
+  const result = classifyAudit(report(HIGH_TWO), "");
+  assert.equal(blockingCount(result.report, ["GHSA-a", "GHSA-b"]), 0);
+});
+
+check("ספירה שעולה על מספר ההחרגות — חוסמת, גם בלי רשימה", () => {
+  const result = classifyAudit(report({ ...CLEAN, high: 3 }), "");
+  assert.equal(blockingCount(result.report, ["GHSA-a", "GHSA-b"]), 1);
+});
+
+check("פגיעות שמופיעה ברשימה — חוסמת, החרגה אחרת אינה מכסה אותה", () => {
+  const listed = { 1: { module_name: "left-pad", severity: "high" } };
+  const result = classifyAudit(report({ ...CLEAN, high: 2 }, listed), "");
+  assert.equal(blockingCount(result.report, ["GHSA-a"]), 1);
+});
+
+check("בלי החרגות — הספירה כמו תמיד", () => {
+  const result = classifyAudit(report(HIGH_TWO), "");
+  assert.equal(blockingCount(result.report), 2);
+});
+
+check("כל החרגה ב-package.json מנומקת, ואין נימוק להחרגה שהוסרה", () => {
+  const listed = ignoredGhsas(JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")));
+  assert.deepEqual([...listed].sort(), Object.keys(IGNORED_REASONS).sort());
 });
 
 check("אזהרת pnpm לפני ה-JSON אינה מונעת את הפירוק", () => {
