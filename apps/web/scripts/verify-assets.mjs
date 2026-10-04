@@ -108,9 +108,9 @@ const rtlProblems = rtlRefs
   .filter((asset) => !asset.endsWith(".mjs"))
   .map((asset) => `סיומת שאינה .mjs: ${asset}`);
 
-const middleware = readFileSync(join(srcDir, "middleware.ts"), "utf8");
-if (rtlRefs.length > 0 && !middleware.includes("'wasm-unsafe-eval'")) {
-  rtlProblems.push("חסר 'wasm-unsafe-eval' ב-script-src שב-middleware.ts");
+const proxy = readFileSync(join(srcDir, "proxy.ts"), "utf8");
+if (rtlRefs.length > 0 && !proxy.includes("'wasm-unsafe-eval'")) {
+  rtlProblems.push("חסר 'wasm-unsafe-eval' ב-script-src שב-proxy.ts");
 }
 
 if (rtlProblems.length > 0) {
