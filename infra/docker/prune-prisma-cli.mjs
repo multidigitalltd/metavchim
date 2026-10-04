@@ -14,7 +14,7 @@
  * ‏שימוש: node prune-prisma-cli.mjs <workspace-filter> <deployed-dir>
  */
 import { execFileSync } from "node:child_process";
-import { readdirSync, rmSync } from "node:fs";
+import { readFileSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
 const [filter, deployed] = process.argv.slice(2);
@@ -31,20 +31,28 @@ const tree = JSON.parse(
 )[0];
 
 const OPTIONAL_PEERS = new Set(["prisma", "typescript"]);
+/* ‏מה שהשירות מצהיר עליו בעצמו. peer שהותקן אוטומטית ומופיע בשורש
+   הרשימה (תלוי בגרסת pnpm) אינו תלות של השירות. */
+const declared = new Set(
+  Object.keys(JSON.parse(readFileSync(join(deployed, "package.json"), "utf8")).dependencies ?? {}),
+);
 
 /** ‏כל החבילות שאפשר להגיע אליהן; עם `skipPeers` — בלי ה-peers של הקליינט. */
 function reachable(skipPeers) {
   const seen = new Set();
-  const walk = (node, isClient) => {
+  const walk = (node, parent) => {
     for (const [name, info] of Object.entries(node.dependencies ?? {})) {
-      if (skipPeers && isClient && OPTIONAL_PEERS.has(name)) continue;
+      const peer =
+        OPTIONAL_PEERS.has(name) &&
+        (parent === "@prisma/client" || (parent === null && !declared.has(name)));
+      if (skipPeers && peer) continue;
       const key = `${name}@${info.version}`;
       if (seen.has(key)) continue;
       seen.add(key);
-      walk(info, name === "@prisma/client");
+      walk(info, name);
     }
   };
-  walk(tree, false);
+  walk(tree, null);
   return seen;
 }
 
@@ -63,6 +71,13 @@ for (const key of prune) {
   }
 }
 console.log(`[prune] ${removed} תיקיות של ה-CLI הוסרו (${prune.length} חבילות)`);
+
+/* ‏ה-CLI עצמו חייב להיעלם. אחרת הבנייה עוברת בשקט עם תמונה שמנה */
+const left = readdirSync(store).filter((dir) => dir.startsWith("prisma@"));
+if (left.length > 0) {
+  console.error(`[prune] ✗ ה-CLI של Prisma נשאר בעץ: ${left.join(", ")}`);
+  process.exit(1);
+}
 
 /* ‏הבדיקה: כל תלות ישירה נטענת, והקליינט שנוצר נבנה — בלי להתחבר */
 execFileSync(
