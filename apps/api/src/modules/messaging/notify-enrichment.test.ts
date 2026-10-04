@@ -155,10 +155,10 @@ describe("העשרת ההתראות בעובד", () => {
 
   it("ההעשרה מסננת לפי המשרד בכל שאילתה", () => {
     const fn = loader();
-    expect(fn).toContain("set_config('app.tenant_id'");
+    expect(fn).toContain("withTenant(tenantId, async (tx) =>");
     /*
      * ‏`tenantId` על כל `where` ולא רק הישענות על RLS: השאילתות
-     * רצות בטרנזקציה אחת, ושכחה של `set_config` הייתה הופכת את
+     * רצות בטרנזקציה אחת, ושכחה של הקשר המשרד הייתה הופכת את
      * כולן לחוצות-משרד בבת אחת.
      */
     const wheres = fn.match(/where: \{ tenantId/gu) ?? [];

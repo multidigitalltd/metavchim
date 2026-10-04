@@ -2,7 +2,7 @@ import { type Job } from "bullmq";
 import { ulid } from "ulid";
 import { z } from "zod";
 import { shekelsLabel } from "@metavchim/shared";
-import { prisma } from "../runtime.js";
+import { withTenant } from "../runtime.js";
 import { automationOn } from "../tenant-settings.js";
 
 const DelistedJobSchema = z.object({
@@ -36,8 +36,7 @@ const PriceDropJobSchema = z.object({
 export async function processPriceDropReoffer(job: Job): Promise<void> {
   const { tenantId, propertyId, fromAgorot, toAgorot, changedAt } = PriceDropJobSchema.parse(job.data);
   const since = new Date(changedAt);
-  await prisma.$transaction(async (tx) => {
-    await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
+  await withTenant(tenantId, async (tx) => {
     await tx.$executeRaw`SELECT id FROM properties WHERE id = ${propertyId} AND tenant_id = ${tenantId} FOR UPDATE`;
     const property = await tx.property.findFirst({
       where: { id: propertyId, tenantId, deletedAt: null, status: { in: ["draft", "active"] } },
@@ -158,8 +157,7 @@ export async function processPropertyDelisted(job: Job): Promise<void> {
   const { tenantId, propertyId } = DelistedJobSchema.parse(job.data);
   if (!(await automationOn(tenantId, "property_delisted"))) return;
 
-  const interested = await prisma.$transaction(async (tx) => {
-    await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
+  const interested = await withTenant(tenantId, async (tx) => {
     const matches = await tx.match.findMany({
       where: { tenantId, propertyId },
       select: { id: true, buyerId: true },
@@ -184,8 +182,7 @@ export async function processPropertyDelisted(job: Job): Promise<void> {
   // של ה-Job מדלג על מי שכבר טופל (בדיקת המשימה הפתוחה)
   for (const { buyerId, title } of interested) {
     if (buyerId === "") continue;
-    await prisma.$transaction(async (tx) => {
-      await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
+    await withTenant(tenantId, async (tx) => {
       const buyer = await tx.buyer.findFirst({
         where: { id: buyerId, tenantId, deletedAt: null },
         select: { id: true, ownerUserId: true },

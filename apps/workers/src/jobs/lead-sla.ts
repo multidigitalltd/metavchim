@@ -2,7 +2,7 @@ import { type Job } from "bullmq";
 import { ulid } from "ulid";
 import { z } from "zod";
 import { automationThresholdMs } from "@metavchim/shared";
-import { prisma } from "../runtime.js";
+import { prisma, withTenant } from "../runtime.js";
 import { automationOn, automationSettings } from "../tenant-settings.js";
 import { decryptSetting } from "../whatsapp/config.js";
 
@@ -65,9 +65,7 @@ async function escalateLeadSla(
   tenantId: string,
   leadId: string,
 ): Promise<void> {
-  await prisma.$transaction(async (tx) => {
-    await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
-
+  await withTenant(tenantId, async (tx) => {
     await tx.$executeRaw`SELECT id FROM leads WHERE id = ${leadId} AND tenant_id = ${tenantId} FOR UPDATE`;
     const lead = await tx.lead.findFirst({ where: { id: leadId, tenantId } });
     if (!lead) return;
@@ -197,8 +195,7 @@ export async function processLeadSlaSweep(): Promise<void> {
     // מחזיר את אותם 200 לנצח ומרעיב את השאר (ביקורת Codex)
     let cursor: string | undefined;
     for (;;) {
-      const batch = await prisma.$transaction(async (tx) => {
-        await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenant.id}, true)`;
+      const batch = await withTenant(tenant.id, async (tx) => {
         return tx.lead.findMany({
           where: {
             tenantId: tenant.id,

@@ -10,7 +10,7 @@ import {
   neighborhoodSame,
   viewingFeedbackSentences,
 } from "@metavchim/shared";
-import { prisma } from "../runtime.js";
+import { prisma, withTenant } from "../runtime.js";
 import { automationSettings } from "../tenant-settings.js";
 
 const STALE_LEAD_DAYS = Number(process.env.STALE_LEAD_DAYS ?? 7);
@@ -27,8 +27,7 @@ async function warmStaleLead(
   leadId: string,
   cutoff: Date,
 ): Promise<void> {
-  await prisma.$transaction(async (tx) => {
-    await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
+  await withTenant(tenantId, async (tx) => {
     await tx.$executeRaw`SELECT id FROM leads WHERE id = ${leadId} AND tenant_id = ${tenantId} FOR UPDATE`;
     const lead = await tx.lead.findFirst({ where: { id: leadId, tenantId } });
     if (!lead || !OPEN_IN_PROGRESS_STATUSES.includes(lead.status)) return;
@@ -177,8 +176,7 @@ function propertyLabelOf(p: { marketingTitle: string | null; street: string | nu
  * ‏מספרים ולא „כדאי להוריד מחיר” — זו שיחה של המתווך, לא של המערכת.
  */
 async function assessStaleProperty(tenantId: string, propertyId: string, cutoff: Date): Promise<void> {
-  await prisma.$transaction(async (tx) => {
-    await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
+  await withTenant(tenantId, async (tx) => {
     await tx.$executeRaw`SELECT id FROM properties WHERE id = ${propertyId} AND tenant_id = ${tenantId} FOR UPDATE`;
     const property = await tx.property.findFirst({
       where: { id: propertyId, tenantId, deletedAt: null, status: "active" },
@@ -315,8 +313,7 @@ export async function processStalePropertySweep(): Promise<void> {
     const cutoff = new Date(Date.now() - (automationThresholdMs("stale_property", settings) ?? 21 * DAY_MS));
     let cursor: string | undefined;
     for (;;) {
-      const batch = await prisma.$transaction(async (tx) => {
-        await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenant.id}, true)`;
+      const batch = await withTenant(tenant.id, async (tx) => {
         /* ‏סינון גס באינדקס (status, updatedAt); האימות המדויק — בתוך הנעילה */
         return tx.property.findMany({
           where: { tenantId: tenant.id, deletedAt: null, status: "active", updatedAt: { lte: cutoff } },
@@ -342,8 +339,7 @@ export async function processStalePropertySweep(): Promise<void> {
  * ‏את הקונה.
  */
 async function assessQuietBuyer(tenantId: string, buyerId: string, cutoff: Date): Promise<void> {
-  await prisma.$transaction(async (tx) => {
-    await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
+  await withTenant(tenantId, async (tx) => {
     await tx.$executeRaw`SELECT id FROM buyers WHERE id = ${buyerId} AND tenant_id = ${tenantId} FOR UPDATE`;
     const buyer = await tx.buyer.findFirst({
       where: { id: buyerId, tenantId, deletedAt: null, maturity: { in: ACTIVE_BUYER_MATURITIES } },
@@ -407,8 +403,7 @@ export async function processQuietBuyerSweep(): Promise<void> {
     const cutoff = new Date(Date.now() - (automationThresholdMs("quiet_buyer", settings) ?? 14 * DAY_MS));
     let cursor: string | undefined;
     for (;;) {
-      const batch = await prisma.$transaction(async (tx) => {
-        await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenant.id}, true)`;
+      const batch = await withTenant(tenant.id, async (tx) => {
         /* ‏סינון גס באינדקס (maturity, updatedAt); האימות המדויק — בתוך הנעילה */
         return tx.buyer.findMany({
           where: { tenantId: tenant.id, deletedAt: null, maturity: { in: ACTIVE_BUYER_MATURITIES }, updatedAt: { lte: cutoff } },
@@ -446,8 +441,7 @@ export async function processStaleLeadSweep(): Promise<void> {
     // מחזיר את אותם 200 לנצח ומרעיב את השאר (ביקורת Codex)
     let cursor: string | undefined;
     for (;;) {
-      const batch = await prisma.$transaction(async (tx) => {
-        await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenant.id}, true)`;
+      const batch = await withTenant(tenant.id, async (tx) => {
         return tx.lead.findMany({
           where: {
             tenantId: tenant.id,
