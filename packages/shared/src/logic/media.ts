@@ -55,6 +55,11 @@ export const MEDIA_PRODUCT_KIND_LABEL: Record<MediaProductKind, string> = {
  * - `referred` — הפניה שנשלחה לנציג (מוצר בלי סליקה).
  * - `failed` — התשלום נכשל; ההזמנה לא נשלחה.
  * - `cancelled` — בוטלה לפני תשלום.
+ *
+ * ‏**הפרסום אינו מצב.** „פורסם” נרשם ב-`publishedAt` לצד המצב, ולא
+ * ‏במקומו: הזמנה ששולמה נשארת `paid` גם אחרי שהגיליון יצא, כי ההתחשבנות
+ * ‏(ההעברה למדיה, סיכומי העמלות) נשענת על המצב הכספי ואסור שסימון
+ * ‏תפעולי יוציא אותה ממנו (ביקורת Codex). למסך יש `mediaOrderStage`.
  */
 export const MEDIA_ORDER_STATUSES = [
   "pending_payment",
@@ -72,6 +77,140 @@ export const MEDIA_ORDER_STATUS_LABEL: Record<MediaOrderStatus, string> = {
   failed: "התשלום נכשל",
   cancelled: "בוטל",
 };
+
+/**
+ * ‏השלב שהמסך מציג: המצב הכספי, או „פורסם” כשבעל הפלטפורמה סימן.
+ * ‏`published` חי רק כאן — בבסיס הנתונים הוא `publishedAt`.
+ */
+export type MediaOrderStage = MediaOrderStatus | "published";
+
+export const MEDIA_ORDER_STAGE_LABEL: Record<MediaOrderStage, string> = {
+  ...MEDIA_ORDER_STATUS_LABEL,
+  published: "פורסם",
+};
+
+export function mediaOrderStage(status: MediaOrderStatus, publishedAt: Date | string | null): MediaOrderStage {
+  return publishedAt !== null ? "published" : status;
+}
+
+/** ‏הזמנה שכבר אצל המדיה וטרם סומנה — זו שאפשר לסמן כפורסמה. */
+export function mediaOrderCanPublish(status: MediaOrderStatus, publishedAt: Date | string | null): boolean {
+  return (status === "paid" || status === "referred") && publishedAt === null;
+}
+
+/* ==================== קובץ המודעה ==================== */
+
+/**
+ * ‏קובץ המודעה — מה שהמעצב של המגזין מקבל לדפוס.
+ *
+ * ‏שלושה סוגים בלבד, וכולם מזוהים לפי ה-Magic Bytes ולא לפי השם:
+ * ‏JPEG ו-PNG לתמונה מוכנה, PDF למודעה מעוצבת. הקובץ נשמר **כפי שהוא**
+ * ‏— בלי כיווץ ובלי WebP כמו תמונות הנכסים — כי לדפוס צריך את המקור.
+ */
+export const MEDIA_CREATIVE_MAX_BYTES = 25 * 1024 * 1024;
+export const MEDIA_CREATIVE_MIMES = ["image/jpeg", "image/png", "application/pdf"] as const;
+export type MediaCreativeMime = (typeof MEDIA_CREATIVE_MIMES)[number];
+export const MEDIA_CREATIVE_EXT: Record<MediaCreativeMime, string> = {
+  "image/jpeg": "jpg",
+  "image/png": "png",
+  "application/pdf": "pdf",
+};
+/** ‏הערת הפרסום של בעל הפלטפורמה — „גיליון 412, עמ׳ 7”. */
+export const MEDIA_PUBLISHED_NOTE_MAX = 300;
+
+/** ‏סוג הקובץ לפי הבייטים הראשונים; `null` = לא אחד משלושת הסוגים. */
+export function mediaCreativeMime(bytes: Uint8Array): MediaCreativeMime | null {
+  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return "image/jpeg";
+  if (
+    bytes.length >= 8 &&
+    bytes[0] === 0x89 &&
+    bytes[1] === 0x50 &&
+    bytes[2] === 0x4e &&
+    bytes[3] === 0x47 &&
+    bytes[4] === 0x0d &&
+    bytes[5] === 0x0a &&
+    bytes[6] === 0x1a &&
+    bytes[7] === 0x0a
+  ) {
+    return "image/png";
+  }
+  if (bytes.length >= 5 && bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46 && bytes[4] === 0x2d) {
+    return "application/pdf";
+  }
+  return null;
+}
+
+/**
+ * ‏מתי אפשר להעלות (או להחליף) את קובץ המודעה: כל עוד ההזמנה חיה
+ * ‏והמודעה טרם פורסמה. אחרי הפרסום הקובץ הוא תיעוד, לא טיוטה.
+ */
+export function mediaCanUploadCreative(status: MediaOrderStatus, publishedAt: Date | string | null): boolean {
+  return (status === "pending_payment" || status === "paid" || status === "referred") && publishedAt === null;
+}
+
+/* ==================== ציר הזמן של ההזמנה ==================== */
+
+export type MediaTimelineState = "done" | "current" | "pending" | "failed";
+
+export interface MediaTimelineStep {
+  key: "created" | "paid" | "sent" | "creative" | "published";
+  label: string;
+  at: Date | null;
+  state: MediaTimelineState;
+}
+
+/**
+ * ‏ציר הזמן שעמוד ההזמנה מציג — מה כבר קרה, מה עכשיו, ומה עוד לפנינו.
+ *
+ * ‏הפניה אינה עוברת תשלום, ולכן שלב „שולם” אינו מופיע בה כלל. הזמנה
+ * ‏שנכשלה או בוטלה מסתיימת בשלב שבו עצרה, בלי להבטיח המשך.
+ */
+export function mediaOrderTimeline(order: {
+  kind: MediaProductKind;
+  status: MediaOrderStatus;
+  createdAt: Date;
+  paidAt: Date | null;
+  notifiedAt: Date | null;
+  creativeUploadedAt: Date | null;
+  publishedAt: Date | null;
+}): MediaTimelineStep[] {
+  const steps: MediaTimelineStep[] = [{ key: "created", label: "ההזמנה נפתחה", at: order.createdAt, state: "done" }];
+  const stopped = order.status === "failed" || order.status === "cancelled";
+  if (order.kind === "paid") {
+    steps.push({
+      key: "paid",
+      label: order.status === "failed" ? "התשלום נכשל" : order.status === "cancelled" ? "ההזמנה בוטלה" : "שולם",
+      at: order.paidAt,
+      state: stopped ? "failed" : order.paidAt !== null ? "done" : "current",
+    });
+  }
+  const sentDone = order.notifiedAt !== null;
+  const published = order.publishedAt !== null;
+  const atOutlet = order.status === "paid" || order.status === "referred";
+  steps.push({
+    key: "sent",
+    label: order.kind === "paid" ? "נשלח למדיה" : "נשלח לנציג",
+    at: order.notifiedAt,
+    state: stopped ? "pending" : sentDone ? "done" : atOutlet ? "current" : "pending",
+  });
+  steps.push({
+    key: "creative",
+    label: "קובץ המודעה",
+    at: order.creativeUploadedAt,
+    state: order.creativeUploadedAt !== null ? "done" : stopped ? "pending" : atOutlet && sentDone ? "current" : "pending",
+  });
+  steps.push({
+    key: "published",
+    label: "פורסם",
+    at: order.publishedAt,
+    state: published ? "done" : "pending",
+  });
+  if (published) {
+    // ‏מה שקדם לפרסום בהכרח קרה — גם כשלא נרשם מועד (למשל נציג שקיבל בטלפון)
+    for (const step of steps) if (step.state !== "done" && step.key !== "creative") step.state = "done";
+  }
+  return steps;
+}
 
 /** ‏תמונות של מדיה: `cover` — לוגו/שער אחד; `sample` — דוגמאות מודעה. */
 export const MEDIA_IMAGE_KINDS = ["cover", "sample"] as const;

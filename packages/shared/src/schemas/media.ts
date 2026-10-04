@@ -7,6 +7,7 @@ import {
   MEDIA_OUTLET_KINDS,
   MEDIA_PRODUCT_KINDS,
   MEDIA_PRODUCT_PRICE_MAX_AGOROT,
+  MEDIA_PUBLISHED_NOTE_MAX,
   isMediaSlug,
 } from "../logic/media.js";
 import { IdSchema, PhoneInputSchema } from "./common.js";
@@ -118,6 +119,14 @@ export type MediaImagePatch = z.infer<typeof MediaImagePatchSchema>;
  * ‏מחושב בשרת מההזמנות ולא נשלח: רישום שסכומו אינו סך ההזמנות
  * ‏אינו רישום של דבר.
  */
+/** ‏סימון „פורסם” על הזמנה — הערה חופשית, למשל גיליון ועמוד. */
+export const MediaPublishSchema = z
+  .object({
+    note: z.string().trim().max(MEDIA_PUBLISHED_NOTE_MAX).default(""),
+  })
+  .strict();
+export type MediaPublish = z.infer<typeof MediaPublishSchema>;
+
 export const MediaSettlementCreateSchema = z
   .object({
     reference: z.string().trim().max(120).default(""),

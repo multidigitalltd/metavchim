@@ -149,8 +149,8 @@ const ENTITY_ROUTES: Record<string, (id?: string) => string> = {
    * ההגדרות — שם מנהל המשרד רואה מה השתנה ויכול לתקן.
    */
   virtual_number: () => "/settings#virtual-numbers",
-  /** הזמנת מדיה — למסך ההזמנות; אין עמוד להזמנה בודדת */
-  media_order: () => "/media/orders",
+  /** הזמנת מדיה — עמוד ההזמנה; בלי מזהה, הרשימה */
+  media_order: (id) => (id ? `/media/orders/${id}` : "/media/orders"),
   call: (id) => (id ? `/calls?call=${id}` : "/calls"),
   mentor: () => "/mentor",
   // הפורום — השרשור עצמו; בלי מזהה, רשימת הפורום

@@ -60,6 +60,13 @@ export interface MailOrder {
   officeName: string;
   customerNo: number | null;
   createdAt: Date;
+  /** קובץ המודעה — האסימון שבקישור לנציג, והשם לתצוגה. ריק = טרם הועלה. */
+  creativeToken: string | null;
+  creativeName: string | null;
+  creativeUploadedAt: Date | null;
+  /** „פורסם” — מתי, ואיפה (הערת בעל הפלטפורמה). */
+  publishedAt: Date | null;
+  publishedNote: string;
 }
 
 export interface MailOutlet {
@@ -251,6 +258,63 @@ export class MediaMailService {
     });
   }
 
+  /**
+   * קובץ המודעה הועלה (או הוחלף) אחרי שההזמנה כבר אצל המדיה — הנציג
+   * מקבל את הקישור, מנהלי הפלטפורמה רואים שהתהליך מתקדם. הלקוח העלה
+   * בעצמו ואינו צריך מייל על זה.
+   */
+  async creativeUploaded(order: MailOrder, outlet: MailOutlet | null, replaced: boolean): Promise<void> {
+    const badge: EmailBadge = { label: replaced ? "קובץ המודעה הוחלף" : "קובץ המודעה הועלה", tone: "info" };
+    if (order.creativeToken !== null) {
+      await this.toOutlet(
+        order,
+        outlet,
+        "creative",
+        {
+          badge,
+          heading: replaced ? "קובץ מודעה מעודכן" : "קובץ המודעה מוכן",
+          paragraphs: [
+            `משרד ${order.officeName} ${replaced ? "החליף את" : "העלה את"} קובץ המודעה ל${order.productName} ב${order.outletName}.`,
+            replaced ? "הקישור הקודם אינו בתוקף — יש להשתמש בקובץ הזה בלבד." : "הקובץ להורדה בקישור שבפרטים.",
+          ],
+          button: { label: "לקובץ המודעה", url: this.creativeUrl(order.creativeToken) },
+        },
+        // ‏מפתח לפי הקובץ: כל העלאה היא קובץ אחר, ולכן מייל אחר
+        `media-order:${order.id}:creative:${order.creativeToken.slice(0, 12)}`,
+      );
+    }
+    await this.toAdmins(order, {
+      subject: `${replaced ? "קובץ הוחלף" : "קובץ הועלה"} — ${order.outletName} — ${order.officeName}`,
+      badge,
+      heading: replaced ? "קובץ המודעה הוחלף" : "קובץ המודעה הועלה",
+      paragraphs: [`${this.officeLine(order)} — ${order.productName} ב${order.outletName}: ${order.creativeName ?? "קובץ"}.`],
+      details: this.adminDetails(order, outlet),
+    });
+  }
+
+  /** בעל הפלטפורמה סימן „פורסם” — הלקוח שומע שהמודעה שלו בחוץ. */
+  async orderPublished(order: MailOrder, outlet: MailOutlet | null): Promise<void> {
+    const badge: EmailBadge = { label: "פורסם", tone: "success" };
+    const where = order.publishedNote === "" ? "" : ` (${order.publishedNote})`;
+    await this.toClient(order, "published", {
+      badge,
+      heading: "המודעה שלכם פורסמה",
+      paragraphs: [
+        `${order.productName} ב${order.outletName} פורסם${where}.`,
+        "תודה שפרסמתם דרך המערכת — אפשר להזמין שוב מאותו עמוד בכל עת.",
+      ],
+      details: this.clientDetails(order, outlet),
+      button: this.clientButton("להזמנה", order.id),
+    });
+    await this.toAdmins(order, {
+      subject: `פורסם — ${order.outletName} — ${order.officeName}`,
+      badge,
+      heading: "הזמנת מדיה סומנה כפורסמה",
+      paragraphs: [`${this.officeLine(order)} — ${order.productName} ב${order.outletName}${where}.`],
+      details: this.adminDetails(order, outlet),
+    });
+  }
+
   /* ==================== הרכבה ==================== */
 
   /** הפרטים שהלקוח רואה — בלי עמלה, בלי פרטי המשרד שלו עצמו. */
@@ -270,6 +334,13 @@ export class MediaMailService {
       if (closing !== null) rows.push({ label: "סגירת גיליון", value: closing });
     }
     if (order.brief !== "") rows.push({ label: "מה לפרסם", value: order.brief });
+    if (order.creativeName !== null) rows.push({ label: "קובץ המודעה", value: order.creativeName });
+    if (order.publishedAt !== null) {
+      rows.push({
+        label: "פורסם",
+        value: order.publishedNote === "" ? formatJerusalemDate(order.publishedAt) : `${formatJerusalemDate(order.publishedAt)} — ${order.publishedNote}`,
+      });
+    }
     rows.push({ label: "תאריך ההזמנה", value: formatJerusalemDate(order.createdAt) });
     rows.push({ label: "מספר הזמנה", value: order.id });
     return rows;
@@ -324,9 +395,21 @@ export class MediaMailService {
     }
     rows.push({ label: "איש קשר במשרד", value: `${order.contactName}, ${order.contactPhone}, ${order.contactEmail}` });
     if (order.brief !== "") rows.push({ label: "מה לפרסם", value: order.brief });
+    rows.push({
+      label: "קובץ המודעה",
+      value:
+        order.creativeToken === null
+          ? "טרם הועלה — המשרד יעלה אותו במערכת ותקבלו קישור במייל"
+          : `${order.creativeName ?? "קובץ"} — ${this.creativeUrl(order.creativeToken)}`,
+    });
     rows.push({ label: "תאריך ההזמנה", value: formatJerusalemDate(order.createdAt) });
     rows.push({ label: "מספר הזמנה", value: order.id });
     return rows;
+  }
+
+  /** הקישור לקובץ המודעה — דף ציבורי לנציג, בלי התחברות. */
+  private creativeUrl(token: string): string {
+    return `${this.origin()}/ad/${token}`;
   }
 
   private closingLine(outlet: MailOutlet): string | null {
@@ -358,8 +441,8 @@ export class MediaMailService {
       : `משרד ${order.officeName} (לקוח ${order.customerNo})`;
   }
 
-  private clientButton(label: string): { label: string; url: string } {
-    return { label, url: `${this.origin()}/media/orders` };
+  private clientButton(label: string, orderId?: string): { label: string; url: string } {
+    return { label, url: orderId === undefined ? `${this.origin()}/media/orders` : `${this.origin()}/media/orders/${orderId}` };
   }
 
   private origin(): string {
@@ -405,6 +488,7 @@ export class MediaMailService {
     outlet: MailOutlet | null,
     step: string,
     content: EmailContent & { heading: string },
+    key = outletMailKey(order.id, outlet?.contactEmail ?? ""),
   ): Promise<boolean> {
     if (outlet === null || outlet.contactEmail === "") return false;
     try {
@@ -417,7 +501,7 @@ export class MediaMailService {
           details: this.outletDetails(order),
         },
         {
-          idempotency: { key: outletMailKey(order.id, outlet.contactEmail), purpose: "media" },
+          idempotency: { key, purpose: "media" },
           required: true,
           autoGenerated: true,
           replyTo: order.contactEmail,

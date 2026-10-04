@@ -3200,7 +3200,7 @@ model MediaOrder {
   productId         String    @map("product_id") @db.Char(26)
   /// paid | lead — צילום מהמוצר
   kind              String    @db.VarChar(10)
-  /// pending_payment | paid | referred | failed | cancelled
+  /// pending_payment | paid | referred | failed | cancelled — המצב הכספי; „פורסם” הוא published_at
   status            String    @default("pending_payment") @db.VarChar(20)
   /// צילומים לתצוגה — ההזמנה נקראת גם אחרי שהמוצר שונה או הוסר
   outletName        String    @map("outlet_name") @db.VarChar(120)
@@ -3231,6 +3231,17 @@ model MediaOrder {
   settlementId      String?   @map("settlement_id") @db.Char(26)
   /// תזכורת "הגיליון נסגר מחר" שנשלחה על ההזמנה הממתינה — פעם אחת
   closingReminderAt DateTime? @map("closing_reminder_at")
+  /// קובץ המודעה לדפוס — ב-S3 תחת tenants/<tenant>/media-orders/; כפי
+  /// שהועלה, בלי כיווץ. ריק = טרם הועלה.
+  creativeKey        String?   @map("creative_key") @db.VarChar(200)
+  creativeMime       String?   @map("creative_mime") @db.VarChar(40)
+  creativeName       String?   @map("creative_name") @db.VarChar(160)
+  /// הקישור שנציג המדיה מקבל במייל — אקראי, ללא התחברות; מתחלף בכל העלאה
+  creativeToken      String?   @unique @map("creative_token") @db.VarChar(64)
+  creativeUploadedAt DateTime? @map("creative_uploaded_at")
+  /// בעל הפלטפורמה סימן שהמודעה פורסמה — מתי, ואיפה ("גיליון 412, עמ׳ 7")
+  publishedAt        DateTime? @map("published_at")
+  publishedNote      String    @default("") @map("published_note") @db.VarChar(300)
   createdBy         String?   @map("created_by") @db.Char(26)
   createdAt         DateTime  @default(now()) @map("created_at")
   updatedAt         DateTime  @updatedAt @map("updated_at")

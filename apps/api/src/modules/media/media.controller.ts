@@ -1,8 +1,24 @@
-import { Body, Controller, Get, HttpCode, Param, Post, Req, Res, UseGuards, type StreamableFile } from "@nestjs/common";
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  Param,
+  Post,
+  Req,
+  Res,
+  UploadedFile,
+  UseGuards,
+  UseInterceptors,
+  type StreamableFile,
+} from "@nestjs/common";
+import { FileInterceptor } from "@nestjs/platform-express";
 import type { Request, Response } from "express";
 import { z } from "zod";
 import {
   IdSchema,
+  MEDIA_CREATIVE_MAX_BYTES,
   MEDIA_SLUG_PATTERN,
   MediaOrderCreateSchema,
   type MediaOrderCreate,
@@ -12,11 +28,13 @@ import { AnyAuthenticated, RequireCapability } from "../../common/auth.decorator
 import { objectResponse } from "../../common/object-response";
 import { TenantContext } from "../../common/tenant-context";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
+import { MediaCreativesService } from "./media-creatives.service";
 import { MediaImagesService } from "./media-images.service";
 import { MediaPreviewGuard } from "./media-preview.guard";
 import {
   MediaService,
   orderContext,
+  type MediaOrderDetail,
   type MediaOrderRow,
   type MediaOutletCard,
   type MediaOutletDetail,
@@ -50,6 +68,7 @@ export class MediaController {
   constructor(
     private readonly media: MediaService,
     private readonly images: MediaImagesService,
+    private readonly creatives: MediaCreativesService,
   ) {}
 
   @Get()
@@ -66,6 +85,41 @@ export class MediaController {
   @AnyAuthenticated()
   async orders(): Promise<{ orders: MediaOrderRow[] }> {
     return { orders: await this.media.orders(TenantContext.current().tenantId) };
+  }
+
+  /** עמוד ההזמנה — ציר הזמן, הקובץ, ומה אפשר לעשות. */
+  @Get("orders/:id")
+  @AnyAuthenticated()
+  order(@Param("id", IdParam) id: string): Promise<MediaOrderDetail> {
+    return this.media.order(TenantContext.current().tenantId, id);
+  }
+
+  /**
+   * קובץ המודעה — העלאה או החלפה. כל משתמש במשרד: מי שמנהל את המודעה
+   * אינו בהכרח מי שמשלם, והקובץ אינו מחייב כסף.
+   */
+  @Post("orders/:id/creative")
+  @AnyAuthenticated()
+  @UseInterceptors(FileInterceptor("file", { limits: { fileSize: MEDIA_CREATIVE_MAX_BYTES, files: 1 } }))
+  uploadCreative(
+    @Param("id", IdParam) id: string,
+    @UploadedFile() file: Express.Multer.File | undefined,
+  ): Promise<{ creativeName: string; creativeMime: string; uploadedAt: Date }> {
+    if (file === undefined) throw new BadRequestException("לא נבחר קובץ");
+    return this.creatives.upload(orderContext(), id, { buffer: file.buffer, originalname: file.originalname });
+  }
+
+  /** קובץ המודעה של ההזמנה — למשרד שהעלה אותו. */
+  @Get("orders/:id/creative")
+  @AnyAuthenticated()
+  async creative(
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+    @Param("id", IdParam) id: string,
+  ): Promise<StreamableFile | undefined> {
+    const object = await this.creatives.getForTenant(TenantContext.current().tenantId, id);
+    res.setHeader("Content-Disposition", `inline; filename*=UTF-8''${encodeURIComponent(object.name)}`);
+    return objectResponse(req, res, object, "private");
   }
 
   @Get(":slug")

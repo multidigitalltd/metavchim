@@ -3,7 +3,9 @@ import { MediaAdminController } from "./media-admin.controller";
 import { MediaAdminService } from "./media-admin.service";
 import { MediaClosingReminderService } from "./media-closing-reminder.service";
 import { MediaController } from "./media.controller";
+import { MediaCreativesService } from "./media-creatives.service";
 import { MediaImagesService } from "./media-images.service";
+import { MediaPublicController } from "./media-public.controller";
 import { MediaMailService } from "./media-mail.service";
 import { MediaService } from "./media.service";
 
@@ -16,11 +18,12 @@ import { MediaService } from "./media.service";
  * מייבא את הגבייה, ולכן אין מעגל.
  */
 @Module({
-  controllers: [MediaController, MediaAdminController],
+  controllers: [MediaController, MediaAdminController, MediaPublicController],
   providers: [
     MediaService,
     MediaAdminService,
     MediaImagesService,
+    MediaCreativesService,
     MediaMailService,
     MediaClosingReminderService,
   ],

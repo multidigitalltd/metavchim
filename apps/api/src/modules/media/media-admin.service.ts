@@ -1,8 +1,10 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { ulid } from "ulid";
 import {
-  MEDIA_ORDER_STATUS_LABEL,
+  MEDIA_ORDER_STAGE_LABEL,
+  mediaOrderStage,
   type MediaImageKind,
+  type MediaOrderStage,
   type MediaOrderStatus,
   type MediaOutletKind,
   type MediaOutletPatch,
@@ -102,7 +104,10 @@ export interface AdminMediaOrder {
   outletName: string;
   productName: string;
   kind: MediaProductKind;
+  /** המצב הכספי — ההעברות והסיכומים נשענים עליו; „פורסם” אינו משנה אותו. */
   status: MediaOrderStatus;
+  /** השלב לתצוגה — המצב, או `published` כשסומן. */
+  stage: MediaOrderStage;
   statusLabel: string;
   quantity: number;
   amountAgorot: number;
@@ -118,6 +123,11 @@ export interface AdminMediaOrder {
   paidAt: Date | null;
   /** ההעברה למדיה שההזמנה נכללה בה; ריק = טרם הועבר. */
   settlementId: string | null;
+  /** קובץ המודעה — שם ומועד; ריק = המשרד טרם העלה. */
+  creativeName: string | null;
+  creativeUploadedAt: Date | null;
+  publishedAt: Date | null;
+  publishedNote: string;
   createdAt: Date;
 }
 
@@ -369,7 +379,8 @@ export class MediaAdminService {
       productName: row.productName,
       kind: row.kind as MediaProductKind,
       status: row.status as MediaOrderStatus,
-      statusLabel: MEDIA_ORDER_STATUS_LABEL[row.status as MediaOrderStatus] ?? row.status,
+      stage: mediaOrderStage(row.status as MediaOrderStatus, row.publishedAt),
+      statusLabel: MEDIA_ORDER_STAGE_LABEL[mediaOrderStage(row.status as MediaOrderStatus, row.publishedAt)],
       quantity: row.quantity,
       amountAgorot: row.amountAgorot,
       commissionPercent: row.commissionPercent,
@@ -382,6 +393,10 @@ export class MediaAdminService {
       notifiedAt: row.notifiedAt,
       paidAt: row.paidAt,
       settlementId: row.settlementId,
+      creativeName: row.creativeName,
+      creativeUploadedAt: row.creativeUploadedAt,
+      publishedAt: row.publishedAt,
+      publishedNote: row.publishedNote,
       createdAt: row.createdAt,
     }));
   }

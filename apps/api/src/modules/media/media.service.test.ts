@@ -72,7 +72,20 @@ function harness(options: { cardcom?: boolean; mail?: boolean; contactEmail?: st
 
   const mediaOrder = {
     create: async ({ data }: { data: Record<string, unknown> }) => {
-      orders.push({ notifiedAt: null, ...data });
+      orders.push({
+        notifiedAt: null,
+        paidAt: null,
+        settlementId: null,
+        closingReminderAt: null,
+        creativeKey: null,
+        creativeMime: null,
+        creativeName: null,
+        creativeToken: null,
+        creativeUploadedAt: null,
+        publishedAt: null,
+        publishedNote: "",
+        ...data,
+      });
       return data;
     },
     findMany: async ({ where }: { where: { tenantId: string; productId?: string; status?: string } }) =>
@@ -95,16 +108,24 @@ function harness(options: { cardcom?: boolean; mail?: boolean; contactEmail?: st
       where,
       data,
     }: {
-      where: { tenantId?: string; id?: string | { in: string[] }; status?: string };
+      where: {
+        tenantId?: string;
+        id?: string | { in: string[] };
+        status?: string | { in: string[] };
+        publishedAt?: null;
+      };
       data: Record<string, unknown>;
     }) => {
       const ids =
         where.id === undefined ? null : typeof where.id === "string" ? [where.id] : where.id.in;
+      const statuses =
+        where.status === undefined ? null : typeof where.status === "string" ? [where.status] : where.status.in;
       let count = 0;
       for (const row of orders) {
         if (where.tenantId !== undefined && row["tenantId"] !== where.tenantId) continue;
         if (ids !== null && !ids.includes(row["id"] as string)) continue;
-        if (where.status !== undefined && row["status"] !== where.status) continue;
+        if (statuses !== null && !statuses.includes(row["status"] as string)) continue;
+        if (where.publishedAt === null && row["publishedAt"] !== null) continue;
         Object.assign(row, data);
         count += 1;
       }
@@ -159,10 +180,23 @@ function harness(options: { cardcom?: boolean; mail?: boolean; contactEmail?: st
       return { count };
     },
   };
-  const tx = { mediaOrder, payment };
+  const notifications: { type: string; dedupeKey: string }[] = [];
+  const tx = {
+    mediaOrder,
+    payment,
+    // ‏ה-INSERT של notifyOnce — הסוג והמפתח לפי הסדר בתבנית
+    $executeRaw: async (strings: TemplateStringsArray, ...values: unknown[]) => {
+      if (!strings.join("").includes("INSERT INTO notifications")) return 0;
+      const key = String(values[8]);
+      if (notifications.some((n) => n.dedupeKey === key)) return 0;
+      notifications.push({ type: String(values[3]), dedupeKey: key });
+      return 1;
+    },
+  };
   const prisma = {
     mediaOrder,
     payment,
+    withExplicitTenant: async <T>(_tenantId: string, fn: (t: typeof tx) => Promise<T>): Promise<T> => fn(tx),
     mediaProduct: {
       findFirst: async ({ where }: { where: { id: string } }) => products[where.id] ?? null,
     },
@@ -226,7 +260,7 @@ function harness(options: { cardcom?: boolean; mail?: boolean; contactEmail?: st
     admins as never,
     audit as never,
   );
-  return { service, orders, payments, sent, adminNotices, audits, tx };
+  return { service, orders, payments, sent, adminNotices, audits, notifications, tx };
 }
 
 function asOwner<T>(fn: () => T): T {
@@ -532,5 +566,64 @@ describe("MediaService — המשך לתשלום, ביטול ושליחה חוז
     expect(await h.service.settleWithin(h.tx as never, first.orderId, new Date())).toBeNull();
     await h.service.reportOrphanPayment(first.paymentId, first.orderId);
     expect(h.adminNotices.at(-1)).toContain("חיוב כפול");
+  });
+});
+
+describe("MediaService — פעמון, עמוד ההזמנה ו„פורסם”", () => {
+  it("הפניה — התראה אחת בפעמון למי שהזמין, גם אחרי שליחה חוזרת", async () => {
+    const h = harness();
+    const { orderId } = await asOwner(() =>
+      h.service.createReferral({ tenantId: TENANT, userId: ME }, { ...ORDER, productId: LEAD }),
+    );
+    expect(h.notifications).toEqual([{ type: "media_referred", dedupeKey: `media_referred:${orderId}` }]);
+    await h.service.resendNotification(orderId);
+    expect(h.notifications).toHaveLength(1);
+  });
+
+  it("עמוד ההזמנה — ציר זמן, רק למשרד שלו", async () => {
+    const h = harness();
+    const { orderId } = await asOwner(() =>
+      h.service.startCheckout({ tenantId: TENANT, userId: ME }, { ...ORDER, productId: PAID }),
+    );
+    const detail = await h.service.order(TENANT, orderId);
+    expect(detail.timeline.map((s) => `${s.key}:${s.state}`)).toEqual([
+      "created:done",
+      "paid:current",
+      "sent:pending",
+      "creative:pending",
+      "published:pending",
+    ]);
+    expect(detail.canUploadCreative).toBe(true);
+    expect(detail.outletContact).toEqual({ name: "ר׳ נציג", phone: "+972521234567" });
+    await expect(h.service.order("01OTHERTENANT0000000000A0", orderId)).rejects.toThrow(/לא נמצאה/u);
+  });
+
+  it("„פורסם” — רק הזמנה שאצל המדיה; הלקוח מקבל מייל, התראה, והקובץ ננעל", async () => {
+    const h = harness();
+    const { orderId } = await asOwner(() =>
+      h.service.startCheckout({ tenantId: TENANT, userId: ME }, { ...ORDER, productId: PAID }),
+    );
+    await expect(h.service.markPublished(orderId, "")).rejects.toThrow(/רק הזמנה ששולמה/u);
+    await h.service.settleWithin(h.tx as never, orderId, new Date());
+    await h.service.notifyAfterPayment(orderId);
+    expect(h.notifications.map((n) => n.type)).toEqual(["media_paid"]);
+
+    const sentBefore = h.sent.length;
+    await h.service.markPublished(orderId, "גיליון 412, עמ׳ 7");
+    // ‏המצב הכספי נשאר — ההעברה למדיה וסיכומי העמלות עדיין רואים את ההזמנה
+    expect(h.orders[0]).toMatchObject({ status: "paid", publishedNote: "גיליון 412, עמ׳ 7" });
+    expect(h.orders[0]?.["publishedAt"]).toBeInstanceOf(Date);
+    expect(h.sent).toHaveLength(sentBefore + 1);
+    expect(h.sent.at(-1)).toMatchObject({ to: "dana@office.example" });
+    expect(h.sent.at(-1)?.subject).toContain("פורסמה");
+    expect(h.adminNotices.at(-1)).toContain("פורסם");
+    expect(h.notifications.map((n) => n.type)).toEqual(["media_paid", "media_published"]);
+    expect(h.audits).toContain("media.order_published");
+    const detail = await h.service.order(TENANT, orderId);
+    expect(detail.canUploadCreative).toBe(false);
+    expect(detail).toMatchObject({ status: "paid", stage: "published", statusLabel: "פורסם" });
+    expect(detail.timeline.at(-1)).toMatchObject({ key: "published", state: "done" });
+    await expect(h.service.markPublished(orderId, "")).rejects.toThrow(/כבר סומנה/u);
+    expect(h.notifications.filter((n) => n.type === "media_published")).toHaveLength(1);
   });
 });
