@@ -146,7 +146,7 @@ export class WhatsappSeatService {
     const offer = whatsappSeatOffer(plan?.whatsappSeatMonthlyAgorot ?? null, true);
     if (offer.kind !== "purchase") {
       throw new BadRequestException(
-        "המסלול הנוכחי אינו כולל מקומות נוספים לרכישה — פנו אלינו ונתאים.",
+        "למסלול הזה לא הוגדר מחיר למקום נוסף — פנו אלינו ונוסיף מקום.",
       );
     }
     if (!(await this.cardcom.isConfigured())) {

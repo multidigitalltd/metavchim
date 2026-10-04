@@ -216,7 +216,7 @@ export function whatsappSeatsFullText(input: {
 
 export function whatsappSeatOfferText(offer: WhatsappSeatOffer): string {
   if (offer.kind === "contact") {
-    return "המסלול הנוכחי אינו כולל מקומות נוספים — פנו אלינו ונתאים.";
+    return "אפשר להוסיף מקומות נוספים למנוי — פנו אלינו ונוסיף.";
   }
   return (
     `מקום נוסף לסוכן במשרד: ${formatPlanPrice(offer.monthlyAgorot)} לחודש ` +

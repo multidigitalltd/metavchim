@@ -114,7 +114,7 @@ export function WhatsAppSeatPanel(): React.JSX.Element | null {
         <b>
           {offering.used} מתוך {offering.seats} {offering.seats === 1 ? "מקום" : "מקומות"} בשימוש
         </b>{" "}
-        — מקום אחד כלול במסלול, וכל מקום נוסף הוא מנוי חודשי.
+        — אפשר להוסיף מקומות נוספים למנוי.
       </p>
 
       {error ? <Notice tone="danger">{error}</Notice> : null}
@@ -157,25 +157,30 @@ export function WhatsAppSeatPanel(): React.JSX.Element | null {
       {/*
         ‎**כשאי אפשר לקנות — אומרים למה, ולא מציעים כפתור.** אותה
         הכרעה כמו במסך החיבור: כפתור שיכשל גרוע מהיעדר כפתור.
+
+        ‎**והסיבה הנכונה.** ההצעה חוזרת „פנו אלינו” גם כשהסליקה כבויה
+        (`whatsappSeatOffer`), ולכן הבדיקה של הסליקה קודמת: אחרת מסלול
+        שנמכר בו מקום, במערכת שהסליקה בה טרם הופעלה, נקרא „אינו כולל
+        מקומות נוספים” — טענה שאינה נכונה על המסלול.
       */}
       {!mayPay ? (
         <p className="m-0 text-sm" style={{ color: "var(--color-text-muted)" }}>
           הוספת מקום נעשית על ידי בעל/ת המשרד.
         </p>
-      ) : offering.offer.kind !== "purchase" ? (
-        <p className="m-0 text-sm" style={{ color: "var(--color-text-muted)" }}>
-          המסלול הנוכחי אינו כולל מקומות נוספים — פנו אלינו ונתאים.
-        </p>
-      ) : offering.checkoutAvailable === false ? (
-        <p className="m-0 text-sm" style={{ color: "var(--color-text-muted)" }}>
-          התשלום המקוון טרם הופעל במערכת — פנו אלינו כדי להוסיף מקום.
-        </p>
-      ) : (
+      ) : offering.offer.kind === "purchase" ? (
         <button type="button" className="mv-btn-primary" disabled={busy !== null} onClick={() => void buy()}>
           {busy === "checkout"
             ? "פותח תשלום…"
-            : `הוספת מקום — ${formatPlanPrice(offering.offer.monthlyAgorot)} לחודש ${VAT_EXCLUDED_SUFFIX}`}
+            : `הוספת מקום למנוי — ${formatPlanPrice(offering.offer.monthlyAgorot)} לחודש ${VAT_EXCLUDED_SUFFIX}`}
         </button>
+      ) : offering.checkoutAvailable === false ? (
+        <p className="m-0 text-sm" style={{ color: "var(--color-text-muted)" }}>
+          התשלום המקוון טרם הופעל במערכת — פנו אלינו ונוסיף מקום.
+        </p>
+      ) : (
+        <p className="m-0 text-sm" style={{ color: "var(--color-text-muted)" }}>
+          למסלול הזה לא הוגדר מחיר למקום נוסף — פנו אלינו ונוסיף מקום.
+        </p>
       )}
     </div>
   );
