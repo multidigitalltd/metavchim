@@ -7,6 +7,7 @@ import { MediaCreativesService } from "./media-creatives.service";
 import { MediaImagesService } from "./media-images.service";
 import { MediaPublicController } from "./media-public.controller";
 import { MediaMailService } from "./media-mail.service";
+import { MediaOutletReminderService } from "./media-outlet-reminder.service";
 import { MediaService } from "./media.service";
 
 /**
@@ -26,6 +27,7 @@ import { MediaService } from "./media.service";
     MediaCreativesService,
     MediaMailService,
     MediaClosingReminderService,
+    MediaOutletReminderService,
   ],
   exports: [MediaService],
 })

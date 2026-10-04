@@ -16,6 +16,7 @@ import {
   mediaOrderStage,
   mediaOrderTimeline,
   mediaOrderTotals,
+  mediaOutletReminderDue,
   resolveMediaCommissionPercent,
 } from "./media.js";
 
@@ -199,5 +200,23 @@ describe("mediaOrderTimeline", () => {
     expect(steps.map((s) => s.state)).toEqual(["done", "done", "pending", "pending", "done"]);
     const paidPublished = mediaOrderTimeline({ ...base, kind: "paid", status: "paid", paidAt: t1, publishedAt: t1 });
     expect(paidPublished.map((s) => s.state)).toEqual(["done", "done", "done", "pending", "pending", "done"]);
+  });
+});
+
+describe("mediaOutletReminderDue", () => {
+  const now = new Date("2026-10-04T09:00:00.000Z");
+  const hoursAgo = (h: number) => new Date(now.getTime() - h * 60 * 60 * 1000);
+  const base = { outletConfirmedAt: null, publishedAt: null, outletReminderAt: null, now };
+
+  it("48 שעות אחרי המסירה, בלי אישור — כן; לפני כן — לא", () => {
+    expect(mediaOutletReminderDue({ ...base, notifiedAt: hoursAgo(49) })).toBe(true);
+    expect(mediaOutletReminderDue({ ...base, notifiedAt: hoursAgo(47) })).toBe(false);
+    expect(mediaOutletReminderDue({ ...base, notifiedAt: null })).toBe(false);
+  });
+
+  it("אישר, פורסם, או כבר הוזכר — לא", () => {
+    expect(mediaOutletReminderDue({ ...base, notifiedAt: hoursAgo(72), outletConfirmedAt: hoursAgo(1) })).toBe(false);
+    expect(mediaOutletReminderDue({ ...base, notifiedAt: hoursAgo(72), publishedAt: hoursAgo(1) })).toBe(false);
+    expect(mediaOutletReminderDue({ ...base, notifiedAt: hoursAgo(72), outletReminderAt: hoursAgo(20) })).toBe(false);
   });
 });

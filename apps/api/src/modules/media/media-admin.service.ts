@@ -15,6 +15,7 @@ import {
   type MediaProductUpsert,
   type MediaSettlementCreate,
 } from "@metavchim/shared";
+import { loadEnv } from "../../config/env";
 import { PrismaService } from "../../core/prisma.service";
 
 /**
@@ -136,6 +137,10 @@ export interface AdminMediaOrder {
   creativeUploadedAt: Date | null;
   /** הנציג אישר קבלה מהעמוד שלו. */
   outletConfirmedAt: Date | null;
+  /** עמוד ההזמנה של הנציג — להעתקה כשהמייל שלו הלך לאיבוד. */
+  outletUrl: string | null;
+  /** נשלחה לו תזכורת „טרם אישרתם קבלה”. */
+  outletReminderAt: Date | null;
   publishedAt: Date | null;
   publishedNote: string;
   /** מי סימן „פורסם” — `platform` | `outlet`; ריק כשטרם סומן. */
@@ -416,6 +421,7 @@ export class MediaAdminService {
       orderBy: { createdAt: "desc" },
       take: 200,
     });
+    const origin = loadEnv().WEB_ORIGIN;
     return rows.map((row) => ({
       id: row.id,
       tenantId: row.tenantId,
@@ -442,6 +448,8 @@ export class MediaAdminService {
       creativeName: row.creativeName,
       creativeUploadedAt: row.creativeUploadedAt,
       outletConfirmedAt: row.outletConfirmedAt,
+      outletUrl: row.outletToken === null ? null : `${origin}/outlet/${row.outletToken}`,
+      outletReminderAt: row.outletReminderAt,
       publishedAt: row.publishedAt,
       publishedNote: row.publishedNote,
       publishedBy: row.publishedBy,
