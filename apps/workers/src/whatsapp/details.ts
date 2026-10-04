@@ -7,7 +7,7 @@ import {
   type NotifyPerson,
   propertyAddressOr,
 } from "@metavchim/shared";
-import { prisma } from "../runtime.js";
+import { withTenant } from "../runtime.js";
 import { decryptSetting } from "./config.js";
 
 /* ==================== הפרטים שההתראה נושאת ==================== */
@@ -100,9 +100,7 @@ export async function loadNotifyDetails(
   if (withEntity.length === 0) return details;
 
   try {
-    return await prisma.$transaction(async (tx) => {
-      await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
-
+    return await withTenant(tenantId, async (tx) => {
       /* ---------- סבב א': ישויות שמצביעות על אחרות ---------- */
 
       const offerIds = idsOf(withEntity, "offer");

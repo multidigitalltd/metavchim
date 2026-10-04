@@ -1,7 +1,7 @@
 import { type Job } from "bullmq";
 import { ulid } from "ulid";
 import { z } from "zod";
-import { prisma } from "../runtime.js";
+import { withTenant } from "../runtime.js";
 import { automationOn } from "../tenant-settings.js";
 
 const ViewingFollowupJobSchema = z.object({
@@ -20,9 +20,7 @@ const VIEWING_FOLLOWUP_TITLE = "פולו-אפ אחרי סיור — איך הי�
 export async function processViewingFollowup(job: Job): Promise<void> {
   const { tenantId, appointmentId } = ViewingFollowupJobSchema.parse(job.data);
   if (!(await automationOn(tenantId, "viewing_followup"))) return;
-  await prisma.$transaction(async (tx) => {
-    await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
-
+  await withTenant(tenantId, async (tx) => {
     // נעילת שורת הפגישה: PATCH של סיכום/ביטול שרץ במקביל מסתדר בתור —
     // או שה-Worker רואה את המצב החדש ומדלג, או שסגירת המשימות של ה-PATCH
     // רצה אחרי שהמשימה כבר קיימת וסוגרת אותה (ביקורת Codex)

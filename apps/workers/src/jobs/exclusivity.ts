@@ -8,7 +8,7 @@ import {
   type ExclusivitySubject,
   type MarketingActionKind,
 } from "@metavchim/shared";
-import { prisma } from "../runtime.js";
+import { prisma, withTenant } from "../runtime.js";
 
 /**
  * סריקת הבלעדיויות — **המקום היחיד שבו כלל השליש מדבר.**
@@ -32,8 +32,7 @@ export async function processExclusivitySweep(): Promise<void> {
   let notified = 0;
 
   for (const tenant of tenants) {
-    const rows = await prisma.$transaction(async (tx) => {
-      await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenant.id}, true)`;
+    const rows = await withTenant(tenant.id, async (tx) => {
       return tx.propertyExclusivity.findMany({
         where: { tenantId: tenant.id, endedAt: null },
         take: 500,
@@ -63,8 +62,7 @@ async function sweepOneExclusivity(
   exclusivityId: string,
   now: Date,
 ): Promise<{ closed: boolean; notified: number }> {
-  return prisma.$transaction(async (tx) => {
-    await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
+  return withTenant(tenantId, async (tx) => {
     const row = await tx.propertyExclusivity.findFirst({
       where: { id: exclusivityId, tenantId, endedAt: null },
     });

@@ -7,7 +7,7 @@ import {
   automationTrigger,
   conditionsMatch,
 } from "@metavchim/shared";
-import { prisma } from "../runtime.js";
+import { withTenant } from "../runtime.js";
 import { tenantHasFeature } from "../tenant-settings.js";
 
 const CustomAutomationJobSchema = z.object({
@@ -46,8 +46,7 @@ export async function processCustomAutomations(job: Job): Promise<void> {
   if (!(await tenantHasFeature(data.tenantId, "automations"))) return;
 
   // שלב הקריאה — טרנזקציה אחת קצרה, בלי כתיבה
-  const { rules, activeUsers } = await prisma.$transaction(async (tx) => {
-    await tx.$executeRaw`SELECT set_config('app.tenant_id', ${data.tenantId}, true)`;
+  const { rules, activeUsers } = await withTenant(data.tenantId, async (tx) => {
     const [ruleRows, userRows] = await Promise.all([
       tx.automationRule.findMany({
         where: { tenantId: data.tenantId, trigger: data.event, enabled: true },
@@ -102,9 +101,7 @@ export async function processCustomAutomations(job: Job): Promise<void> {
      * והפעולה נכתבות יחד או בכלל לא.
      */
     try {
-      await prisma.$transaction(async (tx) => {
-        await tx.$executeRaw`SELECT set_config('app.tenant_id', ${data.tenantId}, true)`;
-
+      await withTenant(data.tenantId, async (tx) => {
         /*
          * ספר הריצות **לפני** הפעולה ובאותה טרנזקציה.
          *

@@ -1,6 +1,6 @@
 import { ulid } from "ulid";
 import { nextOccurrenceUtc, type RecurrenceRule } from "@metavchim/shared";
-import { prisma } from "../runtime.js";
+import { prisma, withTenant } from "../runtime.js";
 import { tenantHasFeature } from "../tenant-settings.js";
 
 /**
@@ -70,8 +70,7 @@ export async function processRecurringTasks(): Promise<void> {
      */
     let cursor: string | undefined;
     for (;;) {
-      const page = await prisma.$transaction(async (tx) => {
-        await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenant.id}, true)`;
+      const page = await withTenant(tenant.id, async (tx) => {
         return tx.taskRecurrence.findMany({
           where: { tenantId: tenant.id, isActive: true },
           orderBy: { id: "asc" },
@@ -100,9 +99,7 @@ export async function processRecurringTasks(): Promise<void> {
     if (dueAt === null || dueAt > now) continue;
 
     try {
-      await prisma.$transaction(async (tx) => {
-        await tx.$executeRaw`SELECT set_config('app.tenant_id', ${rule.tenantId}, true)`;
-
+      await withTenant(rule.tenantId, async (tx) => {
         /*
          * העדכון המותנה הוא המנעול.
          * שתי מכונות Worker שסורקות במקביל יגיעו לאותו כלל; רק זו
