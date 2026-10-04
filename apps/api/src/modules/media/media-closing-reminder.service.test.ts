@@ -22,7 +22,6 @@ const COVER = "01PRODUCTCOVER0000000000A0";
 
 function harness(input: {
   closingAt: Date | null;
-  remindedFor?: Date | null;
   orders?: Record<string, unknown>[];
   /** מוצרים עם מועד משלהם — כפי שהשאילתה מחזירה אותם על המדיה */
   products?: Record<string, unknown>[];
@@ -32,7 +31,6 @@ function harness(input: {
     id: OUTLET,
     name: "מגזין טאבו",
     nextClosingAt: input.closingAt,
-    remindedForClosingAt: input.remindedFor ?? null,
     contactName: "ר׳ נציג",
     contactEmail: "ads@tabu.example",
     contactPhone: "",
@@ -86,20 +84,13 @@ function harness(input: {
       findMany: async () => [outlet],
       update: async ({ data }: { data: Record<string, unknown> }) => Object.assign(outlet, data),
     },
-    mediaProduct: {
-      update: async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
-        const row = products.find((p) => p["id"] === where.id);
-        if (row) Object.assign(row, data);
-        return row;
-      },
-    },
     mediaOrder: {
       findMany: async ({
         where,
       }: {
         where: {
           productId?: string | { notIn: string[] };
-          OR: [{ closingReminderAt: null }, { closingReminderAt: { lt: Date } }];
+          OR: [{ closingReminderAt: null }, { closingReminderAt: { not: Date } }];
         };
       }) =>
         orders.filter(
@@ -110,7 +101,7 @@ function harness(input: {
                 ? o["productId"] === where.productId
                 : !where.productId.notIn.includes(o["productId"] as string))) &&
             (o["closingReminderAt"] === null ||
-              (o["closingReminderAt"] as Date).getTime() < where.OR[1].closingReminderAt.lt.getTime()),
+              (o["closingReminderAt"] as Date).getTime() !== where.OR[1].closingReminderAt.not.getTime()),
         ),
       updateMany: async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
         const row = orders.find((o) => o["id"] === where.id);
@@ -149,7 +140,15 @@ describe("MediaClosingReminderService.sweep", () => {
     expect(h.adminNotices).toHaveLength(1);
     expect(h.adminNotices[0]).toContain("נסגר מחר");
     expect(h.orders[0]?.["closingReminderAt"]).toEqual(hours(20));
-    expect(h.outlet["remindedForClosingAt"]).toEqual(hours(20));
+  });
+
+  it("הזמנה שנפתחה באמצע החלון — הסבב הבא מזכיר גם לה", async () => {
+    const h = harness({ closingAt: hours(20) });
+    await h.service.sweep(NOW);
+    h.orders.push({ ...h.orders[0]!, id: "01ORDERLATE0000000000000A0", closingReminderAt: null, createdAt: hours(2) });
+    expect((await h.service.sweep(hours(3))).reminded).toBe(1);
+    expect(h.sent.at(-1)?.key).toBe(`media-closing:01ORDERLATE0000000000000A0:${hours(20).getTime()}`);
+    expect(h.sent).toHaveLength(2);
   });
 
   it("סבב שני על אותו גיליון — שקט", async () => {
@@ -219,7 +218,7 @@ describe("MediaClosingReminderService.sweep", () => {
     // ‏השער נסגר בעוד 10 שעות; המדיה — בעוד 60 (עדיין רחוק)
     const h = harness({
       closingAt: hours(60),
-      products: [{ id: COVER, nextClosingAt: hours(10), remindedForClosingAt: null }],
+      products: [{ id: COVER, nextClosingAt: hours(10) }],
       orders: [
         { ...base, id: "01ORDERCOVER000000000000A0", productId: COVER },
         { ...base, id: "01ORDERINNER000000000000A0", productId: PRODUCT },
@@ -227,11 +226,21 @@ describe("MediaClosingReminderService.sweep", () => {
     });
     expect((await h.service.sweep(NOW)).reminded).toBe(1);
     expect(h.sent.map((m) => m.key)).toEqual([`media-closing:01ORDERCOVER000000000000A0:${hours(10).getTime()}`]);
-    expect(h.outlet["products"]).toMatchObject([{ remindedForClosingAt: hours(10) }]);
-    expect(h.outlet["remindedForClosingAt"]).toBeNull();
     // ‏יומיים אחרי — המדיה נסגרת מחר: רק העמוד הפנימי מקבל, השער כבר קיבל לפי המועד שלו
     expect((await h.service.sweep(hours(40))).reminded).toBe(1);
     expect(h.sent.at(-1)?.key).toBe(`media-closing:01ORDERINNER000000000000A0:${hours(60).getTime()}`);
-    expect(h.outlet["remindedForClosingAt"]).toEqual(hours(60));
+    expect((await h.service.sweep(hours(41))).reminded).toBe(0);
+  });
+
+  it("הוזכרה למועד המדיה, ואז המוצר קיבל מועד מוקדם יותר — תזכורת חדשה למועד המוקדם", async () => {
+    const h = harness({ closingAt: hours(20) });
+    expect((await h.service.sweep(NOW)).reminded).toBe(1);
+    // ‏בעל הפלטפורמה קבע לשער מועד משלו — מחר בבוקר, לפני המדיה
+    (h.outlet["products"] as Record<string, unknown>[]).push({ id: PRODUCT, nextClosingAt: hours(12) });
+    expect((await h.service.sweep(hours(1))).reminded).toBe(1);
+    expect(h.sent.at(-1)?.key).toBe(`media-closing:01ORDER00000000000000000A0:${hours(12).getTime()}`);
+    expect(h.orders[0]?.["closingReminderAt"]).toEqual(hours(12));
+    // ‏ולא שוב
+    expect((await h.service.sweep(hours(2))).reminded).toBe(0);
   });
 });
