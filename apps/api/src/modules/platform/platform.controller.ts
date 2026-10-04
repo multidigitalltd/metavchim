@@ -80,6 +80,7 @@ import {
   whatsappButtonUrlTemplate,
   whatsappButtonLandsOn,
   whatsappDeepLinkSuffix,
+  OptionalEmailSchema,
 } from "@metavchim/shared";
 import { OfficeSettingsService } from "../settings/office-settings.service";
 import { loadEnv } from "../../config/env";
@@ -90,7 +91,7 @@ import { PlatformAdminGuard } from "../../common/platform-admin.guard";
 import { whatsappSeatQuotaWhere } from "../../core/whatsapp-seat-quota";
 import { CryptoService } from "../../core/crypto.service";
 import { TenantContext } from "../../common/tenant-context";
-import { ZodValidationPipe } from "../../common/zod-validation.pipe";
+import { ZodValidationPipe, IdParam } from "../../common/zod-validation.pipe";
 import { EmailService } from "../../core/email.service";
 import {
   PlatformSettingsService,
@@ -177,7 +178,7 @@ export const TelephonyWebhookQuerySchema = z
      * ‏נשבר בדיוק כשמנהל מנסה לראות את השורות החדשות.
      */
     outcome: z.enum(WEBHOOK_HIT_OUTCOMES).optional(),
-    tenantId: z.string().length(26).optional(),
+    tenantId: IdSchema.optional(),
     callId: z.string().max(120).optional(),
     /**
      * ‎**מספר המתקשר — החיפוש שאין לו תחליף.**
@@ -397,12 +398,12 @@ const UpdateSettingsSchema = z
     postmarkServerToken: z.union([z.string().trim().min(16).max(200), z.literal("")]).optional(),
     /** טוקן ה-Account — ניהול דומיינים שמשרדים מחברים; נפרד מטוקן השרת */
     postmarkAccountToken: z.union([z.string().trim().min(16).max(200), z.literal("")]).optional(),
-    emailFrom: z.union([z.string().trim().email().max(254), z.literal("")]).optional(),
+    emailFrom: OptionalEmailSchema.optional(),
     /** תיבת הדואר הפנימית — כתובת ה-Inbound של שרת Postmark והסוד שבנתיב ה-Webhook */
-    emailInboundAddress: z.union([z.string().trim().email().max(254), z.literal("")]).optional(),
+    emailInboundAddress: OptionalEmailSchema.optional(),
     emailInboundSecret: z.union([z.string().trim().min(16).max(200), z.literal("")]).optional(),
     /** תיבת התמיכה של הפלטפורמה — שרת Inbound נפרד מזה של המשרדים */
-    supportInboundAddress: z.union([z.string().trim().email().max(254), z.literal("")]).optional(),
+    supportInboundAddress: OptionalEmailSchema.optional(),
     supportInboundSecret: z.union([z.string().trim().min(16).max(200), z.literal("")]).optional(),
     /** ה-Server Token של שרת התמיכה — התשובות יוצאות דרכו */
     supportServerToken: z.union([z.string().trim().min(16).max(200), z.literal("")]).optional(),
@@ -557,7 +558,7 @@ const UpdateSettingsSchema = z
      * ריק = בלי התראה, לא "בלי תמיכה": הפנייה נשמרת ומופיעה בתור
      * שבמסך הזה בכל מקרה. הכתובת רק מקצרת את זמן התגובה.
      */
-    supportEmail: z.union([z.string().trim().email().max(254), z.literal("")]).optional(),
+    supportEmail: OptionalEmailSchema.optional(),
 
     /*
      * המסלול שאליו יורד חשבון שלא הופעל. ריק = אין כזה, והתזכורת
@@ -593,8 +594,8 @@ const UpdateSettingsSchema = z
     // ח.פ. ישראלי הוא תשע ספרות; מקפים ורווחים נפוצים בהקלדה ולכן מותרים
     legalCompanyId: z.union([z.string().trim().min(2).max(40), z.literal("")]).optional(),
     legalAddress: z.union([z.string().trim().min(5).max(300), z.literal("")]).optional(),
-    legalPrivacyEmail: z.union([z.string().trim().email().max(254), z.literal("")]).optional(),
-    legalAccessibilityEmail: z.union([z.string().trim().email().max(254), z.literal("")]).optional(),
+    legalPrivacyEmail: OptionalEmailSchema.optional(),
+    legalAccessibilityEmail: OptionalEmailSchema.optional(),
     // מוצג כמות שהוא ("9 באוגוסט 2026") — טקסט ולא תאריך, כי נוסח
     // עברי קריא עדיף כאן על פורמט מכונה
     legalUpdatedAt: z.union([z.string().trim().min(3).max(60), z.literal("")]).optional(),
@@ -1254,7 +1255,7 @@ export class PlatformController {
   @Post("payments/:id/refund")
   @HttpCode(200)
   async refund(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
     @Body(new ZodValidationPipe(RefundSchema)) body: z.infer<typeof RefundSchema>,
   ): Promise<{ refundedAgorot: number; message: string }> {
     const payment = await this.prisma.payment.findUnique({ where: { id } });
@@ -1607,7 +1608,7 @@ export class PlatformController {
    */
   @Get("agencies/:id/plan-preview")
   async planPreview(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
     @Query(new ZodValidationPipe(z.object({ plan: PlanCodeSchema }).strict()))
     query: { plan: string },
   ): Promise<{ warnings: string[] }> {
@@ -1643,7 +1644,7 @@ export class PlatformController {
   /** מעבר מסלול / שינוי סטטוס (השהיה מנתקת את כל המשתמשים מיידית). */
   @Patch("agencies/:id")
   async update(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
     @Body(new ZodValidationPipe(UpdateAgencySchema)) body: z.infer<typeof UpdateAgencySchema>,
   ): Promise<{ ok: true }> {
     const tenant = await this.prisma.tenant.findUnique({
@@ -1757,7 +1758,7 @@ export class PlatformController {
    */
   @Patch("agencies/:id/modules")
   async setBlockedModules(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
     @Body(new ZodValidationPipe(BlockedModulesSchema)) body: z.infer<typeof BlockedModulesSchema>,
   ): Promise<{ ok: true; blockedModules: string[] }> {
     const tenant = await this.prisma.tenant.findUnique({
@@ -1803,7 +1804,7 @@ export class PlatformController {
    */
   @Patch("agencies/:id/features")
   async setTenantFeatures(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
     @Body(new ZodValidationPipe(TenantFeaturesSchema)) body: z.infer<typeof TenantFeaturesSchema>,
   ): Promise<{ ok: true; grants: string[]; denials: string[] }> {
     const tenant = await this.prisma.tenant.findUnique({
@@ -1866,7 +1867,7 @@ export class PlatformController {
    * בדיוק כמו ב-`WhatsAppLinkService.status`, ומאותה סיבה.
    */
   @Get("agencies/:id/whatsapp")
-  async agencyWhatsapp(@Param("id", new ZodValidationPipe(IdSchema)) id: string): Promise<{
+  async agencyWhatsapp(@Param("id", IdParam) id: string): Promise<{
     seats: { total: number; used: number; grantedCounter: number };
     rows: {
       id: string;
@@ -1975,7 +1976,7 @@ export class PlatformController {
    */
   @Post("agencies/:id/whatsapp/link-code")
   async agencyWhatsappLinkCode(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
     @Body(new ZodValidationPipe(z.object({ userId: IdSchema }).strict()))
     body: { userId: string },
   ): Promise<{ code: string; expiresInSeconds: number; botNumber: string | null; link: string | null }> {
@@ -2012,7 +2013,7 @@ export class PlatformController {
    */
   @Post("agencies/:id/whatsapp/seats")
   async grantWhatsappSeat(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
     @Body(new ZodValidationPipe(GrantWhatsappSeatSchema))
     body: z.infer<typeof GrantWhatsappSeatSchema>,
   ): Promise<{ id: string }> {
@@ -2063,8 +2064,8 @@ export class PlatformController {
    */
   @Delete("agencies/:id/whatsapp/seats/:seatId")
   async releaseWhatsappSeat(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
-    @Param("seatId", new ZodValidationPipe(IdSchema)) seatId: string,
+    @Param("id", IdParam) id: string,
+    @Param("seatId", IdParam) seatId: string,
   ): Promise<{ ok: true }> {
     const now = new Date();
     const closed = await this.prisma.whatsappSeat.updateMany({
@@ -2091,7 +2092,7 @@ export class PlatformController {
    */
   @Patch("agencies/:id/billing-override")
   async setBillingOverride(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
     @Body(new ZodValidationPipe(TenantBillingOverrideSchema))
     body: z.infer<typeof TenantBillingOverrideSchema>,
   ): Promise<{ ok: true }> {
@@ -2233,7 +2234,7 @@ export class PlatformController {
   @Delete("agencies/:id")
   @HttpCode(200)
   async deleteAgency(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
     @Body(new ZodValidationPipe(DeleteAgencySchema)) body: z.infer<typeof DeleteAgencySchema>,
   ): Promise<{ ok: true }> {
     return this.accountDeletion.deleteTenantFromPlatform(id, body.confirmName);
@@ -2970,7 +2971,7 @@ export class PlatformController {
   @Post("invoices/:id/retry")
   @HttpCode(200)
   async retryInvoice(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
   ): Promise<{ ok: boolean; error?: string }> {
     return this.invoices.issueOne(id);
   }
@@ -2979,7 +2980,7 @@ export class PlatformController {
   @Post("payments/:id/invoice")
   @HttpCode(200)
   async invoiceForPayment(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
   ): Promise<{ ok: boolean; error?: string }> {
     /*
      * ‎**תיקון ידני מדווח מה קרה באמת.** `queueForPayment` בולעת
@@ -3468,7 +3469,7 @@ export class PlatformController {
   @Post("number-rentals/:id/release")
   @HttpCode(200)
   async releaseNumberRental(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
   ): Promise<{ ok: true }> {
     const result = await this.numberRentals.releaseNow(id);
     if (!result.ok) throw new BadRequestException(result.message);
@@ -3525,7 +3526,7 @@ export class PlatformController {
   @Delete("offers/:id")
   @HttpCode(200)
   async revokeOffer(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
   ): Promise<{ ok: true }> {
     await this.subscriptionOffers.revoke(id);
     return { ok: true };
@@ -3552,7 +3553,7 @@ export class PlatformController {
   @Post("agencies/:id/support-session")
   @HttpCode(200)
   async supportSession(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<{ ok: true; until: string }> {

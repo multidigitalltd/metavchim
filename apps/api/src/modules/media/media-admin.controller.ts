@@ -18,7 +18,6 @@ import { FileInterceptor } from "@nestjs/platform-express";
 import type { Request, Response } from "express";
 import { z } from "zod";
 import {
-  IdSchema,
   MEDIA_IMAGE_KINDS,
   MediaImagePatchSchema,
   MediaOutletPatchSchema,
@@ -39,7 +38,7 @@ import { PlatformAdmin } from "../../common/auth.decorators";
 import { objectResponse } from "../../common/object-response";
 import { PlatformAdminGuard } from "../../common/platform-admin.guard";
 import { TenantContext } from "../../common/tenant-context";
-import { ZodValidationPipe } from "../../common/zod-validation.pipe";
+import { ZodValidationPipe, IdParam } from "../../common/zod-validation.pipe";
 import {
   MediaAdminService,
   type AdminMediaOrder,
@@ -66,8 +65,6 @@ const UploadFieldsSchema = z
  * קונטרולר משלו ולא עוד נתיב ב-`PlatformController`, מאותה סיבה
  * כמו שולחן החיבורים: גבול שאפשר להצביע עליו כקובץ שלם.
  */
-const IdParam = new ZodValidationPipe(IdSchema);
-
 @Controller("platform/media")
 @UseGuards(PlatformAdminGuard)
 @PlatformAdmin()

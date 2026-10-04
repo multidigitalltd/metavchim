@@ -1,9 +1,8 @@
 import { Body, Controller, Get, Param, Patch, UseGuards } from "@nestjs/common";
 import { z } from "zod";
-import { IdSchema } from "@metavchim/shared";
 import { PlatformAdmin } from "../../common/auth.decorators";
 import { PlatformAdminGuard } from "../../common/platform-admin.guard";
-import { ZodValidationPipe } from "../../common/zod-validation.pipe";
+import { ZodValidationPipe, IdParam } from "../../common/zod-validation.pipe";
 import { FunnelStageService, type FunnelStageCopy } from "../funnel/funnel-stage.service";
 
 /**
@@ -55,7 +54,7 @@ export class FunnelCopyController {
 
   @Patch("funnel-copy/:id")
   async update(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
     @Body(new ZodValidationPipe(CopySchema)) body: z.infer<typeof CopySchema>,
   ): Promise<{ ok: true }> {
     await this.stages.updateCopy(id, body);

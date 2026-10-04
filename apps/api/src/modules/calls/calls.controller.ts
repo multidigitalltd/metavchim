@@ -19,7 +19,7 @@ import { z } from "zod";
 import { CALL_BULK_LIMIT, IdSchema, type CallBulkResult } from "@metavchim/shared";
 import { RequireCapability } from "../../common/auth.decorators";
 import { RequireFeature } from "../../common/feature.guard";
-import { ZodValidationPipe } from "../../common/zod-validation.pipe";
+import { ZodValidationPipe, IdParam } from "../../common/zod-validation.pipe";
 import { CallsService, type CallDto } from "./calls.service";
 
 /*
@@ -128,7 +128,7 @@ export class CallsController {
   @HttpCode(200)
   @UseInterceptors(FileInterceptor("file", { limits: { fileSize: MAX_RECORDING_BYTES, files: 1 } }))
   async attachRecording(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
     @UploadedFile() file: Express.Multer.File | undefined,
   ): Promise<{ status: string }> {
     if (!file) throw new BadRequestException("לא צורף קובץ");
@@ -144,7 +144,7 @@ export class CallsController {
   @RequireFeature("transcription")
   @HttpCode(200)
   async retryTranscription(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
   ): Promise<{ status: string }> {
     return this.calls.retryTranscription(id);
   }
@@ -162,7 +162,7 @@ export class CallsController {
   @Get(":id/recording")
   @RequireCapability("leads.view_own", "buyers.view_own")
   async recording(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
     @Res({ passthrough: true }) res: Response,
   ): Promise<StreamableFile> {
     const audio = await this.calls.recording(id);
@@ -184,7 +184,7 @@ export class CallsController {
   @RequireCapability("leads.view_own", "buyers.view_own")
   @HttpCode(200)
   async retryRecording(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
   ): Promise<{ queued: boolean }> {
     return this.calls.retryRecording(id);
   }
@@ -203,7 +203,7 @@ export class CallsController {
   @RequireCapability("leads.edit")
   @HttpCode(200)
   async ensureLead(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
   ): Promise<{ leadId: string; created: boolean }> {
     return this.calls.ensureLead(id);
   }
@@ -256,7 +256,7 @@ export class CallsController {
   @Delete(":id")
   @RequireCapability("leads.edit")
   @HttpCode(200)
-  async remove(@Param("id", new ZodValidationPipe(IdSchema)) id: string): Promise<{ ok: true }> {
+  async remove(@Param("id", IdParam) id: string): Promise<{ ok: true }> {
     await this.calls.remove(id);
     return { ok: true };
   }
