@@ -33,6 +33,7 @@
  */
 
 import { spawn } from "node:child_process";
+import { readFileSync } from "node:fs";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
 
@@ -100,14 +101,46 @@ function parseReport(stdout) {
   }
 }
 
-/** ‏כמה פגיעויות חוסמות יש בדוח. */
-export function blockingCount(report) {
+/**
+ * ‏כמה פגיעויות חוסמות יש בדוח — אחרי הפגיעויות שהוחרגו במפורש.
+ *
+ * ‎**החרגה היא רק לפגיעות שאין לה תיקון**, ורשומה ב-
+ * ‎`pnpm.auditConfig.ignoreGhsas` שב-`package.json` עם הנימוק כאן
+ * ‏למטה (`IGNORED_REASONS`). pnpm עצמו מכבד אותה: הוא משמיט אותה
+ * ‏מרשימת `advisories` ויוצא 0 — אבל ממשיך לספור אותה ב-
+ * ‎`metadata.vulnerabilities`. לכן הספירה כאן מנכה את ההחרגות, **ולא
+ * ‏יותר ממספרן**: דוח שהספירה בו עולה על מה שהוחרג נכשל גם אם pnpm
+ * ‏שינה את פורמט הרשימה — השער לא יעבור בשקט על פגיעות שאיש לא החריג.
+ */
+export function blockingCount(report, ignoredGhsas = []) {
   const counts = report.metadata.vulnerabilities;
-  let total = 0;
+  let counted = 0;
   for (const [level, count] of Object.entries(counts)) {
-    if (BLOCKING.has(level)) total += Number(count) || 0;
+    if (BLOCKING.has(level)) counted += Number(count) || 0;
   }
-  return total;
+  const listed = Object.values(report.advisories ?? {}).filter((advisory) =>
+    BLOCKING.has(String(advisory?.severity)),
+  ).length;
+  const ignored = Math.min(Math.max(counted - listed, 0), ignoredGhsas.length);
+  return counted - ignored;
+}
+
+/**
+ * ‏למה כל החרגה קיימת. כל מזהה ב-`ignoreGhsas` חייב שורה כאן (הבדיקה
+ * ‏אוכפת), וכל שורה נמחקת ביום שיוצא תיקון — ההחרגה מודפסת כאזהרה בכל
+ * ‏ריצה של ה-CI כדי שלא תישכח.
+ */
+export const IGNORED_REASONS = {
+  "GHSA-86w9-cpqp-85rv":
+    "node-forge ≤1.4.0 (אימות חתימת RSA) — אין גרסה מתוקנת. מגיע רק דרך @expo/cli, כלי הבנייה של אפליקציית המובייל; אינו בשום תמונת שרת.",
+  "GHSA-vfj7-8cjw-p6xm":
+    "braces ≤3.0.3 (מניעת שירות בתבנית מקוננת) — אין גרסה מתוקנת. מגיע רק דרך @expo/cli ‏(metro-file-map); התבניות הן של הפרויקט, לא של משתמש.",
+};
+
+/** ‏ההחרגות מ-`package.json` — מקור אחד, זה ש-pnpm עצמו קורא. */
+export function ignoredGhsas(packageJson) {
+  const list = packageJson?.pnpm?.auditConfig?.ignoreGhsas;
+  return Array.isArray(list) ? list.map(String) : [];
 }
 
 function run(command, args) {
@@ -141,12 +174,18 @@ async function main() {
   const result = classifyAudit(stdout, stderr);
 
   if (result.kind === "report") {
-    const blocking = blockingCount(result.report);
+    const ignored = ignoredGhsas(JSON.parse(readFileSync("package.json", "utf8")));
+    const blocking = blockingCount(result.report, ignored);
     if (blocking > 0) {
       console.error(`✗ ${blocking} פגיעויות ברמה high/critical בתלויות`);
       console.error(JSON.stringify(result.report.metadata.vulnerabilities));
       console.error("להריץ `pnpm audit --audit-level high` מקומית ולעדכן את החבילה.");
       process.exit(1);
+    }
+    for (const ghsa of ignored) {
+      console.log(
+        `::warning title=פגיעות מוחרגת ${ghsa}::${IGNORED_REASONS[ghsa] ?? "בלי נימוק"} — להסיר מ-pnpm.auditConfig.ignoreGhsas כשיוצא תיקון.`,
+      );
     }
     console.log("✓ אין פגיעויות ברמה high/critical בתלויות");
     return;
