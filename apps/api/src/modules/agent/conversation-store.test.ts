@@ -86,5 +86,7 @@ describe("ליבת אחסון השיחה", () => {
     expect(branch).toContain("this.remember(chat, agentReplyTurn(text, proposal.reply));");
     const screen = read("../../../../web/src/app/voice/page.tsx");
     expect(screen).toContain("keep(agentReplyTurn(text, proposal.reply));");
+    // וגם מוצג בטקסט שלו כשהשיחה נטענת מחדש — לא כ„בוצע.”
+    expect(screen).toContain('text: turn.reply ?? turn.resultSummary ?? "בוצע.",');
   });
 });

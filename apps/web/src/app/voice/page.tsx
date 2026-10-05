@@ -254,7 +254,8 @@ export default function AgentPage(): React.JSX.Element {
                     id: itemId(),
                     role: "agent",
                     kind: "recap",
-                    text: turn.resultSummary ?? "בוצע.",
+                    // תשובה חופשית נזכרת בטקסט שלה, לא כ„בוצע.”
+                    text: turn.reply ?? turn.resultSummary ?? "בוצע.",
                   },
                 ],
           ),
