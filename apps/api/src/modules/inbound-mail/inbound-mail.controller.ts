@@ -4,7 +4,7 @@ import { z } from "zod";
 import {
   EMAIL_IDEMPOTENCY_METADATA_KEY,
   InboundEmailPayloadSchema,
-  funnelMessageIdFromIdempotencyKey,
+  parseFunnelIdempotencyKey,
 } from "@metavchim/shared";
 import { Public } from "../../common/auth.decorators";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
@@ -103,10 +103,9 @@ export class InboundMailController {
     const parsed = EmailEventSchema.safeParse(body);
     if (!parsed.success) return { ok: true };
     const event = parsed.data;
-    const messageId = funnelMessageIdFromIdempotencyKey(
-      event.Metadata?.[EMAIL_IDEMPOTENCY_METADATA_KEY] ?? "",
-    );
-    if (messageId === null) return { ok: true };
+    const key = parseFunnelIdempotencyKey(event.Metadata?.[EMAIL_IDEMPOTENCY_METADATA_KEY] ?? "");
+    if (key === null) return { ok: true };
+    const { messageId, destinationTag } = key;
     // ‏Postmark שולח ISO עם אזור זמן; ערך חסר או פגום — רגע הקליטה
     const at = (value: string | undefined): Date => {
       const parsedAt = new Date(value ?? "");
@@ -116,12 +115,14 @@ export class InboundMailController {
       await this.funnelReport.recordEmailEvent(messageId, {
         kind: "delivered",
         at: at(event.DeliveredAt),
+        destinationTag,
       });
     } else if (event.RecordType === "Bounce") {
       await this.funnelReport.recordEmailEvent(messageId, {
         kind: "bounced",
         at: at(event.BouncedAt),
         detail: [event.Type, event.Description].filter(Boolean).join(" — "),
+        destinationTag,
       });
     }
     return { ok: true };

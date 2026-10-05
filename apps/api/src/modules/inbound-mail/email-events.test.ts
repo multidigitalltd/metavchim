@@ -36,6 +36,7 @@ describe("Webhook המסירה", () => {
     expect(recordEmailEvent).toHaveBeenCalledWith(MESSAGE, {
       kind: "delivered",
       at: new Date("2026-10-05T07:01:00Z"),
+      destinationTag: null,
     });
   });
 

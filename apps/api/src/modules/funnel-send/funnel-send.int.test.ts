@@ -1,5 +1,5 @@
 import { PrismaClient } from "@prisma/client";
-import { funnelMessageIdFromIdempotencyKey } from "@metavchim/shared";
+import { parseFunnelIdempotencyKey } from "@metavchim/shared";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Response } from "express";
 import { ActivationNudgeService } from "../../core/activation-nudge.service";
@@ -589,10 +589,12 @@ describe("מסלול ההמרה — שליחה שנקטעה, הסרה בין ש�
   ): (...args: unknown[]) => Promise<void> {
     return async (...args: unknown[]) => {
       const { key } = (args[3] as { idempotency: { key: string } }).idempotency;
-      await new FunnelReportService(prisma).recordEmailEvent(funnelMessageIdFromIdempotencyKey(key)!, {
+      const parsed = parseFunnelIdempotencyKey(key)!;
+      await new FunnelReportService(prisma).recordEmailEvent(parsed.messageId, {
         kind,
         at: MONDAY_10,
         detail: "HardBounce",
+        destinationTag: parsed.destinationTag,
       });
       await then();
     };
@@ -851,6 +853,91 @@ describe("מסלול ההמרה — תקרה, תשלום באמצע הסבב ו�
       await service().run(new Date(MONDAY_10.getTime() + HOUR));
       expect(send).toHaveBeenCalledTimes(1);
       expect(send.mock.calls[0]![0]).toBe("yossi6.fixed@example.test");
+    } finally {
+      send.mockImplementation(() => Promise.resolve());
+      await direct.$executeRawUnsafe(`DELETE FROM funnel_messages WHERE user_id = $1`, SECOND);
+      await direct.$executeRawUnsafe(`DELETE FROM activation_nudge_optouts WHERE user_id = $1`, SECOND);
+      await direct.$executeRawUnsafe(`DELETE FROM users WHERE id = $1`, SECOND);
+    }
+  });
+
+  it("דיווח מאוחר על הכתובת הישנה — אינו נוגע בשליחה לכתובת שתוקנה", async () => {
+    await service().run(MONDAY_10);
+    const oldKey = (send.mock.calls[0]![3] as { idempotency: { key: string } }).idempotency.key;
+    const rows = await direct.$queryRawUnsafe<{ id: string }[]>(
+      `SELECT id FROM funnel_messages WHERE tenant_id = $1`,
+      TENANT,
+    );
+    const report = new FunnelReportService(prisma);
+    await report.recordEmailEvent(rows[0]!.id, { kind: "bounced", at: MONDAY_10 });
+    await direct.$executeRawUnsafe(
+      `UPDATE users SET email = 'dana.fixed4@example.test' WHERE id = $1`,
+      OWNER,
+    );
+    try {
+      send.mockClear();
+      await service().run(new Date(MONDAY_10.getTime() + HOUR));
+      expect((await messages())[0]!.status).toBe("sent");
+      // ‏חזרה מאוחרת נוספת של הכתובת הישנה — השליחה החדשה נשארת „נשלחה”
+      const old = parseFunnelIdempotencyKey(oldKey)!;
+      await report.recordEmailEvent(old.messageId, {
+        kind: "bounced",
+        at: new Date(MONDAY_10.getTime() + HOUR),
+        destinationTag: old.destinationTag,
+      });
+      expect((await messages())[0]!.status).toBe("sent");
+    } finally {
+      await direct.$executeRawUnsafe(
+        `UPDATE users SET email = 'dana.funnel@example.test' WHERE id = $1`,
+        OWNER,
+      );
+    }
+  });
+
+  it("כמה שלבים ממתינים לאותו בעלים — רק המוקדם נשלח בסבב", async () => {
+    const SECOND = "01M1FNNLSENDOWNER000000007";
+    await direct.$executeRawUnsafe(
+      `INSERT INTO users (id, tenant_id, name, email, role, is_active, created_at, updated_at)
+       VALUES ($1, $2, 'יוסי לוי', 'yossi7.funnel@example.test', 'owner', true, now(), now() + interval '1 second')`,
+      SECOND,
+      TENANT,
+    );
+    await direct.$executeRawUnsafe(
+      `UPDATE funnel_stages SET enabled = true WHERE track = 'conversion' AND key = 'd1_empty_screen'`,
+    );
+    try {
+      // ‏הראשון קיבל את שני השלבים; אצל השני שניהם נכשלו
+      send.mockImplementation((...args: unknown[]) =>
+        args[0] === "yossi7.funnel@example.test"
+          ? Promise.reject(new Error("ספק לא זמין"))
+          : Promise.resolve(),
+      );
+      await service().run(MONDAY_10);
+      // ‏גם שלב יום 1 יצא לראשון ונכשל אצל השני (כל שלב פתוח שבוע — שניהם פתוחים)
+      const [enrollment] = await direct.$queryRawUnsafe<{ id: string }[]>(
+        `SELECT id FROM funnel_enrollments WHERE tenant_id = $1`,
+        TENANT,
+      );
+      const d1 = (id: string, user: string, status: string, token: string): Promise<number> =>
+        direct.$executeRawUnsafe(
+          `INSERT INTO funnel_messages
+             (id, tenant_id, enrollment_id, track, stage_key, user_id, destination, channel, status, token, sent_at, created_at, updated_at)
+           VALUES ($1, $2, $3, 'conversion', 'd1_empty_screen', $4, 'x@example.test', 'email', $5, $6, $7, now(), now())`,
+          id,
+          TENANT,
+          enrollment!.id,
+          user,
+          status,
+          token,
+          status === "sent" ? new Date(MONDAY_10.getTime() + DAY) : null,
+        );
+      await d1("01M1FNNLSENDMSGD1SENT00001", OWNER, "sent", "c".repeat(43));
+      await d1("01M1FNNLSENDMSGD1FAIL00001", SECOND, "failed", "d".repeat(43));
+
+      send.mockClear();
+      send.mockImplementation(() => Promise.resolve());
+      await service().run(new Date(MONDAY_10.getTime() + DAY + 2 * HOUR));
+      expect(send).toHaveBeenCalledTimes(1);
     } finally {
       send.mockImplementation(() => Promise.resolve());
       await direct.$executeRawUnsafe(`DELETE FROM funnel_messages WHERE user_id = $1`, SECOND);

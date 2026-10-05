@@ -1,4 +1,5 @@
 import { Injectable } from "@nestjs/common";
+import { createHash } from "node:crypto";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
 
 /** ‏שורת מדדים לשלב אחד, במייל. */
@@ -22,6 +23,11 @@ export interface FunnelStageStats {
 export interface FunnelStats {
   stages: FunnelStageStats[];
   enrollments: { live: number; paid: number; completed: number; optedOut: number };
+}
+
+/** ‏גיבוב קצר של הכתובת — החלק של הניסיון במפתח האידמפוטנטיות (`funnelIdempotencyKey`). */
+export function destinationTag(email: string): string {
+  return createHash("sha256").update(email.trim().toLowerCase()).digest("hex").slice(0, 12);
 }
 
 /**
@@ -85,9 +91,27 @@ export class FunnelReportService {
    */
   async recordEmailEvent(
     messageId: string,
-    event: { kind: "delivered" | "bounced"; at: Date; detail?: string },
+    event: {
+      kind: "delivered" | "bounced";
+      at: Date;
+      detail?: string;
+      /** ‏הכתובת שהאירוע נוגע אליה, מתוך המפתח; `null` = מפתח בצורה הישנה */
+      destinationTag?: string | null;
+    },
   ): Promise<void> {
     await this.prisma.withFunnelAdmin(async (tx) => {
+      /*
+       * ‎**אירוע של ניסיון קודם אינו נוגע בניסיון הנוכחי** (ביקורת Codex).
+       * ‏אחרי שליחה חוזרת לכתובת שתוקנה, דיווח מאוחר על הכתובת הישנה
+       * ‏(מסירה או חזרה) היה משנה את מצב השליחה החדשה.
+       */
+      if (event.destinationTag !== undefined && event.destinationTag !== null) {
+        const row = await tx.funnelMessage.findUnique({
+          where: { id: messageId },
+          select: { destination: true },
+        });
+        if (row === null || destinationTag(row.destination) !== event.destinationTag) return;
+      }
       await confirmMessageOut(tx, messageId, event.at);
       if (event.kind === "bounced") {
         await tx.funnelMessage.updateMany({

@@ -1013,8 +1013,15 @@ export function funnelIdempotencyKey(messageId: string, destinationTag: string):
   return `funnel:${messageId}:${destinationTag}`;
 }
 
-/** ‏מזהה הודעת המסלול מתוך מפתח האידמפוטנטיות שנוסע עם המייל. `null` = אינה של המסלול. */
-export function funnelMessageIdFromIdempotencyKey(key: string): string | null {
-  const match = /^funnel:([0-9A-Z]{26})(?::[0-9a-f]{1,32})?$/u.exec(key);
-  return match?.[1] ?? null;
+/**
+ * ‏הודעת המסלול **והניסיון** מתוך מפתח האידמפוטנטיות שנוסע עם המייל.
+ * ‎`destinationTag` מבדיל בין ניסיון לכתובת הישנה לבין שליחה לכתובת
+ * ‏שתוקנה — אירוע מאוחר של הישנה אינו נוגע בחדשה. ‎`null` = אינה של המסלול.
+ */
+export function parseFunnelIdempotencyKey(
+  key: string,
+): { messageId: string; destinationTag: string | null } | null {
+  const match = /^funnel:([0-9A-Z]{26})(?::([0-9a-f]{1,32}))?$/u.exec(key);
+  if (match?.[1] === undefined) return null;
+  return { messageId: match[1], destinationTag: match[2] ?? null };
 }

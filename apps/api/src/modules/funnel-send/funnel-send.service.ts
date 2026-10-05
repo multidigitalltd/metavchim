@@ -1,5 +1,5 @@
 import { Injectable, Logger } from "@nestjs/common";
-import { createHash, randomBytes } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import { ulid } from "ulid";
 import {
   FUNNEL_MESSAGE_OUT_STATUSES,
@@ -30,7 +30,7 @@ import {
   isTrialActive,
 } from "../funnel/funnel-enrollment.service";
 import { FunnelStageService, type FunnelStageCopy } from "../funnel/funnel-stage.service";
-import { advanceLastSentAt } from "./funnel-report.service";
+import { advanceLastSentAt, destinationTag } from "./funnel-report.service";
 
 const HOUR_MS = 60 * 60 * 1000;
 
@@ -75,11 +75,6 @@ function canRetry(
   if (row.status === "bounced") return row.destination !== email;
   if (row.status !== "rejected") return false;
   return row.destination !== email || row.updatedAt.getTime() < now.getTime() - REJECTED_RETRY_MS;
-}
-
-/** ‏גיבוב קצר של הכתובת — לחלק של הכתובת במפתח האידמפוטנטיות. */
-function destinationTag(email: string): string {
-  return createHash("sha256").update(email.trim().toLowerCase()).digest("hex").slice(0, 12);
 }
 
 /**
@@ -385,18 +380,19 @@ export class FunnelSendService {
               input.sent.includes(stage.key) &&
               now.getTime() <= (funnelStageExpiresAt(stage, input.anchors)?.getTime() ?? 0),
           );
-          if (partial.length > 0) {
+          /*
+           * ‎**שלב אחד לסבב — המוקדם** (ביקורת Codex). בעלים שכתובתו נדחתה
+           * ‏כמה שלבים ברצף ותוקנה היה מקבל את כולם באותו סבב; השאר
+           * ‏ממתינים לסבבים הבאים.
+           */
+          const [retry] = partial;
+          if (retry !== undefined) {
             if (await this.leftAudienceNow(row.tenantId, now)) continue;
+            const copy = copies.get(retry.key);
             // ‏ניסיון חוזר הוא משרד שנגענו בו — נספר בתקרה כמו כל אחר
-            const reach: Reach = { attempted: false, delivered: false };
-            for (const stage of partial) {
-              const copy = copies.get(stage.key);
-              if (copy === undefined) continue;
-              const one = await this.sendStage(row, tenant.name, stage, copy, now, recipients, replyTo);
-              reach.attempted ||= one.attempted;
-              reach.delivered ||= one.delivered;
+            if (copy !== undefined) {
+              tally(await this.sendStage(row, tenant.name, retry, copy, now, recipients, replyTo));
             }
-            tally(reach);
             continue;
           }
           if (nextFunnelStage({ ...input, stages: unconditioned, facts: ANY_FACTS }) === null) {
