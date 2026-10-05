@@ -65,7 +65,15 @@ export class FunnelEnrollmentService {
    */
   async sweep(
     now: Date,
-    options: { dailyQuota?: number; pageSize?: number } = {},
+    options: {
+      dailyQuota?: number;
+      pageSize?: number;
+      /**
+       * ‏האם כל בעלי המשרד ביקשו להפסיק. מגיע מבחוץ (שלב ב׳) — המודול
+       * ‏הזה אינו מכיר נמענים — ובלעדיו אין סגירה כ„ביקש להפסיק”.
+       */
+      optedOut?: (tenantId: string) => Promise<boolean>;
+    } = {},
   ): Promise<{ enrolled: number; closed: number }> {
     const dailyQuota = options.dailyQuota ?? FUNNEL_DEFAULT_DAILY_ENTRIES;
     const pageSize = options.pageSize ?? PAGE;
@@ -77,7 +85,7 @@ export class FunnelEnrollmentService {
      */
     const reopened = await this.reopenLapsed(now, pageSize);
     const enrolled = await this.enrollDue(now, dailyQuota, pageSize);
-    const closed = await this.closeFinished(now, pageSize);
+    const closed = await this.closeFinished(now, pageSize, options.optedOut);
     if (enrolled > 0 || closed > 0 || reopened > 0) {
       this.logger.log(
         `מסלול ההמרה: ${enrolled} נכנסו, ${closed} נסגרו${reopened > 0 ? `, ${reopened} נפתחו מחדש` : ""}`,
@@ -581,7 +589,11 @@ export class FunnelEnrollmentService {
    * — טעות אחת בתנאי השליחה הייתה שולחת לו „נשארו יומיים” אחרי
    * שכבר שילם.
    */
-  private async closeFinished(now: Date, pageSize: number): Promise<number> {
+  private async closeFinished(
+    now: Date,
+    pageSize: number,
+    optedOut?: (tenantId: string) => Promise<boolean>,
+  ): Promise<number> {
     /*
      * ‎**גם הפסולים, ולא רק התקפים.**
      *
@@ -625,7 +637,7 @@ export class FunnelEnrollmentService {
       );
       if (page.length === 0) break;
       cursor = page[page.length - 1]?.id ?? null;
-      closed += await this.closePage(page, stages, invalid, now);
+      closed += await this.closePage(page, stages, invalid, now, optedOut);
       if (page.length < pageSize) break;
     }
     return closed;
@@ -645,6 +657,7 @@ export class FunnelEnrollmentService {
      */
     invalid: InvalidStage[],
     now: Date,
+    optedOut?: (tenantId: string) => Promise<boolean>,
   ): Promise<number> {
     const tenantIds = [...new Set(live.map((row) => row.tenantId))];
     const [tenants, subscriptions, sentRows, failedRows] = await Promise.all([
@@ -767,7 +780,7 @@ export class FunnelEnrollmentService {
         ...trialAnchorOf(tenant),
         paymentFailedAt: track === "dunning" ? row.startedAt : null,
       };
-      const reason = funnelExitReason({
+      let reason = funnelExitReason({
         track,
         facts,
         stages,
@@ -784,6 +797,20 @@ export class FunnelEnrollmentService {
         anchors,
         now,
       });
+      /*
+       * ‎**כל הבעלים ביקשו להפסיק — כאן, עם שאר סיבות הסגירה** (ביקורת
+       * ‏Codex). לפני „מוצה”: מי שהסיר את עצמו אחרי השלב האחרון ביקש
+       * ‏להפסיק, וסבב השליחה — שרץ אחרי הסגירה — כבר לא היה רואה אותו.
+       * ‏„שילם” גובר: הוא היעד עצמו.
+       */
+      if (
+        reason !== "paid" &&
+        track === "conversion" &&
+        optedOut !== undefined &&
+        (await optedOut(row.tenantId))
+      ) {
+        reason = "opted_out";
+      }
       if (reason === null) continue;
       /*
        * ‏הסגירה נכתבת מול אותו עוגן שההחלטה התקבלה עליו. אם הוא זז

@@ -481,6 +481,26 @@ describe("סגירת רישום כש„מוצה” — רק אחרי שהנמע�
     await sweep();
     expect(await reason()).toBe("completed");
   });
+
+  it("כל הבעלים הסירו את עצמם אחרי השלב האחרון — „ביקש להפסיק”, ולא „סיים את הרצף”", async () => {
+    await seed(false);
+    try {
+      await direct.$executeRawUnsafe(
+        `INSERT INTO activation_nudge_optouts (id, tenant_id, user_id, token, opted_out_at, created_at)
+         VALUES ('01M1FNNLSENDOPTOUT00000003', $1, $2, $3, now(), now()),
+                ('01M1FNNLSENDOPTOUT00000004', $1, $4, $5, now(), now())`,
+        TENANT,
+        OWNER,
+        "q".repeat(43),
+        SECOND,
+        "r".repeat(43),
+      );
+      await service().run(new Date());
+      expect(await reason()).toBe("opted_out");
+    } finally {
+      await direct.$executeRawUnsafe(`DELETE FROM activation_nudge_optouts WHERE tenant_id = $1`, TENANT);
+    }
+  });
 });
 
 describe("מסלול ההמרה — שליחה שנקטעה, הסרה בין שלבים ו-Webhook שהקדים", () => {

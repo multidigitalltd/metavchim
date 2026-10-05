@@ -1,5 +1,5 @@
 import { Injectable } from "@nestjs/common";
-import { PrismaService } from "../../core/prisma.service";
+import { PrismaService, type TenantTx } from "../../core/prisma.service";
 
 /** ‏שורת מדדים לשלב אחד, במייל. */
 export interface FunnelStageStats {
@@ -22,6 +22,22 @@ export interface FunnelStageStats {
 export interface FunnelStats {
   stages: FunnelStageStats[];
   enrollments: { live: number; paid: number; completed: number; optedOut: number };
+}
+
+/**
+ * ‎**הודעה יצאה — המרווח עד הבאה נמדד ממנה.** מתקדם בלבד: רגע מוקדם
+ * ‏יותר (Webhook באיחור) אינו מחזיר את `lastSentAt` אחורה. אחד להכרעת
+ * ‏השליחה ול-Webhook, תמיד באותה טרנזקציה שקבעה שההודעה יצאה.
+ */
+export async function advanceLastSentAt(
+  tx: TenantTx,
+  enrollmentId: string,
+  at: Date,
+): Promise<void> {
+  await tx.funnelEnrollment.updateMany({
+    where: { id: enrollmentId, OR: [{ lastSentAt: null }, { lastSentAt: { lt: at } }] },
+    data: { lastSentAt: at },
+  });
 }
 
 /**
@@ -65,13 +81,7 @@ export class FunnelReportService {
          * ‏ושליחה שאצלנו נרשמה ככושלת לא עדכנה אותו — השלב הבא, אולי
          * ‏בשעון השני, היה יוצא בלי 20 השעות (ביקורת Codex).
          */
-        await tx.funnelEnrollment.updateMany({
-          where: {
-            id: unrecorded.enrollmentId,
-            OR: [{ lastSentAt: null }, { lastSentAt: { lt: event.at } }],
-          },
-          data: { lastSentAt: event.at },
-        });
+        await advanceLastSentAt(tx, unrecorded.enrollmentId, event.at);
       }
       if (event.kind === "bounced") {
         await tx.funnelMessage.updateMany({

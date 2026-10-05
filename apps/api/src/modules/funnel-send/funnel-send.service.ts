@@ -28,6 +28,7 @@ import {
   isTrialActive,
 } from "../funnel/funnel-enrollment.service";
 import { FunnelStageService, type FunnelStageCopy } from "../funnel/funnel-stage.service";
+import { advanceLastSentAt } from "./funnel-report.service";
 
 const HOUR_MS = 60 * 60 * 1000;
 
@@ -140,7 +141,9 @@ export class FunnelSendService {
     if (!(await this.isOn())) return { enrolled: 0, closed: 0, sent: 0 };
     // ‏לפני הסגירה: שלב עם תפיסה נטושה עוד ממתין לניסיון חוזר
     await this.releaseStaleClaims(now);
-    const { enrolled, closed } = await this.enrollment.sweep(now);
+    const { enrolled, closed } = await this.enrollment.sweep(now, {
+      optedOut: (tenantId) => this.recipientsOf.allOptedOut(tenantId),
+    });
     const sent = isFunnelSendingTime(now)
       ? await this.dispatch(now, options.maxTenants ?? MAX_TENANTS_PER_SWEEP)
       : 0;
@@ -268,31 +271,11 @@ export class FunnelSendService {
         };
         try {
           /*
-           * ‎**כל הבעלים ביקשו להפסיק — הרישום נסגר כ„ביקש להפסיק”**
-           * ‏(ביקורת Codex). בלי זה הוא נשאר „במסלול” לנצח ונסרק בכל
-           * ‏סבב, והמדד „ביקשו להפסיק” לא היה זז לעולם. משרד בלי בעלים
-           * ‏פעיל כלל אינו „ביקש” דבר, ולכן הוא נשאר פתוח.
-           *
-           * ‏**לפני השאלה „יש שלב שהגיע זמנו”** (ביקורת Codex): מי שהסיר
-           * ‏את עצמו אחרי שלב, כשהבא עוד רחוק או שאין בא, היה נשאר „במסלול”
-           * ‏ונסגר בסוף כ„סיים את הרצף”. שאילתה אחת לרישום בשעה — ואותם
-           * ‏נמענים משמשים גם לניסיון החוזר ולשליחה.
+           * ‏אותם נמענים לניסיון החוזר ולשליחה. רשימה ריקה — אין למי;
+           * ‏הסגירה כ„ביקש להפסיק” נעשית בסבב הסגירה (`optedOut`).
            */
           const recipients = await this.recipientsOf.recipients(row.tenantId);
-          if (recipients.length === 0) {
-            const owners = await this.prisma.withExplicitTenant(row.tenantId, (tx) =>
-              tx.user.count({ where: { tenantId: row.tenantId, role: "owner", isActive: true } }),
-            );
-            if (owners > 0) {
-              const { id: _id, name: _name, ...snapshot } = tenant;
-              await this.enrollment.close(row.id, "opted_out", now, {
-                tenantId: row.tenantId,
-                tenant: snapshot,
-                hasCard,
-              });
-            }
-            continue;
-          }
+          if (recipients.length === 0) continue;
           /*
            * ‎**נמען שנכשל — אחרי שאחר כבר קיבל** (ביקורת Codex, P1).
            *
@@ -397,13 +380,9 @@ export class FunnelSendService {
       } catch (error: unknown) {
         outcome = { status: "failed", error: String(error).slice(0, 300) };
       }
-      if (await this.settle(enrollment.tenantId, message.id, outcome)) delivered += 1;
+      if (await this.settle(enrollment, message.id, outcome)) delivered += 1;
     }
-    if (delivered === 0) return { attempted, delivered: false };
-    await this.prisma.withFunnelAdmin((tx) =>
-      tx.funnelEnrollment.update({ where: { id: enrollment.id }, data: { lastSentAt: now } }),
-    );
-    return { attempted, delivered: true };
+    return { attempted, delivered: delivered > 0 };
   }
 
   /**
@@ -472,16 +451,28 @@ export class FunnelSendService {
    * ‏היה מסמן אותה „נכשלה” ושולח שוב. מה שהספק דיווח גובר.
    *
    * ‏מחזיר האם ההודעה **יצאה בסוף** — לפי השורה ולא לפי מה שניסינו
-   * ‏לכתוב, כך שמסירה שה-Webhook אישר לפני פסק הזמן עדיין מעדכנת את
-   * ‏`lastSentAt` ונספרת בתקרה (ביקורת Codex).
+   * ‏לכתוב, כך שמסירה שה-Webhook אישר לפני פסק הזמן עדיין נספרת
+   * ‏(ביקורת Codex). ו-`lastSentAt` מתקדם **באותה טרנזקציה**: הודעה
+   * ‏שנרשמה כיוצאת בלי המרווח שלה הייתה מאפשרת לשלב הבא לצאת בלי 20
+   * ‏השעות, אם התהליך נפל ביניהן (ביקורת Codex).
    */
-  private async settle(tenantId: string, id: string, data: Settlement): Promise<boolean> {
+  private async settle(
+    enrollment: { id: string; tenantId: string },
+    id: string,
+    data: Settlement,
+  ): Promise<boolean> {
     return this.prisma.withFunnelAdmin(async (tx) => {
-      await tx.funnelMessage.updateMany({ where: { id, tenantId, status: "queued" }, data });
-      const out = await tx.funnelMessage.count({
-        where: { id, status: { in: [...FUNNEL_MESSAGE_OUT_STATUSES] } },
+      await tx.funnelMessage.updateMany({
+        where: { id, tenantId: enrollment.tenantId, status: "queued" },
+        data,
       });
-      return out === 1;
+      const out = await tx.funnelMessage.findFirst({
+        where: { id, status: { in: [...FUNNEL_MESSAGE_OUT_STATUSES] } },
+        select: { sentAt: true },
+      });
+      if (out === null) return false;
+      if (out.sentAt !== null) await advanceLastSentAt(tx, enrollment.id, out.sentAt);
+      return true;
     });
   }
 

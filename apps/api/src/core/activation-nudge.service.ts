@@ -392,13 +392,7 @@ export class ActivationNudgeService {
       });
       const out: { id: string; name: string; email: string; token: string }[] = [];
       for (const row of rows) {
-        /*
-         * ‎`undefined` = אין שורת הסרה כלל (טרם נשלחה תזכורת);
-         * ‎`null` = יש שורה והוא עדיין מקבל. שניהם „ממשיך לקבל”,
-         * ורק חותמת אמיתית מוציאה אותו מהרשימה.
-         */
-        const optedOutAt = row.nudgeOptOut?.optedOutAt;
-        if (optedOutAt !== null && optedOutAt !== undefined) continue;
+        if (isOptedOut(row.nudgeOptOut)) continue;
         /*
          * הטוקן נוצר בשליחה הראשונה ונשמר לתמיד: קישור הסרה ממייל
          * בן חודש חייב להמשיך לעבוד, ולכן הוא אינו מתחלף בין
@@ -410,6 +404,30 @@ export class ActivationNudgeService {
       return out;
     });
   }
+
+  /**
+   * ‎**כל הבעלים הפעילים ביקשו להפסיק — ויש לפחות אחד.** משרד בלי בעלים
+   * ‏פעיל לא „ביקש” דבר. קריאה בלבד: בלי ליצור טוקנים, כי היא רצה על כל
+   * ‏רישום פתוח בכל סבב של מסלול ההמרה.
+   */
+  async allOptedOut(tenantId: string): Promise<boolean> {
+    const rows = await this.prisma.withExplicitTenant(tenantId, (tx) =>
+      tx.user.findMany({
+        where: { tenantId, role: "owner", isActive: true },
+        select: { nudgeOptOut: { select: { optedOutAt: true } } },
+      }),
+    );
+    return rows.length > 0 && rows.every((row) => isOptedOut(row.nudgeOptOut));
+  }
+}
+
+/**
+ * ‎**ביקש להפסיק — רק חותמת אמיתית.** `undefined` = אין שורת הסרה כלל
+ * ‏(טרם נשלחה תזכורת); `null` = יש שורה והוא עדיין מקבל. שניהם „ממשיך
+ * ‏לקבל”. כלל אחד לנמענים ול-`allOptedOut`.
+ */
+function isOptedOut(row: { optedOutAt: Date | null } | null | undefined): boolean {
+  return (row?.optedOutAt ?? null) !== null;
 }
 
 /**
