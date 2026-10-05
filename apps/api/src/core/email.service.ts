@@ -132,6 +132,17 @@ export function emailSendOutcome(error: unknown): "failed" | "unknown" {
 }
 
 /**
+ * ‎**דחייה קבועה — „לא, ולא בניסיון הבא”.** ‎4xx שאינו חריגה מקצב
+ * ‏(`retryable`): נמען פסול ייכשל זהה בכל ניסיון. שאלה אחרת מ-
+ * ‏`emailSendOutcome` („ייתכן שיצא?”), ושני קוראים שואלים אותה — ההצעות
+ * ‏(להוציא מהמחזור) ומסלול ההמרה (לא לתפוס שוב) — ולכן היא מנוסחת כאן
+ * ‏פעם אחת.
+ */
+export function isPermanentEmailRejection(error: unknown): boolean {
+  return error instanceof EmailRejectedError && !error.retryable;
+}
+
+/**
  * ‎**זהות עסקית של שליחה — ולמה היא חובה ולא רשות.**
  *
  * ‏שדה רשות היה נשכח, וכל אתר שליחה שנוסף בלי לחשוב על כך היה

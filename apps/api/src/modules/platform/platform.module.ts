@@ -4,6 +4,7 @@ import { AuthModule } from "../auth/auth.module";
 import { BillingModule } from "../billing/billing.module";
 import { EmailInboxModule } from "../email-inbox/email-inbox.module";
 import { FunnelModule } from "../funnel/funnel.module";
+import { FunnelSendModule } from "../funnel-send/funnel-send.module";
 import { MessagingModule } from "../messaging/messaging.module";
 import { TelephonyModule } from "../telephony/telephony.module";
 import { WebhookLogModule } from "../webhook-log/webhook-log.module";
@@ -46,6 +47,7 @@ import { ServiceVersionsService } from "./service-versions.service";
     MessagingModule,
     BillingModule,
     FunnelModule,
+    FunnelSendModule,
     WebhookLogModule,
     EmailInboxModule,
   ],

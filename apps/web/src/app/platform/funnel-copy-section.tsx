@@ -2,8 +2,13 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "@metavchim/ui";
-import { FUNNEL_PLACEHOLDERS, unknownFunnelPlaceholders } from "@metavchim/shared";
+import {
+  FUNNEL_PLACEHOLDERS,
+  formatIsraeliNumber,
+  unknownFunnelPlaceholders,
+} from "@metavchim/shared";
 import { ApiError, apiGet, apiPatch, apiPost } from "@/lib/api";
+import { ConfirmDialog } from "../confirm-dialog";
 import { Notice } from "../notice";
 
 /**
@@ -39,7 +44,36 @@ interface StageCopy {
   ctaPath: string;
   whatsappTemplate: string;
   unknownPlaceholders: string[];
+  /** ‏למה אי אפשר להדליק — `null` כשאפשר. השרת מכריע, המסך מציג. */
+  enableBlock: string | null;
 }
+
+/** ‏המדדים — מ-`GET /platform/funnel-stats`. */
+interface FunnelStats {
+  stages: {
+    key: string;
+    title: string;
+    enabled: boolean;
+    sent: number;
+    delivered: number;
+    bounced: number;
+    failed: number;
+    opened: number;
+    clicked: number;
+  }[];
+  enrollments: { live: number; paid: number; completed: number; optedOut: number };
+}
+
+/** ‏„12 (40%)” — הכמות, ושיעורה מתוך מה שנשלח. */
+function ofSent(count: number, sent: number): string {
+  const n = formatIsraeliNumber(count);
+  return sent === 0 || count === 0 ? n : `${n} (${Math.round((count / sent) * 100)}%)`;
+}
+
+/** ‏מה ממתין לאישור: המפסק הראשי, או שלב אחד. */
+type Toggle =
+  | { kind: "sending"; enabled: boolean }
+  | { kind: "stage"; row: StageCopy; enabled: boolean };
 
 const TRACK_LABELS: Record<string, string> = {
   conversion: "מסלול ההמרה — מניסיון ללקוח משלם",
@@ -69,6 +103,11 @@ export function FunnelCopySection() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
+  const [stats, setStats] = useState<FunnelStats | null>(null);
+  /** ‏המפסק הראשי של המסלול — `null` עד שנטען */
+  const [funnelSending, setFunnelSending] = useState<boolean | null>(null);
+  const [toggle, setToggle] = useState<Toggle | null>(null);
+  const [toggling, setToggling] = useState(false);
   /** ‏שליחת בדיקה: איזה שלב בדרך, ומה יצא מהאחרונה */
   const [testing, setTesting] = useState<string | null>(null);
   const [tested, setTested] = useState<{ id: string; ok: boolean; text: string } | null>(null);
@@ -78,6 +117,12 @@ export function FunnelCopySection() {
     apiGet<StageCopy[]>("/platform/funnel-copy")
       .then(setRows)
       .catch(() => setError("טעינת הנוסחים נכשלה"));
+    apiGet<FunnelStats>("/platform/funnel-stats")
+      .then(setStats)
+      .catch(() => setStats(null));
+    apiGet<{ enabled: boolean }>("/platform/funnel-sending")
+      .then(({ enabled }) => setFunnelSending(enabled))
+      .catch(() => setError("טעינת מצב המסלול נכשלה"));
   }, []);
 
   useEffect(load, [load]);
@@ -103,6 +148,26 @@ export function FunnelCopySection() {
       setError("השמירה נכשלה — ייתכן שיש מציין מקום שאינו מוכר");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function applyToggle() {
+    if (toggle === null) return;
+    setToggling(true);
+    setError(null);
+    try {
+      if (toggle.kind === "sending") {
+        await apiPatch("/platform/funnel-sending", { enabled: toggle.enabled });
+      } else {
+        await apiPatch(`/platform/funnel-copy/${toggle.row.id}/enabled`, { enabled: toggle.enabled });
+      }
+      setToggle(null);
+      load();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "השינוי נכשל");
+      setToggle(null);
+    } finally {
+      setToggling(false);
     }
   }
 
@@ -145,11 +210,85 @@ export function FunnelCopySection() {
         </h2>
       </div>
 
+      <div className="mv-card mv-card--pad flex flex-wrap items-center gap-3">
+        <span className="font-bold">
+          המסלול {funnelSending === null ? "…" : funnelSending ? "פעיל" : "כבוי"}
+        </span>
+        <span className="text-sm" style={{ color: "var(--color-text-muted)" }}>
+          {funnelSending
+            ? "משרדים בניסיון נכנסים ומקבלים את השלבים הדלוקים, בימים א׳–ו׳ בין 9:00 ל-18:00."
+            : "שום דבר לא נשלח ואף משרד לא נכנס, גם כשיש שלבים דלוקים."}
+        </span>
+        <Button
+          className="ms-auto"
+          variant={funnelSending ? "secondary" : "primary"}
+          disabled={funnelSending === null}
+          onClick={() => setToggle({ kind: "sending", enabled: !funnelSending })}
+        >
+          {funnelSending ? "עצירת המסלול" : "הפעלת המסלול"}
+        </Button>
+      </div>
+
+      {stats !== null ? (
+        <div className="mt-4">
+          <h3 className="mb-2 text-[length:var(--type-body)] font-bold">מדדים</h3>
+          <p className="m-0 mb-2 text-sm">
+            במסלול עכשיו: <strong>{formatIsraeliNumber(stats.enrollments.live)}</strong> · הפכו
+            ללקוחות: <strong>{formatIsraeliNumber(stats.enrollments.paid)}</strong> · סיימו את
+            הרצף: {formatIsraeliNumber(stats.enrollments.completed)} · ביקשו להפסיק:{" "}
+            {formatIsraeliNumber(stats.enrollments.optedOut)}
+          </p>
+          <div
+            className="overflow-x-auto rounded-xl border"
+            style={{ borderColor: "var(--color-border)" }}
+          >
+            <table className="w-full text-sm" style={{ fontVariantNumeric: "tabular-nums" }}>
+              <caption className="mv-visually-hidden">מדדי המייל לכל שלב במסלול ההמרה</caption>
+              <thead style={{ background: "var(--color-table-head)" }}>
+                <tr>
+                  <th scope="col" className="p-2 text-start">שלב</th>
+                  <th scope="col" className="p-2 text-start">נשלחו</th>
+                  <th scope="col" className="p-2 text-start">נמסרו</th>
+                  <th scope="col" className="p-2 text-start">נפתחו (הערכה)</th>
+                  <th scope="col" className="p-2 text-start">לחצו</th>
+                  <th scope="col" className="p-2 text-start">חזרו</th>
+                  <th scope="col" className="p-2 text-start">נכשלו</th>
+                </tr>
+              </thead>
+              <tbody>
+                {stats.stages.map((row) => (
+                  <tr
+                    key={row.key}
+                    className="border-t"
+                    style={{ borderColor: "var(--color-row-border)" }}
+                  >
+                    <td className="p-2">
+                      {row.title}
+                      {row.enabled ? "" : " · כבוי"}
+                    </td>
+                    <td className="p-2">{formatIsraeliNumber(row.sent)}</td>
+                    <td className="p-2">{ofSent(row.delivered, row.sent)}</td>
+                    <td className="p-2">{ofSent(row.opened, row.sent)}</td>
+                    <td className="p-2">{ofSent(row.clicked, row.sent)}</td>
+                    <td className="p-2">{formatIsraeliNumber(row.bounced)}</td>
+                    <td className="p-2">{formatIsraeliNumber(row.failed)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="m-0 mt-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
+            „נמסרו” ו„חזרו” מגיעים מ-Postmark — דרך כתובת ה-Webhook „מסירה” שבהגדרות האימייל. „נפתחו” היא
+            הערכה: Apple ו-Gmail טוענים את התמונה גם בלי פתיחה, ולכן לחיצה היא המדד האמין.
+          </p>
+        </div>
+      ) : null}
+
       <Notice tone="info">
-        ארבעה-עשר השלבים יושבים כאן עם טיוטות. <strong>כולם כבויים</strong> — מילוי נוסח אינו
-        הדלקה, וההפעלה היא החלטה נפרדת. „שלח אליי לבדיקה” שולח את המייל השמור לתיבה שלך בלבד,
-        עם השם והמשרד שלך במקום מצייני המקום. תבניות הוואטסאפ טעונות אישור של מטא ומוגשות
-        מ-WhatsApp Manager.
+        מילוי נוסח אינו הדלקה: כל שלב נדלק בנפרד, ויוצא רק כשהמסלול פעיל. „שלח אליי לבדיקה”
+        שולח את המייל השמור לתיבה שלך בלבד, עם השם והמשרד שלך במקום מצייני המקום. המייל יוצא
+        לבעלי המשרד, עם קישור הסרה. תבניות הוואטסאפ טעונות אישור של מטא ומוגשות מ-WhatsApp
+        Manager.
       </Notice>
 
       <p className="mt-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
@@ -176,7 +315,7 @@ export function FunnelCopySection() {
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="font-bold">{row.title}</span>
                       <span className="mv-chip" style={{ cursor: "default" }}>
-                        {row.enabled ? "פעיל" : "כבוי"}
+                        {row.enabled ? "דלוק" : "כבוי"}
                       </span>
                       {row.whatsappTemplate === "" ? (
                         <span className="mv-chip" style={{ cursor: "default" }}>
@@ -200,6 +339,14 @@ export function FunnelCopySection() {
                         ) : null}
                         <Button
                           variant="secondary"
+                          disabled={!row.enabled && row.enableBlock !== null}
+                          title={row.enabled ? undefined : (row.enableBlock ?? undefined)}
+                          onClick={() => setToggle({ kind: "stage", row, enabled: !row.enabled })}
+                        >
+                          {row.enabled ? "כיבוי" : "הדלקה"}
+                        </Button>
+                        <Button
+                          variant="secondary"
                           disabled={testing !== null || open === row.id}
                           title={
                             open === row.id ? "שמרו קודם — הבדיקה שולחת את הנוסח השמור" : undefined
@@ -216,6 +363,11 @@ export function FunnelCopySection() {
                         </Button>
                       </span>
                     </div>
+                    {!row.enabled && row.enableBlock !== null ? (
+                      <p className="m-0 mt-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
+                        לא ניתן להדליק: {row.enableBlock}
+                      </p>
+                    ) : null}
                     {tested?.id === row.id ? (
                       <p
                         className="m-0 mt-2 text-sm"
@@ -317,6 +469,38 @@ export function FunnelCopySection() {
           </div>
         ))
       )}
+
+      <ConfirmDialog
+        open={toggle !== null}
+        title={
+          toggle === null
+            ? ""
+            : toggle.kind === "sending"
+              ? toggle.enabled
+                ? "להפעיל את מסלול ההמרה?"
+                : "לעצור את מסלול ההמרה?"
+              : toggle.enabled
+                ? `להדליק את „${toggle.row.title}”?`
+                : `לכבות את „${toggle.row.title}”?`
+        }
+        confirmLabel={toggle?.enabled ? "הפעלה" : "עצירה"}
+        busy={toggling}
+        busyLabel="שומר…"
+        onConfirm={() => void applyToggle()}
+        onClose={() => setToggle(null)}
+      >
+        <p className="m-0">
+          {toggle === null
+            ? null
+            : toggle.kind === "sending"
+              ? toggle.enabled
+                ? "משרדים בניסיון ייכנסו למסלול — נרשמים חדשים מיד, והקיימים עד 25 ביום — ויקבלו במייל את השלבים הדלוקים, הודעה אחת לכל היותר ביום."
+                : "לא ייכנסו משרדים חדשים ולא יישלחו הודעות. מה שכבר נשלח נשאר, ואפשר להפעיל שוב בכל רגע."
+              : toggle.enabled
+                ? `השלב יישלח במייל לבעלי כל משרד במסלול שעונה לתנאי שלו, כשיגיע מועדו.${funnelSending ? "" : " המסלול עצמו כבוי — דבר לא יישלח עד שתפעילו אותו."}`
+                : "השלב לא יישלח יותר. מה שכבר נשלח נשאר."}
+        </p>
+      </ConfirmDialog>
     </section>
   );
 }

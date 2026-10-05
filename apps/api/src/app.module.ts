@@ -49,6 +49,7 @@ import { PropertyPitchModule } from "./modules/property-pitch/property-pitch.mod
 import { PlatformModule } from "./modules/platform/platform.module";
 import { PropertiesModule } from "./modules/properties/properties.module";
 import { FunnelModule } from "./modules/funnel/funnel.module";
+import { FunnelSendModule } from "./modules/funnel-send/funnel-send.module";
 import { RecruitmentModule } from "./modules/recruitment/recruitment.module";
 import { SearchModule } from "./modules/search/search.module";
 import { LegalModule } from "./modules/legal/legal.module";
@@ -100,6 +101,7 @@ import { AgentModule } from "./modules/agent/agent.module";
     ContactsModule,
     PropertiesModule,
     FunnelModule,
+    FunnelSendModule,
     RecruitmentModule,
     MarketModule,
     BuyersModule,

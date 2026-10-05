@@ -4413,7 +4413,10 @@ model FunnelMessage {
 
   /// email | whatsapp
   channel String @db.VarChar(20)
-  /// queued | sent | failed
+  /// queued | sent | failed | bounced | rejected — `bounced` יצא מאיתנו וחזר מהשרת של הנמען,
+  /// ולכן נספר כשלב שנשלח ואינו נשלח שוב (`FUNNEL_MESSAGE_OUT_STATUSES`).
+  /// `rejected` — הספק דחה לצמיתות (נמען פסול, תקלת הגדרה): לא יצא, ונבדק שוב רק
+  /// אחרי יממה או כשכתובת הנמען השתנתה.
   status  String @default("queued") @db.VarChar(20)
 
   /// **אקראי ולא נגזר מהמזהים.** כתובת מעקב שאפשר לנחש היא כתובת
@@ -4423,7 +4426,8 @@ model FunnelMessage {
   providerMessageId String? @map("provider_message_id") @db.VarChar(200)
 
   sentAt      DateTime? @map("sent_at")
-  /// אמיתי בוואטסאפ בלבד; במייל נשאר ריק.
+  /// אמיתי: בוואטסאפ מ-Meta, ובמייל מ-Webhook המסירה של Postmark
+  /// (`POST public/email/events/:secret`). בלי ה-Webhook נשאר ריק.
   deliveredAt DateTime? @map("delivered_at")
   readAt      DateTime? @map("read_at")
   /// **הערכה בלבד** — פיקסל שנטען. Apple ו-Gmail טוענים אותו גם

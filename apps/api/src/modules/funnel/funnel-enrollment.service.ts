@@ -3,6 +3,7 @@ import { ulid } from "ulid";
 import {
   FUNNEL_DEFAULT_DAILY_ENTRIES,
   FUNNEL_FRESH_SIGNUP_HOURS,
+  FUNNEL_MESSAGE_OUT_STATUSES,
   funnelExitReason,
   hasValidCard,
   trialAnchorOf,
@@ -64,7 +65,15 @@ export class FunnelEnrollmentService {
    */
   async sweep(
     now: Date,
-    options: { dailyQuota?: number; pageSize?: number } = {},
+    options: {
+      dailyQuota?: number;
+      pageSize?: number;
+      /**
+       * ‏האם כל בעלי המשרד ביקשו להפסיק — נשאל רק על רישום שנסגר, כדי
+       * ‏לסווג אותו נכון. מגיע מבחוץ (שלב ב׳): המודול הזה אינו מכיר נמענים.
+       */
+      optedOut?: (tenantId: string) => Promise<boolean>;
+    } = {},
   ): Promise<{ enrolled: number; closed: number }> {
     const dailyQuota = options.dailyQuota ?? FUNNEL_DEFAULT_DAILY_ENTRIES;
     const pageSize = options.pageSize ?? PAGE;
@@ -76,7 +85,7 @@ export class FunnelEnrollmentService {
      */
     const reopened = await this.reopenLapsed(now, pageSize);
     const enrolled = await this.enrollDue(now, dailyQuota, pageSize);
-    const closed = await this.closeFinished(now, pageSize);
+    const closed = await this.closeFinished(now, pageSize, options.optedOut);
     if (enrolled > 0 || closed > 0 || reopened > 0) {
       this.logger.log(
         `מסלול ההמרה: ${enrolled} נכנסו, ${closed} נסגרו${reopened > 0 ? `, ${reopened} נפתחו מחדש` : ""}`,
@@ -580,7 +589,11 @@ export class FunnelEnrollmentService {
    * — טעות אחת בתנאי השליחה הייתה שולחת לו „נשארו יומיים” אחרי
    * שכבר שילם.
    */
-  private async closeFinished(now: Date, pageSize: number): Promise<number> {
+  private async closeFinished(
+    now: Date,
+    pageSize: number,
+    optedOut?: (tenantId: string) => Promise<boolean>,
+  ): Promise<number> {
     /*
      * ‎**גם הפסולים, ולא רק התקפים.**
      *
@@ -624,7 +637,7 @@ export class FunnelEnrollmentService {
       );
       if (page.length === 0) break;
       cursor = page[page.length - 1]?.id ?? null;
-      closed += await this.closePage(page, stages, invalid, now);
+      closed += await this.closePage(page, stages, invalid, now, optedOut);
       if (page.length < pageSize) break;
     }
     return closed;
@@ -644,9 +657,10 @@ export class FunnelEnrollmentService {
      */
     invalid: InvalidStage[],
     now: Date,
+    optedOut?: (tenantId: string) => Promise<boolean>,
   ): Promise<number> {
     const tenantIds = [...new Set(live.map((row) => row.tenantId))];
-    const [tenants, subscriptions, sentRows] = await Promise.all([
+    const [tenants, subscriptions, sentRows, failedRows] = await Promise.all([
       this.prisma.tenant.findMany({
         where: { id: { in: tenantIds } },
         /*
@@ -684,8 +698,30 @@ export class FunnelEnrollmentService {
         tx.funnelMessage.findMany({
           where: {
             enrollmentId: { in: live.map((row) => row.id) },
-            status: "sent",
+            status: { in: [...FUNNEL_MESSAGE_OUT_STATUSES] },
             sentAt: { not: null },
+          },
+          select: { enrollmentId: true, stageKey: true },
+        }),
+      ),
+      /*
+       * ‎**נמען שנכשל עוד ממתין לניסיון חוזר** (ביקורת Codex, P1).
+       *
+       * ‏שלב שיצא לבעלים אחד ונכשל אצל השני נחשב „נשלח”, והסגירה
+       * ‏קודמת לשליחה בסבב — כלומר הרישום היה נסגר כ„מוצה” לפני
+       * ‏שהניסיון החוזר הגיע אליו. שלב כזה נשאר „עדיין אפשרי” עד שחלונו
+       * ‏נסגר, ורק אז הרישום נסגר.
+       *
+       * ‏וגם `rejected` ו-`bounced`: דחייה קבועה נבדקת שוב אחרי יממה או
+       * ‏כשהכתובת תוקנה, ומייל שחזר נשלח שוב לכתובת שתוקנה (ביקורת Codex) —
+       * ‏ורישום שנסגר קודם לכן לא היה נותן להם הזדמנות. ו-`queued`: תפיסה
+       * ‏שעוד לא הוכרעה (תהליך שנפל באמצע) חוזרת לתור רק אחרי חצי שעה.
+       */
+      this.prisma.withFunnelAdmin((tx) =>
+        tx.funnelMessage.findMany({
+          where: {
+            enrollmentId: { in: live.map((row) => row.id) },
+            status: { in: ["queued", "failed", "rejected", "bounced"] },
           },
           select: { enrollmentId: true, stageKey: true },
         }),
@@ -706,6 +742,7 @@ export class FunnelEnrollmentService {
       keys.push(row.stageKey);
       sentByEnrollment.set(row.enrollmentId, keys);
     }
+    const retrying = new Set(failedRows.map((row) => `${row.enrollmentId}:${row.stageKey}`));
 
     let closed = 0;
     for (const row of live) {
@@ -751,7 +788,7 @@ export class FunnelEnrollmentService {
         ...trialAnchorOf(tenant),
         paymentFailedAt: track === "dunning" ? row.startedAt : null,
       };
-      const reason = funnelExitReason({
+      let reason = funnelExitReason({
         track,
         facts,
         stages,
@@ -762,11 +799,30 @@ export class FunnelEnrollmentService {
         definitionsIncomplete: invalid.some(
           (row) => row.track === null || row.track === track,
         ),
-        sent: sentByEnrollment.get(row.id) ?? [],
+        sent: (sentByEnrollment.get(row.id) ?? []).filter(
+          (key) => !retrying.has(`${row.id}:${key}`),
+        ),
         anchors,
         now,
       });
       if (reason === null) continue;
+      /*
+       * ‎**נסגר — אבל אולי כי ביקשו להפסיק** (ביקורת Codex). מי שהסיר את
+       * ‏עצמו אחרי השלב האחרון היה נסגר כאן כ„מוצה”, וסבב השליחה — שרץ
+       * ‏אחרי הסגירה — כבר לא היה רואה אותו. „שילם” גובר: הוא היעד עצמו.
+       *
+       * ‏רק לרישום שנסגר עכשיו, ולא לכל רישום פתוח: השאלה היא טרנזקציה
+       * ‏לכל משרד (הנמענים מוגנים ב-RLS לפי דייר), וסגירות הן מעטות.
+       * ‏הסרה באמצע הרצף נתפסת בסבב השליחה, שממילא שולף את הנמענים.
+       */
+      if (
+        reason !== "paid" &&
+        track === "conversion" &&
+        optedOut !== undefined &&
+        (await optedOut(row.tenantId))
+      ) {
+        reason = "opted_out";
+      }
       /*
        * ‏הסגירה נכתבת מול אותו עוגן שההחלטה התקבלה עליו. אם הוא זז
        * ‏בינתיים — ניסיון שהוחזר — הכתיבה אינה חלה, וזה הנכון.

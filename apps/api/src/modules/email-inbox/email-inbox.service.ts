@@ -210,12 +210,23 @@ export class EmailInboxService {
 
   /** כתובת ה-Inbound והסוד — הגדרות הפלטפורמה קודם, סביבה אחריהן. */
   async inboundConfig(): Promise<{ address: string; secret: string } | null> {
-    const env = loadEnv();
     const address =
-      (await this.platformSettings.get("emailInboundAddress")) ?? env.EMAIL_INBOUND_ADDRESS;
-    const secret =
-      (await this.platformSettings.get("emailInboundSecret")) ?? env.EMAIL_INBOUND_SECRET;
+      (await this.platformSettings.get("emailInboundAddress")) ?? loadEnv().EMAIL_INBOUND_ADDRESS;
+    const secret = await this.webhookSecret();
     return address && secret ? { address, secret } : null;
+  }
+
+  /**
+   * ‏סוד ה-Webhook של Postmark לבדו. אירועי המסירה של המיילים היוצאים
+   * ‏אינם זקוקים לכתובת קליטה, ושרת שמשמש לשליחה בלבד הוא הגדרה תקינה
+   * ‏(ביקורת Codex).
+   */
+  async webhookSecret(): Promise<string | null> {
+    return (
+      (await this.platformSettings.get("emailInboundSecret")) ??
+      loadEnv().EMAIL_INBOUND_SECRET ??
+      null
+    );
   }
 
   /**

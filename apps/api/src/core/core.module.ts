@@ -27,6 +27,7 @@ import { REDIS, REDIS_PROVIDERS } from "./redis";
 import { ServerErrorDigestService } from "./server-errors";
 import { StorageService } from "./storage.service";
 import { SweepScheduler } from "./sweeps";
+import { OnboardingFactsService } from "./onboarding-facts.service";
 import { TenantLogoService } from "./tenant-logo.service";
 import { VatService } from "./vat.service";
 
@@ -62,6 +63,7 @@ import { VatService } from "./vat.service";
     CreditExpiryService,
     OnboardingOutreachService,
     ActivationNudgeService,
+    OnboardingFactsService,
     GeminiService,
     PlanCatalogService,
     AutomationQuotaService,
@@ -93,6 +95,9 @@ import { VatService } from "./vat.service";
      */
     GeocodingService,
     CreditEconomyService,
+    /* ‏מסלול ההמרה: הנמענים ועובדות הקליטה — מקור אחד עם המסכים */
+    ActivationNudgeService,
+    OnboardingFactsService,
     GeminiService,
     PlanCatalogService,
     AutomationQuotaService,

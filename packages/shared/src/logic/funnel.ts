@@ -30,6 +30,7 @@
  */
 
 import type { EmailContent } from "./email-template.js";
+import { onboardingSteps, type OnboardingFacts } from "./onboarding.js";
 import {
   jerusalemDayStart,
   jerusalemWallIsoToUtc,
@@ -567,6 +568,14 @@ export function isFunnelSendingHour(parts: { weekday: string; hour: number }): b
   return parts.hour >= SENDING_START_HOUR && parts.hour < SENDING_END_HOUR;
 }
 
+/** ‏אותו כלל, על רגע — שעון ירושלים, בלי תלות באזור הזמן של השרת. */
+export function isFunnelSendingTime(at: Date): boolean {
+  return isFunnelSendingHour({
+    weekday: jerusalemWeekday(at) === SATURDAY ? "Saturday" : "",
+    hour: Number(jerusalemWallParts(at).time.slice(0, 2)),
+  });
+}
+
 /**
  * ‎**סוף חלון השליחה השלם הראשון שנפתח מ-`after` והלאה.**
  *
@@ -665,6 +674,14 @@ export function funnelAnchorConcluded(clock: FunnelClock, anchors: FunnelAnchors
  * ‏הבדיקה יושבת כאן ולא בשאילתה כדי ששני המסלולים ייעצרו לפי אותו
  * כלל — ולא לפי שני `WHERE` שאפשר לתקן אחד מהם ולשכוח את השני.
  */
+/**
+ * ‎**היעד של מסלול ההמרה הושג** — כרטיס תקף או מנוי שהופעל. כלל אחד
+ * ‏לסגירת הרישום (`funnelExitReason`) ולשאלה אם עוד שולחים לו.
+ */
+export function hasFunnelConverted(facts: Pick<FunnelFacts, "hasValidCard" | "subscribed">): boolean {
+  return facts.hasValidCard || facts.subscribed;
+}
+
 export function funnelExitReason(input: {
   track: FunnelTrack;
   facts: FunnelFacts;
@@ -685,7 +702,7 @@ export function funnelExitReason(input: {
 }): FunnelExitReason | null {
   if (input.track === "dunning") {
     if (!input.facts.chargeFailing) return "resolved";
-  } else if (input.facts.hasValidCard || input.facts.subscribed) {
+  } else if (hasFunnelConverted(input.facts)) {
     /*
      * ‎**כרטיס תקף *או* מנוי שהופעל — ולא רק כרטיס.**
      *
@@ -847,6 +864,19 @@ export interface FunnelEmailCopy {
 }
 
 /**
+ * ‏כתובות המעקב של הודעה שנשלחת באמת. בבדיקה למנהל אין כאלה — אין
+ * ‏שורת הודעה שאפשר לרשום עליה פתיחה, והכפתור מוביל ישר ליעד.
+ */
+export interface FunnelEmailTracking {
+  /** ‏הכפתור עובר דרכה ונרשם כלחיצה, ומשם ליעד */
+  clickUrl: string;
+  /** ‏פיקסל הפתיחה */
+  pixelUrl: string;
+  /** ‏קישור ההסרה (חוק התקשורת §30א) */
+  optOutUrl: string;
+}
+
+/**
  * ‎**המייל של שלב — כפי שהנמען יקבל אותו.**
  *
  * ‏פונקציה אחת לשליחת הבדיקה ולשליחה האמיתית: מה שבעל הפלטפורמה
@@ -855,11 +885,14 @@ export interface FunnelEmailCopy {
  *
  * ‏הגוף מתפצל לפסקאות בשורה ריקה — אותו מבנה של `EmailContent`.
  * ‏הכפתור נבנה רק כשיש גם תווית וגם נתיב, והנתיב יחסי למקור המערכת.
+ * ‏עם `tracking` הכפתור עובר דרך כתובת הלחיצה, ובתחתית יש פיקסל
+ * ‏וקישור הסרה.
  */
 export function funnelEmail(
   copy: FunnelEmailCopy,
   values: FunnelPlaceholderValues,
   origin: string,
+  tracking?: FunnelEmailTracking,
 ): { subject: string; content: EmailContent } | null {
   const fill = (text: string): string => fillFunnelPlaceholders(text, values).trim();
   const subject = fill(copy.emailSubject);
@@ -870,12 +903,125 @@ export function funnelEmail(
   if (subject === "" || paragraphs.length === 0) return null;
   const label = fill(copy.ctaLabel);
   const path = copy.ctaPath.trim();
+  const button =
+    label !== "" && path !== ""
+      ? { label, url: tracking === undefined ? `${origin}${path}` : tracking.clickUrl }
+      : undefined;
   return {
     subject,
     content: {
       heading: fill(copy.emailHeading) || subject,
       paragraphs,
-      ...(label !== "" && path !== "" ? { button: { label, url: `${origin}${path}` } } : {}),
+      ...(button === undefined ? {} : { button }),
+      ...(tracking === undefined
+        ? {}
+        : {
+            footnote: `קיבלתם את ההודעה כי פתחתם חשבון ניסיון. להפסקת ההודעות: ${tracking.optOutUrl}`,
+            pixel: tracking.pixelUrl,
+          }),
     },
   };
+}
+
+/**
+ * ‏שלבים שכבר יוצאים ממנגנון אחר — והסיבה שתוצג ליד המתג. המפתח
+ * ‏יציב בהגדרה (ראו `FunnelStageDef.key`), ולכן הוא עוגן בטוח כאן.
+ */
+const FUNNEL_COVERED_ELSEWHERE: Readonly<Record<string, string>> = {
+  d5_intro_call: "ההזמנה לשיחת ההיכרות כבר נשלחת אוטומטית 5–6 ימים אחרי ההרשמה — הדלקה הייתה שולחת הודעה כפולה",
+};
+
+/**
+ * ‎**למה אי אפשר להדליק את השלב הזה — או `null` כשאפשר.**
+ *
+ * ‏ההכרעה כאן ולא במסך: השרת דוחה הדלקה שהיא שגויה, והמסך מציג את
+ * ‏אותה סיבה ליד המתג במקום להשאיר מתג שנכשל בלחיצה.
+ *
+ * ‏שלבי שעון הניסיון כבר מכוסים בתזכורות ההפעלה, שרצות היום ומעבירות
+ * ‏גם למסלול השותפים, וההזמנה לשיחת ההיכרות יוצאת מסבב משלה. הדלקתם
+ * ‏הייתה שולחת לאותו משרד שתי הודעות על אותו דבר, ולכן הם נשארים
+ * ‏כבויים עד שהמנגנונים האלה יעברו לכאן.
+ */
+export function funnelStageEnableBlock(stage: {
+  track: string;
+  key: string;
+  clock: string;
+  emailSubject: string;
+  emailBody: string;
+  unknownPlaceholders: readonly string[];
+}): string | null {
+  if (stage.track !== "conversion") return "מסלול הגבייה עוד לא מחובר לחיובים";
+  if (stage.clock === "trial") {
+    return "תזכורות סיום הניסיון כבר נשלחות אוטומטית (תזכורות ההפעלה) — הדלקה הייתה שולחת הודעה כפולה";
+  }
+  const elsewhere = FUNNEL_COVERED_ELSEWHERE[stage.key];
+  if (elsewhere !== undefined) return elsewhere;
+  if (stage.unknownPlaceholders.length > 0) return "יש בנוסח מציין מקום שלא יוחלף";
+  if (stage.emailSubject.trim() === "" || stage.emailBody.trim() === "") {
+    return "חסרים נושא וגוף למייל";
+  }
+  return null;
+}
+
+/**
+ * ‎**העובדות של משרד לתנאי הקהל — מתוך מצב הקליטה שלו.**
+ *
+ * ‏מאותו מקור של מסך „מה נשאר להפעיל”, ולא מספירה שנייה: „הצעד
+ * ‏החיוני הבא” הוא צעד חיוני שלא הושלם שם, ו„פיצ׳ר שלא נגעו בו” הוא
+ * ‏צעד שאינו חיוני ועדיין פתוח (צוות, לידים מהאתר, וואטסאפ, דומיין).
+ */
+export function funnelFacts(input: {
+  onboarding: OnboardingFacts;
+  calls: number;
+  hasValidCard: boolean;
+  subscribed: boolean;
+  trialActive: boolean;
+  chargeFailing: boolean;
+}): FunnelFacts {
+  const steps = onboardingSteps(input.onboarding).steps;
+  const { properties, buyers } = input.onboarding;
+  return {
+    hasProperties: properties > 0,
+    hasData: properties + buyers + input.calls > 0,
+    nextStepPending: steps.some((step) => step.essential && !step.done),
+    featureUnused: steps.some((step) => !step.essential && !step.done),
+    hasValidCard: input.hasValidCard,
+    subscribed: input.subscribed,
+    trialActive: input.trialActive,
+    chargeFailing: input.chargeFailing,
+  };
+}
+
+/**
+ * ‎**הסטטוסים שבהם ההודעה יצאה** — `sent`, וגם `bounced`.
+ *
+ * ‏מייל שחזר מהשרת של הנמען (`bounced`) יצא מאיתנו: הכתובת היא
+ * ‏שגויה, לא השליחה. הוא נספר כשלב שנשלח — אחרת המסלול היה נתקע על
+ * ‏השלב הזה עד שיפוג — ואינו נשלח שוב, כי אותה כתובת תחזיר אותו שוב.
+ */
+export const FUNNEL_MESSAGE_OUT_STATUSES = ["sent", "bounced"] as const;
+
+/**
+ * ‎**מפתח האידמפוטנטיות של הודעת מסלול — השורה, וגם הכתובת.**
+ *
+ * ‏ניסיון חוזר לאותה כתובת הוא אותה שליחה, ושירות המייל לא ישלח
+ * ‏פעמיים. כתובת שתוקנה אחרי חזרה או דחייה היא שליחה **חדשה** — ובלי
+ * ‏הכתובת במפתח היא הייתה נבלעת כ„כבר יצא”. `destinationTag` הוא גיבוב
+ * ‏קצר שהשרת מחשב, כדי שהכתובת עצמה לא תיסע במפתח.
+ */
+export function funnelIdempotencyKey(messageId: string, destinationTag: string): string {
+  return `funnel:${messageId}:${destinationTag}`;
+}
+
+/**
+ * ‏הודעת המסלול **והניסיון** מתוך מפתח האידמפוטנטיות שנוסע עם המייל.
+ * ‎`destinationTag` מבדיל בין ניסיון לכתובת הישנה לבין שליחה לכתובת
+ * ‏שתוקנה — אירוע מאוחר של הישנה אינו נוגע בחדשה. ‎`null` = אינה של המסלול.
+ */
+export function parseFunnelIdempotencyKey(
+  key: string,
+): { messageId: string; destinationTag: string | null } | null {
+  const match = /^funnel:([0-9A-Z]{26})(?::([0-9a-f]{1,32}))?$/u.exec(key);
+  if (match?.[1] === undefined) return null;
+  return { messageId: match[1], destinationTag: match[2] ?? null };
 }

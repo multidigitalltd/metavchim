@@ -39,11 +39,9 @@ describe("תזכורות ההפעלה", () => {
    * ההודעה או אחרי השליחה אינה הסרה — היא רק תיעוד של מה שכבר יצא.
    */
   it("מי שהסיר את עצמו אינו ברשימת הנמענים", () => {
-    const owners = SERVICE.slice(SERVICE.indexOf("private async owners("));
+    const owners = SERVICE.slice(SERVICE.indexOf("async recipients("));
     expect(owners, "ההסרה אינה נשלפת").toContain("optedOutAt");
-    expect(owners, "אין דילוג על מי שהסיר").toMatch(
-      /optedOutAt !== null && optedOutAt !== undefined\) continue/u,
-    );
+    expect(owners, "אין דילוג על מי שהסיר").toMatch(/if \(isOptedOut\(row\.nudgeOptOut\)\) continue/u);
   });
 
   /*
@@ -51,7 +49,7 @@ describe("תזכורות ההפעלה", () => {
    * בתיבה חייב להמשיך לעבוד. טוקן שנוצר מחדש בכל שליחה שובר אותו.
    */
   it("הטוקן נשמר ואינו מוגרל מחדש בכל שליחה", () => {
-    const owners = SERVICE.slice(SERVICE.indexOf("private async owners("));
+    const owners = SERVICE.slice(SERVICE.indexOf("async recipients("));
     expect(owners, "הטוקן הקיים אינו מועדף").toMatch(/row\.nudgeOptOut\?\.token \?\?/u);
   });
 

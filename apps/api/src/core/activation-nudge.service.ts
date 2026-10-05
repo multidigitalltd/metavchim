@@ -15,7 +15,7 @@ import { loadEnv } from "../config/env";
 import { EmailService } from "./email.service";
 import { PlanCatalogService } from "./plan-catalog.service";
 import { PlatformSettingsService } from "./platform-settings.service";
-import { PrismaService } from "./prisma.service";
+import { PrismaService, type TenantTx } from "./prisma.service";
 import { Sweep } from "./sweeps";
 
 /** פעם בשעה — החלון נמדד בימים, כמו בהזמנה לשיחת ההיכרות. */
@@ -266,7 +266,7 @@ export class ActivationNudgeService {
     const claimed = await this.claim(tenant.id, stage, now);
     if (!claimed) return false;
 
-    const owners = await this.owners(tenant.id);
+    const owners = await this.recipients(tenant.id);
     if (owners.length === 0) {
       // אין למי לשלוח כרגע — משחררים כדי שבעלים שיופעל בתוך החלון עוד יקבל
       await this.release(tenant.id, stage);
@@ -371,8 +371,12 @@ export class ActivationNudgeService {
    *
    * ‎**מי שהסיר את עצמו אינו ברשימה.** זו כל המשמעות של „הסרה”, והיא
    * נבדקת כאן ולא בתצוגה: בדיקה שיושבת אחרי השליחה אינה הסרה.
+   *
+   * ‏ציבורי כי גם מסלול ההמרה שולח לאותם נמענים ובאותה הסרה: שניהם
+   * ‏„הודעות על הפעלת החשבון”, ומי שביקש להפסיק אחת מהן לא ביקש לקבל
+   * ‏את השנייה.
    */
-  private async owners(
+  async recipients(
     tenantId: string,
   ): Promise<{ id: string; name: string; email: string; token: string }[]> {
     return this.prisma.withExplicitTenant(tenantId, async (tx) => {
@@ -388,36 +392,63 @@ export class ActivationNudgeService {
       });
       const out: { id: string; name: string; email: string; token: string }[] = [];
       for (const row of rows) {
-        /*
-         * ‎`undefined` = אין שורת הסרה כלל (טרם נשלחה תזכורת);
-         * ‎`null` = יש שורה והוא עדיין מקבל. שניהם „ממשיך לקבל”,
-         * ורק חותמת אמיתית מוציאה אותו מהרשימה.
-         */
-        const optedOutAt = row.nudgeOptOut?.optedOutAt;
-        if (optedOutAt !== null && optedOutAt !== undefined) continue;
+        if (isOptedOut(row.nudgeOptOut)) continue;
         /*
          * הטוקן נוצר בשליחה הראשונה ונשמר לתמיד: קישור הסרה ממייל
          * בן חודש חייב להמשיך לעבוד, ולכן הוא אינו מתחלף בין
          * הודעות ואינו פוקע.
          */
-        const token =
-          row.nudgeOptOut?.token ??
-          (
-            await tx.activationNudgeOptOut.create({
-              data: {
-                id: ulid(),
-                tenantId,
-                userId: row.id,
-                token: randomBytes(32).toString("base64url"),
-              },
-              select: { token: true },
-            })
-          ).token;
+        const token = row.nudgeOptOut?.token ?? (await ensureToken(tx, tenantId, row.id));
         out.push({ id: row.id, name: row.name, email: row.email, token });
       }
       return out;
     });
   }
+
+  /**
+   * ‎**כל הבעלים הפעילים ביקשו להפסיק — ויש לפחות אחד.** משרד בלי בעלים
+   * ‏פעיל לא „ביקש” דבר. קריאה בלבד: בלי ליצור טוקנים, כי היא רצה על כל
+   * ‏רישום פתוח בכל סבב של מסלול ההמרה.
+   */
+  async allOptedOut(tenantId: string): Promise<boolean> {
+    const rows = await this.prisma.withExplicitTenant(tenantId, (tx) =>
+      tx.user.findMany({
+        where: { tenantId, role: "owner", isActive: true },
+        select: { nudgeOptOut: { select: { optedOutAt: true } } },
+      }),
+    );
+    return rows.length > 0 && rows.every((row) => isOptedOut(row.nudgeOptOut));
+  }
+}
+
+/**
+ * ‎**ביקש להפסיק — רק חותמת אמיתית.** `undefined` = אין שורת הסרה כלל
+ * ‏(טרם נשלחה תזכורת); `null` = יש שורה והוא עדיין מקבל. שניהם „ממשיך
+ * ‏לקבל”. כלל אחד לנמענים ול-`allOptedOut`.
+ */
+function isOptedOut(row: { optedOutAt: Date | null } | null | undefined): boolean {
+  return (row?.optedOutAt ?? null) !== null;
+}
+
+/**
+ * ‎**טוקן ההסרה — נוצר פעם אחת, גם כששני סבבים מבקשים אותו יחד.**
+ *
+ * ‏תזכורות ההפעלה ומסלול ההמרה רצים בסבבים נפרדים ועלולים להגיע לאותו
+ * ‏בעלים באותו רגע. „קרא ואז צור” היה נופל אצל אחד מהם על האילוץ
+ * ‏הייחודי, ואצל התזכורות זה קורה אחרי שהשלב כבר נתפס — כלומר תזכורת
+ * ‏שלא הייתה יוצאת לעולם (ביקורת Codex). `ON CONFLICT DO NOTHING`
+ * ‏ואז קריאה מחזירים את הטוקן של מי שניצח.
+ */
+async function ensureToken(tx: TenantTx, tenantId: string, userId: string): Promise<string> {
+  await tx.activationNudgeOptOut.createMany({
+    data: { id: ulid(), tenantId, userId, token: randomBytes(32).toString("base64url") },
+    skipDuplicates: true,
+  });
+  const row = await tx.activationNudgeOptOut.findUniqueOrThrow({
+    where: { userId },
+    select: { token: true },
+  });
+  return row.token;
 }
 
 /**

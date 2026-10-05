@@ -113,6 +113,11 @@ export interface EmailContent {
    * מהגוף כדי שיהיה ברור מה נכתב עכשיו ומה מצוטט.
    */
   quote?: EmailQuote;
+  /**
+   * ‏כתובת פיקסל מעקב פתיחה — תמונה שקופה בגודל נקודה בסוף ההודעה.
+   * ‏**הערכה בלבד**: Apple ו-Gmail טוענים אותה גם בלי שאיש פתח.
+   */
+  pixel?: string;
 }
 
 /** גוש מצוטט: כותרת, שורות הקשר, והטקסט עצמו. */
@@ -323,6 +328,13 @@ export function renderEmailHtml(content: EmailContent, productName = PRODUCT_NAM
     parts.push(
       `<p style="margin:22px 0 0;padding-top:14px;border-top:1px solid ${BRAND.border};` +
         `font-size:14px;line-height:1.6;color:${BRAND.muted};">${escapeHtml(content.footnote)}</p>`,
+    );
+  }
+
+  if (content.pixel) {
+    parts.push(
+      `<img src="${escapeHtml(content.pixel)}" width="1" height="1" alt="" ` +
+        `style="display:block;width:1px;height:1px;border:0;">`,
     );
   }
 

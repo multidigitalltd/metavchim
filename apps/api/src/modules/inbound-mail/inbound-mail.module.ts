@@ -1,5 +1,6 @@
 import { Module } from "@nestjs/common";
 import { EmailInboxModule } from "../email-inbox/email-inbox.module";
+import { FunnelSendModule } from "../funnel-send/funnel-send.module";
 import { SupportModule } from "../support/support.module";
 import { InboundMailController } from "./inbound-mail.controller";
 import { InboundMailService } from "./inbound-mail.service";
@@ -14,7 +15,7 @@ import { InboundMailService } from "./inbound-mail.service";
  * במקום להסיר אותו.
  */
 @Module({
-  imports: [SupportModule, EmailInboxModule],
+  imports: [SupportModule, EmailInboxModule, FunnelSendModule],
   controllers: [InboundMailController],
   providers: [InboundMailService],
 })

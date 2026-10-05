@@ -2,8 +2,10 @@ import { describe, expect, it, vi } from "vitest";
 import { BadRequestException, NotFoundException } from "@nestjs/common";
 import { TenantContext } from "../../common/tenant-context";
 import type { EmailService } from "../../core/email.service";
+import type { PlatformSettingsService } from "../../core/platform-settings.service";
 import type { PrismaService } from "../../core/prisma.service";
 import type { FunnelStageCopy, FunnelStageService } from "../funnel/funnel-stage.service";
+import type { FunnelReportService } from "../funnel-send/funnel-report.service";
 import { FunnelCopyController } from "./funnel-copy.controller";
 
 /**
@@ -26,6 +28,7 @@ for (const [key, value] of Object.entries({
 const STAGE: FunnelStageCopy = {
   id: "01STAGEAAAAAAAAAAAAAAAAAAA",
   track: "conversion",
+  clock: "funnel",
   key: "first_property",
   title: "נכס ראשון",
   enabled: false,
@@ -36,6 +39,7 @@ const STAGE: FunnelStageCopy = {
   ctaPath: "/properties/new",
   whatsappTemplate: "",
   unknownPlaceholders: [],
+  enableBlock: null,
 };
 
 function setup(stage: FunnelStageCopy | null = STAGE) {
@@ -47,6 +51,8 @@ function setup(stage: FunnelStageCopy | null = STAGE) {
     { copy: vi.fn(() => Promise.resolve(stage)) } as unknown as FunnelStageService,
     { user: { findUnique } } as unknown as PrismaService,
     { send, isConfigured: vi.fn(() => Promise.resolve(true)) } as unknown as EmailService,
+    {} as PlatformSettingsService,
+    {} as FunnelReportService,
   );
   const run = <T>(fn: () => Promise<T>): Promise<T> =>
     TenantContext.run(

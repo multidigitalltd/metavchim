@@ -18,8 +18,10 @@ import { TenantContext } from "../../common/tenant-context";
 import { ZodValidationPipe, IdParam } from "../../common/zod-validation.pipe";
 import { loadEnv } from "../../config/env";
 import { EmailService } from "../../core/email.service";
+import { PlatformSettingsService } from "../../core/platform-settings.service";
 import { PrismaService } from "../../core/prisma.service";
 import { FunnelStageService, type FunnelStageCopy } from "../funnel/funnel-stage.service";
+import { FunnelReportService, type FunnelStats } from "../funnel-send/funnel-report.service";
 
 /**
  * ‎**עריכת נוסחי מסלול ההמרה — לבעל הפלטפורמה בלבד.**
@@ -57,6 +59,8 @@ const CopySchema = z
   })
   .strict();
 
+const ToggleSchema = z.object({ enabled: z.boolean() }).strict();
+
 @Controller("platform")
 @UseGuards(PlatformAdminGuard)
 @PlatformAdmin()
@@ -65,11 +69,53 @@ export class FunnelCopyController {
     private readonly stages: FunnelStageService,
     private readonly prisma: PrismaService,
     private readonly email: EmailService,
+    private readonly settings: PlatformSettingsService,
+    private readonly report: FunnelReportService,
   ) {}
 
   @Get("funnel-copy")
   async list(): Promise<FunnelStageCopy[]> {
     return this.stages.copyCatalog();
+  }
+
+  /** ‏המדדים לכל שלב, ומה קרה למשרדים שבמסלול. */
+  @Get("funnel-stats")
+  async stats(): Promise<FunnelStats> {
+    return this.report.stats();
+  }
+
+  /**
+   * ‎**המפסק הראשי — כבוי, אלא אם הודלק כאן במפורש.**
+   *
+   * ‏כבוי: הסבב השעתי אינו מכניס משרדים ואינו שולח דבר, גם כשיש שלבים
+   * ‏דלוקים. כך אפשר להכין ולהדליק שלבים בשקט, ולפתוח את המסלול
+   * ‏ברגע אחד.
+   */
+  @Get("funnel-sending")
+  async sending(): Promise<{ enabled: boolean }> {
+    return { enabled: (await this.settings.get("funnelSending")) === "true" };
+  }
+
+  @Patch("funnel-sending")
+  async setSending(
+    @Body(new ZodValidationPipe(ToggleSchema)) body: z.infer<typeof ToggleSchema>,
+  ): Promise<{ enabled: boolean }> {
+    if (body.enabled) {
+      await this.settings.set("funnelSending", "true", TenantContext.current().userId);
+    } else {
+      await this.settings.remove("funnelSending");
+    }
+    return { enabled: body.enabled };
+  }
+
+  /** ‏הדלקה וכיבוי של שלב — נבדקים מול `funnelStageEnableBlock` בשרת. */
+  @Patch("funnel-copy/:id/enabled")
+  async setEnabled(
+    @Param("id", IdParam) id: string,
+    @Body(new ZodValidationPipe(ToggleSchema)) body: z.infer<typeof ToggleSchema>,
+  ): Promise<{ ok: true }> {
+    await this.stages.setEnabled(id, body.enabled);
+    return { ok: true };
   }
 
   @Patch("funnel-copy/:id")
