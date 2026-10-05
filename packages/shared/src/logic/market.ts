@@ -575,6 +575,8 @@ const signed = (pct: number): string => (pct > 0 ? `+${pct}%` : `${pct}%`);
 export interface MarketCityPrices {
   settlement: string;
   rooms: MarketRoomBucket;
+  /** השנה שהמחירים שלה — לכל יישוב בנפרד: יישוב שאין לו נתונים לשנה שעברה נופל לזו שלפניה. */
+  year: number;
   /** עסקאות בשנה האחרונה בסגמנט. */
   deals: number;
   p25: number;
@@ -587,6 +589,8 @@ export type BudgetFitKind = "comfortable" | "tight" | "below";
 export interface BudgetFit {
   settlement: string;
   rooms: MarketRoomBucket;
+  /** השנה של המחיר — ראו `MarketCityPrices.year`. */
+  year: number;
   kind: BudgetFitKind;
   median: number;
   deals: number;
@@ -606,6 +610,7 @@ export function budgetFit(budgetIls: number | null | undefined, prices: readonly
     .map((p) => ({
       settlement: p.settlement,
       rooms: p.rooms,
+      year: p.year,
       kind: budgetIls >= p.median ? "comfortable" : budgetIls >= p.p25 ? "tight" : "below",
       median: p.median,
       deals: p.deals,

@@ -29,6 +29,8 @@ import { MarketService } from "./market.service";
 const TENANT = "01MARKETBRIDGEAAAAAAAAAAAA";
 const CITY = "יישוב גשר השוק";
 const GUSH = 990_200;
+/** קוד למ"ס פיקטיבי — שלא יתנגש ביישוב אמיתי. */
+const SETTLEMENT_CODE = 99_002;
 const KEY = "marketbridgetestkey000000000001";
 
 let owner: PrismaClient;
@@ -98,8 +100,8 @@ beforeAll(async () => {
     SELECT COALESCE(max(id), 0) + 1 AS next FROM market_settlements`;
   settlementId = Number(row?.next ?? 1);
   await owner.$executeRaw`
-    INSERT INTO market_settlements (id, name, source_deals, status, synced_through)
-    VALUES (${settlementId}, ${CITY}, 6, 'ok', now())`;
+    INSERT INTO market_settlements (id, name, code, source_deals, status, synced_through)
+    VALUES (${settlementId}, ${CITY}, ${SETTLEMENT_CODE}, 6, 'ok', now())`;
   await seedDeals();
   await owner.$executeRaw`
     INSERT INTO lead_webhooks (id, tenant_id, key, source_label, created_at)
@@ -133,6 +135,18 @@ describe("צילום המחיר", () => {
     // סבב שני אינו מצלם שוב נכס שלא השתנה
     expect(await properties.refreshSnapshots({ onlyStale: true })).toBe(0);
   });
+
+  it("נכס שנמכר מאבד את התגית בסבב הבא", async () => {
+    const id = await insertProperty({ gush: GUSH, helka: 5, source: "agent" });
+    await properties.refreshSnapshots({ onlyStale: true });
+    // עריכה אחרי הצילום — כמו מעבר ל„נמכר” מהכרטיס
+    await owner.$executeRaw`UPDATE properties SET status = 'sold', updated_at = now() WHERE id = ${id}`;
+    await properties.refreshSnapshots({ onlyStale: true });
+
+    const [row] = await owner.$queryRaw<{ market_position: string | null; market_sample: number | null }[]>`
+      SELECT market_position, market_sample FROM properties WHERE id = ${id}`;
+    expect(row).toEqual({ market_position: null, market_sample: null });
+  });
 });
 
 describe("כרטיס הנכס", () => {
@@ -164,7 +178,7 @@ describe("קישור לחלקה מהמיקום", () => {
     const source = {
       name: "fake",
       parcelAt: (lat: number, lon: number) =>
-        Promise.resolve({ gush: GUSH, helka: 7, settlementCode: null, statArea: 555, socioEshkol: 8, lat, lon, street: null }),
+        Promise.resolve({ gush: GUSH, helka: 7, settlementCode: SETTLEMENT_CODE, statArea: 555, socioEshkol: 8, lat, lon, street: null }),
     } as unknown as MarketSource;
     const ingest = new MarketIngest(app, source, { intervalMs: 0, deadline: new Date(Date.now() + 60_000) });
     expect(await properties.linkParcels(ingest, 10)).toBeGreaterThanOrEqual(1);
@@ -175,6 +189,8 @@ describe("קישור לחלקה מהמיקום", () => {
     expect(row?.updated_at.toISOString()).toBe("2026-01-01T00:00:00.000Z");
     const parcel = await owner.marketParcel.findUnique({ where: { gush_helka: { gush: GUSH, helka: 7 } } });
     expect(parcel?.statArea).toBe(555);
+    // היישוב מקוד הלמ"ס — אחרת חיפוש הרחוב בטופס הציבורי לא רואה את החלקה
+    expect(parcel?.settlementId).toBe(settlementId);
   });
 });
 

@@ -35,6 +35,7 @@ interface PropertyRow {
   city: string | null;
   propertyType: string | null;
   dealType: string | null;
+  status: string;
   rooms: { toNumber(): number } | null;
   areaSqm: number | null;
   priceAgorot: bigint | null;
@@ -49,6 +50,7 @@ const PROPERTY_SELECT = {
   city: true,
   propertyType: true,
   dealType: true,
+  status: true,
   rooms: true,
   areaSqm: true,
   priceAgorot: true,
@@ -196,7 +198,13 @@ export class MarketPropertyService {
       tx.property.findFirst({ where: { id: propertyId, tenantId, deletedAt: null }, select: PROPERTY_SELECT }),
     );
     if (!property) return;
-    const settlement = property.dealType === "rent" ? null : await this.market.resolveSettlement(property.city);
+    /*
+     * ‎**נכס שאינו מבקש מחיר — הצילום מתאפס.** הסבב בוחר גם נכס שנערך
+     * אחרי הצילום, וזה כולל נכס שעבר ל„נמכר”; בלי הבדיקה כאן התגית
+     * „מתחת לשוק” הייתה נשארת על נכס שכבר אין לו מחיר מבוקש.
+     */
+    const priced = PRICED_STATUSES.includes(property.status) && property.dealType !== "rent";
+    const settlement = priced ? await this.market.resolveSettlement(property.city) : null;
     const evaluated = settlement ? await this.evaluate(property, settlement, now) : null;
     const kind = evaluated?.position?.kind ?? null;
     // ‎`SMALLINT` — מחיר מבוקש שהוקלד עם אפסים מיותרים (פי 1,000 מההערכה)
@@ -310,11 +318,26 @@ export class MarketPropertyService {
           ingest.dataSource.parcelAt(property.latitude!, property.longitude!),
         );
         if (parcel) {
+          /*
+           * ‏היישוב של החלקה מקוד הלמ"ס שהאיתור מחזיר. בלעדיו חלקה שנולדה
+           * כאן נשארת בלי יישוב לתמיד (ההעשרה אינה חוזרת לחלקה קיימת),
+           * וחיפוש הרחוב בטופס הציבורי, שמסנן לפי יישוב, אינו רואה אותה.
+           */
+          const settlementId =
+            parcel.settlementCode === null
+              ? null
+              : ((
+                  await this.prisma.marketSettlement.findFirst({
+                    where: { code: parcel.settlementCode },
+                    select: { id: true },
+                  })
+                )?.id ?? null);
           await this.prisma.marketParcel.upsert({
             where: { gush_helka: { gush: parcel.gush, helka: parcel.helka } },
             create: {
               gush: parcel.gush,
               helka: parcel.helka,
+              settlementId,
               statArea: parcel.statArea,
               socioEshkol: parcel.socioEshkol,
               lat: parcel.lat,
@@ -325,6 +348,7 @@ export class MarketPropertyService {
             update: {
               statArea: parcel.statArea,
               socioEshkol: parcel.socioEshkol,
+              ...(settlementId === null ? {} : { settlementId }),
               ...(parcel.street === null ? {} : { street: parcel.street }),
             },
           });

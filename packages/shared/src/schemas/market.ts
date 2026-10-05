@@ -284,6 +284,8 @@ export interface MarketMapDto {
 export interface BuyerMarketFitDto {
   settlement: string;
   rooms: MarketRoomBucket;
+  /** השנה של המחיר בעיר הזו — עיר בלי נתונים לשנה שעברה נופלת לזו שלפניה. */
+  year: number;
   kind: BudgetFitKind;
   median: number;
   deals: number;
@@ -292,6 +294,7 @@ export interface BuyerMarketFitDto {
 export interface BuyerMarketDto {
   budgetIls: number | null;
   rooms: MarketRoomBucket;
+  /** השנה החדשה ביותר מבין הערים; עיר שהמחיר שלה משנה אחרת נושאת אותה ב-`fits[].year`. */
   year: number | null;
   fits: BuyerMarketFitDto[];
   /** ערים שהקונה מחפש בהן ואין להן נתונים במאגר (עדיין). */

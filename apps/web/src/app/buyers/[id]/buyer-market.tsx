@@ -64,6 +64,7 @@ export function BuyerMarket({ buyerId }: { buyerId: string }) {
                 <span className={`mv-pill ${FIT_TEXT[fit.kind].domain}`}>{FIT_TEXT[fit.kind].label}</span>
                 <span style={{ color: "var(--color-text-muted)", fontSize: "var(--type-caption-lg)" }}>
                   חציון {ils(fit.median)} · {fit.deals} עסקאות
+                  {fit.year !== data.year ? ` · ב-${fit.year}` : ""}
                 </span>
               </li>
             ))}

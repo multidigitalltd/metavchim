@@ -278,9 +278,9 @@ describe("מחיר מבוקש מול השוק", () => {
 
 describe("תקציב מול השוק", () => {
   const prices = [
-    { settlement: "חיפה", rooms: 4 as const, deals: 400, p25: 1_000_000, median: 1_300_000, p75: 1_600_000 },
-    { settlement: "תל אביב -יפו", rooms: 4 as const, deals: 900, p25: 3_000_000, median: 3_800_000, p75: 4_600_000 },
-    { settlement: "כפר קטן", rooms: 4 as const, deals: 2, p25: 1, median: 1, p75: 1 },
+    { settlement: "חיפה", rooms: 4 as const, year: 2025, deals: 400, p25: 1_000_000, median: 1_300_000, p75: 1_600_000 },
+    { settlement: "תל אביב -יפו", rooms: 4 as const, year: 2024, deals: 900, p25: 3_000_000, median: 3_800_000, p75: 4_600_000 },
+    { settlement: "כפר קטן", rooms: 4 as const, year: 2025, deals: 2, p25: 1, median: 1, p75: 1 },
   ];
 
   it("לכל עיר בנפרד, ובלי ערים דלות", () => {
@@ -288,6 +288,13 @@ describe("תקציב מול השוק", () => {
     expect(fit.map((f) => [f.settlement, f.kind])).toEqual([
       ["חיפה", "comfortable"],
       ["תל אביב -יפו", "below"],
+    ]);
+  });
+
+  it("כל עיר נושאת את השנה של המחיר שלה", () => {
+    expect(budgetFit(1_400_000, prices).map((f) => [f.settlement, f.year])).toEqual([
+      ["חיפה", 2025],
+      ["תל אביב -יפו", 2024],
     ]);
   });
 

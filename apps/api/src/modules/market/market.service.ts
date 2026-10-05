@@ -533,6 +533,7 @@ export class MarketService {
       prices.push({
         settlement: row.name,
         rooms,
+        year: row.year,
         deals: row.deals,
         p25: Number(row.p25_price ?? row.median_price),
         median: Number(row.median_price),
