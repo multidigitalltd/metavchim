@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   MARKET_NATURE_GROUPS,
   MARKET_NATURE_GROUP_LABELS,
@@ -100,19 +100,46 @@ function Tile({ label, value, hint }: { label: string; value: string; hint?: str
    סקירה
    ============================================================ */
 
+/** השנה שנבחרה בסקירה — מהכתובת, כדי שקישור ששולחים לעמית יפתח אותה. */
+function readYear(): number | null {
+  if (typeof window === "undefined") return null;
+  const n = Number(new URLSearchParams(window.location.search).get("year"));
+  // ‏אותם גבולות של הסכמה בשרת — שנה מחוץ להם הייתה נדחית ב-400
+  return Number.isInteger(n) && n >= 1990 && n <= 2100 ? n : null;
+}
+
 function OverviewTab({ scope, onPickSettlement }: { scope: Scope; onPickSettlement: (id: number) => void }) {
   const [data, setData] = useState<MarketOverviewDto | null>(null);
   const [failed, setFailed] = useState(false);
+  // ‏`null` = השנה המלאה האחרונה שיש לה נתונים, ולכל יישוב היא עשויה להיות אחרת
+  const [year, setYear] = useState<number | null>(readYear);
+
+  const pickYear = (next: number | null) => {
+    setYear(next);
+    const params = new URLSearchParams(window.location.search);
+    if (next === null) params.delete("year");
+    else params.set("year", String(next));
+    window.history.replaceState({}, "", `?${params.toString()}`);
+  };
+
+  // ‏רק התשובה לבקשה האחרונה נכנסת — החלפת שנה מהירה לא תציג תשובה ישנה
+  const latest = useRef(0);
 
   const load = useCallback(() => {
+    const request = ++latest.current;
     setFailed(false);
     setData(null);
     const query = new URLSearchParams({ group: scope.group, rooms: String(scope.rooms) });
     if (scope.settlementId !== null) query.set("settlementId", String(scope.settlementId));
+    if (year !== null) query.set("year", String(year));
     apiGet<MarketOverviewDto>(`/market/overview?${query.toString()}`)
-      .then(setData)
-      .catch(() => setFailed(true));
-  }, [scope]);
+      .then((next) => {
+        if (request === latest.current) setData(next);
+      })
+      .catch(() => {
+        if (request === latest.current) setFailed(true);
+      });
+  }, [scope, year]);
 
   useEffect(load, [load]);
 
@@ -137,9 +164,29 @@ function OverviewTab({ scope, onPickSettlement }: { scope: Scope; onPickSettleme
         <p className="m-0">אין עדיין מספיק עסקאות {where === "כל הארץ" ? "" : `ב${where}`} בסגמנט הזה.</p>
       ) : (
         <section aria-labelledby="market-headline">
-          <h2 id="market-headline" className="mb-3 text-lg font-semibold">
-            {where} · {kind} · {h.year}
-          </h2>
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+            <h2 id="market-headline" className="m-0 text-lg font-semibold">
+              {where} · {kind} · {h.year}
+            </h2>
+            {data.years.length > 1 ? (
+              <label className="flex items-center gap-2" htmlFor="market-year">
+                <span className="font-medium">שנה</span>
+                <select
+                  id="market-year"
+                  className="mv-input"
+                  value={year !== null && data.years.includes(year) ? String(year) : ""}
+                  onChange={(e) => pickYear(e.target.value === "" ? null : Number(e.target.value))}
+                >
+                  <option value="">האחרונה ({data.years[0]})</option>
+                  {data.years.map((y) => (
+                    <option key={y} value={y}>
+                      {y}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
+          </div>
           <dl className="mv-stat-grid m-0">
             <Tile label="עסקאות" value={h.deals === null ? "—" : formatIsraeliNumber(h.deals)} hint={`${pct(h.dealsChangePct)} מול ${h.year - 1}`} />
             <Tile label="מחיר חציוני" value={ils(h.medianPrice)} />

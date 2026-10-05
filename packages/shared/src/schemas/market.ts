@@ -50,6 +50,8 @@ export const MarketScopeQuerySchema = z
     settlementId: z.coerce.number().int().min(1).optional(),
     group: MarketNatureGroupSchema.default("apartment"),
     rooms: MarketRoomBucketSchema.default(0),
+    /** השנה שבראש הסקירה; בלי — השנה המלאה האחרונה שיש לה נתונים. */
+    year: z.coerce.number().int().min(1990).max(2100).optional(),
   })
   .strict();
 export type MarketScopeQuery = z.infer<typeof MarketScopeQuerySchema>;
@@ -221,6 +223,8 @@ export interface MarketOverviewDto {
     ppsqmChangePct: number | null;
     newBuildSharePct: number | null;
   };
+  /** השנים המלאות שיש להן נתונים בסגמנט — לבחירת שנה במסך, מהחדשה לישנה. */
+  years: number[];
   yearly: MarketYearRowDto[];
   quarterly: MarketQuarterRowDto[];
   rooms: MarketBreakdownRowDto[];

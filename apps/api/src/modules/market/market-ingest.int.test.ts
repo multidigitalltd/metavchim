@@ -2,7 +2,9 @@ import { PrismaClient } from "@prisma/client";
 import { prismaAdapter } from "../../core/prisma-adapter";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { MARKET_FLAGS } from "@metavchim/shared";
+import type { PrismaService } from "../../core/prisma.service";
 import { MarketIngest, type IngestClock } from "./market-ingest";
+import { MarketService } from "./market.service";
 import type { MarketSource, SourceDeal, SourceDealPage, SourceParcel } from "./market-source";
 
 /**
@@ -272,6 +274,37 @@ describe("סטטיסטיקה", () => {
     const rows = await db.marketSegmentStat.findMany({ where: { settlementId: id, roomBucket: 0, quarter: 0 } });
     expect(rows).toHaveLength(1);
     expect(rows[0]!.deals).toBe(6);
+  });
+});
+
+describe("סקירה — בחירת שנה", () => {
+  it("ברירת המחדל היא השנה המלאה האחרונה; שנה שנבחרה מוצגת; שנה בלי נתונים נופלת לאחרונה", async () => {
+    const deals = [
+      ...Array.from({ length: 6 }, (_, i) => deal(i, { date: `2023-0${(i % 6) + 1}-10` })),
+      ...Array.from({ length: 9 }, (_, i) => deal(100 + i)),
+    ];
+    const source = new FakeSource(deals, 10);
+    await ingestWith(source).refreshCatalog();
+    const id = (await settlementA()).id;
+    const ingest = ingestWith(source);
+    await ingest.syncSettlement(id);
+    await ingest.rebuildStats(id);
+
+    const market = new MarketService(db as unknown as PrismaService);
+    const now = new Date(Date.UTC(2026, 9, 5));
+    const scope = { settlementId: id, group: "apartment" as const, rooms: 0 as const };
+
+    const latest = await market.overview(scope, now);
+    expect(latest.headline.year).toBe(2024);
+    expect(latest.headline.deals).toBe(9);
+    expect(latest.years).toEqual([2024, 2023]);
+
+    const picked = await market.overview({ ...scope, year: 2023 }, now);
+    expect(picked.headline.year).toBe(2023);
+    expect(picked.headline.deals).toBe(6);
+
+    const missing = await market.overview({ ...scope, year: 2010 }, now);
+    expect(missing.headline.year).toBe(2024);
   });
 });
 
