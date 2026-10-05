@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   MARKET_NATURE_GROUPS,
   MARKET_NATURE_GROUP_LABELS,
@@ -104,7 +104,8 @@ function Tile({ label, value, hint }: { label: string; value: string; hint?: str
 function readYear(): number | null {
   if (typeof window === "undefined") return null;
   const n = Number(new URLSearchParams(window.location.search).get("year"));
-  return Number.isInteger(n) && n >= 1990 ? n : null;
+  // ‏אותם גבולות של הסכמה בשרת — שנה מחוץ להם הייתה נדחית ב-400
+  return Number.isInteger(n) && n >= 1990 && n <= 2100 ? n : null;
 }
 
 function OverviewTab({ scope, onPickSettlement }: { scope: Scope; onPickSettlement: (id: number) => void }) {
@@ -121,15 +122,23 @@ function OverviewTab({ scope, onPickSettlement }: { scope: Scope; onPickSettleme
     window.history.replaceState({}, "", `?${params.toString()}`);
   };
 
+  // ‏רק התשובה לבקשה האחרונה נכנסת — החלפת שנה מהירה לא תציג תשובה ישנה
+  const latest = useRef(0);
+
   const load = useCallback(() => {
+    const request = ++latest.current;
     setFailed(false);
     setData(null);
     const query = new URLSearchParams({ group: scope.group, rooms: String(scope.rooms) });
     if (scope.settlementId !== null) query.set("settlementId", String(scope.settlementId));
     if (year !== null) query.set("year", String(year));
     apiGet<MarketOverviewDto>(`/market/overview?${query.toString()}`)
-      .then(setData)
-      .catch(() => setFailed(true));
+      .then((next) => {
+        if (request === latest.current) setData(next);
+      })
+      .catch(() => {
+        if (request === latest.current) setFailed(true);
+      });
   }, [scope, year]);
 
   useEffect(load, [load]);
