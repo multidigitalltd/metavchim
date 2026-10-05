@@ -674,6 +674,14 @@ export function funnelAnchorConcluded(clock: FunnelClock, anchors: FunnelAnchors
  * ‏הבדיקה יושבת כאן ולא בשאילתה כדי ששני המסלולים ייעצרו לפי אותו
  * כלל — ולא לפי שני `WHERE` שאפשר לתקן אחד מהם ולשכוח את השני.
  */
+/**
+ * ‎**היעד של מסלול ההמרה הושג** — כרטיס תקף או מנוי שהופעל. כלל אחד
+ * ‏לסגירת הרישום (`funnelExitReason`) ולשאלה אם עוד שולחים לו.
+ */
+export function hasFunnelConverted(facts: Pick<FunnelFacts, "hasValidCard" | "subscribed">): boolean {
+  return facts.hasValidCard || facts.subscribed;
+}
+
 export function funnelExitReason(input: {
   track: FunnelTrack;
   facts: FunnelFacts;
@@ -694,7 +702,7 @@ export function funnelExitReason(input: {
 }): FunnelExitReason | null {
   if (input.track === "dunning") {
     if (!input.facts.chargeFailing) return "resolved";
-  } else if (input.facts.hasValidCard || input.facts.subscribed) {
+  } else if (hasFunnelConverted(input.facts)) {
     /*
      * ‎**כרטיס תקף *או* מנוי שהופעל — ולא רק כרטיס.**
      *

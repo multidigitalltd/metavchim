@@ -7,6 +7,7 @@ import {
   funnelEmail,
   funnelFacts,
   funnelStageExpiresAt,
+  hasFunnelConverted,
   hasValidCard,
   isFunnelSendingTime,
   nextFunnelStage,
@@ -45,6 +46,15 @@ const MAX_TENANTS_PER_SWEEP = 100;
  * ‏שנפל בין התפיסה להכרעה — לא של שליחה שעוד רצה.
  */
 const STALE_CLAIM_MS = 30 * 60 * 1000;
+
+/**
+ * ‏מה עשה הסבב למשרד אחד: `attempted` — ניסה לשלוח (ייתכן שיצא),
+ * ‎`delivered` — לפחות הודעה אחת יצאה בוודאות.
+ */
+interface Reach {
+  attempted: boolean;
+  delivered: boolean;
+}
 
 /** ‏מה שהשליחה עצמה יודעת על התוצאה — לפני שה-Webhook אמר את דברו. */
 type Settlement = { status: "sent" | "failed"; sentAt?: Date; error: string | null };
@@ -119,19 +129,27 @@ export class FunnelSendService {
     return (await this.settings.get("funnelSending")) === "true";
   }
 
-  /** ‏סבב אחד. ציבורי — לבדיקה מול מסד אמיתי בלי לחכות שעה. */
-  async run(now: Date): Promise<{ enrolled: number; closed: number; sent: number }> {
+  /**
+   * ‏סבב אחד. ציבורי — לבדיקה מול מסד אמיתי בלי לחכות שעה; `maxTenants`
+   * ‏מקטין את התקרה לבדיקה, כמו `dailyQuota` של הכניסה.
+   */
+  async run(
+    now: Date,
+    options: { maxTenants?: number } = {},
+  ): Promise<{ enrolled: number; closed: number; sent: number }> {
     if (!(await this.isOn())) return { enrolled: 0, closed: 0, sent: 0 };
     // ‏לפני הסגירה: שלב עם תפיסה נטושה עוד ממתין לניסיון חוזר
     await this.releaseStaleClaims(now);
     const { enrolled, closed } = await this.enrollment.sweep(now);
-    const sent = isFunnelSendingTime(now) ? await this.dispatch(now) : 0;
+    const sent = isFunnelSendingTime(now)
+      ? await this.dispatch(now, options.maxTenants ?? MAX_TENANTS_PER_SWEEP)
+      : 0;
     if (sent > 0) this.logger.log(`מסלול ההמרה: ${sent} משרדים קיבלו הודעה`);
     return { enrolled, closed, sent };
   }
 
   /** ‏השלב הבא לכל רישום המרה פתוח. מחזיר כמה משרדים קיבלו הודעה. */
-  private async dispatch(now: Date): Promise<number> {
+  private async dispatch(now: Date, maxTenants: number): Promise<number> {
     const { stages } = await this.stages.catalog();
     const live = stages.filter((stage) => stage.track === "conversion" && stage.enabled);
     if (live.length === 0) return 0;
@@ -144,6 +162,16 @@ export class FunnelSendService {
     const unconditioned = live.map((stage) => ({ ...stage, audience: [] }));
 
     let sent = 0;
+    /*
+     * ‎**התקרה נספרת בניסיונות, לא במסירות** (ביקורת Codex, P1). שליחה
+     * ‏שנגמרה בפסק זמן אולי יצאה; בתקלה שבה כל השליחות כאלה אף משרד לא
+     * ‏היה „מקבל”, והסבב היה עובר על כל הרישומים בלי לעצור.
+     */
+    let touched = 0;
+    const tally = (reach: Reach): void => {
+      if (reach.attempted) touched += 1;
+      if (reach.delivered) sent += 1;
+    };
     let cursor: string | null = null;
     for (;;) {
       const after: string | null = cursor;
@@ -209,13 +237,23 @@ export class FunnelSendService {
       }
 
       for (const row of page) {
-        if (sent >= MAX_TENANTS_PER_SWEEP) {
-          this.logger.warn(`תקרת המשרדים בסבב הושגה (${MAX_TENANTS_PER_SWEEP}) — הבאים בסבב הבא`);
+        if (touched >= maxTenants) {
+          this.logger.warn(`תקרת המשרדים בסבב הושגה (${maxTenants}) — הבאים בסבב הבא`);
           return sent;
         }
         const tenant = tenantById.get(row.tenantId);
         // ‏משרד מושהה או סגור אינו מקבל דיוור שיווקי, גם כשהרישום עוד פתוח
         if (tenant === undefined || (tenant.status !== "trial" && tenant.status !== "active")) {
+          continue;
+        }
+        /*
+         * ‎**משרד שכבר הגיע ליעד אינו מקבל עוד הודעה** (ביקורת Codex).
+         * ‏תשלום שנכנס אחרי הסגירה של הסבב הזה היה מקבל עוד מייל שיווקי —
+         * ‏גם בניסיון החוזר, שקודם לחישוב העובדות. אותו כלל של הסגירה;
+         * ‏הסגירה עצמה בסבב הבא.
+         */
+        const hasCard = hasValidCard(cardById.get(row.tenantId) ?? null, now);
+        if (hasFunnelConverted({ hasValidCard: hasCard, subscribed: isTenantSubscribed(tenant) })) {
           continue;
         }
         const input = {
@@ -250,7 +288,7 @@ export class FunnelSendService {
               await this.enrollment.close(row.id, "opted_out", now, {
                 tenantId: row.tenantId,
                 tenant: snapshot,
-                hasCard: hasValidCard(cardById.get(row.tenantId) ?? null, now),
+                hasCard,
               });
             }
             continue;
@@ -277,16 +315,16 @@ export class FunnelSendService {
               now.getTime() <= (funnelStageExpiresAt(stage, input.anchors)?.getTime() ?? 0),
           );
           if (partial.length > 0) {
-            let delivered = false;
+            // ‏ניסיון חוזר הוא משרד שנגענו בו — נספר בתקרה כמו כל אחר
+            const reach: Reach = { attempted: false, delivered: false };
             for (const stage of partial) {
               const copy = copies.get(stage.key);
               if (copy === undefined) continue;
-              if (await this.sendStage(row, tenant.name, stage, copy, now, recipients)) {
-                delivered = true;
-              }
+              const one = await this.sendStage(row, tenant.name, stage, copy, now, recipients);
+              reach.attempted ||= one.attempted;
+              reach.delivered ||= one.delivered;
             }
-            // ‏ניסיון חוזר שהצליח הוא משרד שקיבל — נספר בתקרה כמו כל אחר
-            if (delivered) sent += 1;
+            tally(reach);
             continue;
           }
           if (nextFunnelStage({ ...input, stages: unconditioned, facts: ANY_FACTS }) === null) {
@@ -297,7 +335,7 @@ export class FunnelSendService {
             calls: await this.prisma.withExplicitTenant(row.tenantId, (tx) =>
               tx.call.count({ where: { tenantId: row.tenantId } }),
             ),
-            hasValidCard: hasValidCard(cardById.get(row.tenantId) ?? null, now),
+            hasValidCard: hasCard,
             subscribed: isTenantSubscribed(tenant),
             trialActive: isTrialActive(tenant, now),
             chargeFailing: false,
@@ -306,7 +344,7 @@ export class FunnelSendService {
           if (stage === null) continue;
           const copy = copies.get(stage.key);
           if (copy === undefined || !stage.channels.includes("email")) continue;
-          if (await this.sendStage(row, tenant.name, stage, copy, now, recipients)) sent += 1;
+          tally(await this.sendStage(row, tenant.name, stage, copy, now, recipients));
         } catch (error: unknown) {
           // ‏משרד אחד שנכשל אינו עוצר את השאר — זו סריקה, לא עסקה
           this.logger.warn(`מסלול ההמרה למשרד ${row.tenantId} נכשל: ${String(error)}`);
@@ -318,8 +356,8 @@ export class FunnelSendService {
   }
 
   /**
-   * ‏שליחת שלב אחד לבעלי המשרד. `true` = לפחות אחד קיבל, ואז נרשם
-   * ‏`lastSentAt` — המרווח המזערי עד ההודעה הבאה נמדד ממנו.
+   * ‏שליחת שלב אחד לבעלי המשרד. כשלפחות אחד קיבל נרשם `lastSentAt` —
+   * ‏המרווח המזערי עד ההודעה הבאה נמדד ממנו.
    */
   private async sendStage(
     enrollment: { id: string; tenantId: string },
@@ -328,13 +366,15 @@ export class FunnelSendService {
     copy: FunnelStageCopy,
     now: Date,
     recipients: Awaited<ReturnType<ActivationNudgeService["recipients"]>>,
-  ): Promise<boolean> {
+  ): Promise<Reach> {
     const origin = loadEnv().WEB_ORIGIN;
     const tracked = `${origin}/api/v1/public/funnel`;
+    let attempted = false;
     let delivered = 0;
     for (const owner of recipients) {
       const message = await this.claim(enrollment, stage.key, owner);
       if (message === null) continue;
+      attempted = true;
       const email = funnelEmail(
         copy,
         { שם_פרטי: firstNameOf(owner.name), שם_המשרד: tenantName },
@@ -359,11 +399,11 @@ export class FunnelSendService {
       }
       if (await this.settle(enrollment.tenantId, message.id, outcome)) delivered += 1;
     }
-    if (delivered === 0) return false;
+    if (delivered === 0) return { attempted, delivered: false };
     await this.prisma.withFunnelAdmin((tx) =>
       tx.funnelEnrollment.update({ where: { id: enrollment.id }, data: { lastSentAt: now } }),
     );
-    return true;
+    return { attempted, delivered: true };
   }
 
   /**

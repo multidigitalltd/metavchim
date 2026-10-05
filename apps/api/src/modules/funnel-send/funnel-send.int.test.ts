@@ -48,11 +48,21 @@ let prisma: PrismaService;
 let sendSwitch = "true";
 const send = vi.fn((..._args: unknown[]) => Promise.resolve());
 
-function service(): FunnelSendService {
+/** ‏`afterSweep` — מה שקורה בין הכניסה והסגירה לבין השליחה (תשלום, למשל). */
+function service(afterSweep?: () => Promise<void>): FunnelSendService {
   const stages = new FunnelStageService(prisma);
+  const enrollment = new FunnelEnrollmentService(prisma, stages);
+  if (afterSweep !== undefined) {
+    const sweep = enrollment.sweep.bind(enrollment);
+    enrollment.sweep = async (...args: Parameters<typeof sweep>) => {
+      const result = await sweep(...args);
+      await afterSweep();
+      return result;
+    };
+  }
   return new FunnelSendService(
     prisma,
-    new FunnelEnrollmentService(prisma, stages),
+    enrollment,
     stages,
     { send } as unknown as EmailService,
     { get: () => Promise.resolve(sendSwitch) } as unknown as PlatformSettingsService,
@@ -603,5 +613,61 @@ describe("הדלקת שלב ועריכת נוסח שרצות יחד", () => {
         data: { emailBody: stage.emailBody, enabled: false },
       });
     }
+  });
+});
+
+describe("מסלול ההמרה — תקרה, תשלום באמצע הסבב ולחיצה בתקלה", () => {
+  const OTHER = "01M1FNNLSENDTENANT00000002";
+  const OTHER_OWNER = "01M1FNNLSENDOWNER000000004";
+
+  it("שליחות שנגמרו בפסק זמן נספרות בתקרה — הסבב נעצר גם כשאף אחת לא „נמסרה”", async () => {
+    await direct.$executeRawUnsafe(
+      `INSERT INTO tenants (id, name, plan, status, trial_ends_at, created_at, updated_at)
+       VALUES ($1, 'תיווך הגליל', 'basic', 'trial', $2, $3, now())`,
+      OTHER,
+      new Date(MONDAY_10.getTime() + 14 * DAY),
+      new Date(MONDAY_10.getTime() - HOUR),
+    );
+    await direct.$executeRawUnsafe(
+      `INSERT INTO users (id, tenant_id, name, email, role, is_active, created_at, updated_at)
+       VALUES ($1, $2, 'רון אבי', 'ron.funnel@example.test', 'owner', true, now(), now())`,
+      OTHER_OWNER,
+      OTHER,
+    );
+    send.mockImplementation(() => Promise.reject(new Error("פסק זמן")));
+    try {
+      await service().run(MONDAY_10, { maxTenants: 1 });
+      expect(send).toHaveBeenCalledTimes(1);
+    } finally {
+      send.mockImplementation(() => Promise.resolve());
+      await direct.$executeRawUnsafe(`DELETE FROM funnel_messages WHERE tenant_id = $1`, OTHER);
+      await direct.$executeRawUnsafe(`DELETE FROM funnel_enrollments WHERE tenant_id = $1`, OTHER);
+      await direct.$executeRawUnsafe(`DELETE FROM activation_nudge_optouts WHERE tenant_id = $1`, OTHER);
+      await direct.$executeRawUnsafe(`DELETE FROM users WHERE id = $1`, OTHER_OWNER);
+      await direct.$executeRawUnsafe(`DELETE FROM tenants WHERE id = $1`, OTHER);
+    }
+  });
+
+  it("משרד ששילם אחרי הסגירה של הסבב — אינו מקבל את ההודעה", async () => {
+    await service(async () => {
+      await direct.$executeRawUnsafe(
+        `UPDATE tenants SET status = 'active', paid_until = $2 WHERE id = $1`,
+        TENANT,
+        new Date(MONDAY_10.getTime() + 30 * DAY),
+      );
+    }).run(MONDAY_10);
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it("תקלה במסד — הלחיצה עדיין מובילה למערכת, והפיקסל עדיין נטען", async () => {
+    const broken = new FunnelTrackingController({
+      withFunnelAdmin: () => Promise.reject(new Error("המסד לא זמין")),
+    } as unknown as PrismaService);
+    const redirect = vi.fn();
+    await broken.click("a".repeat(43), { redirect } as unknown as Response);
+    expect(redirect).toHaveBeenCalledWith(302, "https://app.example.test");
+    const end = vi.fn();
+    await broken.open("a".repeat(43), { setHeader: vi.fn(), end } as unknown as Response);
+    expect(end).toHaveBeenCalledTimes(1);
   });
 });
