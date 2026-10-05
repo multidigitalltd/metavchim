@@ -462,3 +462,89 @@ describe("סגירת רישום כש„מוצה” — רק אחרי שהנמע�
     expect(await reason()).toBe("completed");
   });
 });
+
+describe("מסלול ההמרה — שליחה שנקטעה, הסרה בין שלבים ו-Webhook שהקדים", () => {
+  async function messageRow(): Promise<{ id: string; status: string }> {
+    const rows = await direct.$queryRawUnsafe<{ id: string; status: string }[]>(
+      `SELECT id, status FROM funnel_messages WHERE tenant_id = $1`,
+      TENANT,
+    );
+    return rows[0]!;
+  }
+
+  it("תפיסה שננטשה באמצע — נשלחת בסבב הבא, עם אותו מפתח אידמפוטנטיות", async () => {
+    await service().run(MONDAY_10);
+    const { id } = await messageRow();
+    // ‏התהליך נפל אחרי התפיסה: השורה בתור, ושום דבר לא הוכרע
+    await direct.$executeRawUnsafe(
+      `UPDATE funnel_messages SET status = 'queued', sent_at = NULL, updated_at = $2 WHERE id = $1`,
+      id,
+      MONDAY_10,
+    );
+    await direct.$executeRawUnsafe(
+      `UPDATE funnel_enrollments SET last_sent_at = NULL WHERE tenant_id = $1`,
+      TENANT,
+    );
+    send.mockClear();
+    await service().run(new Date(MONDAY_10.getTime() + HOUR));
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send.mock.calls[0]![3]).toMatchObject({ idempotency: { key: `funnel:${id}` } });
+    expect((await messageRow()).status).toBe("sent");
+  });
+
+  it("הבעלים הסיר את עצמו אחרי שלב, והבא עוד רחוק — הרישום נסגר כ„ביקש להפסיק”", async () => {
+    await direct.$executeRawUnsafe(
+      `UPDATE funnel_stages SET enabled = true WHERE track = 'conversion' AND key = 'd1_empty_screen'`,
+    );
+    await service().run(MONDAY_10);
+    await direct.$executeRawUnsafe(
+      `UPDATE activation_nudge_optouts SET opted_out_at = now() WHERE user_id = $1`,
+      OWNER,
+    );
+    await service().run(new Date(MONDAY_10.getTime() + 2 * HOUR));
+    const rows = await direct.$queryRawUnsafe<{ ended_reason: string | null }[]>(
+      `SELECT ended_reason FROM funnel_enrollments WHERE tenant_id = $1`,
+      TENANT,
+    );
+    expect(rows[0]?.ended_reason).toBe("opted_out");
+  });
+
+  /** ‏הספק מדווח דרך ה-Webhook עוד לפני שהשליחה חזרה אלינו. */
+  function webhookFirst(
+    kind: "delivered" | "bounced",
+    then: () => Promise<void>,
+  ): (...args: unknown[]) => Promise<void> {
+    return async (...args: unknown[]) => {
+      const { key } = (args[3] as { idempotency: { key: string } }).idempotency;
+      await new FunnelReportService(prisma).recordEmailEvent(key.slice("funnel:".length), {
+        kind,
+        at: MONDAY_10,
+        detail: "HardBounce",
+      });
+      await then();
+    };
+  }
+
+  it("חזרה מהירה ואז „התקבל” מהספק — נשארת חוזרת", async () => {
+    send.mockImplementation(webhookFirst("bounced", () => Promise.resolve()));
+    try {
+      await service().run(MONDAY_10);
+    } finally {
+      send.mockImplementation(() => Promise.resolve());
+    }
+    expect((await messageRow()).status).toBe("bounced");
+  });
+
+  it("מסירה מאושרת ואז פסק זמן — נשארת נשלחה, ואינה נשלחת שוב", async () => {
+    send.mockImplementation(webhookFirst("delivered", () => Promise.reject(new Error("פסק זמן"))));
+    try {
+      await service().run(MONDAY_10);
+    } finally {
+      send.mockImplementation(() => Promise.resolve());
+    }
+    expect((await messageRow()).status).toBe("sent");
+    send.mockClear();
+    await service().run(new Date(MONDAY_10.getTime() + DAY));
+    expect(send).not.toHaveBeenCalled();
+  });
+});

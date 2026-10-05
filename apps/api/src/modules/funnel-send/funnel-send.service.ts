@@ -39,6 +39,13 @@ const PAGE = 200;
  */
 const MAX_TENANTS_PER_SWEEP = 100;
 
+/**
+ * ‎**תפיסה שלא הוכרעה בזמן הזה ננטשה.** שליחה אחת נמשכת שניות (פסק
+ * ‏הזמן של הספק), ולכן שורה שעדיין `queued` אחרי חצי שעה היא של תהליך
+ * ‏שנפל בין התפיסה להכרעה — לא של שליחה שעוד רצה.
+ */
+const STALE_CLAIM_MS = 30 * 60 * 1000;
+
 /** ‏עובדות שאינן משנות דבר — לסינון המוקדם, כשהשלבים בלי תנאי קהל. */
 const ANY_FACTS: FunnelFacts = {
   hasProperties: false,
@@ -72,7 +79,9 @@ const ANY_FACTS: FunnelFacts = {
  * ‏שורת `funnel_messages` נוצרת **לפני** השליחה, והאינדקס הייחודי
  * ‏`(enrollment, stage, user, channel)` הופך שליחה כפולה לבלתי
  * ‏אפשרית. שליחה שנכשלה מסומנת `failed` ונתפסת שוב בסבב הבא, עם אותו
- * ‏מפתח אידמפוטנטיות — כך גם כישלון עמום אינו יוצא פעמיים.
+ * ‏מפתח אידמפוטנטיות — כך גם כישלון עמום אינו יוצא פעמיים. תפיסה
+ * ‏שננטשה (התהליך נפל באמצע) חוזרת ל-`failed` בתחילת הסבב, ומשם באותה
+ * ‏דרך (`releaseStaleClaims`).
  *
  * ## ‏הנמענים וההסרה
  *
@@ -110,6 +119,8 @@ export class FunnelSendService {
   /** ‏סבב אחד. ציבורי — לבדיקה מול מסד אמיתי בלי לחכות שעה. */
   async run(now: Date): Promise<{ enrolled: number; closed: number; sent: number }> {
     if (!(await this.isOn())) return { enrolled: 0, closed: 0, sent: 0 };
+    // ‏לפני הסגירה: שלב עם תפיסה נטושה עוד ממתין לניסיון חוזר
+    await this.releaseStaleClaims(now);
     const { enrolled, closed } = await this.enrollment.sweep(now);
     const sent = isFunnelSendingTime(now) ? await this.dispatch(now) : 0;
     if (sent > 0) this.logger.log(`מסלול ההמרה: ${sent} משרדים קיבלו הודעה`);
@@ -214,61 +225,17 @@ export class FunnelSendService {
           lastSentAt: row.lastSentAt,
           now,
         };
-        /*
-         * ‎**נמען שנכשל — אחרי שאחר כבר קיבל** (ביקורת Codex, P1).
-         *
-         * ‏השלב נחשב „נשלח” ברמת הרישום ברגע שבעלים אחד קיבל, ולכן
-         * ‏`nextFunnelStage` לא יחזור אליו. הניסיון החוזר כאן, כל עוד
-         * ‏חלון השלב פתוח; `claim` תופס רק את השורות שנכשלו. סבב שבו
-         * ‏היה ניסיון חוזר אינו מתקדם לשלב הבא — כך שאיש אינו מקבל
-         * ‏שתי הודעות באותו יום.
-         */
-        const failed = failedByEnrollment.get(row.id) ?? [];
-        if (failed.length > 0) {
-          /*
-           * ‏רק שורות של מי שעדיין נמען — מי שהסיר את עצמו, הושבת או
-           * ‏הוסר אינו מקבל, ושורה ישנה שלו אינה עוצרת את המשרד מלהתקדם
-           * ‏(ביקורת Codex).
-           */
-          let current: Set<string>;
-          try {
-            current = new Set(
-              (await this.recipientsOf.recipients(row.tenantId)).map((owner) => owner.id),
-            );
-          } catch (error: unknown) {
-            this.logger.warn(`ניסיון חוזר למשרד ${row.tenantId} נכשל: ${String(error)}`);
-            continue;
-          }
-          const partial = live.filter(
-            (stage) =>
-              failed.some((f) => f.stageKey === stage.key && current.has(f.userId)) &&
-              input.sent.includes(stage.key) &&
-              now.getTime() <= (funnelStageExpiresAt(stage, input.anchors)?.getTime() ?? 0),
-          );
-          if (partial.length > 0) {
-            let delivered = false;
-            for (const stage of partial) {
-              const copy = copies.get(stage.key);
-              if (copy === undefined) continue;
-              try {
-                if (await this.sendStage(row, tenant.name, stage, copy, now)) delivered = true;
-              } catch (error: unknown) {
-                this.logger.warn(`ניסיון חוזר למשרד ${row.tenantId} נכשל: ${String(error)}`);
-              }
-            }
-            // ‏ניסיון חוזר שהצליח הוא משרד שקיבל — נספר בתקרה כמו כל אחר
-            if (delivered) sent += 1;
-            continue;
-          }
-        }
-        const anyDue = nextFunnelStage({ ...input, stages: unconditioned, facts: ANY_FACTS });
-        if (anyDue === null) continue;
         try {
           /*
            * ‎**כל הבעלים ביקשו להפסיק — הרישום נסגר כ„ביקש להפסיק”**
            * ‏(ביקורת Codex). בלי זה הוא נשאר „במסלול” לנצח ונסרק בכל
            * ‏סבב, והמדד „ביקשו להפסיק” לא היה זז לעולם. משרד בלי בעלים
            * ‏פעיל כלל אינו „ביקש” דבר, ולכן הוא נשאר פתוח.
+           *
+           * ‏**לפני השאלה „יש שלב שהגיע זמנו”** (ביקורת Codex): מי שהסיר
+           * ‏את עצמו אחרי שלב, כשהבא עוד רחוק או שאין בא, היה נשאר „במסלול”
+           * ‏ונסגר בסוף כ„סיים את הרצף”. שאילתה אחת לרישום בשעה — ואותם
+           * ‏נמענים משמשים גם לניסיון החוזר ולשליחה.
            */
           const recipients = await this.recipientsOf.recipients(row.tenantId);
           if (recipients.length === 0) {
@@ -283,6 +250,43 @@ export class FunnelSendService {
                 hasCard: hasValidCard(cardById.get(row.tenantId) ?? null, now),
               });
             }
+            continue;
+          }
+          /*
+           * ‎**נמען שנכשל — אחרי שאחר כבר קיבל** (ביקורת Codex, P1).
+           *
+           * ‏השלב נחשב „נשלח” ברמת הרישום ברגע שבעלים אחד קיבל, ולכן
+           * ‏`nextFunnelStage` לא יחזור אליו. הניסיון החוזר כאן, כל עוד
+           * ‏חלון השלב פתוח; `claim` תופס רק את השורות שנכשלו. סבב שבו
+           * ‏היה ניסיון חוזר אינו מתקדם לשלב הבא — כך שאיש אינו מקבל
+           * ‏שתי הודעות באותו יום.
+           *
+           * ‏רק שורות של מי שעדיין נמען — מי שהסיר את עצמו, הושבת או
+           * ‏הוסר אינו מקבל, ושורה ישנה שלו אינה עוצרת את המשרד מלהתקדם
+           * ‏(ביקורת Codex).
+           */
+          const failed = failedByEnrollment.get(row.id) ?? [];
+          const current = new Set(recipients.map((owner) => owner.id));
+          const partial = live.filter(
+            (stage) =>
+              failed.some((f) => f.stageKey === stage.key && current.has(f.userId)) &&
+              input.sent.includes(stage.key) &&
+              now.getTime() <= (funnelStageExpiresAt(stage, input.anchors)?.getTime() ?? 0),
+          );
+          if (partial.length > 0) {
+            let delivered = false;
+            for (const stage of partial) {
+              const copy = copies.get(stage.key);
+              if (copy === undefined) continue;
+              if (await this.sendStage(row, tenant.name, stage, copy, now, recipients)) {
+                delivered = true;
+              }
+            }
+            // ‏ניסיון חוזר שהצליח הוא משרד שקיבל — נספר בתקרה כמו כל אחר
+            if (delivered) sent += 1;
+            continue;
+          }
+          if (nextFunnelStage({ ...input, stages: unconditioned, facts: ANY_FACTS }) === null) {
             continue;
           }
           const facts = funnelFacts({
@@ -320,9 +324,8 @@ export class FunnelSendService {
     stage: FunnelStageDef,
     copy: FunnelStageCopy,
     now: Date,
-    known?: Awaited<ReturnType<ActivationNudgeService["recipients"]>>,
+    recipients: Awaited<ReturnType<ActivationNudgeService["recipients"]>>,
   ): Promise<boolean> {
-    const recipients = known ?? (await this.recipientsOf.recipients(enrollment.tenantId));
     const origin = loadEnv().WEB_ORIGIN;
     const tracked = `${origin}/api/v1/public/funnel`;
     let delivered = 0;
@@ -425,13 +428,45 @@ export class FunnelSendService {
     });
   }
 
+  /**
+   * ‎**הכרעת השליחה — רק לשורה שעוד בתור** (ביקורת Codex). Webhook
+   * ‏המסירה יכול להקדים את התשובה של הספק: חזרה מהירה שאחריה „התקבל”
+   * ‏הייתה הופכת ל„נשלחה” ונעלמת מהמדד, ופסק זמן אחרי מסירה מאושרת
+   * ‏היה מסמן אותה „נכשלה” ושולח שוב. מה שהספק דיווח גובר.
+   */
   private async settle(
     tenantId: string,
     id: string,
     data: { status: "sent" | "failed"; sentAt?: Date; error: string | null },
   ): Promise<void> {
     await this.prisma.withFunnelAdmin((tx) =>
-      tx.funnelMessage.updateMany({ where: { id, tenantId }, data }),
+      tx.funnelMessage.updateMany({ where: { id, tenantId, status: "queued" }, data }),
     );
+  }
+
+  /**
+   * ‎**תפיסות נטושות חוזרות לתור הניסיונות** (ביקורת Codex, P1).
+   *
+   * ‏תהליך שנפל בין `claim` להכרעה משאיר שורה `queued`, ו-`claim`
+   * ‏מדלג עליה — השלב לא היה נשלח לנמען לעולם, והרישום היה נסגר
+   * ‏כ„סיים את הרצף”. כאן היא הופכת ל-`failed` ונתפסת מחדש עם אותו
+   * ‏מפתח אידמפוטנטיות: אם המייל בכל זאת יצא, שירות המייל יודע ואינו
+   * ‏שולח שוב.
+   */
+  private async releaseStaleClaims(now: Date): Promise<void> {
+    const released = await this.prisma.withFunnelAdmin((tx) =>
+      tx.funnelMessage.updateMany({
+        where: {
+          track: "conversion",
+          channel: "email",
+          status: "queued",
+          updatedAt: { lt: new Date(now.getTime() - STALE_CLAIM_MS) },
+        },
+        data: { status: "failed", error: "השליחה נקטעה לפני שהוכרעה — תנוסה שוב" },
+      }),
+    );
+    if (released.count > 0) {
+      this.logger.warn(`מסלול ההמרה: ${released.count} שליחות שנקטעו יחזרו לתור`);
+    }
   }
 }
