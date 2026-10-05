@@ -34,7 +34,8 @@ case "$mode" in
   safety-dump)
     out="/backups/db_$(date +%Y-%m-%d_%H%M)_pre-restore.dump"
     umask 077
-    pg_dump -h "$PGHOST" -U "$PGUSER" -d "$PGDATABASE" -Fc -f "${out}.tmp"
+    # בלי נתוני השוק — אותה החרגה של הגיבוי היומי (run.sh), מאותה סיבה
+    pg_dump -h "$PGHOST" -U "$PGUSER" -d "$PGDATABASE" -Fc --exclude-table-data='market_*' -f "${out}.tmp"
     mv "${out}.tmp" "$out"
     echo "[restore] ✓ דאמפ בטיחות נשמר: ${out}"
     ;;

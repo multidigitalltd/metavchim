@@ -6,6 +6,7 @@ import type { GeminiService } from "../../core/gemini.service";
 import type { PrismaService } from "../../core/prisma.service";
 import { MentorSignalsService } from "./mentor-signals.service";
 import { MentorService } from "./mentor.service";
+import type { MarketService } from "../market/market.service";
 
 const TENANT = "01TENANTAAAAAAAAAAAAAAAAAA";
 const USER = "01USERAAAAAAAAAAAAAAAAAAAA";
@@ -61,6 +62,8 @@ function harness(opts: { laterReviewExists: boolean }) {
     gemini,
     new MentorSignalsService(),
     events,
+    // דופק השוק אינו נבדק כאן — ראו market.test בחבילה המשותפת
+    {} as unknown as MarketService,
   );
   const run = <T>(fn: () => Promise<T>) =>
     TenantContext.run(

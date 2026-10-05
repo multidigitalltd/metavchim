@@ -30,6 +30,7 @@ import { AgentMemoryService } from "./agent-memory.service";
 import { AgentExecuteService } from "./execute.service";
 import { AgentInterpretService } from "./interpret.service";
 import { AgentResolveService } from "./resolve.service";
+import { MarketModule } from "../market/market.module";
 
 /**
  * הסוכן אינו מחזיק **נתוני CRM** משלו.
@@ -81,6 +82,8 @@ import { AgentResolveService } from "./resolve.service";
     SupportModule,
     // „מה המצב ביעדים שלי” — אותו מנטור של המסך, מתוך השיחה
     MentorModule,
+    // „כמה נמכרות דירות בחיפה” — אותו מאגר של מסך נתוני השוק
+    MarketModule,
   ],
   controllers: [AgentController],
   providers: [

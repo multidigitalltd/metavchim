@@ -35,7 +35,19 @@ function extra(name: string): string[] {
     .filter((s) => s !== "");
 }
 
-function buildCsp(nonce: string, dev: boolean): string {
+/**
+ * ‎**הנתיבים היחידים שמותר להטמיע באתר אחר** — טפסי האתר של המשרד
+ * (`/w/…`, „כמה שווה הדירה שלי”, docs/14).
+ *
+ * כל שאר המערכת נשארת `frame-ancestors 'none'`: מסך של מתווך מחובר
+ * בתוך iframe זר הוא בדיוק מה ש-clickjacking מנצל. הטפסים האלה
+ * שונים מהותית — אין בהם פעולה בשם משתמש מחובר, רק מבקר שמזין את
+ * הנתונים של עצמו — ולכן הם פתוחים להטמעה באתר HTTPS כלשהו. אותו
+ * כלל ב-`next.config.ts` עבור `X-Frame-Options`.
+ */
+const EMBEDDABLE_PREFIX = "/w/";
+
+function buildCsp(nonce: string, dev: boolean, embeddable = false): string {
   /*
    * ה-API יושב על מקור אחר בפיתוח (`localhost:3001`) ומאחורי אותו
    * דומיין בפרודקשן (Caddy). `'self'` לבדו היה חוסם כל קריאה בפיתוח
@@ -73,7 +85,7 @@ function buildCsp(nonce: string, dev: boolean): string {
     "default-src": ["'self'"],
     "base-uri": ["'self'"],
     "object-src": ["'none'"],
-    "frame-ancestors": ["'none'"],
+    "frame-ancestors": embeddable ? ["https:"] : ["'none'"],
     "form-action": ["'self'"],
     /*
      * ‎`wasm-unsafe-eval`‎ — **בשביל התוויות בעברית על המפה.**
@@ -153,7 +165,10 @@ export function middleware(request: NextRequest): NextResponse {
   headers.set("x-nonce", nonce);
 
   const response = NextResponse.next({ request: { headers } });
-  response.headers.set("Content-Security-Policy", buildCsp(nonce, dev));
+  response.headers.set(
+    "Content-Security-Policy",
+    buildCsp(nonce, dev, request.nextUrl.pathname.startsWith(EMBEDDABLE_PREFIX)),
+  );
 
   /*
    * HSTS. Caddy מספק HTTPS אבל אינו מוסיף את הכותרת מעצמו, וכותרת

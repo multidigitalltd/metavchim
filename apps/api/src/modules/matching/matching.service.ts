@@ -25,7 +25,7 @@ import { TenantContext } from "../../common/tenant-context";
 import { OutboxService } from "../../core/outbox.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import { ContactsService } from "../contacts/contacts.service";
-import { rowToFields } from "../properties/property.mapper";
+import { marketSnapshot, rowToFields, type PropertyMarketSnapshot } from "../properties/property.mapper";
 
 export interface MatchDto {
   id: string;
@@ -50,9 +50,17 @@ export interface MatchDto {
   computedAt: Date;
 }
 
+/** הנכס בשורת התאמה — מה שנדרש כדי לזהות אותו ולהחליט לשלוח. */
+export interface MatchPropertyDto {
+  address: string;
+  title?: string;
+  priceAgorot?: number;
+  market?: PropertyMarketSnapshot;
+}
+
 /** שורה במסך ההתאמות הדו-צדי (אפיון §15, מסך 4). */
 export interface EnrichedMatchDto extends MatchDto {
-  property: { address: string; title?: string; priceAgorot?: number };
+  property: MatchPropertyDto;
   /** שם הקונה — רק אם למשתמש יש הרשאה אליו; אחרת מוצג "קונה של סוכן אחר" */
   buyerName: string | null;
 }
@@ -215,6 +223,7 @@ export class MatchingService {
         select: {
           id: true, street: true, neighborhood: true, city: true,
           marketingTitle: true, priceAgorot: true,
+          marketPosition: true, marketDiffPct: true, marketSample: true,
         },
       });
       const propertyById = new Map(properties.map((p) => [p.id, p]));
@@ -269,6 +278,8 @@ export class MatchingService {
               title: property.marketingTitle ?? undefined,
               priceAgorot:
                 property.priceAgorot === null ? undefined : Number(property.priceAgorot),
+              // „מתחת לשוק” — נימוק לשלוח עכשיו (docs/14 §3, יכולת 6)
+              ...marketSnapshot(property),
             },
             buyerName: buyerNameById.get(row.buyerId) ?? null,
           };
@@ -813,7 +824,7 @@ export class MatchingService {
   async listForBuyer(
     buyerId: string,
     limit: number = MATCH_LIST_LIMIT,
-  ): Promise<(MatchDto & { property: { address: string; title?: string; priceAgorot?: number } })[]> {
+  ): Promise<(MatchDto & { property: MatchPropertyDto })[]> {
     return this.prisma.withTenant(async (tx) => {
       const tenantId = TenantContext.current().tenantId;
       // ההתאמות של קונה הן מידע על הקונה — מי שאינו רשאי לראות את
@@ -836,6 +847,7 @@ export class MatchingService {
         select: {
           id: true, street: true, neighborhood: true, city: true,
           marketingTitle: true, priceAgorot: true,
+          marketPosition: true, marketDiffPct: true, marketSample: true,
         },
       });
       const propertyById = new Map(properties.map((p) => [p.id, p]));
@@ -854,6 +866,8 @@ export class MatchingService {
               title: property.marketingTitle ?? undefined,
               priceAgorot:
                 property.priceAgorot === null ? undefined : Number(property.priceAgorot),
+              // „מתחת לשוק” — נימוק לשלוח עכשיו (docs/14 §3, יכולת 6)
+              ...marketSnapshot(property),
             },
           };
         });

@@ -436,6 +436,19 @@ model Property {
   /// ההבחנה חשובה ליום שבו נרצה לרענן מיקומים אוטומטיים בלי לדרוס
   /// סימון שאדם עשה במתכוון.
   locationSource       String?   @map("location_source") @db.VarChar(10)
+  /// גוש/חלקה/תת-חלקה במאגר עסקאות השוק (docs/14) — מה שמחבר את
+  /// הנכס להיסטוריית הבניין ולהיסטוריית הדירה עצמה.
+  gush                 Int?
+  helka                Int?
+  subParcel            Int?      @map("sub_parcel")
+  /// agent | tabu = אדם הקליד · lookup = נגזר מהמיקום. אדם גובר.
+  parcelSource         String?   @map("parcel_source") @db.VarChar(10)
+  /// צילום ההשוואה האחרונה: המחיר המבוקש מול חציון העסקאות הדומות.
+  /// below | within | above — אותה הכרעה שהכרטיס מציג.
+  marketPosition       String?   @map("market_position") @db.VarChar(6)
+  marketDiffPct        Int?      @map("market_diff_pct") @db.SmallInt
+  marketSample         Int?      @map("market_sample") @db.SmallInt
+  marketCheckedAt      DateTime? @map("market_checked_at")
   marketingTitle       String?   @map("marketing_title") @db.VarChar(160)
   marketingDescription String?   @map("marketing_description")
   internalNotes        String?   @map("internal_notes")
@@ -2966,4 +2979,121 @@ model AutomationRun {
   @@id([ruleId, eventId])
   @@index([createdAt])
   @@map("automation_runs")
+}
+
+// ============================================================
+// נתוני שוק — עסקאות מיסוי מקרקעין (docs/14)
+//
+// מחוץ ל-RLS ובלי tenant_id: מידע ציבורי, משותף לכל המשרדים, ואין בו
+// פרטים של אדם. נכתב רק מסבב הסנכרון. לא נכנס לגיבוי היומי — נבנה
+// מחדש מהמקור. ראו את ההערות במיגרציה 20261005100000_market_data.
+// ============================================================
+
+model MarketSettlement {
+  id             Int       @id
+  name           String    @unique @db.VarChar(80)
+  code           Int?
+  sourceDeals    Int       @default(0) @map("source_deals")
+  sourceLastDeal DateTime? @map("source_last_deal") @db.Date
+  /// מאיזה תאריך להמשיך את הקליטה הראשונה. null = הושלמה.
+  backfillCursor DateTime? @map("backfill_cursor") @db.Date
+  syncedThrough  DateTime? @map("synced_through") @db.Date
+  /// pending | backfill | ok | error
+  status         String    @default("pending") @db.VarChar(12)
+  lastError      String?   @map("last_error") @db.VarChar(300)
+  syncedAt       DateTime? @map("synced_at")
+
+  @@index([status, syncedAt])
+  @@map("market_settlements")
+}
+
+model MarketNature {
+  id          Int    @id @db.SmallInt
+  name        String @unique @db.VarChar(60)
+  /// האינדקס ב-MARKET_NATURE_GROUPS.
+  natureGroup Int    @map("nature_group") @db.SmallInt
+
+  @@map("market_natures")
+}
+
+model MarketDeal {
+  id           BigInt   @id
+  dealDate     DateTime @map("deal_date") @db.Date
+  amountIls    BigInt   @map("amount_ils")
+  settlementId Int?     @map("settlement_id")
+  natureId     Int      @map("nature_id") @db.SmallInt
+  natureGroup  Int      @map("nature_group") @db.SmallInt
+  areaSqm      Int?     @map("area_sqm")
+  rooms        Decimal? @db.Decimal(3, 1)
+  yearBuilt    Int?     @map("year_built") @db.SmallInt
+  portion      Decimal? @db.Decimal(4, 3)
+  ppsqm        Int?
+  gush         Int
+  helka        Int
+  subParcel    Int?     @map("sub_parcel")
+  /// MARKET_FLAGS
+  flags        Int      @default(0) @db.SmallInt
+
+  @@index([gush, helka, dealDate(sort: Desc)])
+  @@index([settlementId, natureGroup, dealDate(sort: Desc)])
+  @@index([dealDate(sort: Desc)])
+  @@map("market_deals")
+}
+
+model MarketParcel {
+  gush         Int
+  helka        Int
+  settlementId Int?     @map("settlement_id")
+  statArea     Int?     @map("stat_area")
+  socioEshkol  Int?     @map("socio_eshkol") @db.SmallInt
+  lat          Float?
+  lon          Float?
+  street       String?  @db.VarChar(80)
+  /// ok | missing | error
+  status       String   @db.VarChar(10)
+  fetchedAt    DateTime @default(now()) @map("fetched_at")
+
+  @@id([gush, helka])
+  @@index([settlementId])
+  @@index([statArea])
+  @@map("market_parcels")
+}
+
+model MarketSegmentStat {
+  /// 0 = כל הארץ
+  settlementId  Int     @map("settlement_id")
+  natureGroup   Int     @map("nature_group") @db.SmallInt
+  /// 0 = כל הגדלים
+  roomBucket    Int     @map("room_bucket") @db.SmallInt
+  year          Int     @db.SmallInt
+  /// 0 = השנה כולה
+  quarter       Int     @db.SmallInt
+  deals         Int
+  newBuildDeals Int     @map("new_build_deals")
+  medianPrice   BigInt? @map("median_price")
+  p25Price      BigInt? @map("p25_price")
+  p75Price      BigInt? @map("p75_price")
+  medianPpsqm   Int?    @map("median_ppsqm")
+  p25Ppsqm      Int?    @map("p25_ppsqm")
+  p75Ppsqm      Int?    @map("p75_ppsqm")
+  medianArea    Int?    @map("median_area")
+
+  @@id([settlementId, natureGroup, roomBucket, year, quarter])
+  @@map("market_segment_stats")
+}
+
+model MarketSyncRun {
+  id         String    @id @db.Char(26)
+  /// auto | manual
+  kind       String    @db.VarChar(12)
+  startedAt  DateTime  @map("started_at")
+  finishedAt DateTime? @map("finished_at")
+  /// running | ok | partial | error
+  status     String    @db.VarChar(10)
+  requests   Int       @default(0)
+  rows       Int       @default(0)
+  message    String?   @db.VarChar(500)
+
+  @@index([startedAt(sort: Desc)])
+  @@map("market_sync_runs")
 }

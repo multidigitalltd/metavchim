@@ -46,6 +46,7 @@ import { SuggestionsCard } from "./suggestions-card";
 import { PropertyTimeline } from "./property-timeline";
 import { MediaSection } from "./media-section";
 import { PropertyTwins } from "./property-twins";
+import { PropertyMarket } from "./property-market";
 import { NetworkDemandMatches } from "../network-demand-matches";
 import { NetworkShareSection } from "../../network-share-section";
 import { AgreementsPanel } from "../../agreements-panel";
@@ -334,6 +335,7 @@ export default function PropertyDetailPage({
   const [tab, selectTab] = useEntityTab(
     [
       "overview",
+      "market",
       "matches",
       "twins",
       "network",
@@ -1203,6 +1205,11 @@ export default function PropertyDetailPage({
         onSelect={selectTab}
         tabs={[
           { key: "overview", label: "סקירה" },
+          /*
+            מחיר ושוק — מיד אחרי הסקירה: זו השיחה הראשונה עם בעלים
+            (כמה זה שווה, והאם המחיר סביר), והיא קודמת לחיפוש קונים.
+          */
+          { key: "market", label: "מחיר ושוק" },
           { key: "matches", label: "התאמות", count: matches?.length },
           /*
             נכסים תואמים — צמוד להתאמות ולא בסוף הסרגל. שתי
@@ -2219,6 +2226,11 @@ export default function PropertyDetailPage({
               </div>
             ) : null}
         </div>
+      </TabPanel>
+
+      {/* מחיר ושוק — הנכס מול עסקאות אמת של רשות המסים (docs/14) */}
+      <TabPanel tab="market" active={tab}>
+        <PropertyMarket propertyId={id} canEdit={canEditOwner} />
       </TabPanel>
 
       {/* נכסים תואמים — מה עוד אפשר להציע ללקוח שהתעניין בנכס הזה */}

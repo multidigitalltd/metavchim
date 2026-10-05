@@ -1,5 +1,6 @@
 import type { Prisma, Property as PropertyRow } from "@prisma/client";
 import {
+  type MarketPositionKind,
   normalizeCustomFeatures,
   type CustomFeature,
   type OccupancyState,
@@ -73,6 +74,12 @@ export function readCustomFeatures(attributes: unknown): CustomFeature[] {
   return normalizeCustomFeatures(usable);
 }
 
+export interface PropertyMarketSnapshot {
+  position: MarketPositionKind;
+  diffPct: number;
+  sample: number;
+}
+
 export interface PropertyDto extends PropertyFields {
   id: string;
   status: string;
@@ -104,8 +111,30 @@ export interface PropertyDto extends PropertyFields {
   leaseEndsAt?: string;
   noticePeriodDays?: number;
   archived: boolean;
+  /**
+   * ‎**המחיר המבוקש מול השוק** — צילום מסבב נתוני השוק (docs/14).
+   *
+   * רק כשיש גם פער וגם מדגם מספיק: נכס בלי מחיר, בלי עיר במאגר, או
+   * עם פחות מחמש עסקאות דומות — אין שדה, ואין תגית. תגית „מתחת לשוק”
+   * על סמך שתי עסקאות הייתה מבטיחה לקונה הזדמנות שאינה קיימת.
+   */
+  market?: PropertyMarketSnapshot;
   createdAt: Date;
   updatedAt: Date;
+}
+
+/** הצילום מהשורה — ראו `PropertyDto.market`. */
+export function marketSnapshot(row: {
+  marketPosition: string | null;
+  marketDiffPct: number | null;
+  marketSample: number | null;
+}): { market?: PropertyMarketSnapshot } {
+  const position = row.marketPosition;
+  return (position === "below" || position === "within" || position === "above") &&
+    row.marketDiffPct !== null &&
+    row.marketSample !== null
+    ? { market: { position, diffPct: row.marketDiffPct, sample: row.marketSample } }
+    : {};
 }
 
 export function fieldsToColumns(fields: Partial<PropertyFields>): Prisma.PropertyUpdateInput {
