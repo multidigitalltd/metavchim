@@ -1,6 +1,6 @@
 import { COOP_DEAL_STAGE_LABELS, type CoopDealStage } from "../logic/coop-deal.js";
 import { AGENT_RESULT_ROWS, numberedForms } from "./history.js";
-import type { AgentHistoryRef } from "./prompt.js";
+import type { AgentHistoryRef, AgentHistoryTurn } from "./prompt.js";
 import { formatJerusalemDate, formatJerusalemTime } from "../logic/israel-time.js";
 import { CALL_OUTCOME_LABELS } from "../schemas/labels.js";
 import { LEAD_STATUS_LABELS } from "../schemas/lead.js";
@@ -901,6 +901,22 @@ export function agentHistorySummary(message: string, data: unknown): string {
     0,
     AGENT_RESULT_SUMMARY_MAX,
   );
+}
+
+/**
+ * ‎**תור שיחתי לזיכרון** — המשפט והתשובה החופשית שניתנה עליו.
+ *
+ * אחד לשני הערוצים, כמו `agentHistorySummary`: הוואטסאפ והמסך שומרים
+ * אותו דבר בדיוק, ובאותה תקרה שסכימת הנתיב מקבלת. התשובה עצמה
+ * נוסחה מהמשפט ומהשיחה — אין בה נתון שלא היה כבר בפרומפט.
+ */
+export function agentReplyTurn(transcript: string, reply: string): AgentHistoryTurn {
+  return {
+    transcript,
+    action: "unknown",
+    params: {},
+    reply: reply.replaceAll("\n", " ").trim().slice(0, AGENT_RESULT_SUMMARY_MAX),
+  };
 }
 
 /**

@@ -18,6 +18,13 @@ import * as z from "../zod.js";
 import { AGENT_ACTION_IDS, AGENT_ACTIONS, type AgentActionDef } from "./actions.js";
 import { fieldDescription, fieldJsonSchema, type AgentFieldSpec } from "./field-spec.js";
 
+/**
+ * אורך תשובה שיחתית (`reply`). כפול מהתקרה הקודמת: תשובה לשאלה
+ * מקצועית או טקסט מנוסח ללקוח אינם נכנסים ב-600 תווים, וקיטוע באמצע
+ * משפט גרוע מכל אורך. וואטסאפ מקבל עד 4,096.
+ */
+export const AGENT_REPLY_MAX = 1200;
+
 /** ולידציית שדה בודד — כולל מה שסכימת Gemini אינה יודעת לבטא. */
 export function fieldZod(spec: AgentFieldSpec): z.ZodTypeAny {
   switch (spec.type) {
@@ -185,7 +192,7 @@ export function interpretJsonSchema(): Record<string, unknown> {
       reply: {
         type: "string",
         description:
-          "רק כש-action=unknown: אם המשפט הוא ברכה, תודה או שאלה כללית — תשובה קצרה, חמה ומועילה בעברית, שמסתיימת בהכוונה עדינה למה שאתה כן יודע לעשות. אחרת השאר ריק.",
+          "רק כש-action=unknown: אם זו שיחה ולא בקשה לפעולה (ברכה, שאלה מקצועית, בקשת ניסוח, שאלה על מה שעלה בשיחה) — תשובה עניינית וחמה בעברית טבעית, בלי להמציא נתוני משרד שאינם בשיחה. אחרת השאר ריק.",
       },
       suggest: {
         type: "array",
@@ -264,7 +271,7 @@ function tolerantInterpretInput(raw: unknown): unknown {
   }
   if (typeof value["clarify"] === "string") value["clarify"] = value["clarify"].slice(0, 300);
   else delete value["clarify"];
-  if (typeof value["reply"] === "string") value["reply"] = value["reply"].slice(0, 600);
+  if (typeof value["reply"] === "string") value["reply"] = value["reply"].slice(0, AGENT_REPLY_MAX);
   else delete value["reply"];
   /*
    * ‎`suggest` מנוקה ולא נאכף: מזהה שאינו בקטלוג יורד, וכל צורה אחרת
@@ -333,8 +340,8 @@ export const InterpretResponseSchema = z.preprocess(
     evidence: z.record(z.string(), z.string()).default({}),
     unmapped: z.array(z.string().max(300)).max(10).default([]),
     clarify: z.string().max(300).optional(),
-    /** תשובה שיחתית לברכה/תודה/שאלה כללית — מוצגת בלבד, לעולם לא מבוצעת */
-    reply: z.string().max(600).optional(),
+    /** תשובה שיחתית — ברכה, שאלה חופשית, ניסוח. מוצגת בלבד, לעולם לא מבוצעת */
+    reply: z.string().max(AGENT_REPLY_MAX).optional(),
     /*
      * ‎**הפעולות הקרובות — כש`action` הוא `unknown`.**
      *

@@ -67,7 +67,24 @@ describe("ליבת אחסון השיחה", () => {
    */
   it("תור התראה עובר את הסכימה — לא 400 על השיחה כולה", () => {
     const controller = read("./agent.controller.ts");
-    expect(controller).toMatch(/\[\.\.\.AGENT_ACTION_IDS, "notify"\]/u);
+    expect(controller).toMatch(/\[\.\.\.AGENT_ACTION_IDS, "notify", "unknown"\]/u);
     expect(controller).toMatch(/origin: z\.enum\(\["user", "assistant"\]\)\.optional\(\)/u);
+  });
+
+  /*
+   * ‎**תשובה חופשית נזכרת — בשני הערוצים, באותה צורה.** אותה סיבה
+   * כמו תור ההתראה: תור שנשמר ונדחה בסכימה מפיל את השיחה כולה.
+   * והתור נבנה בפונקציה המשותפת, לא בניסוח מקומי שיסטה בערוץ אחד.
+   */
+  it("תור של תשובה חופשית נשמר ועובר את הסכימה", () => {
+    const controller = read("./agent.controller.ts");
+    expect(controller).toMatch(/reply: z\.string\(\)\.max\(AGENT_RESULT_SUMMARY_MAX\)\.optional\(\)/u);
+    const branch = WA.slice(
+      WA.indexOf('if (proposal.reply !== undefined && proposal.reply !== "")'),
+      WA.indexOf("return { text: proposal.reply, speak: proposal.reply };"),
+    );
+    expect(branch).toContain("this.remember(chat, agentReplyTurn(text, proposal.reply));");
+    const screen = read("../../../../web/src/app/voice/page.tsx");
+    expect(screen).toContain("keep(agentReplyTurn(text, proposal.reply));");
   });
 });

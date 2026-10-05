@@ -4,10 +4,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   agentHistorySummary,
   agentReplySegments,
+  agentReplyTurn,
   agentResultRefs,
   agentTurnRefs,
   proposalRunsImmediately,
   type AgentHistoryRef,
+  type AgentHistoryTurn,
 } from "@metavchim/shared";
 import { Button } from "@metavchim/ui";
 import { apiGet, apiList, apiPost, ApiError } from "@/lib/api";
@@ -62,21 +64,12 @@ interface AgentHelp {
   examples: string[];
 }
 
-/** תור בשיחה — נשלח לשרת כהקשר למשפטי המשך ("ומה עם רמת גן?"). */
-interface HistoryTurn {
-  transcript: string;
-  action: string;
-  /** ‎`"assistant"` = תור דיווח שהסוכן יזם (התראה) — לא משפט של המתווך */
-  origin?: "user" | "assistant";
-  params: Record<string, unknown>;
-  resultSummary?: string;
-  /**
-   * ההפניות לרשומות שהוצגו — תווית ומזהה. המזהה נשאר בין הדפדפן
-   * לשרת ו**אינו** נכתב לפרומפט: הוא מה שהופך „הראשון מהם” לרשומה
-   * בלי לחפש את התווית כטקסט.
-   */
-  refs?: AgentHistoryRef[];
-}
+/**
+ * תור בשיחה — נשלח לשרת כהקשר למשפטי המשך ("ומה עם רמת גן?").
+ * הצורה המשותפת, לא העתק שלה: שדה שנוסף לזיכרון (כמו `reply`) מגיע
+ * לשני הערוצים יחד.
+ */
+type HistoryTurn = AgentHistoryTurn;
 
 interface Recommendation {
   priority: number;
@@ -293,6 +286,17 @@ export default function AgentPage(): React.JSX.Element {
     setThread((prev) => [...prev, { ...item, id: itemId() } as ChatItem]);
   }, []);
 
+  /** תור לזיכרון השיחה — המקומי והשמור, לשני סוגי התורות. */
+  const keep = useCallback((turn: HistoryTurn): void => {
+    setHistory((prev) => [...prev.slice(-5), turn]);
+    /*
+     * התור נרשם גם לשיחה השמורה בשרת — זו שהוואטסאפ קורא. כשל
+     * ברישום אינו מפיל את השיחה שעל המסך: ההקשר המקומי כבר עודכן,
+     * ורק ההמשכיות בין הערוצים מפסידה תור אחד.
+     */
+    void apiPost("/agent/conversation/turn", turn).catch(() => undefined);
+  }, []);
+
   /**
    * תור שבוצע נכנס לזיכרון, עם הפרמטרים **שנשלחו בפועל** — כולל
    * עריכות ובחירת מועמד (ביקורת Codex). התקציר והשמות לפי הסדר הם
@@ -307,22 +311,15 @@ export default function AgentPage(): React.JSX.Element {
       executed: ExecuteResult,
       refs: AgentHistoryRef[],
     ): void => {
-      const turn: HistoryTurn = {
+      keep({
         transcript: said,
         action: actionId,
         params: executedParams,
         resultSummary: agentHistorySummary(executed.message, executed.data),
         refs,
-      };
-      setHistory((prev) => [...prev.slice(-5), turn]);
-      /*
-       * התור נרשם גם לשיחה השמורה בשרת — זו שהוואטסאפ קורא. כשל
-       * ברישום אינו מפיל את השיחה שעל המסך: ההקשר המקומי כבר עודכן,
-       * ורק ההמשכיות בין הערוצים מפסידה תור אחד.
-       */
-      void apiPost("/agent/conversation/turn", turn).catch(() => undefined);
+      });
     },
-    [],
+    [keep],
   );
 
   /** תוצאת ביצוע ⟵ בועת תשובה + זיכרון + הקראה. */
@@ -404,9 +401,11 @@ export default function AgentPage(): React.JSX.Element {
           ...(history.length > 0 ? { history: history.slice(-6) } : {}),
         });
 
-        // ברכה/שאלה כללית — תשובה שיחתית, לא כרטיס "לא הבנתי"
+        // שיחה ולא פעולה — תשובה חופשית, לא כרטיס "לא הבנתי"
         if (proposal.actionId === "unknown" && proposal.reply !== undefined && proposal.reply !== "") {
           push({ role: "agent", kind: "reply", result: { message: proposal.reply } });
+          // נזכרת — כמו בוואטסאפ, כדי ש„תן עוד דוגמה” ימשיך אותה
+          keep(agentReplyTurn(text, proposal.reply));
           speakOut(proposal.reply);
           return;
         }
@@ -496,7 +495,7 @@ export default function AgentPage(): React.JSX.Element {
         setBusy(false);
       }
     },
-    [busy, history, markSettled, priorForRefine, push, settle, speakOut, thread],
+    [busy, history, keep, markSettled, priorForRefine, push, settle, speakOut, thread],
   );
 
   /*

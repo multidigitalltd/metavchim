@@ -6,6 +6,7 @@ import {
   agentAction,
   AGENT_DEGRADED_REASON,
   agentHistorySummary,
+  agentReplyTurn,
   agentReplySegments,
   externalLinkLabel,
   agentResultRefs,
@@ -2262,9 +2263,11 @@ export class WhatsAppAssistantService {
     );
 
     if (proposal.actionId === "unknown") {
-      // ברכה/שאלה כללית — תשובה שיחתית, לא "לא הבנתי" יבש
+      // שיחה ולא פעולה — תשובה חופשית, לא "לא הבנתי" יבש
       if (proposal.reply !== undefined && proposal.reply !== "") {
-        // תשובה שיחתית קצרה — מוקראת כולה בתשובה קולית
+        // נזכרת — כדי ש„תן עוד דוגמה” בתור הבא ימשיך אותה
+        this.remember(chat, agentReplyTurn(text, proposal.reply));
+        // מוקראת כולה בתשובה קולית
         return { text: proposal.reply, speak: proposal.reply };
       }
       const suggestions = proposal.suggestions ?? [];
@@ -2405,6 +2408,17 @@ export class WhatsAppAssistantService {
       // כרטיס אישור הוא התשובה הנפוצה ביותר — מי שדיבר שומע גם אותו
       speak: `${this.spokenProposal(proposal)}. לביצוע אמרו אשר, לביטול בטל.`,
     };
+  }
+
+  /**
+   * תור חדש לזיכרון השיחה. שתי הרשימות: `history` היא מה שנשלח
+   * לפרומפט ולכן נחתכת לתקרה, ו-`added` היא מה שיישמר ולכן אינה
+   * נחתכת כאן — החיתוך שלה קורה במיזוג עם השורה, מול מה שנמצא שם
+   * בפועל.
+   */
+  private remember(chat: ChatState, turn: AgentHistoryTurn): void {
+    chat.history = [...chat.history.slice(-(HISTORY_KEPT - 1)), turn];
+    chat.added = [...chat.added, turn];
   }
 
   /** הפרמטרים לביצוע — שדות ההצעה + בחירות, מצומצמים כמו בבקר. */
@@ -2723,13 +2737,7 @@ export class WhatsAppAssistantService {
       ...(refs.length === 0 ? {} : { refs }),
       ...(offer === undefined ? {} : { offer }),
     };
-    /*
-     * שתי הרשימות: `history` היא מה שנשלח לפרומפט ולכן נחתכת
-     * לתקרה, ו-`added` היא מה שיישמר ולכן אינה נחתכת כאן — החיתוך
-     * שלה קורה במיזוג עם השורה, מול מה שנמצא שם בפועל.
-     */
-    chat.history = [...chat.history.slice(-(HISTORY_KEPT - 1)), turn];
-    chat.added = [...chat.added, turn];
+    this.remember(chat, turn);
     /*
      * הכפתורים — כשיש צעדים ואין שמע. הודעת שמע נשלחת בנפרד ואינה
      * אינטראקטיבית, וגוף ארוך מהתקרה ממילא נופל לטקסט ב-`deliver`.
