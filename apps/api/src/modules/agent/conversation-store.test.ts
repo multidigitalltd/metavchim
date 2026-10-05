@@ -88,5 +88,8 @@ describe("ליבת אחסון השיחה", () => {
     expect(screen).toContain("keep(agentReplyTurn(text, proposal.reply));");
     // וגם מוצג בטקסט שלו כשהשיחה נטענת מחדש — לא כ„בוצע.”
     expect(screen).toContain('text: turn.reply ?? turn.resultSummary ?? "בוצע.",');
+    // והאפליקציה — הצרכן השלישי של `/agent/interpret` (ביקורת Codex)
+    const mobile = read("../../../../mobile/app/voice.tsx");
+    expect(mobile).toContain("keep(agentReplyTurn(transcript, proposal.reply));");
   });
 });
