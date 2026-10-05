@@ -1001,8 +1001,20 @@ export function funnelFacts(input: {
  */
 export const FUNNEL_MESSAGE_OUT_STATUSES = ["sent", "bounced"] as const;
 
+/**
+ * ‎**מפתח האידמפוטנטיות של הודעת מסלול — השורה, וגם הכתובת.**
+ *
+ * ‏ניסיון חוזר לאותה כתובת הוא אותה שליחה, ושירות המייל לא ישלח
+ * ‏פעמיים. כתובת שתוקנה אחרי חזרה או דחייה היא שליחה **חדשה** — ובלי
+ * ‏הכתובת במפתח היא הייתה נבלעת כ„כבר יצא”. `destinationTag` הוא גיבוב
+ * ‏קצר שהשרת מחשב, כדי שהכתובת עצמה לא תיסע במפתח.
+ */
+export function funnelIdempotencyKey(messageId: string, destinationTag: string): string {
+  return `funnel:${messageId}:${destinationTag}`;
+}
+
 /** ‏מזהה הודעת המסלול מתוך מפתח האידמפוטנטיות שנוסע עם המייל. `null` = אינה של המסלול. */
 export function funnelMessageIdFromIdempotencyKey(key: string): string | null {
-  const match = /^funnel:([0-9A-Z]{26})$/u.exec(key);
+  const match = /^funnel:([0-9A-Z]{26})(?::[0-9a-f]{1,32})?$/u.exec(key);
   return match?.[1] ?? null;
 }

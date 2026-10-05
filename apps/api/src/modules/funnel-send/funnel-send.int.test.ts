@@ -1,4 +1,5 @@
 import { PrismaClient } from "@prisma/client";
+import { funnelMessageIdFromIdempotencyKey } from "@metavchim/shared";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Response } from "express";
 import { ActivationNudgeService } from "../../core/activation-nudge.service";
@@ -552,7 +553,9 @@ describe("מסלול ההמרה — שליחה שנקטעה, הסרה בין ש�
     send.mockClear();
     await service().run(new Date(MONDAY_10.getTime() + HOUR));
     expect(send).toHaveBeenCalledTimes(1);
-    expect(send.mock.calls[0]![3]).toMatchObject({ idempotency: { key: `funnel:${id}` } });
+    expect(send.mock.calls[0]![3]).toMatchObject({
+      idempotency: { key: expect.stringMatching(new RegExp(`^funnel:${id}:[0-9a-f]+$`, "u")) },
+    });
     expect((await messageRow()).status).toBe("sent");
   });
 
@@ -580,7 +583,7 @@ describe("מסלול ההמרה — שליחה שנקטעה, הסרה בין ש�
   ): (...args: unknown[]) => Promise<void> {
     return async (...args: unknown[]) => {
       const { key } = (args[3] as { idempotency: { key: string } }).idempotency;
-      await new FunnelReportService(prisma).recordEmailEvent(key.slice("funnel:".length), {
+      await new FunnelReportService(prisma).recordEmailEvent(funnelMessageIdFromIdempotencyKey(key)!, {
         kind,
         at: MONDAY_10,
         detail: "HardBounce",
@@ -850,11 +853,52 @@ describe("מסלול ההמרה — תקרה, תשלום באמצע הסבב ו�
     }
   });
 
-  it("בלי ספק אימייל מחובר — אין שליחה ואין שורות שנשרפות", async () => {
+  it("בלי ספק אימייל מחובר — הסבב אינו רץ: אין שליחה, אין שורות ואין כניסה", async () => {
     emailConfigured = false;
-    await service().run(MONDAY_10);
+    expect(await service().run(MONDAY_10)).toEqual({ enrolled: 0, closed: 0, sent: 0 });
     expect(send).not.toHaveBeenCalled();
     expect(await messages()).toHaveLength(0);
+    const rows = await direct.$queryRawUnsafe<{ n: bigint }[]>(
+      `SELECT count(*) AS n FROM funnel_enrollments WHERE tenant_id = $1`,
+      TENANT,
+    );
+    expect(Number(rows[0]!.n)).toBe(0);
+  });
+
+  it("מייל שחזר, והכתובת תוקנה — אותו שלב נשלח לכתובת החדשה, במפתח חדש", async () => {
+    await service().run(MONDAY_10);
+    const firstKey = (send.mock.calls[0]![3] as { idempotency: { key: string } }).idempotency.key;
+    const rows = await direct.$queryRawUnsafe<{ id: string }[]>(
+      `SELECT id FROM funnel_messages WHERE tenant_id = $1`,
+      TENANT,
+    );
+    await new FunnelReportService(prisma).recordEmailEvent(rows[0]!.id, {
+      kind: "bounced",
+      at: MONDAY_10,
+      detail: "HardBounce",
+    });
+    // ‏אותה כתובת — אינו נשלח שוב
+    send.mockClear();
+    await service().run(new Date(MONDAY_10.getTime() + HOUR));
+    expect(send).not.toHaveBeenCalled();
+
+    await direct.$executeRawUnsafe(
+      `UPDATE users SET email = 'dana.fixed2@example.test' WHERE id = $1`,
+      OWNER,
+    );
+    try {
+      await service().run(new Date(MONDAY_10.getTime() + 2 * HOUR));
+      expect(send).toHaveBeenCalledTimes(1);
+      expect(send.mock.calls[0]![0]).toBe("dana.fixed2@example.test");
+      const key = (send.mock.calls[0]![3] as { idempotency: { key: string } }).idempotency.key;
+      expect(key).not.toBe(firstKey);
+      expect((await messages())[0]!.status).toBe("sent");
+    } finally {
+      await direct.$executeRawUnsafe(
+        `UPDATE users SET email = 'dana.funnel@example.test' WHERE id = $1`,
+        OWNER,
+      );
+    }
   });
 
   it("משרד ששילם אחרי הסגירה של הסבב — אינו מקבל את ההודעה", async () => {

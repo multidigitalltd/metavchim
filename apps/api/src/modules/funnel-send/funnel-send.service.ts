@@ -1,11 +1,12 @@
 import { Injectable, Logger } from "@nestjs/common";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { ulid } from "ulid";
 import {
   FUNNEL_MESSAGE_OUT_STATUSES,
   firstNameOf,
   funnelEmail,
   funnelFacts,
+  funnelIdempotencyKey,
   funnelStageExpiresAt,
   hasFunnelConverted,
   hasValidCard,
@@ -67,8 +68,18 @@ function canRetry(
   now: Date,
 ): boolean {
   if (row.status === "failed") return true;
+  /*
+   * ‏מייל שחזר — רק לכתובת אחרת (ביקורת Codex): אותה כתובת תחזיר אותו
+   * ‏שוב, וכתובת שתוקנה בתוך חלון השלב ראויה לו.
+   */
+  if (row.status === "bounced") return row.destination !== email;
   if (row.status !== "rejected") return false;
   return row.destination !== email || row.updatedAt.getTime() < now.getTime() - REJECTED_RETRY_MS;
+}
+
+/** ‏גיבוב קצר של הכתובת — לחלק של הכתובת במפתח האידמפוטנטיות. */
+function destinationTag(email: string): string {
+  return createHash("sha256").update(email.trim().toLowerCase()).digest("hex").slice(0, 12);
 }
 
 /**
@@ -171,6 +182,15 @@ export class FunnelSendService {
     options: { maxTenants?: number } = {},
   ): Promise<{ enrolled: number; closed: number; sent: number }> {
     if (!(await this.isOn())) return { enrolled: 0, closed: 0, sent: 0 };
+    /*
+     * ‎**בלי ספק אימייל מחובר — הסבב אינו רץ כלל** (ביקורת Codex). לא
+     * ‏שליחה, לא שורות — וגם לא כניסה וסגירה: אחרת שעוני הרישומים היו
+     * ‏מתקדמים, ושלבים היו פגים בזמן שאי אפשר לשלוח דבר.
+     */
+    if (!(await this.email.isConfigured())) {
+      this.logger.warn("אין ספק אימייל מחובר — מסלול ההמרה אינו רץ");
+      return { enrolled: 0, closed: 0, sent: 0 };
+    }
     // ‏לפני הסגירה: שלב עם תפיסה נטושה עוד ממתין לניסיון חוזר
     await this.releaseStaleClaims(now);
     const { enrolled, closed } = await this.enrollment.sweep(now, {
@@ -188,15 +208,6 @@ export class FunnelSendService {
     const { stages } = await this.stages.catalog();
     const live = stages.filter((stage) => stage.track === "conversion" && stage.enabled);
     if (live.length === 0) return 0;
-    /*
-     * ‎**בלי ספק אימייל מחובר — אין שליחה, ואין שורות** (ביקורת Codex).
-     * ‏השליחה הייתה נדחית כ„קבועה” לכל נמען, והשלבים היו נשרפים בזמן
-     * ‏שאיש לא קיבל דבר.
-     */
-    if (!(await this.email.isConfigured())) {
-      this.logger.warn("אין ספק אימייל מחובר — מסלול ההמרה אינו שולח");
-      return 0;
-    }
     const copies = new Map(
       (await this.stages.copyCatalog())
         .filter((copy) => copy.track === "conversion")
@@ -276,7 +287,8 @@ export class FunnelSendService {
           tx.funnelMessage.findMany({
             where: {
               enrollmentId: { in: page.map((row) => row.id) },
-              status: { in: ["failed", "rejected"] },
+              // ‏`bounced` — רק כשהכתובת תוקנה מאז (`canRetry`)
+              status: { in: ["failed", "rejected", "bounced"] },
             },
             select: {
               enrollmentId: true,
@@ -495,7 +507,10 @@ export class FunnelSendService {
         if (email === null) throw new Error("לשלב אין נושא וגוף למייל");
         await this.email.send(owner.email, email.subject, email.content, {
           // ‏מזהה השורה: ניסיון חוזר אחרי כישלון עמום הוא אותה שליחה
-          idempotency: { key: `funnel:${message.id}`, purpose: "funnel" },
+          idempotency: {
+            key: funnelIdempotencyKey(message.id, destinationTag(owner.email)),
+            purpose: "funnel",
+          },
           required: true,
           ...(replyTo === null ? {} : { replyTo }),
         });

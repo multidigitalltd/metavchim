@@ -3,6 +3,8 @@ import {
   fillFunnelPlaceholders,
   funnelEmail,
   funnelFacts,
+  funnelIdempotencyKey,
+  funnelMessageIdFromIdempotencyKey,
   funnelStageEnableBlock,
   isFunnelSendingTime,
   type FunnelEmailCopy,
@@ -148,5 +150,20 @@ describe("isFunnelSendingTime", () => {
     expect(isFunnelSendingTime(new Date("2026-10-05T05:00:00Z"))).toBe(false);
     // ‏שבת
     expect(isFunnelSendingTime(new Date("2026-10-10T07:00:00Z"))).toBe(false);
+  });
+});
+
+describe("מפתח האידמפוטנטיות של הודעת מסלול", () => {
+  const ID = "01M1FNNLSENDMESSAGE0000001";
+
+  it("השורה והכתובת — ומזהה השורה חוזר ממנו", () => {
+    const key = funnelIdempotencyKey(ID, "a1b2c3d4e5f6");
+    expect(key).toBe(`funnel:${ID}:a1b2c3d4e5f6`);
+    expect(funnelMessageIdFromIdempotencyKey(key)).toBe(ID);
+  });
+
+  it("מפתח של מייל אחר — אינו של המסלול", () => {
+    expect(funnelMessageIdFromIdempotencyKey("offer:1")).toBeNull();
+    expect(funnelMessageIdFromIdempotencyKey(`funnel:${ID}:NOT-HEX`)).toBeNull();
   });
 });
