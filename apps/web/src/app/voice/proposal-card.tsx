@@ -427,8 +427,13 @@ export function ProposalCard({
               role={nudged ? "alert" : undefined}
               style={{ color: nudged ? "var(--color-danger)" : "var(--color-text-muted)" }}
             >
-              {/* ‏במסך תשובה בהודעה הבאה ממשיכה את הכרטיס (`prior`), ולכן גם „אמרו” */}
-              {AGENT_CHOICE_PROMPT} — או אמרו פרט מזהה כדי לצמצם
+              {/*
+                ‏במסך תשובה בהודעה הבאה ממשיכה את הכרטיס (`prior`), ולכן גם
+                ‏„אמרו” — אבל רק כשמנוע ההבנה ענה: מנוע הכללים אינו ממשיך הצעה
+                ‏קודמת, ומשפט נוסף היה נקרא כבקשה חדשה (ביקורת Codex).
+              */}
+              {AGENT_CHOICE_PROMPT}
+              {proposal.fallback ? null : " — או אמרו פרט מזהה כדי לצמצם"}
             </p>
           ) : null}
           {noCandidates ? (

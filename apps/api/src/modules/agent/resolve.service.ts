@@ -1549,8 +1549,12 @@ const RECOMMENDED: Record<string, readonly string[]> = {
   share_buyer: ["buyerPhrase"],
 };
 
-/** ‏מילים שנאמרות **על** משימה ואינן חלק ממנה — „המשימה של דוד”. */
-const TASK_FILLER = new Set(["של", "את", "עם", "משימה", "המשימה", "משימת", "תזכורת", "התזכורת"]);
+/**
+ * ‏מה שנאמר **סביב** המשימה ואינו חלק ממנה — „(את) המשימה של …”, רק
+ * ‏בפתיחה. מילה כזו באמצע הכותרת („פגישה עם דוד”) היא חלק ממנה (ביקורת
+ * ‏Codex), ועטיפה שאין אחריה דבר אינה עטיפה — „תזכורת” היא שם המשימה.
+ */
+const TASK_WRAPPER = /^(?:את\s+)?(?:(?:ה?משימה|משימת|ה?תזכורת)\s+)?(?:של\s+)?(?=\S)/u;
 
 /**
  * ‎**משימה מתאימה לביטוי — כל מילה, בכותרת או בכרטיס שהיא קשורה אליו.**
@@ -1569,14 +1573,9 @@ export function taskMatchesPhrase(
   const said = phrase
     .toLowerCase()
     .replace(/[^\p{L}\p{N}\s]/gu, " ")
-    .split(/\s+/u)
-    .filter((word) => word !== "");
-  /*
-   * ‏מילות הקישור יורדות רק כשנשאר משהו אחריהן: משימה שכל כותרתה
-   * ‏„תזכורת” נקראת בשמה, ולא נעלמת (ביקורת Codex).
-   */
-  const meaningful = said.filter((word) => !TASK_FILLER.has(word));
-  const words = meaningful.length > 0 ? meaningful : said;
+    .replace(/\s+/gu, " ")
+    .trim();
+  const words = said.replace(TASK_WRAPPER, "").split(" ").filter((word) => word !== "");
   return words.length > 0 && words.every((word) => haystack.includes(word));
 }
 

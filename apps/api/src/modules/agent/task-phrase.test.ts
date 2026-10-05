@@ -46,4 +46,9 @@ describe("taskMatchesPhrase", () => {
     expect(taskMatchesPhrase("תזכורת", { title: "תזכורת" })).toBe(true);
     expect(taskMatchesPhrase("את המשימה", QUIET)).toBe(false);
   });
+
+  it("מילת קישור באמצע הכותרת היא חלק ממנה — אינה מרחיבה את ההתאמה", () => {
+    expect(taskMatchesPhrase("פגישה עם דוד", { title: "פגישה עם דוד" })).toBe(true);
+    expect(taskMatchesPhrase("פגישה עם דוד", { title: "פגישה דוד" })).toBe(false);
+  });
 });
