@@ -54,7 +54,16 @@ export const MarketScopeQuerySchema = z
   .strict();
 export type MarketScopeQuery = z.infer<typeof MarketScopeQuerySchema>;
 
-const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/u, "תאריך בפורמט YYYY-MM-DD");
+/** תאריך קלנדרי אמיתי — „2026-02-31” היה עובר את הביטוי ונופל ב-Postgres כ-500. */
+const isRealDate = (date: string): boolean => {
+  const parsed = new Date(`${date}T00:00:00Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === date;
+};
+
+const isoDate = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/u, "תאריך בפורמט YYYY-MM-DD")
+  .refine(isRealDate, "תאריך לא קיים");
 
 export const MarketDealsQuerySchema = z
   .object({
@@ -67,7 +76,17 @@ export const MarketDealsQuerySchema = z
     maxPrice: z.coerce.number().int().min(0).optional(),
     gush: z.coerce.number().int().min(1).optional(),
     /** ‎`תאריך|מזהה` של השורה האחרונה בעמוד הקודם. */
-    cursor: z.string().regex(/^\d{4}-\d{2}-\d{2}\|-?\d{1,20}$/u).optional(),
+    cursor: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}\|-?\d{1,19}$/u)
+      // תאריך אמיתי ומזהה בטווח BIGINT — אחרת Postgres נכשל, והבקשה חוזרת כ-500
+      .refine((value) => {
+        const [date = "", id = ""] = value.split("|");
+        if (!isRealDate(date)) return false;
+        const big = BigInt(id);
+        return big >= -(2n ** 63n) && big < 2n ** 63n;
+      }, "סמן לא תקין")
+      .optional(),
     limit: z.coerce.number().int().min(1).max(100).default(50),
   })
   .strict();

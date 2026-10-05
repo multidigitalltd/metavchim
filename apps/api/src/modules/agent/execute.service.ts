@@ -2101,10 +2101,6 @@ export class AgentExecuteService {
   }
 
   /**
-   * יתרת הקרדיטים — אותה קריאה כמו מסך הרשת, כולל מה שעומד לפוג:
-   * „נשארו 25” בלי „10 מהם פגים בעוד שבוע” היא חצי תשובה.
-   */
-  /**
    * ‎**„כמה נמכרות דירות 4 חדרים בחיפה”** — עסקאות רשות המסים (docs/14).
    *
    * השנה המלאה האחרונה ולא השנה הנוכחית: הדיווחים על החודשים
@@ -2159,6 +2155,10 @@ export class AgentExecuteService {
     };
   }
 
+  /**
+   * יתרת הקרדיטים — אותה קריאה כמו מסך הרשת, כולל מה שעומד לפוג:
+   * „נשארו 25” בלי „10 מהם פגים בעוד שבוע” היא חצי תשובה.
+   */
   private async showCredits(): Promise<ExecuteResult> {
     const { balance, expiry } = await this.collaboration.credits();
     const expiring =

@@ -522,10 +522,14 @@ export class MarketService {
       ORDER BY st.year DESC`;
     const prices: MarketCityPrices[] = [];
     const taken = new Set<number>();
+    // השנה שמוצגת היא השנה של הנתונים בפועל — יישוב שנפל לשנה שלפני
+    // אינו „נמכרו ב-<השנה שעברה>”
+    let shownYear: number | null = null;
     for (const row of rows) {
       // השנה האחרונה שיש לה נתונים, לכל יישוב בנפרד
       if (taken.has(row.settlement_id) || row.median_price === null) continue;
       taken.add(row.settlement_id);
+      shownYear = shownYear === null ? row.year : Math.max(shownYear, row.year);
       prices.push({
         settlement: row.name,
         rooms,
@@ -535,7 +539,7 @@ export class MarketService {
         p75: Number(row.p75_price ?? row.median_price),
       });
     }
-    return { year: rows.length > 0 ? year : null, prices };
+    return { year: shownYear, prices };
   }
 
   /** רבעון אחרון מלא מול אותו רבעון אשתקד — לדופק השוק של המנטור. */

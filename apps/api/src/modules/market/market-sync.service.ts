@@ -31,6 +31,15 @@ const CATALOG_EVERY_MS = 24 * 60 * 60 * 1000;
 /** יישוב שהושלם נבדק שוב אחרי שבוע — המקור מתעדכן שבועית. */
 const RESYNC_AFTER_MS = 7 * 24 * 60 * 60 * 1000;
 
+/**
+ * יישוב שנכשל מנוסה שוב רק אחרי שש שעות.
+ *
+ * תקלה זמנית נפתרת עד אז; תקלה קבועה (למשל יותר עסקאות ביום אחד ממה
+ * שהמקור מחזיר בחיפוש) הייתה שורפת עשרות בקשות מהתקציב המנומס בכל
+ * חצי שעה, לנצח, ודוחקת יישובים תקינים מהסבב.
+ */
+const ERROR_RETRY_MS = 6 * 60 * 60 * 1000;
+
 /** חלקות להעשרה בסבב אחד, כשנשאר זמן אחרי העסקאות. */
 const PARCELS_PER_RUN = 600;
 
@@ -155,7 +164,9 @@ export class MarketSyncService implements OnModuleInit, OnModuleDestroy {
 
     let status: "ok" | "partial" | "error" = "ok";
     let stopReason: string | null = null;
-    const touched = new Set<number>();
+    // יישובים שנכנסו בהם עסקאות חדשות — גם כאלה שנעצרו באמצע. יישוב
+    // שהסנכרון שלו לא הביא דבר אינו מצדיק בנייה מחדש של כל הארץ
+    const touched = ingest.touched;
     let parcels = 0;
     let linked = 0;
 
@@ -172,11 +183,10 @@ export class MarketSyncService implements OnModuleInit, OnModuleDestroy {
         }
         try {
           const outcome = await ingest.syncSettlement(settlementId);
-          if (outcome.rows > 0 || outcome.complete) touched.add(settlementId);
           if (!outcome.complete) status = "partial";
         } catch (error: unknown) {
           if (error instanceof MarketSourceRateLimitError || error instanceof MarketSourceFormatError) throw error;
-          // יישוב אחד שנכשל אינו עוצר את השאר — הוא יחזור בסבב הבא
+          // יישוב אחד שנכשל אינו עוצר את השאר — הוא יחזור אחרי ERROR_RETRY_MS
           status = "partial";
           await this.prisma.marketSettlement.update({
             where: { id: settlementId },
@@ -251,7 +261,8 @@ export class MarketSyncService implements OnModuleInit, OnModuleDestroy {
     const rows = await this.prisma.marketSettlement.findMany({
       where: {
         OR: [
-          { status: { in: ["backfill", "pending", "error"] } },
+          { status: { in: ["backfill", "pending"] } },
+          { status: "error", OR: [{ syncedAt: null }, { syncedAt: { lt: new Date(Date.now() - ERROR_RETRY_MS) } }] },
           { status: "ok", syncedAt: { lt: staleBefore } },
         ],
       },

@@ -218,8 +218,12 @@ export class MarketPropertyService implements OnModuleInit, OnModuleDestroy {
     const settlement = property.dealType === "rent" ? null : await this.market.resolveSettlement(property.city);
     const evaluated = settlement ? await this.evaluate(property, settlement, now) : null;
     const kind = evaluated?.position?.kind ?? null;
-    const diffPct = evaluated?.position?.diffPct ?? null;
-    const sample = evaluated && !evaluated.comparison.insufficient ? evaluated.comparison.sampleSize : null;
+    // ‎`SMALLINT` — מחיר מבוקש שהוקלד עם אפסים מיותרים (פי 1,000 מההערכה)
+    // היה חורג מהעמודה ומפיל את הצילום בכל סבב; הכיוון והסדר גודל נשמרים
+    const rawDiff = evaluated?.position?.diffPct ?? null;
+    const diffPct = rawDiff === null ? null : Math.max(-32_768, Math.min(32_767, rawDiff));
+    const sampleSize = evaluated && !evaluated.comparison.insufficient ? evaluated.comparison.sampleSize : null;
+    const sample = sampleSize === null ? null : Math.min(32_767, sampleSize);
     /*
      * ‎**SQL ולא `update`, כדי לא לגעת ב-`updated_at`.** `@updatedAt` של
      * Prisma מעדכן אותו בכל כתיבה, והצילום היה הופך כל נכס ל„נערך
@@ -337,7 +341,21 @@ export class MarketPropertyService implements OnModuleInit, OnModuleDestroy {
               street: parcel.street,
               status: "ok",
             },
-            update: { statArea: parcel.statArea, socioEshkol: parcel.socioEshkol },
+            update: {
+              statArea: parcel.statArea,
+              socioEshkol: parcel.socioEshkol,
+              ...(parcel.street === null ? {} : { street: parcel.street }),
+            },
+          });
+          /*
+           * חלקה שהעשרה קודמת סימנה `missing` (בלי מיקום) מקבלת כאן מיקום —
+           * אחרת היא נשארת מחוץ למפה לתמיד, כי ההעשרה לא חוזרת אליה. **רק
+           * כשאין לה מיקום:** הנקודה כאן היא לעיתים הסיכה של הנכס, ומיקום
+           * אמיתי של החלקה מהמקור עדיף עליה.
+           */
+          await this.prisma.marketParcel.updateMany({
+            where: { gush: parcel.gush, helka: parcel.helka, lat: null },
+            data: { lat: parcel.lat, lon: parcel.lon, status: "ok" },
           });
         }
         // SQL ולא `update` — גזירה של המערכת אינה „עריכה” (ראו `snapshotOne`)

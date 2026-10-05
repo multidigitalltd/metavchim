@@ -117,6 +117,14 @@ const DWELLING_CODES = MARKET_NATURE_GROUPS.flatMap((group, index) =>
   isDwellingGroup(group) ? [index] : [],
 );
 
+/**
+ * ‎`ppsqm` היא עמודת `INTEGER`. בניין במיליארדים על „שטח” של מ"ר אחד
+ * (הקלדה במקור) חורג ממנה, ושורה אחת כזו הייתה מפילה את כל העמוד —
+ * והיישוב היה נתקע על אותו עמוד בכל סבב. מחיר כזה אינו מחיר; `null`.
+ */
+const int4Ppsqm = (value: number | null): number | null =>
+  value !== null && value <= 2_147_483_647 ? value : null;
+
 /** הדגלים שפוסלים מסטטיסטיקה — זהה ל-`countsForStats` ב-shared. */
 const EXCLUDED_FLAGS = MARKET_FLAGS.partial | MARKET_FLAGS.tinyAmount | MARKET_FLAGS.outlier;
 
@@ -125,7 +133,14 @@ export class MarketIngest {
   private lastRequestAt = 0;
   private readonly clock: IngestClock;
   private natureIds = new Map<string, number>();
+  /** עסקאות חדשות שנכנסו בסבב — נספרות בשמירה, גם כשהיישוב נכשל אחריה. */
   rows = 0;
+  /**
+   * יישובים שנכנסו בהם עסקאות חדשות בסבב — מה שצריך סטטיסטיקה מחדש.
+   * נאסף בשמירה ולא מתוצאת `syncSettlement`: יישוב שנעצר באמצע (חסימה,
+   * תקלה) כבר כתב עמודים, והחציון שלו לא יכול להישאר של אתמול.
+   */
+  readonly touched = new Set<number>();
   private readonly pageSize: number;
   private readonly searchCap: number;
 
@@ -262,8 +277,10 @@ export class MarketIngest {
       if (last !== null && (syncedThrough === null || last > syncedThrough)) syncedThrough = last;
 
       // עמוד חסר = הגענו לסוף. `pageSize` ולא מספר העסקאות שנשמרו:
-      // שורות בלי גוש נזרקות, והן אינן סימן לסוף
-      if (page.pageSize < this.pageSize) {
+      // שורות בלי גוש נזרקות, והן אינן סימן לסוף. מול הגודל שהמקור
+      // החיל ולא מול המבוקש — שרת שמקצץ ל-100 מחזיר עמודים מלאים של 100
+      const served = Math.min(this.pageSize, page.limit ?? this.pageSize);
+      if (page.pageSize < served) {
         await this.db.marketSettlement.update({
           where: { id: settlementId },
           data: {
@@ -274,11 +291,12 @@ export class MarketIngest {
             syncedAt: this.clock.now(),
           },
         });
-        this.rows += rows;
         return { settlementId, rows, complete: true };
       }
 
-      if (offset + 2 * page.pageSize <= this.searchCap) {
+      // הבקשה הבאה היא `offset + pageSize` עם `limit` המבוקש — היא זו שאסור
+      // לה לעבור את התקרה, גם כשהמקור החזיר עמוד קטן מהמבוקש
+      if (offset + page.pageSize + this.pageSize <= this.searchCap) {
         offset += page.pageSize;
       } else {
         // חלון חדש מהתאריך האחרון שנקרא. אם כל העמוד באותו תאריך
@@ -299,7 +317,6 @@ export class MarketIngest {
         },
       });
     }
-    this.rows += rows;
     return { settlementId, rows, complete: false };
   }
 
@@ -320,7 +337,7 @@ export class MarketIngest {
         rooms: deal.rooms,
         yearBuilt: deal.yearBuilt,
         portion: deal.portion,
-        ppsqm: pricePerSqm(deal.amountIls, deal.areaSqm, deal.portion),
+        ppsqm: int4Ppsqm(pricePerSqm(deal.amountIls, deal.areaSqm, deal.portion)),
         gush: deal.gush,
         helka: deal.helka,
         subParcel: deal.subParcel,
@@ -336,6 +353,8 @@ export class MarketIngest {
       });
     }
     const result = await this.db.marketDeal.createMany({ data, skipDuplicates: true });
+    if (result.count > 0) this.touched.add(settlementId);
+    this.rows += result.count;
     return result.count;
   }
 

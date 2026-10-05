@@ -46,7 +46,12 @@ function deal(i: number, overrides: Partial<SourceDeal> = {}): SourceDeal {
 class FakeSource implements MarketSource {
   readonly name = "fake";
   requests = 0;
-  constructor(public deals: SourceDeal[], private readonly cap: number) {}
+  constructor(
+    public deals: SourceDeal[],
+    private readonly cap: number,
+    /** תקרת עמוד בצד השרת — מקור שמקצץ `limit` בלי לומר שאין עוד. */
+    private readonly serverLimit = Number.POSITIVE_INFINITY,
+  ) {}
 
   stats() {
     return Promise.resolve({ deals: this.deals.length, firstDeal: null, lastDeal: null, settlements: 2 });
@@ -66,8 +71,9 @@ class FakeSource implements MarketSource {
     const matching = this.deals
       .filter((d) => d.settlement === settlement && d.date >= dateFrom)
       .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.subParcel! - b.subParcel!));
-    const page = matching.slice(offset, offset + limit);
-    return Promise.resolve({ deals: page, pageSize: page.length });
+    const applied = Math.min(limit, this.serverLimit);
+    const page = matching.slice(offset, offset + applied);
+    return Promise.resolve({ deals: page, pageSize: page.length, limit: applied });
   }
   parcelAt(): Promise<SourceParcel | null> {
     return Promise.resolve(null);
@@ -174,6 +180,37 @@ describe("קליטת יישוב", () => {
     const rest = await ingestWith(source).syncSettlement(id);
     expect(rest.complete).toBe(true);
     expect(await db.marketDeal.count({ where: { gush: GUSH } })).toBe(25);
+  });
+
+  it("מקור שמקצץ את גודל העמוד אינו נראה כסוף הנתונים", async () => {
+    // מבקשים 4, השרת מחזיר 3 — עמוד מלא של 3 אינו העמוד האחרון
+    const source = new FakeSource(Array.from({ length: 25 }, (_, i) => deal(i)), 10, 3);
+    await ingestWith(source).refreshCatalog();
+    const outcome = await ingestWith(source).syncSettlement((await settlementA()).id);
+    expect(outcome.complete).toBe(true);
+    expect(await db.marketDeal.count({ where: { gush: GUSH } })).toBe(25);
+  });
+
+  it("מחיר למ\"ר שחורג מ-INTEGER נשמר כ-null ואינו מפיל את העמוד", async () => {
+    const source = new FakeSource([deal(0, { amountIls: 3_000_000_000, areaSqm: 1 }), deal(1)], 10);
+    await ingestWith(source).refreshCatalog();
+    await ingestWith(source).syncSettlement((await settlementA()).id);
+    const rows = await db.marketDeal.findMany({ where: { gush: GUSH }, orderBy: { amountIls: "desc" } });
+    expect(rows).toHaveLength(2);
+    expect(rows[0]!.ppsqm).toBeNull();
+  });
+
+  it("סנכרון שלא הביא עסקאות חדשות אינו מסמן את היישוב לבנייה מחדש", async () => {
+    const source = new FakeSource(Array.from({ length: 6 }, (_, i) => deal(i)), 10);
+    await ingestWith(source).refreshCatalog();
+    const id = (await settlementA()).id;
+    const first = ingestWith(source);
+    await first.syncSettlement(id);
+    expect(first.touched.has(id)).toBe(true);
+    const again = ingestWith(source);
+    await again.syncSettlement(id);
+    expect(again.touched.size).toBe(0);
+    expect(again.rows).toBe(0);
   });
 
   it("סוג שלא היה ברשימה נוצר בזמן הקליטה", async () => {

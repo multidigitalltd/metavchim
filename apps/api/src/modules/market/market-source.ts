@@ -164,6 +164,11 @@ export interface SourceDealPage {
   deals: SourceDeal[];
   /** כמה החזיר המקור בפועל — תקרה בצד השרת קובעת אם יש עוד. */
   pageSize: number;
+  /**
+   * גודל העמוד שהמקור החיל בפועל, כשהוא מדווח עליו. שרת שמקצץ את
+   * ‎`limit` מחזיר עמודים מלאים קטנים מהמבוקש — הם אינם סוף הנתונים.
+   */
+  limit?: number;
 }
 
 export interface SourceParcel {
@@ -211,6 +216,10 @@ const rooms = (value: number | null): number | null =>
 
 const positiveInt = (value: number | null): number | null =>
   value !== null && Number.isFinite(value) && value > 0 ? Math.round(value) : null;
+
+/** גבול עמודת `INTEGER` — ערך מעליו הוא הקלדה שגויה, ושורה אחת כזו הייתה מפילה את כל העמוד. */
+const INT4_MAX = 2_147_483_647;
+const int4 = (value: number | null): number | null => (value !== null && value <= INT4_MAX ? value : null);
 
 function toParcel(record: z.infer<typeof ParcelRecordSchema>): SourceParcel | null {
   const gush = positiveInt(record.identity.gush);
@@ -327,8 +336,8 @@ export class OverOrgIlSource implements MarketSource {
 
     const deals: SourceDeal[] = [];
     for (const row of body.data) {
-      const gush = positiveInt(row.gush);
-      const helka = positiveInt(row.helka);
+      const gush = int4(positiveInt(row.gush));
+      const helka = int4(positiveInt(row.helka));
       const amount = positiveInt(row.amount);
       // עסקה בלי גוש, חלקה או סכום אינה ניתנת לקישור או להשוואה
       if (gush === null || helka === null || amount === null) continue;
@@ -337,17 +346,17 @@ export class OverOrgIlSource implements MarketSource {
         date: row.date,
         amountIls: amount,
         nature: (row.nature ?? "").trim().slice(0, 60),
-        areaSqm: positiveInt(row.area_sqm),
+        areaSqm: int4(positiveInt(row.area_sqm)),
         rooms: rooms(row.rooms),
         yearBuilt: row.year_built !== null && row.year_built > 1800 && row.year_built < 2200 ? Math.round(row.year_built) : null,
         portion: portion !== null && portion > 0 && portion <= 1 ? Math.round(portion * 1000) / 1000 : null,
-        subParcel: row.sub_parcel !== null && row.sub_parcel >= 0 ? Math.round(row.sub_parcel) : null,
+        subParcel: row.sub_parcel !== null && row.sub_parcel >= 0 ? int4(Math.round(row.sub_parcel)) : null,
         settlement: row.settlement?.trim().slice(0, 80) ?? null,
         gush,
         helka,
       });
     }
-    return { deals, pageSize: body.data.length };
+    return { deals, pageSize: body.data.length, limit: body.limit };
   }
 
   async parcelAt(lat: number, lon: number): Promise<SourceParcel | null> {
