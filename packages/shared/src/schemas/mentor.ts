@@ -1,4 +1,4 @@
-import { z } from "zod";
+import * as z from "../zod.js";
 import {
   MENTOR_GOAL_METRICS,
   MENTOR_GOAL_PERIODS,

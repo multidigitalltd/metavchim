@@ -66,7 +66,7 @@ const ImportBuyerRowSchema = z
     propertyTypes: z.array(PropertyTypeSchema).max(5).optional(),
     areaSqmMin: z.number().int().min(10).max(2000).optional(),
     dealType: z.enum(["sale", "rent"], {
-      errorMap: () => ({ message: "סוג עסקה לא מזוהה — יש לציין מכירה או השכרה" }),
+      error: "סוג עסקה לא מזוהה — יש לציין מכירה או השכרה",
     }),
     budgetMinAgorot: MoneyAgorotSchema.optional(),
     // תקציב הוא חובה שלישית מלבד שם וטלפון — עוגן מנוע ההתאמות
@@ -108,10 +108,15 @@ const FIELD_LABELS: Record<string, string> = {
   roomsMax: "חדרים",
 };
 
-function describeRowIssues(error: z.ZodError): string {
+/** ‏הערך שבקלט במסלול של התקלה. Zod 4 כבר לא מצרף לתקלה את סוג מה שהתקבל. */
+function valueAt(input: unknown, path: readonly PropertyKey[]): unknown {
+  return path.reduce<unknown>((value, key) => (value as Record<PropertyKey, unknown> | null | undefined)?.[key], input);
+}
+
+function describeRowIssues(error: z.ZodError, row: unknown): string {
   const parts = error.issues.map((issue) => {
     const field = FIELD_LABELS[String(issue.path[0] ?? "")] ?? String(issue.path[0] ?? "");
-    if (issue.code === "invalid_type" && issue.received === "undefined") {
+    if (issue.code === "invalid_type" && valueAt(row, issue.path) === undefined) {
       return field ? `חסר ${field}` : "שדה חסר";
     }
     return field ? `${field}: ${issue.message}` : issue.message;
@@ -284,7 +289,7 @@ export class ImportWriteService {
     for (const [index, rawRow] of rows.entries()) {
       const parsed = ImportBuyerRowSchema.safeParse(rawRow);
       if (!parsed.success) {
-        failed.push({ row: index + 1, error: describeRowIssues(parsed.error) });
+        failed.push({ row: index + 1, error: describeRowIssues(parsed.error, rawRow) });
         continue;
       }
       try {
@@ -345,7 +350,7 @@ export class ImportWriteService {
     for (const [index, rawRow] of rows.entries()) {
       const parsed = ImportLeadRowSchema.safeParse(rawRow);
       if (!parsed.success) {
-        failed.push({ row: index + 1, error: describeRowIssues(parsed.error) });
+        failed.push({ row: index + 1, error: describeRowIssues(parsed.error, rawRow) });
         continue;
       }
       try {

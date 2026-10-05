@@ -1,4 +1,4 @@
-import { z } from "zod";
+import * as z from "../zod.js";
 import { IdSchema } from "../schemas/common.js";
 import type { DomainEventName, DomainEventPayload } from "../events.js";
 import { formatIsraeliNumber } from "./israel-time.js";

@@ -1,4 +1,4 @@
-import { z } from "zod";
+import * as z from "../zod.js";
 import { BID_DECISIONS, BID_NOTE_MAX, BID_SIDES } from "../logic/property-bids.js";
 import { IdSchema } from "./common.js";
 

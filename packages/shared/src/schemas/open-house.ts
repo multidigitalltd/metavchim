@@ -1,4 +1,4 @@
-import { z } from "zod";
+import * as z from "../zod.js";
 import { IdSchema } from "./common.js";
 import { OPEN_HOUSE_MAX_CAPACITY, OPEN_HOUSE_MAX_HOURS, OPEN_HOUSE_SLOT_MINUTES } from "../logic/open-house.js";
 

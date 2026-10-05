@@ -1,4 +1,4 @@
-import { z } from "zod";
+import * as z from "../zod.js";
 import { normalizePhone } from "../logic/contact-people.js";
 
 /** מזהה ישות — ULID (26 תווים, Crockford Base32). */

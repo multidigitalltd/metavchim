@@ -1,4 +1,4 @@
-import { z } from "zod";
+import * as z from "../zod.js";
 import {
   MAX_MEDIA_COMMISSION_PERCENT,
   MEDIA_IMAGE_KINDS,
@@ -75,7 +75,28 @@ export const MediaOutletUpsertSchema = z
   .strict();
 export type MediaOutletUpsert = z.infer<typeof MediaOutletUpsertSchema>;
 
-export const MediaOutletPatchSchema = MediaOutletUpsertSchema.partial().strict();
+type Undefaulted<T> = T extends z.ZodDefault<infer Inner> ? Inner : T;
+type MediaOutletPatchShape = {
+  [K in keyof typeof MediaOutletUpsertSchema.shape]: z.ZodOptional<Undefaulted<(typeof MediaOutletUpsertSchema.shape)[K]>>;
+};
+
+/**
+ * ‎**עדכון חלקי — בלי ברירות המחדל של היצירה.**
+ *
+ * ‏ב-Zod 4 שדה רשות שעוטף `.default()` מקבל את ברירת המחדל כשלא נשלח, ולכן
+ * ‏‎`.partial()`‎ על סכימת היצירה היה מאפס בכל עדכון את מה שלא נשלח: תיאור,
+ * ‏נקודות, סדר, ואפילו „פעיל”. כאן כל שדה מאבד את ברירת המחדל לפני שהוא נעשה רשות.
+ */
+export const MediaOutletPatchSchema = z
+  .object(
+    Object.fromEntries(
+      Object.entries(MediaOutletUpsertSchema.shape).map(([key, field]) => [
+        key,
+        (field instanceof z.ZodDefault ? field.unwrap() : field).optional(),
+      ]),
+    ) as MediaOutletPatchShape,
+  )
+  .strict();
 export type MediaOutletPatch = z.infer<typeof MediaOutletPatchSchema>;
 
 /** ‏ניהול הארכיון — מוצר במדיה. */

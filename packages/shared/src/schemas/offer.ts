@@ -1,4 +1,4 @@
-import { z } from "zod";
+import * as z from "../zod.js";
 import { OFFER_STATUSES } from "../logic/offer-status.js";
 
 

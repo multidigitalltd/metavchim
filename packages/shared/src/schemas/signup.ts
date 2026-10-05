@@ -1,4 +1,4 @@
-import { z } from "zod";
+import * as z from "../zod.js";
 import { normalizePhone } from "../logic/contact-people.js";
 import { PhoneSchema } from "./common.js";
 
@@ -103,9 +103,7 @@ export const SignupInputSchema = z
     /** קוד קופון — לא חובה. הנרמול והבדיקה בשרת. */
     coupon: z.string().max(40, "קוד הקופון ארוך מדי").optional(),
     /** אישור מפורש לתנאים — נדרש לפני יצירת החשבון. */
-    acceptTerms: z.literal(true, {
-      errorMap: () => ({ message: "יש לאשר את תנאי השימוש ומדיניות הפרטיות" }),
-    }),
+    acceptTerms: z.literal(true, { error: "יש לאשר את תנאי השימוש ומדיניות הפרטיות" }),
   })
   .strict();
 

@@ -1,4 +1,4 @@
-import { z } from "zod";
+import * as z from "../zod.js";
 
 /**
  * דואר נכנס — תשובות של לקוחות למיילים שהמערכת שלחה.

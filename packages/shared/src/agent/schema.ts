@@ -14,7 +14,7 @@
  * טווח. **הסכימה מצמצמת, ה-zod מכריע.**
  */
 
-import { z } from "zod";
+import * as z from "../zod.js";
 import { AGENT_ACTION_IDS, AGENT_ACTIONS, type AgentActionDef } from "./actions.js";
 import { fieldDescription, fieldJsonSchema, type AgentFieldSpec } from "./field-spec.js";
 

@@ -1,4 +1,4 @@
-import { z } from "zod";
+import * as z from "../zod.js";
 import { normalizeHouseNumber } from "../logic/property-address.js";
 import { MoneyAgorotSchema } from "./common.js";
 

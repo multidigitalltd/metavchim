@@ -1,4 +1,4 @@
-import { z } from "zod";
+import * as z from "../zod.js";
 import {
   FORUM_BODY_MAX,
   FORUM_BODY_MIN,
