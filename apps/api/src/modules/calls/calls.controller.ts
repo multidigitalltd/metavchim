@@ -16,7 +16,7 @@ import {
 import type { Response } from "express";
 import { FileInterceptor } from "@nestjs/platform-express";
 import { z } from "zod";
-import { CALL_BULK_LIMIT, IdSchema, type CallBulkResult } from "@metavchim/shared";
+import { CALL_BULK_LIMIT, IdSchema, PhoneInputSchema, type CallBulkResult } from "@metavchim/shared";
 import { RequireCapability } from "../../common/auth.decorators";
 import { RequireFeature } from "../../common/feature.guard";
 import { ZodValidationPipe, IdParam } from "../../common/zod-validation.pipe";
@@ -47,7 +47,11 @@ const CreateSchema = z
     direction: z.enum(["inbound", "outbound"]),
     contactId: IdSchema.optional(),
     leadId: IdSchema.optional(),
-    phone: z.string().min(6).max(30).optional(),
+    /*
+     * ‏אותו כלל כמו בכרטיס — מנורמל **ונבדק**. נרמול בלי בדיקה הפך
+     * ‏„מספר חסוי” לריק ו-„123abc” ל-„123” בשקט (ביקורת Codex).
+     */
+    phone: PhoneInputSchema.optional(),
     occurredAt: z.coerce.date(),
     durationMinutes: z.number().int().min(0).max(600).optional(),
     outcome: OutcomeSchema,

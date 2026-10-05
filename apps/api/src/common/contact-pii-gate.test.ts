@@ -249,6 +249,10 @@ const CLASSIFIED: Record<string, Entry> = {
     as: "system",
     why: "webhook מ-Meta — `withExplicitTenant`, אין משתמש",
   },
+  "modules/properties/open-house-phone-backfill.service.ts": {
+    as: "system",
+    why: "המרה חד-פעמית של טלפוני מבקרים לכתיב האחיד — סבב, `withExplicitTenant`, אינה מחזירה דבר",
+  },
 
   // ‏יכולת של הנהלת המשרד, ולא עבודת סוכן
   "modules/contacts/contact-erasure.service.ts": {

@@ -44,7 +44,7 @@ import { LandingService } from "./landing.service";
 
 const MARKETABLE = new Set(["draft", "active"]);
 const MASKED_NAME = "מבקר";
-const OPEN_HOUSE_SOURCE = "בית פתוח";
+export const OPEN_HOUSE_SOURCE = "בית פתוח";
 /** ‏כמה מבקרים נטענים לרשימה של אירוע אחד; המונים תמיד מדויקים */
 const VISITORS_PER_EVENT = 300;
 

@@ -79,6 +79,43 @@ describe("‏סבב אחד", () => {
   });
 });
 
+describe("‏סבב חד-פעמי", () => {
+  /** ‏מסד בזיכרון: החכירה תמיד פנויה, ו-`:done` נרשם כשהסבב מסיים */
+  function onceScheduler(): SweepScheduler {
+    const done = new Set<string>();
+    const sql = (strings: TemplateStringsArray): string => strings.join("?");
+    const prisma = {
+      $queryRaw: async (strings: TemplateStringsArray, ...values: unknown[]) =>
+        sql(strings).includes("SELECT 1 FROM sweep_leases") ? (done.has(String(values[0])) ? [{}] : []) : [{ holder: "me" }],
+      $executeRaw: async (strings: TemplateStringsArray, ...values: unknown[]) => {
+        if (sql(strings).includes("'infinity'")) done.add(String(values[0]));
+        return 1;
+      },
+    };
+    return new SweepScheduler({} as never, {} as never, {} as never, prisma as never);
+  }
+  const ONCE: SweepOptions = { ...OPTIONS, once: true };
+
+  it("‏רץ פעם אחת, ומאז מדלג", async () => {
+    const s = onceScheduler();
+    let ran = 0;
+    expect(await s.runOnce(ONCE, async () => (ran += 1))).toBe(true);
+    expect(await s.runOnce(ONCE, async () => (ran += 1))).toBe(false);
+    expect(ran).toBe(1);
+  });
+
+  it("‏ריצה שנכשלה אינה נרשמת — הבאה מנסה שוב", async () => {
+    const s = onceScheduler();
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    await s.runOnce(ONCE, async () => {
+      throw new Error("boom");
+    });
+    let ran = 0;
+    expect(await s.runOnce(ONCE, async () => (ran += 1))).toBe(true);
+    expect(ran).toBe(1);
+  });
+});
+
 describe("‏מי שדילג מנסה שוב כשהחכירה פגה (ביקורת Codex, P2)", () => {
   /** ‏מסד מדומה: התפיסה לפי `held`, והחכירה הקיימת פגה בעוד `expiresInMs`. */
   function standby(state: { held: boolean; expiresInMs: number }): SweepScheduler {
