@@ -23,11 +23,14 @@ interface Seed {
   leads: { id: string; contactId: string; source: string }[];
   /** ‏סיורים באירועי בית פתוח — לפי ליד */
   visits?: string[];
+  /** ‏טלפונים נוספים של כרטיסים אחרים */
+  secondary?: string[];
 }
 
-function setup({ contacts, leads, visits = [] }: Seed) {
+function setup({ contacts, leads, visits = [], secondary = [] }: Seed) {
   const rows = contacts.map((c) => ({ id: c.id, phoneHash: `hash:${c.phone}`, phoneEncrypted: `enc:${c.phone}` }));
   const locks: string[] = [];
+  let transactions = 0;
   const tx = {
     $executeRaw: async (_strings: TemplateStringsArray, key: string) => {
       locks.push(key);
@@ -42,59 +45,79 @@ function setup({ contacts, leads, visits = [] }: Seed) {
       },
     },
     contact: {
-      findMany: async ({ where }: { where: { id: { in: string[] } } }) => rows.filter((r) => where.id.in.includes(r.id)),
+      findMany: async ({ where }: { where: { id: { in: string[] } } }) =>
+        rows.filter((r) => where.id.in.includes(r.id)).map((r) => ({ ...r })),
       findUnique: async ({ where }: { where: { tenantId_phoneHash: { phoneHash: string } } }) =>
         rows.find((r) => r.phoneHash === where.tenantId_phoneHash.phoneHash) ?? null,
-      update: async ({ where, data }: { where: { id: string }; data: { phoneHash: string; phoneEncrypted: string } }) => {
-        Object.assign(rows.find((r) => r.id === where.id) ?? {}, data);
+      updateMany: async ({ where, data }: { where: { id: string; phoneHash: string }; data: { phoneHash: string; phoneEncrypted: string } }) => {
+        const row = rows.find((r) => r.id === where.id && r.phoneHash === where.phoneHash);
+        if (row) Object.assign(row, data);
+        return { count: row ? 1 : 0 };
       },
+    },
+    contactPhone: {
+      findUnique: async ({ where }: { where: { tenantId_phoneHash: { phoneHash: string } } }) =>
+        secondary.map((phone) => `hash:${phone}`).includes(where.tenantId_phoneHash.phoneHash) ? { id: "P1" } : null,
     },
   };
   const service = new OpenHousePhoneBackfillService(
     {
       tenant: { findMany: async () => [{ id: TENANT }] },
-      withExplicitTenant: <T>(_tenantId: string, fn: (t: never) => Promise<T>) => fn(tx as never),
+      withExplicitTenant: <T>(_tenantId: string, fn: (t: never) => Promise<T>) => {
+        transactions += 1;
+        return fn(tx as never);
+      },
     } as never,
     crypto as never,
   );
-  return { rows, locks, service, run: () => service.backfillTenant(tx as never, TENANT) };
+  return { rows, locks, service, transactions: () => transactions };
 }
 
 describe("המרת טלפוני מבקרי בית פתוח", () => {
   it("מבקר עם ליד מבית פתוח — עובר לכתיב האחיד, תחת נעילת המספר", async () => {
-    const { rows, locks, run } = setup({
+    const { rows, locks, service } = setup({
       contacts: [{ id: "C1", phone: "050-123-4567" }],
       leads: [{ id: "L1", contactId: "C1", source: "בית פתוח" }],
     });
-    expect(await run()).toBe(1);
+    await service.tick();
     expect(rows[0]).toEqual({ id: "C1", phoneHash: `hash:${CANONICAL}`, phoneEncrypted: `enc:${CANONICAL}` });
     expect(locks.some((key) => key.includes(`hash:${CANONICAL}`))).toBe(true);
   });
 
   it("מבקר שצורף לליד ממקור אחר — נמצא דרך הסיור שלו", async () => {
-    const { rows, run } = setup({
+    const { rows, service } = setup({
       contacts: [{ id: "C1", phone: "0501234567" }],
       leads: [{ id: "L1", contactId: "C1", source: "אתר" }],
       visits: ["L1"],
     });
-    expect(await run()).toBe(1);
+    await service.tick();
     expect(rows[0]?.phoneHash).toBe(`hash:${CANONICAL}`);
   });
 
-  it("כבר יש כרטיס בכתיב האחיד — שניהם נשארים, למסך הכפילויות", async () => {
-    const { rows, run } = setup({
+  it("המספר הוא הטלפון הראשי של כרטיס אחר — שניהם נשארים, למסך הכפילויות", async () => {
+    const { rows, service } = setup({
       contacts: [
         { id: "C1", phone: "050-123-4567" },
         { id: "C2", phone: CANONICAL },
       ],
       leads: [{ id: "L1", contactId: "C1", source: "בית פתוח" }],
     });
-    expect(await run()).toBe(0);
+    await service.tick();
+    expect(rows[0]?.phoneHash).toBe("hash:050-123-4567");
+  });
+
+  it("המספר הוא טלפון נוסף של כרטיס אחר — לא נוגעים (ביקורת Codex, P1)", async () => {
+    const { rows, service } = setup({
+      contacts: [{ id: "C1", phone: "050-123-4567" }],
+      leads: [{ id: "L1", contactId: "C1", source: "בית פתוח" }],
+      secondary: [CANONICAL],
+    });
+    await service.tick();
     expect(rows[0]?.phoneHash).toBe("hash:050-123-4567");
   });
 
   it("כרטיס שלא הגיע מבית פתוח, או מספר שאינו תקין — לא נוגעים", async () => {
-    const { rows, run } = setup({
+    const { rows, service } = setup({
       contacts: [
         { id: "C1", phone: "050-123-4567" },
         { id: "C2", phone: "מספר חסוי" },
@@ -104,11 +127,25 @@ describe("המרת טלפוני מבקרי בית פתוח", () => {
         { id: "L2", contactId: "C2", source: "בית פתוח" },
       ],
     });
-    expect(await run()).toBe(0);
+    await service.tick();
     expect(rows.map((r) => r.phoneHash)).toEqual(["hash:050-123-4567", "hash:מספר חסוי"]);
   });
 
-  it("כל המשרדים, ובטוח להרצה חוזרת", async () => {
+  it("כל כרטיס בטרנזקציה משלו — היסטוריה ארוכה אינה חורגת מזמן הטרנזקציה (ביקורת Codex)", async () => {
+    const { service, transactions } = setup({
+      contacts: [
+        { id: "C1", phone: "050-123-4567" },
+        { id: "C2", phone: "052-765-4321" },
+        { id: "C3", phone: "+972541112233" },
+      ],
+      leads: ["C1", "C2", "C3"].map((contactId, i) => ({ id: `L${i}`, contactId, source: "בית פתוח" })),
+    });
+    await service.tick();
+    /* ‏אחת לאיסוף, ואחת לכל כרטיס שדרש העברה — C3 כבר בכתיב האחיד */
+    expect(transactions()).toBe(3);
+  });
+
+  it("בטוח להרצה חוזרת", async () => {
     const { rows, service } = setup({
       contacts: [{ id: "C1", phone: "050-123-4567" }],
       leads: [{ id: "L1", contactId: "C1", source: "בית פתוח" }],

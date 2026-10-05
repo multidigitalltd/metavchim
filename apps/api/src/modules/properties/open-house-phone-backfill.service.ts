@@ -21,9 +21,9 @@ const FIRST_TICK_DELAY_MS = 15 * 1000;
  *
  * ‏ההמרה עוברת פעם אחת על כל מי שהגיע מבית פתוח — דרך ליד שמקורו בבית
  * ‏פתוח, או דרך סיור באירוע (מבקר שהיה לו כבר ליד פתוח ממקור אחר צורף
- * ‏אליו בלי לשנות את המקור) — ומעבירה את הכרטיס לכתיב האחיד. כשכבר יש
- * ‏כרטיס בכתיב האחיד, שני הכרטיסים נשארים כמו שהם: זו כפילות שהייתה
- * ‏קיימת לפני השינוי, ומסך הכפילויות ממזג אותה.
+ * ‏אליו בלי לשנות את המקור) — ומעבירה את הכרטיס לכתיב האחיד. כשהמספר כבר
+ * ‏של כרטיס אחר, שני הכרטיסים נשארים כמו שהם: זו כפילות שהייתה קיימת לפני
+ * ‏השינוי, ומסך הכפילויות ממזג אותה.
  *
  * ‏סבב חד-פעמי (`once`): בסיום הוא נרשם כגמור, ואינו רץ שוב. ההרשמה עצמה
  * ‏אינה סורקת דבר.
@@ -41,14 +41,28 @@ export class OpenHousePhoneBackfillService {
   async tick(): Promise<void> {
     const tenants = await this.prisma.tenant.findMany({ select: { id: true } });
     let moved = 0;
-    for (const { id } of tenants) {
-      moved += await this.prisma.withExplicitTenant(id, (tx) => this.backfillTenant(tx, id));
+    for (const { id: tenantId } of tenants) {
+      const visitors = await this.prisma.withExplicitTenant(tenantId, (tx) => this.visitors(tx, tenantId));
+      for (const visitor of visitors) {
+        const phone = normalizeValidPhone(this.crypto.decrypt(visitor.phoneEncrypted));
+        if (phone === undefined) continue;
+        const phoneHash = this.crypto.phoneHash(phone);
+        if (phoneHash === visitor.phoneHash) continue;
+        /* ‏כרטיס אחד בטרנזקציה קצרה משלו — היסטוריה ארוכה אינה חורגת מזמן הטרנזקציה */
+        const done = await this.prisma.withExplicitTenant(tenantId, (tx) =>
+          this.moveToCanonical(tx, tenantId, visitor, phone, phoneHash),
+        );
+        if (done) moved += 1;
+      }
     }
     this.logger.log(`טלפוני מבקרי בית פתוח הומרו לכתיב האחיד: ${moved} כרטיסים`);
   }
 
-  /** ‏כמה כרטיסים הועברו לכתיב האחיד במשרד אחד. */
-  async backfillTenant(tx: TenantTx, tenantId: string): Promise<number> {
+  /** ‏כל מי שהגיע מבית פתוח — דרך ליד שמקורו בבית פתוח, או דרך סיור באירוע. */
+  async visitors(
+    tx: TenantTx,
+    tenantId: string,
+  ): Promise<{ id: string; phoneEncrypted: string; phoneHash: string }[]> {
     const visits = await tx.appointment.findMany({
       where: { tenantId, openHouseId: { not: null }, leadId: { not: null } },
       select: { leadId: true },
@@ -59,30 +73,44 @@ export class OpenHousePhoneBackfillService {
       select: { contactId: true },
       distinct: ["contactId"],
     });
-    if (leads.length === 0) return 0;
-    const contacts = await tx.contact.findMany({
+    if (leads.length === 0) return [];
+    return tx.contact.findMany({
       where: { tenantId, id: { in: leads.map((lead) => lead.contactId) } },
       select: { id: true, phoneEncrypted: true, phoneHash: true },
     });
-    let moved = 0;
-    for (const contact of contacts) {
-      const phone = normalizeValidPhone(this.crypto.decrypt(contact.phoneEncrypted));
-      if (phone === undefined) continue;
-      const phoneHash = this.crypto.phoneHash(phone);
-      if (phoneHash === contact.phoneHash) continue;
-      /* ‏אותה נעילת מספר שהקליטה נוטלת — כרטיס שנוצר במקביל אינו מתנגש */
-      await lockContactPhone(tx, tenantId, phoneHash);
-      const taken = await tx.contact.findUnique({
-        where: { tenantId_phoneHash: { tenantId, phoneHash } },
-        select: { id: true },
-      });
-      if (taken !== null) continue;
-      await tx.contact.update({
-        where: { id: contact.id },
-        data: { phoneHash, phoneEncrypted: this.crypto.encrypt(phone) },
-      });
-      moved += 1;
-    }
-    return moved;
+  }
+
+  /**
+   * ‏העברת כרטיס אחד לכתיב האחיד; `false` כשהמספר כבר של כרטיס אחר.
+   *
+   * ‏„של כרטיס אחר” — כטלפון ראשי **או נוסף**, כמו בכל נתיב שמשנה מספר:
+   * ‏`findByAnyPhone` מחפש קודם בראשי, ולכן העברה על מספר נוסף של אחר
+   * ‏הייתה מנתבת אליו שיחות ולידים של בעל המספר (ביקורת Codex, P1).
+   * ‏העדכון מותנה בחתימה הישנה — כרטיס שנערך בינתיים אינו נדרס.
+   */
+  async moveToCanonical(
+    tx: TenantTx,
+    tenantId: string,
+    visitor: { id: string; phoneHash: string },
+    phone: string,
+    phoneHash: string,
+  ): Promise<boolean> {
+    /* ‏אותה נעילת מספר שהקליטה נוטלת — כרטיס שנוצר במקביל אינו מתנגש */
+    await lockContactPhone(tx, tenantId, phoneHash);
+    const primary = await tx.contact.findUnique({
+      where: { tenantId_phoneHash: { tenantId, phoneHash } },
+      select: { id: true },
+    });
+    if (primary !== null) return false;
+    const secondary = await tx.contactPhone.findUnique({
+      where: { tenantId_phoneHash: { tenantId, phoneHash } },
+      select: { id: true },
+    });
+    if (secondary !== null) return false;
+    const { count } = await tx.contact.updateMany({
+      where: { id: visitor.id, tenantId, phoneHash: visitor.phoneHash },
+      data: { phoneHash, phoneEncrypted: this.crypto.encrypt(phone) },
+    });
+    return count === 1;
   }
 }
