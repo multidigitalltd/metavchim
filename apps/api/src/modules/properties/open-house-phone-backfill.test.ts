@@ -23,11 +23,12 @@ interface Seed {
   leads: { id: string; contactId: string; source: string }[];
   /** ‏סיורים באירועי בית פתוח — לפי ליד */
   visits?: string[];
-  /** ‏טלפונים נוספים של כרטיסים אחרים */
-  secondary?: string[];
+  /** ‏טלפונים נוספים — ושל מי */
+  secondary?: { phone: string; contactId: string }[];
 }
 
-function setup({ contacts, leads, visits = [], secondary = [] }: Seed) {
+function setup({ contacts, leads, visits = [], secondary: extra = [] }: Seed) {
+  const secondary = extra.map((p, i) => ({ id: `P${i}`, phoneHash: `hash:${p.phone}`, contactId: p.contactId }));
   const rows = contacts.map((c) => ({ id: c.id, phoneHash: `hash:${c.phone}`, phoneEncrypted: `enc:${c.phone}` }));
   const locks: string[] = [];
   let transactions = 0;
@@ -57,7 +58,12 @@ function setup({ contacts, leads, visits = [], secondary = [] }: Seed) {
     },
     contactPhone: {
       findUnique: async ({ where }: { where: { tenantId_phoneHash: { phoneHash: string } } }) =>
-        secondary.map((phone) => `hash:${phone}`).includes(where.tenantId_phoneHash.phoneHash) ? { id: "P1" } : null,
+        secondary.find((p) => p.phoneHash === where.tenantId_phoneHash.phoneHash) ?? null,
+      deleteMany: async ({ where }: { where: { id: string } }) => {
+        const at = secondary.findIndex((p) => p.id === where.id);
+        if (at >= 0) secondary.splice(at, 1);
+        return { count: at >= 0 ? 1 : 0 };
+      },
     },
   };
   const service = new OpenHousePhoneBackfillService(
@@ -70,7 +76,7 @@ function setup({ contacts, leads, visits = [], secondary = [] }: Seed) {
     } as never,
     crypto as never,
   );
-  return { rows, locks, service, transactions: () => transactions };
+  return { rows, secondary, locks, service, transactions: () => transactions };
 }
 
 describe("המרת טלפוני מבקרי בית פתוח", () => {
@@ -110,10 +116,21 @@ describe("המרת טלפוני מבקרי בית פתוח", () => {
     const { rows, service } = setup({
       contacts: [{ id: "C1", phone: "050-123-4567" }],
       leads: [{ id: "L1", contactId: "C1", source: "בית פתוח" }],
-      secondary: [CANONICAL],
+      secondary: [{ phone: CANONICAL, contactId: "C2" }],
     });
     await service.tick();
     expect(rows[0]?.phoneHash).toBe("hash:050-123-4567");
+  });
+
+  it("המספר האחיד הוא טלפון נוסף של המבקר עצמו — עולה לראשי, והנוסף יורד", async () => {
+    const { rows, secondary, service } = setup({
+      contacts: [{ id: "C1", phone: "050-123-4567" }],
+      leads: [{ id: "L1", contactId: "C1", source: "בית פתוח" }],
+      secondary: [{ phone: CANONICAL, contactId: "C1" }],
+    });
+    await service.tick();
+    expect(rows[0]?.phoneHash).toBe(`hash:${CANONICAL}`);
+    expect(secondary).toEqual([]);
   });
 
   it("כרטיס שלא הגיע מבית פתוח, או מספר שאינו תקין — לא נוגעים", async () => {

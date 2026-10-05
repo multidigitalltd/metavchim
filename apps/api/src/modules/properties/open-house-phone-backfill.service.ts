@@ -81,7 +81,8 @@ export class OpenHousePhoneBackfillService {
   }
 
   /**
-   * ‏העברת כרטיס אחד לכתיב האחיד; `false` כשהמספר כבר של כרטיס אחר.
+   * ‏העברת כרטיס אחד לכתיב האחיד; `false` כשהמספר כבר של כרטיס אחר. כשהוא
+   * ‏טלפון נוסף של המבקר עצמו, הוא עולה לראשי — הקליטה מחפשת רק בראשי.
    *
    * ‏„של כרטיס אחר” — כטלפון ראשי **או נוסף**, כמו בכל נתיב שמשנה מספר:
    * ‏`findByAnyPhone` מחפש קודם בראשי, ולכן העברה על מספר נוסף של אחר
@@ -104,13 +105,15 @@ export class OpenHousePhoneBackfillService {
     if (primary !== null) return false;
     const secondary = await tx.contactPhone.findUnique({
       where: { tenantId_phoneHash: { tenantId, phoneHash } },
-      select: { id: true },
+      select: { id: true, contactId: true },
     });
-    if (secondary !== null) return false;
+    if (secondary !== null && secondary.contactId !== visitor.id) return false;
     const { count } = await tx.contact.updateMany({
       where: { id: visitor.id, tenantId, phoneHash: visitor.phoneHash },
       data: { phoneHash, phoneEncrypted: this.crypto.encrypt(phone) },
     });
+    /* ‏המספר האחיד היה טלפון נוסף של המבקר עצמו — עכשיו הוא הראשי, והנוסף מיותר */
+    if (count === 1 && secondary !== null) await tx.contactPhone.deleteMany({ where: { id: secondary.id, tenantId } });
     return count === 1;
   }
 }
