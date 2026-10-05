@@ -329,13 +329,26 @@ export function PlatformSettingsSection({
   const checksButton =
     settings?.whatsapp.assistant.notifyTemplateButton === true && (settings.whatsapp.assistant.notifyTemplate ?? "") !== "";
   useEffect(() => {
+    /*
+     * ‏פסק של הגדרות קודמות אינו מוצג: נמחק כשהבדיקה כבר לא חלה, ותשובה
+     * ‏איטית של בקשה ישנה אינה דורסת את החדשה (ביקורת Codex).
+     */
+    setButtonCheck(null);
     if (!checksButton) return;
+    let current = true;
     void apiPost<{ ok: boolean | null; message: string; registered?: string }>(
       "/platform/settings/check-whatsapp-template",
       {},
     )
-      .then(setButtonCheck)
-      .catch(() => setButtonCheck({ ok: null, message: "הבדיקה מול Meta לא הושלמה" }));
+      .then((verdict) => {
+        if (current) setButtonCheck(verdict);
+      })
+      .catch(() => {
+        if (current) setButtonCheck({ ok: null, message: "הבדיקה מול Meta לא הושלמה" });
+      });
+    return () => {
+      current = false;
+    };
     /*
      * ‏`settings` ולא רק הדגל: כל שמירה טוענת אותו מחדש, ותבנית, שפה או
      * ‏פרטי חיבור שהשתנו חייבים פסק חדש ולא את זה של ההגדרות הקודמות.
