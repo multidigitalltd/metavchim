@@ -54,11 +54,9 @@ import {
   type AutomationSpec,
   normalizePhone,
   OptionalPhoneInputSchema,
-  WHATSAPP_CONNECTION_LIVE_STATUSES,
 } from "@metavchim/shared";
 import { loadEnv } from "../../config/env";
 import {
-  emailDomainStatus,
   onboardingSteps,
   whatsappPairingLink,
   type OnboardingProgress,
@@ -86,7 +84,7 @@ import { AuditService } from "../../core/audit.service";
 import { CardcomService } from "../../core/cardcom.service";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PlatformSettingsService } from "../../core/platform-settings.service";
-import { EmailDomainProviderService } from "../../core/email-domain-provider.service";
+import { OnboardingFactsService } from "../../core/onboarding-facts.service";
 import { PrismaService } from "../../core/prisma.service";
 import {
   OfficeSettingsSchema,
@@ -298,7 +296,7 @@ export class SettingsController {
     private readonly platformSettings: PlatformSettingsService,
     private readonly whatsappLinks: WhatsAppLinkService,
     private readonly whatsappSender: WhatsAppSendService,
-    private readonly emailDomainProvider: EmailDomainProviderService,
+    private readonly onboardingFacts: OnboardingFactsService,
   ) {}
 
   /**
@@ -1870,83 +1868,7 @@ export class SettingsController {
   @AnyAuthenticated()
   @Get("onboarding")
   async onboarding(): Promise<OnboardingProgress> {
-    const tenantId = TenantContext.current().tenantId;
-    const env = loadEnv();
-
-    const tenant = await this.prisma.tenant.findUnique({
-      where: { id: tenantId },
-      select: { name: true, settings: true },
-    });
-    const settings = (tenant?.settings ?? {}) as Record<string, unknown>;
-    const filled = (key: string): boolean =>
-      typeof settings[key] === "string" &&
-      (settings[key] as string).trim() !== "";
-
-    const [
-      activeUsers,
-      properties,
-      buyers,
-      leadWebhooks,
-      emailDomain,
-      emailDomainAvailable,
-      whatsappLines,
-    ] =
-      await Promise.all([
-      this.prisma.user.count({ where: { tenantId, isActive: true } }),
-      this.prisma.withTenant((tx) =>
-        tx.property.count({ where: { tenantId, deletedAt: null } }),
-      ),
-      this.prisma.withTenant((tx) =>
-        tx.buyer.count({ where: { tenantId, deletedAt: null } }),
-      ),
-      this.prisma.leadWebhook.count({ where: { tenantId } }),
-      /*
-       * שני דגלי האימות, ולא עצם קיום השורה: דומיין שהוזן ורשומות
-       * ה-DNS שלו טרם עברו — השליחה ממנו עדיין נופלת לכתובת
-       * המערכת. ההכרעה עצמה ב-`emailDomainStatus` המשותפת, כדי
-       * שהמסך והצעד יסכימו על „מחובר”.
-       */
-      this.prisma.withTenant((tx) =>
-        tx.emailDomain.findUnique({
-          where: { tenantId },
-          select: { dkimVerified: true, returnPathVerified: true },
-        }),
-      ),
-      /*
-       * בלי טוקן חשבון אצל הספק נתיב החיבור דוחה את הבקשה במפורש,
-       * ולכן הצעד כולו נשמט. הצגתו הייתה מפנה את המשרד למסך שאומר
-       * „הפיצ'ר אינו מופעל” (ביקורת Codex).
-       */
-      this.emailDomainProvider.isConfigured(),
-      /*
-       * קו וואטסאפ ביזנס שחובר בפועל — ולא שדה שהוקלד. „ההיסטוריה
-       * מסתנכרנת” ו„דרוש אמצעי תשלום” הם קו שכבר חובר; רק „מנותק”
-       * ו„החיבור לא הושלם” אינם.
-       */
-      this.prisma.withTenant((tx) =>
-        tx.whatsAppBusinessConnection.count({
-          where: { tenantId, status: { in: [...WHATSAPP_CONNECTION_LIVE_STATUSES] } },
-        }),
-      ),
-    ]);
-
-    return onboardingSteps({
-      // מספר הרישיון הוא פרט חובה בהזמנה בכתב — בלעדיו ההסכמים פגומים
-      officeProfileComplete:
-        (tenant?.name ?? "").trim() !== "" &&
-        filled("licenseNumber") &&
-        filled("officePhone"),
-      activeUsers,
-      properties,
-      buyers,
-      leadWebhookConfigured: leadWebhooks > 0,
-      whatsappConfigured: whatsappLines > 0,
-      emailDomainAvailable,
-      emailDomainVerified:
-        emailDomain !== null && emailDomainStatus(emailDomain) === "verified",
-      transcriptionAvailable:
-        env.STT_URL !== undefined && env.STT_SECRET !== undefined,
-    });
+    return onboardingSteps(await this.onboardingFacts.facts(TenantContext.current().tenantId));
   }
 
   /* ==================== גישת תמיכה בהסכמה ==================== */

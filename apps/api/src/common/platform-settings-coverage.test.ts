@@ -62,6 +62,11 @@ const WRITE_EXEMPT: Record<string, string> = {
    * שהוא מתקן — ולא בשדה גולמי במסך הפלטפורמה.
    */
   taxTables: "נכתב דרך PATCH platform/tax-tables מתוך המחשבונים (מנהל הפלטפורמה בלבד)",
+  /*
+   * ‏המפסק הראשי של מסלול ההמרה — מתג עם אישור מפורש במסך נוסחי
+   * ‏ההמרה, ולא שדה בטופס ההגדרות: הדלקתו מתחילה דיוור למשרדים.
+   */
+  funnelSending: "נכתב דרך PATCH platform/funnel-sending מהמתג במסך נוסחי ההמרה",
 };
 
 const WEB_PLATFORM_DIR = join(

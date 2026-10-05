@@ -12,6 +12,7 @@ import {
   type FunnelClock,
   type FunnelStageDef,
   type FunnelTrack,
+  funnelStageEnableBlock,
   unknownFunnelPlaceholders,
 } from "@metavchim/shared";
 import { PrismaService } from "../../core/prisma.service";
@@ -63,6 +64,8 @@ export interface FunnelStageCopy {
   whatsappTemplate: string;
   /** ‏מצייני מקום שאיש אינו מחליף — ריק פירושו שהנוסח בטוח מבחינתם. */
   unknownPlaceholders: string[];
+  /** ‏למה אי אפשר להדליק אותו — `null` כשאפשר. ראו `funnelStageEnableBlock`. */
+  enableBlock: string | null;
 }
 
 /** ‏מה שמותר לשנות: תוכן. לא תזמון, לא קהל, ולא הדלקה. */
@@ -282,6 +285,20 @@ export class FunnelStageService {
   }
 
   /**
+   * ‎**הדלקה וכיבוי של שלב — החלטה נפרדת מעריכת הנוסח.**
+   *
+   * ‏הדלקה נבדקת מול `funnelStageEnableBlock`: שלב שהמייל שלו ריק,
+   * ‏שיש בו מציין מקום שלא יוחלף, או שכבר מכוסה בתזכורות ההפעלה — נדחה
+   * ‏כאן, גם אם המסך נעקף. כיבוי תמיד מותר.
+   */
+  async setEnabled(id: string, enabled: boolean): Promise<void> {
+    const copy = await this.copy(id);
+    if (copy === null) throw new NotFoundException("השלב לא נמצא");
+    if (enabled && copy.enableBlock !== null) throw new BadRequestException(copy.enableBlock);
+    await this.prisma.funnelStage.update({ where: { id }, data: { enabled } });
+  }
+
+  /**
    * ‎**עדכון נוסח — ותוכן בלבד.**
    *
    * ‏מה שלא ניתן לשנות כאן, ובכוונה: `enabled`, התזמון והקהל.
@@ -326,6 +343,7 @@ function isOneOf<T extends string>(values: readonly T[], value: string): value i
 const COPY_SELECT = {
   id: true,
   track: true,
+  clock: true,
   key: true,
   title: true,
   enabled: true,
@@ -340,6 +358,7 @@ const COPY_SELECT = {
 function copyOf(row: {
   id: string;
   track: string;
+  clock: string;
   key: string;
   title: string;
   enabled: boolean;
@@ -350,7 +369,7 @@ function copyOf(row: {
   ctaPath: string | null;
   whatsappTemplate: string | null;
 }): FunnelStageCopy {
-  return {
+  const copy = {
     id: row.id,
     track: row.track,
     key: row.key,
@@ -373,4 +392,5 @@ function copyOf(row: {
         .join("\n"),
     ),
   };
+  return { ...copy, enableBlock: funnelStageEnableBlock({ ...copy, clock: row.clock }) };
 }

@@ -266,7 +266,7 @@ export class ActivationNudgeService {
     const claimed = await this.claim(tenant.id, stage, now);
     if (!claimed) return false;
 
-    const owners = await this.owners(tenant.id);
+    const owners = await this.recipients(tenant.id);
     if (owners.length === 0) {
       // אין למי לשלוח כרגע — משחררים כדי שבעלים שיופעל בתוך החלון עוד יקבל
       await this.release(tenant.id, stage);
@@ -371,8 +371,12 @@ export class ActivationNudgeService {
    *
    * ‎**מי שהסיר את עצמו אינו ברשימה.** זו כל המשמעות של „הסרה”, והיא
    * נבדקת כאן ולא בתצוגה: בדיקה שיושבת אחרי השליחה אינה הסרה.
+   *
+   * ‏ציבורי כי גם מסלול ההמרה שולח לאותם נמענים ובאותה הסרה: שניהם
+   * ‏„הודעות על הפעלת החשבון”, ומי שביקש להפסיק אחת מהן לא ביקש לקבל
+   * ‏את השנייה.
    */
-  private async owners(
+  async recipients(
     tenantId: string,
   ): Promise<{ id: string; name: string; email: string; token: string }[]> {
     return this.prisma.withExplicitTenant(tenantId, async (tx) => {

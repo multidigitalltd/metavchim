@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { BadRequestException, NotFoundException } from "@nestjs/common";
 import { TenantContext } from "../../common/tenant-context";
 import type { EmailService } from "../../core/email.service";
+import type { PlatformSettingsService } from "../../core/platform-settings.service";
 import type { PrismaService } from "../../core/prisma.service";
 import type { FunnelStageCopy, FunnelStageService } from "../funnel/funnel-stage.service";
 import { FunnelCopyController } from "./funnel-copy.controller";
@@ -36,6 +37,7 @@ const STAGE: FunnelStageCopy = {
   ctaPath: "/properties/new",
   whatsappTemplate: "",
   unknownPlaceholders: [],
+  enableBlock: null,
 };
 
 function setup(stage: FunnelStageCopy | null = STAGE) {
@@ -47,6 +49,7 @@ function setup(stage: FunnelStageCopy | null = STAGE) {
     { copy: vi.fn(() => Promise.resolve(stage)) } as unknown as FunnelStageService,
     { user: { findUnique } } as unknown as PrismaService,
     { send, isConfigured: vi.fn(() => Promise.resolve(true)) } as unknown as EmailService,
+    {} as PlatformSettingsService,
   );
   const run = <T>(fn: () => Promise<T>): Promise<T> =>
     TenantContext.run(
