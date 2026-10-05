@@ -38,8 +38,12 @@ describe("taskMatchesPhrase", () => {
     expect(taskMatchesPhrase("דוד", { title: "לשלוח את החוזה" })).toBe(false);
   });
 
-  it("ביטוי ריק או מילות קישור בלבד — אינו מתאים לכל המשימות", () => {
+  it("ביטוי ריק — אינו מתאים לאף משימה", () => {
     expect(taskMatchesPhrase("", QUIET)).toBe(false);
+  });
+
+  it("משימה שכל כותרתה מילת קישור — נמצאת בשמה, ולא כל משימה אחרת", () => {
+    expect(taskMatchesPhrase("תזכורת", { title: "תזכורת" })).toBe(true);
     expect(taskMatchesPhrase("את המשימה", QUIET)).toBe(false);
   });
 });

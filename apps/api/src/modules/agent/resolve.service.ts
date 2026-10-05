@@ -1566,11 +1566,17 @@ export function taskMatchesPhrase(
   task: { title: string; entityLabel?: string },
 ): boolean {
   const haystack = `${task.title} ${task.entityLabel ?? ""}`.toLowerCase();
-  const words = phrase
+  const said = phrase
     .toLowerCase()
     .replace(/[^\p{L}\p{N}\s]/gu, " ")
     .split(/\s+/u)
-    .filter((word) => word !== "" && !TASK_FILLER.has(word));
+    .filter((word) => word !== "");
+  /*
+   * ‏מילות הקישור יורדות רק כשנשאר משהו אחריהן: משימה שכל כותרתה
+   * ‏„תזכורת” נקראת בשמה, ולא נעלמת (ביקורת Codex).
+   */
+  const meaningful = said.filter((word) => !TASK_FILLER.has(word));
+  const words = meaningful.length > 0 ? meaningful : said;
   return words.length > 0 && words.every((word) => haystack.includes(word));
 }
 
