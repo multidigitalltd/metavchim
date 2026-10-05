@@ -351,8 +351,18 @@ export class MarketService {
 
   /** כמה עסקאות במאגר. הערכה מ-`pg_class` כשהטבלה גדולה — ספירה מלאה עולה שנייה. */
   async localDealCount(): Promise<number> {
+    /*
+     * ‎**הגדול מבין `n_live_tup` ו-`reltuples`.** ‏`reltuples` מתעדכן רק
+     * ב-ANALYZE, ובטבלה שרק מתווספות לה שורות זה קורה אחרי עוד כ-10% —
+     * בקליטה של מיליון עסקאות המספר במסך עמד שעה שלמה במקום, ונראה כמו
+     * קליטה שנתקעה. ‏`n_live_tup` מתעדכן עם כל טרנזקציה, אבל מתאפס אחרי
+     * קריסה של Postgres; אז `reltuples` נשאר הרצפה, ואין חזרה לספירה
+     * מלאה בכל בקשה (ביקורת Codex).
+     */
     const [estimate] = await this.prisma.$queryRaw<{ n: number }[]>`
-      SELECT reltuples::float8 AS n FROM pg_class WHERE relname = 'market_deals'`;
+      SELECT GREATEST(COALESCE(s.n_live_tup, 0)::float8, c.reltuples::float8) AS n
+      FROM pg_class c LEFT JOIN pg_stat_user_tables s ON s.relid = c.oid
+      WHERE c.relname = 'market_deals'`;
     if (estimate && estimate.n > 200_000) return Math.round(estimate.n);
     return this.prisma.marketDeal.count();
   }
