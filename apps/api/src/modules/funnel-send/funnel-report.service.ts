@@ -41,6 +41,33 @@ export async function advanceLastSentAt(
 }
 
 /**
+ * ‎**הוכחה מבחוץ שההודעה יצאה** — אישור מהספק, פתיחה או לחיצה.
+ *
+ * ‏שליחה שנגמרה בכישלון עמום (פסק זמן, 5xx) נרשמה `failed` בלי `sentAt`,
+ * ‏והספק בכל זאת מסר. בלי זה היא הייתה גם „נמסרה” או „נלחצה” וגם
+ * ‏„נכשלה”, לא נספרת בהיסטוריית השלבים, ונשלחת שוב (ביקורת Codex). כאן:
+ * ‏`sentAt` מתמלא, המרווח של הרישום מתקדם, ו„נכשלה” או „בתור” הופכות
+ * ‏ל„נשלחה” — הכול באותה טרנזקציה של הקורא.
+ */
+export async function confirmMessageOut(tx: TenantTx, messageId: string, at: Date): Promise<void> {
+  const unrecorded = await tx.funnelMessage.findFirst({
+    where: { id: messageId, channel: "email", sentAt: null },
+    select: { enrollmentId: true },
+  });
+  if (unrecorded !== null) {
+    await tx.funnelMessage.updateMany({
+      where: { id: messageId, sentAt: null },
+      data: { sentAt: at },
+    });
+    await advanceLastSentAt(tx, unrecorded.enrollmentId, at);
+  }
+  await tx.funnelMessage.updateMany({
+    where: { id: messageId, channel: "email", status: { in: ["failed", "queued"] } },
+    data: { status: "sent", error: null },
+  });
+}
+
+/**
  * ‎**מה קרה להודעות המסלול — המסירה מהספק, והמדדים למסך.**
  *
  * ‏כל הקריאות חוצות-דיירים („כמה נפתחו בשלב 3”), ולכן תחת
@@ -61,28 +88,7 @@ export class FunnelReportService {
     event: { kind: "delivered" | "bounced"; at: Date; detail?: string },
   ): Promise<void> {
     await this.prisma.withFunnelAdmin(async (tx) => {
-      /*
-       * ‎**אישור מהספק הוא הוכחה שההודעה יצאה** (ביקורת Codex). שליחה
-       * ‏שנגמרה בכישלון עמום (פסק זמן, 5xx) נרשמה `failed` בלי `sentAt`,
-       * ‏והספק בכל זאת מסר. בלי התיקון כאן היא הייתה גם „נמסרה” וגם
-       * ‏„נכשלה”, ולא הייתה נספרת בהיסטוריית השלבים — והשלב היה נשלח שוב.
-       */
-      const unrecorded = await tx.funnelMessage.findFirst({
-        where: { id: messageId, channel: "email", sentAt: null },
-        select: { enrollmentId: true },
-      });
-      if (unrecorded !== null) {
-        await tx.funnelMessage.updateMany({
-          where: { id: messageId, sentAt: null },
-          data: { sentAt: event.at },
-        });
-        /*
-         * ‏וגם הרישום: המרווח המזערי עד ההודעה הבאה נמדד מ-`lastSentAt`,
-         * ‏ושליחה שאצלנו נרשמה ככושלת לא עדכנה אותו — השלב הבא, אולי
-         * ‏בשעון השני, היה יוצא בלי 20 השעות (ביקורת Codex).
-         */
-        await advanceLastSentAt(tx, unrecorded.enrollmentId, event.at);
-      }
+      await confirmMessageOut(tx, messageId, event.at);
       if (event.kind === "bounced") {
         await tx.funnelMessage.updateMany({
           where: { id: messageId, channel: "email", deliveredAt: null },

@@ -5,6 +5,7 @@ import { PublicTokenSchema } from "../../common/zod-validation.pipe";
 import { Public } from "../../common/auth.decorators";
 import { loadEnv } from "../../config/env";
 import { PrismaService } from "../../core/prisma.service";
+import { confirmMessageOut } from "./funnel-report.service";
 
 /** ‏GIF שקוף בגודל נקודה — התשובה לפיקסל הפתיחה, תמיד. */
 const PIXEL = Buffer.from("R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7", "base64");
@@ -36,12 +37,20 @@ export class FunnelTrackingController {
   async open(@Param("token") token: string, @Res() res: Response): Promise<void> {
     if (PublicTokenSchema.safeParse(token).success) {
       try {
-        await this.prisma.withFunnelAdmin((tx) =>
-          tx.funnelMessage.updateMany({
-            where: { token, openedAt: null },
-            data: { openedAt: new Date() },
-          }),
-        );
+        const now = new Date();
+        await this.prisma.withFunnelAdmin(async (tx) => {
+          const message = await tx.funnelMessage.findUnique({
+            where: { token },
+            select: { id: true },
+          });
+          if (message === null) return;
+          await tx.funnelMessage.updateMany({
+            where: { id: message.id, openedAt: null },
+            data: { openedAt: now },
+          });
+          // ‏נפתחה — כלומר הגיעה, גם אם השליחה נרשמה אצלנו ככושלת
+          await confirmMessageOut(tx, message.id, now);
+        });
       } catch (error: unknown) {
         this.logger.warn(`רישום פתיחה נכשל: ${String(error)}`);
       }
@@ -85,6 +94,8 @@ export class FunnelTrackingController {
           data: { clickedAt: now, ...(message.openedAt === null ? { openedAt: now } : {}) },
         });
       }
+      // ‏נלחצה — כלומר הגיעה, גם אם השליחה נרשמה אצלנו ככושלת
+      await confirmMessageOut(tx, message.id, now);
       const stage = await tx.funnelStage.findUnique({
         where: { track_key: { track: message.track, key: message.stageKey } },
         select: { ctaPath: true },

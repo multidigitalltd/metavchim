@@ -691,3 +691,69 @@ describe("מסלול ההמרה — תקרה, תשלום באמצע הסבב ו�
     expect(end).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("מסלול ההמרה — הוכחה מהנמען, ותפיסה לפני שליחה", () => {
+  const SECOND = "01M1FNNLSENDOWNER000000005";
+
+  it("לחיצה על הודעה שנרשמה ככושלת — היא נשלחה, והשלב אינו נשלח שוב", async () => {
+    send.mockImplementation(() => Promise.reject(new Error("פסק זמן")));
+    try {
+      await service().run(MONDAY_10);
+    } finally {
+      send.mockImplementation(() => Promise.resolve());
+    }
+    const [row] = await messages();
+    expect(row!.status).toBe("failed");
+    await new FunnelTrackingController(prisma).click(row!.token, {
+      redirect: vi.fn(),
+    } as unknown as Response);
+    const [after] = await messages();
+    expect(after!.status).toBe("sent");
+    expect(await lastSentAt()).not.toBeNull();
+    send.mockClear();
+    await service().run(new Date(MONDAY_10.getTime() + HOUR));
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it("פתיחה (הפיקסל) — אותה הוכחה", async () => {
+    send.mockImplementation(() => Promise.reject(new Error("פסק זמן")));
+    try {
+      await service().run(MONDAY_10);
+    } finally {
+      send.mockImplementation(() => Promise.resolve());
+    }
+    const [row] = await messages();
+    await new FunnelTrackingController(prisma).open(row!.token, {
+      setHeader: vi.fn(),
+      end: vi.fn(),
+    } as unknown as Response);
+    expect((await messages())[0]!.status).toBe("sent");
+  });
+
+  it("כל הנמענים נתפסים לפני שהראשון מקבל — נפילה באמצע אינה משאירה נמען בלי שורה", async () => {
+    await direct.$executeRawUnsafe(
+      `INSERT INTO users (id, tenant_id, name, email, role, is_active, created_at, updated_at)
+       VALUES ($1, $2, 'יוסי לוי', 'yossi5.funnel@example.test', 'owner', true, now(), now() + interval '1 second')`,
+      SECOND,
+      TENANT,
+    );
+    const rowsAtFirstSend: number[] = [];
+    send.mockImplementation(async () => {
+      const rows = await direct.$queryRawUnsafe<{ n: bigint }[]>(
+        `SELECT count(*) AS n FROM funnel_messages WHERE tenant_id = $1`,
+        TENANT,
+      );
+      rowsAtFirstSend.push(Number(rows[0]!.n));
+    });
+    try {
+      await service().run(MONDAY_10);
+      expect(send).toHaveBeenCalledTimes(2);
+      expect(rowsAtFirstSend[0]).toBe(2);
+    } finally {
+      send.mockImplementation(() => Promise.resolve());
+      await direct.$executeRawUnsafe(`DELETE FROM funnel_messages WHERE user_id = $1`, SECOND);
+      await direct.$executeRawUnsafe(`DELETE FROM activation_nudge_optouts WHERE user_id = $1`, SECOND);
+      await direct.$executeRawUnsafe(`DELETE FROM users WHERE id = $1`, SECOND);
+    }
+  });
+});

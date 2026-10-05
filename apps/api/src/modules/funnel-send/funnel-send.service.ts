@@ -352,12 +352,22 @@ export class FunnelSendService {
   ): Promise<Reach> {
     const origin = loadEnv().WEB_ORIGIN;
     const tracked = `${origin}/api/v1/public/funnel`;
-    let attempted = false;
-    let delivered = 0;
+    /*
+     * ‎**כל הנמענים נתפסים לפני השליחה הראשונה** (ביקורת Codex, P1).
+     * ‏שליחה לבעלים הראשון הופכת את השלב ל„נשלח” ברמת הרישום; נפילה
+     * ‏לפני שלשני הייתה שורה הייתה משאירה אותו בלי הודעה ובלי שורה
+     * ‏שהניסיון החוזר יכול למצוא. שורה שנתפסה ולא נשלחה חוזרת לתור
+     * ‏(`releaseStaleClaims`).
+     */
+    const claimed: { owner: (typeof recipients)[number]; message: { id: string; token: string } }[] =
+      [];
     for (const owner of recipients) {
       const message = await this.claim(enrollment, stage.key, owner);
-      if (message === null) continue;
-      attempted = true;
+      if (message !== null) claimed.push({ owner, message });
+    }
+    const attempted = claimed.length > 0;
+    let delivered = 0;
+    for (const { owner, message } of claimed) {
       const email = funnelEmail(
         copy,
         { שם_פרטי: firstNameOf(owner.name), שם_המשרד: tenantName },
