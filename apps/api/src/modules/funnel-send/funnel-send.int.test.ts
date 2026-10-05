@@ -11,6 +11,7 @@ import { prismaAdapter } from "../../core/prisma-adapter";
 import { PrismaService } from "../../core/prisma.service";
 import { FunnelEnrollmentService } from "../funnel/funnel-enrollment.service";
 import { FunnelStageService } from "../funnel/funnel-stage.service";
+import type { SupportInboxService } from "../support/support-inbox.service";
 import { FunnelReportService } from "./funnel-report.service";
 import { FunnelSendService } from "./funnel-send.service";
 import { FunnelTrackingController } from "./funnel-tracking.controller";
@@ -41,6 +42,8 @@ const MONDAY_10 = new Date("2026-10-05T07:00:00Z");
 /** ‏שבת 10.10.2026 באותה שעה — מחוץ לשעות השליחה */
 const SATURDAY_10 = new Date("2026-10-10T07:00:00Z");
 const HOUR = 60 * 60 * 1000;
+/** ‏כתובת הקליטה של תיבת התמיכה — לשם חוזרות תשובות למיילי המסלול */
+const SUPPORT_INBOX = "support-inbox@inbound.example.test";
 const DAY = 24 * HOUR;
 
 let direct: PrismaClient;
@@ -48,8 +51,14 @@ let prisma: PrismaService;
 let sendSwitch = "true";
 const send = vi.fn((..._args: unknown[]) => Promise.resolve());
 
-/** ‏`afterSweep` — מה שקורה בין הכניסה והסגירה לבין השליחה (תשלום, למשל). */
-function service(afterSweep?: () => Promise<void>): FunnelSendService {
+/**
+ * ‎`afterSweep` — מה שקורה בין הכניסה והסגירה לבין השליחה (תשלום, למשל);
+ * ‎`recipientsOf` — תחליף לשליפת הנמענים, כשהבדיקה צריכה שהיא תיכשל.
+ */
+function service(
+  afterSweep?: () => Promise<void>,
+  recipientsOf?: ActivationNudgeService,
+): FunnelSendService {
   const stages = new FunnelStageService(prisma);
   const enrollment = new FunnelEnrollmentService(prisma, stages);
   if (afterSweep !== undefined) {
@@ -66,15 +75,19 @@ function service(afterSweep?: () => Promise<void>): FunnelSendService {
     stages,
     { send } as unknown as EmailService,
     { get: () => Promise.resolve(sendSwitch) } as unknown as PlatformSettingsService,
-    new ActivationNudgeService(
-      prisma,
-      {} as EmailService,
-      {} as PlanCatalogService,
-      {} as PlatformSettingsService,
-    ),
+    recipientsOf ??
+      new ActivationNudgeService(
+        prisma,
+        {} as EmailService,
+        {} as PlanCatalogService,
+        {} as PlatformSettingsService,
+      ),
     new OnboardingFactsService(prisma, {
       isConfigured: () => Promise.resolve(false),
     } as unknown as EmailDomainProviderService),
+    {
+      outgoing: () => Promise.resolve({ sender: null, replyTo: SUPPORT_INBOX }),
+    } as unknown as SupportInboxService,
   );
 }
 
@@ -176,6 +189,8 @@ describe("מסלול ההמרה — השליחה", () => {
     expect(row).toMatchObject({ status: "sent", channel: "email" });
     expect(row!.token).toMatch(/^[A-Za-z0-9_-]{43}$/u);
     expect(content.pixel).toBe(`https://app.example.test/api/v1/public/funnel/o/${row!.token}`);
+    // ‏„תענו למייל הזה” מגיע לתמיכה, לא לכתובת השולח הכללית
+    expect(send.mock.calls[0]![3]).toMatchObject({ replyTo: SUPPORT_INBOX });
 
     // ‏סבב נוסף באותה שעה: השלב כבר נשלח, והמרווח המזערי עוד לא עבר
     const second = await service().run(new Date(MONDAY_10.getTime() + HOUR));
@@ -663,6 +678,34 @@ describe("מסלול ההמרה — תקרה, תשלום באמצע הסבב ו�
       await direct.$executeRawUnsafe(`DELETE FROM funnel_messages WHERE tenant_id = $1`, OTHER);
       await direct.$executeRawUnsafe(`DELETE FROM funnel_enrollments WHERE tenant_id = $1`, OTHER);
       await direct.$executeRawUnsafe(`DELETE FROM activation_nudge_optouts WHERE tenant_id = $1`, OTHER);
+      await direct.$executeRawUnsafe(`DELETE FROM users WHERE id = $1`, OTHER_OWNER);
+      await direct.$executeRawUnsafe(`DELETE FROM tenants WHERE id = $1`, OTHER);
+    }
+  });
+
+  it("משרד שהטיפול בו נזרק — נספר בתקרה, כי ייתכן שהמייל כבר יצא", async () => {
+    await direct.$executeRawUnsafe(
+      `INSERT INTO tenants (id, name, plan, status, trial_ends_at, created_at, updated_at)
+       VALUES ($1, 'תיווך הגליל', 'basic', 'trial', $2, $3, now())`,
+      OTHER,
+      new Date(MONDAY_10.getTime() + 14 * DAY),
+      new Date(MONDAY_10.getTime() - HOUR),
+    );
+    await direct.$executeRawUnsafe(
+      `INSERT INTO users (id, tenant_id, name, email, role, is_active, created_at, updated_at)
+       VALUES ($1, $2, 'רון אבי', 'ron.funnel@example.test', 'owner', true, now(), now())`,
+      OTHER_OWNER,
+      OTHER,
+    );
+    const recipients = vi.fn(() => Promise.reject(new Error("המסד לא זמין")));
+    try {
+      await service(undefined, {
+        recipients,
+        allOptedOut: () => Promise.resolve(false),
+      } as unknown as ActivationNudgeService).run(MONDAY_10, { maxTenants: 1 });
+      expect(recipients).toHaveBeenCalledTimes(1);
+    } finally {
+      await direct.$executeRawUnsafe(`DELETE FROM funnel_enrollments WHERE tenant_id = $1`, OTHER);
       await direct.$executeRawUnsafe(`DELETE FROM users WHERE id = $1`, OTHER_OWNER);
       await direct.$executeRawUnsafe(`DELETE FROM tenants WHERE id = $1`, OTHER);
     }

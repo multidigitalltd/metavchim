@@ -1,5 +1,6 @@
 import { Module } from "@nestjs/common";
 import { FunnelModule } from "../funnel/funnel.module";
+import { SupportModule } from "../support/support.module";
 import { FunnelReportService } from "./funnel-report.service";
 import { FunnelSendService } from "./funnel-send.service";
 import { FunnelTrackingController } from "./funnel-tracking.controller";
@@ -12,7 +13,8 @@ import { FunnelTrackingController } from "./funnel-tracking.controller";
  * ‏מה ששולח יושב כאן, מאחורי המפסק הראשי.
  */
 @Module({
-  imports: [FunnelModule],
+  // ‏התמיכה — לכתובת שאליה חוזרות תשובות למיילי המסלול
+  imports: [FunnelModule, SupportModule],
   providers: [FunnelSendService, FunnelReportService],
   controllers: [FunnelTrackingController],
   exports: [FunnelSendService, FunnelReportService],

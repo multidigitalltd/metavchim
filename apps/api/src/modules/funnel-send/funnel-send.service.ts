@@ -22,6 +22,7 @@ import { OnboardingFactsService } from "../../core/onboarding-facts.service";
 import { PlatformSettingsService } from "../../core/platform-settings.service";
 import { PrismaService } from "../../core/prisma.service";
 import { Sweep } from "../../core/sweeps";
+import { SupportInboxService } from "../support/support-inbox.service";
 import {
   FunnelEnrollmentService,
   isTenantSubscribed,
@@ -114,6 +115,7 @@ export class FunnelSendService {
     private readonly settings: PlatformSettingsService,
     private readonly recipientsOf: ActivationNudgeService,
     private readonly onboarding: OnboardingFactsService,
+    private readonly support: SupportInboxService,
   ) {}
 
   @Sweep({ name: "funnel", everyMs: HOUR_MS, firstDelayMs: 5 * 60 * 1000 })
@@ -163,6 +165,16 @@ export class FunnelSendService {
     );
     /* ‏בלי תנאי קהל — לשאלה הזולה „יש בכלל שלב שהגיע זמנו?” */
     const unconditioned = live.map((stage) => ({ ...stage, audience: [] }));
+    /*
+     * ‎**תשובה למייל מגיעה לתמיכה** (ביקורת Codex). חלק מהנוסחים אומרים
+     * ‏„תענו למייל הזה, הוא מגיע לאדם” — ובלי `Reply-To` התשובה הייתה
+     * ‏נוחתת בכתובת השולח הכללית, שאיש אינו קורא. כתובת הקליטה של תיבת
+     * ‏התמיכה פותחת פנייה במסך התמיכה, כמו כל מייל שמגיע אליה.
+     */
+    const { replyTo } = await this.support.outgoing();
+    if (replyTo === null) {
+      this.logger.warn("תיבת התמיכה לא הוגדרה — תשובות למיילי המסלול לא יגיעו לאיש");
+    }
 
     let sent = 0;
     /*
@@ -317,7 +329,7 @@ export class FunnelSendService {
             for (const stage of partial) {
               const copy = copies.get(stage.key);
               if (copy === undefined) continue;
-              const one = await this.sendStage(row, tenant.name, stage, copy, now, recipients);
+              const one = await this.sendStage(row, tenant.name, stage, copy, now, recipients, replyTo);
               reach.attempted ||= one.attempted;
               reach.delivered ||= one.delivered;
             }
@@ -341,10 +353,16 @@ export class FunnelSendService {
           if (stage === null) continue;
           const copy = copies.get(stage.key);
           if (copy === undefined || !stage.channels.includes("email")) continue;
-          tally(await this.sendStage(row, tenant.name, stage, copy, now, recipients));
+          tally(await this.sendStage(row, tenant.name, stage, copy, now, recipients, replyTo));
         } catch (error: unknown) {
           // ‏משרד אחד שנכשל אינו עוצר את השאר — זו סריקה, לא עסקה
           this.logger.warn(`מסלול ההמרה למשרד ${row.tenantId} נכשל: ${String(error)}`);
+          /*
+           * ‏ונספר בתקרה (ביקורת Codex, P1): ייתכן שהמייל כבר יצא והכרעתו
+           * ‏היא שנכשלה. תקלה חוזרת במסד הייתה אחרת שולחת לכל הרישומים
+           * ‏בלי לעצור — עדיף לעצור מוקדם מדי.
+           */
+          touched += 1;
         }
       }
       if (page.length < PAGE) break;
@@ -363,6 +381,7 @@ export class FunnelSendService {
     copy: FunnelStageCopy,
     now: Date,
     recipients: Awaited<ReturnType<ActivationNudgeService["recipients"]>>,
+    replyTo: string | null,
   ): Promise<Reach> {
     const origin = loadEnv().WEB_ORIGIN;
     const tracked = `${origin}/api/v1/public/funnel`;
@@ -399,6 +418,7 @@ export class FunnelSendService {
           // ‏מזהה השורה: ניסיון חוזר אחרי כישלון עמום הוא אותה שליחה
           idempotency: { key: `funnel:${message.id}`, purpose: "funnel" },
           required: true,
+          ...(replyTo === null ? {} : { replyTo }),
         });
         outcome = { status: "sent", sentAt: now, error: null };
       } catch (error: unknown) {
