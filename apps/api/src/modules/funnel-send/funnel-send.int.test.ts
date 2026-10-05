@@ -711,6 +711,29 @@ describe("מסלול ההמרה — תקרה, תשלום באמצע הסבב ו�
     }
   });
 
+  it("משרד ששילם אחרי שהדף נשלף ולפני תורו — אינו מקבל את ההודעה", async () => {
+    const real = new ActivationNudgeService(
+      prisma,
+      {} as EmailService,
+      {} as PlanCatalogService,
+      {} as PlatformSettingsService,
+    );
+    // ‏התשלום נכנס ברגע שהסבב כבר מטפל במשרד — אחרי שהדף נשלף
+    const paying = {
+      recipients: async (tenantId: string) => {
+        await direct.$executeRawUnsafe(
+          `UPDATE tenants SET status = 'active', paid_until = $2 WHERE id = $1`,
+          TENANT,
+          new Date(MONDAY_10.getTime() + 30 * DAY),
+        );
+        return real.recipients(tenantId);
+      },
+      allOptedOut: (tenantId: string) => real.allOptedOut(tenantId),
+    } as unknown as ActivationNudgeService;
+    await service(undefined, paying).run(MONDAY_10);
+    expect(send).not.toHaveBeenCalled();
+  });
+
   it("משרד ששילם אחרי הסגירה של הסבב — אינו מקבל את ההודעה", async () => {
     await service(async () => {
       await direct.$executeRawUnsafe(

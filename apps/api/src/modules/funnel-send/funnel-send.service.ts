@@ -324,6 +324,7 @@ export class FunnelSendService {
               now.getTime() <= (funnelStageExpiresAt(stage, input.anchors)?.getTime() ?? 0),
           );
           if (partial.length > 0) {
+            if (await this.convertedNow(row.tenantId, now)) continue;
             // ‏ניסיון חוזר הוא משרד שנגענו בו — נספר בתקרה כמו כל אחר
             const reach: Reach = { attempted: false, delivered: false };
             for (const stage of partial) {
@@ -353,6 +354,7 @@ export class FunnelSendService {
           if (stage === null) continue;
           const copy = copies.get(stage.key);
           if (copy === undefined || !stage.channels.includes("email")) continue;
+          if (await this.convertedNow(row.tenantId, now)) continue;
           tally(await this.sendStage(row, tenant.name, stage, copy, now, recipients, replyTo));
         } catch (error: unknown) {
           // ‏משרד אחד שנכשל אינו עוצר את השאר — זו סריקה, לא עסקה
@@ -368,6 +370,32 @@ export class FunnelSendService {
       if (page.length < PAGE) break;
     }
     return sent;
+  }
+
+  /**
+   * ‎**שילם ממש עכשיו?** (ביקורת Codex) — קריאה טרייה רגע לפני השליחה.
+   *
+   * ‏הבדיקה שבראש הלולאה נשענת על שורות שנשלפו לדף שלם (עד 200
+   * ‏רישומים) לפני שהטיפול בו התחיל, וכל רישום קודם שולח ומחכה. משרד
+   * ‏ששילם בינתיים היה מקבל עוד מייל שיווקי. שתי קריאות קטנות, ורק
+   * ‏למשרד שבאמת עומד לקבל — לא לכל רישום. משרד שנעלם אינו מקבל.
+   */
+  private async convertedNow(tenantId: string, now: Date): Promise<boolean> {
+    const [tenant, card] = await Promise.all([
+      this.prisma.tenant.findUnique({
+        where: { id: tenantId },
+        select: { status: true, paidUntil: true },
+      }),
+      this.prisma.subscription.findUnique({
+        where: { tenantId },
+        select: { cardTokenEncrypted: true, cardMonth: true, cardYear: true },
+      }),
+    ]);
+    if (tenant === null) return true;
+    return hasFunnelConverted({
+      hasValidCard: hasValidCard(card, now),
+      subscribed: isTenantSubscribed(tenant),
+    });
   }
 
   /**

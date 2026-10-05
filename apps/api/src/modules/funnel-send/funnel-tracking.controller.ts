@@ -1,5 +1,5 @@
 import { Controller, Get, Logger, Param, Res } from "@nestjs/common";
-import { Throttle } from "@nestjs/throttler";
+import { SkipThrottle } from "@nestjs/throttler";
 import type { Response } from "express";
 import { PublicTokenSchema } from "../../common/zod-validation.pipe";
 import { Public } from "../../common/auth.decorators";
@@ -24,6 +24,12 @@ const PIXEL = Buffer.from("R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBR
  *
  * ‎**היעד של לחיצה נבנה מהשלב, לא מהבקשה** — המקור של המערכת ועוד
  * ‏הנתיב היחסי שנשמר בשלב. אין כאן פרמטר שאפשר להפוך להפניה החוצה.
+ *
+ * ‎**בלי תקרה לפי IP** (ביקורת Codex). Gmail טוען את הפיקסל דרך כמה
+ * ‏שרתי מתווך, וסורקי דואר ארגוניים פותחים קישורים מכתובת אחת — תקרה
+ * ‏משותפת הייתה מחזירה 429 לנמענים אמיתיים, כלומר כפתור שבור. אין כאן
+ * ‏מה לנחש (טוקן של 256 סיביות), וכל בקשה עולה לכל היותר קריאה אחת
+ * ‏באינדקס וכתיבה אחת בפעם הראשונה; טוקן פסול נדחה לפני המסד.
  */
 @Controller("public/funnel")
 export class FunnelTrackingController {
@@ -32,7 +38,7 @@ export class FunnelTrackingController {
   constructor(private readonly prisma: PrismaService) {}
 
   @Public()
-  @Throttle({ default: { ttl: 60_000, limit: 120 } })
+  @SkipThrottle()
   @Get("o/:token")
   async open(@Param("token") token: string, @Res() res: Response): Promise<void> {
     if (PublicTokenSchema.safeParse(token).success) {
@@ -61,7 +67,7 @@ export class FunnelTrackingController {
   }
 
   @Public()
-  @Throttle({ default: { ttl: 60_000, limit: 120 } })
+  @SkipThrottle()
   @Get("c/:token")
   async click(@Param("token") token: string, @Res() res: Response): Promise<void> {
     const origin = loadEnv().WEB_ORIGIN;
