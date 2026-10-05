@@ -40,11 +40,20 @@ const ROW: {
 
 function service(row: typeof ROW) {
   const update = vi.fn(() => Promise.resolve({}));
+  const updateMany = vi.fn(() => Promise.resolve({ count: 1 }));
   const prisma = {
-    funnelStage: { findUnique: vi.fn(() => Promise.resolve(row)), update },
+    funnelStage: { findUnique: vi.fn(() => Promise.resolve(row)), update, updateMany },
   } as unknown as PrismaService;
-  return { stages: new FunnelStageService(prisma), update };
+  return { stages: new FunnelStageService(prisma), update, updateMany };
 }
+
+const COPY = {
+  emailSubject: "נושא",
+  emailHeading: "",
+  emailBody: "גוף",
+  ctaLabel: "",
+  ctaPath: "",
+};
 
 describe("הדלקת שלב", () => {
   it("שלב תקין נדלק", async () => {
@@ -63,5 +72,21 @@ describe("הדלקת שלב", () => {
     const { stages, update } = service({ ...ROW, emailBody: null, enabled: true });
     await stages.setEnabled(ROW.id, false);
     expect(update).toHaveBeenCalledWith({ where: { id: ROW.id }, data: { enabled: false } });
+  });
+
+  it("שלב דלוק — מחיקת גוף המייל נדחית, ושינוי נוסח רגיל עובר", async () => {
+    const { stages, updateMany } = service({ ...ROW, enabled: true });
+    await expect(stages.updateCopy(ROW.id, { ...COPY, emailBody: " " })).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+    expect(updateMany).not.toHaveBeenCalled();
+    await stages.updateCopy(ROW.id, { ...COPY, emailBody: "גוף חדש" });
+    expect(updateMany).toHaveBeenCalledTimes(1);
+  });
+
+  it("שלב כבוי — אפשר לרוקן את הנוסח", async () => {
+    const { stages, updateMany } = service(ROW);
+    await stages.updateCopy(ROW.id, { ...COPY, emailBody: "" });
+    expect(updateMany).toHaveBeenCalledTimes(1);
   });
 });

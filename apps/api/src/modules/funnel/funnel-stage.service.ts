@@ -51,6 +51,8 @@ import { PrismaService } from "../../core/prisma.service";
 export interface FunnelStageCopy {
   id: string;
   track: string;
+  /** ‏השעון — לקריאה בלבד; חלק מההכרעה אם אפשר להדליק (`funnelStageEnableBlock`). */
+  clock: string;
   key: string;
   title: string;
   /** ‏לקריאה בלבד כאן — ההדלקה אינה חלק מטופס הנוסח. */
@@ -319,6 +321,25 @@ export class FunnelStageService {
         `מצייני מקום שאינם מוכרים ולא יוחלפו: ${unknown.map((name) => `{{${name}}}`).join(", ")}`,
       );
     }
+    /*
+     * ‎**שלב דלוק נשאר שליח** (ביקורת Codex). הבדיקה של ההדלקה רצה רק
+     * ‏במעבר לדלוק, ולכן מחיקת הנושא או הגוף של שלב שכבר דולק הייתה
+     * ‏הופכת כל שליחה שלו לכישלון. מה שחוסם הדלקה חוסם גם עריכה כזו —
+     * ‏מכבים קודם, ואז מוחקים.
+     */
+    const current = await this.copy(id);
+    if (current === null) throw new NotFoundException("השלב לא נמצא");
+    if (current.enabled) {
+      const block = funnelStageEnableBlock({
+        ...current,
+        emailSubject: input.emailSubject,
+        emailBody: input.emailBody,
+        unknownPlaceholders: unknown,
+      });
+      if (block !== null) {
+        throw new BadRequestException(`השלב דלוק — כבו אותו לפני השינוי הזה (${block})`);
+      }
+    }
     const updated = await this.prisma.funnelStage.updateMany({
       where: { id },
       data: {
@@ -372,6 +393,7 @@ function copyOf(row: {
   const copy = {
     id: row.id,
     track: row.track,
+    clock: row.clock,
     key: row.key,
     title: row.title,
     enabled: row.enabled,
@@ -392,5 +414,5 @@ function copyOf(row: {
         .join("\n"),
     ),
   };
-  return { ...copy, enableBlock: funnelStageEnableBlock({ ...copy, clock: row.clock }) };
+  return { ...copy, enableBlock: funnelStageEnableBlock(copy) };
 }

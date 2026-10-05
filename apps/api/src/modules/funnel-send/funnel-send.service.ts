@@ -179,7 +179,7 @@ export class FunnelSendService {
         this.prisma.withFunnelAdmin((tx) =>
           tx.funnelMessage.findMany({
             where: { enrollmentId: { in: page.map((row) => row.id) }, status: "failed" },
-            select: { enrollmentId: true, stageKey: true },
+            select: { enrollmentId: true, stageKey: true, userId: true },
           }),
         ),
       ]);
@@ -189,9 +189,9 @@ export class FunnelSendService {
       for (const r of sentRows) {
         sentKeys.set(r.enrollmentId, [...(sentKeys.get(r.enrollmentId) ?? []), r.stageKey]);
       }
-      const failedKeys = new Map<string, Set<string>>();
+      const failedByEnrollment = new Map<string, { stageKey: string; userId: string }[]>();
       for (const r of failedRows) {
-        failedKeys.set(r.enrollmentId, (failedKeys.get(r.enrollmentId) ?? new Set()).add(r.stageKey));
+        failedByEnrollment.set(r.enrollmentId, [...(failedByEnrollment.get(r.enrollmentId) ?? []), r]);
       }
 
       for (const row of page) {
@@ -223,23 +223,43 @@ export class FunnelSendService {
          * ‏היה ניסיון חוזר אינו מתקדם לשלב הבא — כך שאיש אינו מקבל
          * ‏שתי הודעות באותו יום.
          */
-        const partial = live.filter(
-          (stage) =>
-            failedKeys.get(row.id)?.has(stage.key) === true &&
-            input.sent.includes(stage.key) &&
-            now.getTime() <= (funnelStageExpiresAt(stage, input.anchors)?.getTime() ?? 0),
-        );
-        if (partial.length > 0) {
-          for (const stage of partial) {
-            const copy = copies.get(stage.key);
-            if (copy === undefined) continue;
-            try {
-              await this.sendStage(row, tenant.name, stage, copy, now);
-            } catch (error: unknown) {
-              this.logger.warn(`ניסיון חוזר למשרד ${row.tenantId} נכשל: ${String(error)}`);
-            }
+        const failed = failedByEnrollment.get(row.id) ?? [];
+        if (failed.length > 0) {
+          /*
+           * ‏רק שורות של מי שעדיין נמען — מי שהסיר את עצמו, הושבת או
+           * ‏הוסר אינו מקבל, ושורה ישנה שלו אינה עוצרת את המשרד מלהתקדם
+           * ‏(ביקורת Codex).
+           */
+          let current: Set<string>;
+          try {
+            current = new Set(
+              (await this.recipientsOf.recipients(row.tenantId)).map((owner) => owner.id),
+            );
+          } catch (error: unknown) {
+            this.logger.warn(`ניסיון חוזר למשרד ${row.tenantId} נכשל: ${String(error)}`);
+            continue;
           }
-          continue;
+          const partial = live.filter(
+            (stage) =>
+              failed.some((f) => f.stageKey === stage.key && current.has(f.userId)) &&
+              input.sent.includes(stage.key) &&
+              now.getTime() <= (funnelStageExpiresAt(stage, input.anchors)?.getTime() ?? 0),
+          );
+          if (partial.length > 0) {
+            let delivered = false;
+            for (const stage of partial) {
+              const copy = copies.get(stage.key);
+              if (copy === undefined) continue;
+              try {
+                if (await this.sendStage(row, tenant.name, stage, copy, now)) delivered = true;
+              } catch (error: unknown) {
+                this.logger.warn(`ניסיון חוזר למשרד ${row.tenantId} נכשל: ${String(error)}`);
+              }
+            }
+            // ‏ניסיון חוזר שהצליח הוא משרד שקיבל — נספר בתקרה כמו כל אחר
+            if (delivered) sent += 1;
+            continue;
+          }
         }
         const anyDue = nextFunnelStage({ ...input, stages: unconditioned, facts: ANY_FACTS });
         if (anyDue === null) continue;

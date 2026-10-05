@@ -28,6 +28,7 @@ for (const [key, value] of Object.entries({
 const STAGE: FunnelStageCopy = {
   id: "01STAGEAAAAAAAAAAAAAAAAAAA",
   track: "conversion",
+  clock: "funnel",
   key: "first_property",
   title: "נכס ראשון",
   enabled: false,

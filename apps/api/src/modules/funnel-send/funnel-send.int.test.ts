@@ -312,6 +312,37 @@ describe("מסלול ההמרה — תיקוני הביקורת", () => {
     }
   });
 
+  it("בעלים שנכשל ואז הושבת — אינו עוצר את המשרד מלהתקדם", async () => {
+    await direct.$executeRawUnsafe(
+      `INSERT INTO users (id, tenant_id, name, email, role, is_active, created_at, updated_at)
+       VALUES ($1, $2, 'יוסי לוי', 'yossi.funnel@example.test', 'owner', true, now(), now())`,
+      SECOND,
+      TENANT,
+    );
+    try {
+      send.mockImplementation((...args: unknown[]) =>
+        args[0] === "yossi.funnel@example.test"
+          ? Promise.reject(new Error("ספק לא זמין"))
+          : Promise.resolve(),
+      );
+      await service().run(MONDAY_10);
+      send.mockImplementation(() => Promise.resolve());
+      await direct.$executeRawUnsafe(`UPDATE users SET is_active = false WHERE id = $1`, SECOND);
+      // ‏שלב יום 1 דלוק גם הוא; יומיים אחרי, הבעלים הפעיל מקבל אותו
+      await direct.$executeRawUnsafe(
+        `UPDATE funnel_stages SET enabled = true WHERE track = 'conversion' AND key = 'd1_empty_screen'`,
+      );
+      send.mockClear();
+      await service().run(new Date(MONDAY_10.getTime() + DAY + HOUR));
+      expect(send).toHaveBeenCalledTimes(1);
+      expect(send.mock.calls[0]![0]).toBe("dana.funnel@example.test");
+    } finally {
+      send.mockImplementation(() => Promise.resolve());
+      await direct.$executeRawUnsafe(`DELETE FROM funnel_messages WHERE user_id = $1`, SECOND);
+      await direct.$executeRawUnsafe(`DELETE FROM users WHERE id = $1`, SECOND);
+    }
+  });
+
   it("כל הבעלים ביקשו להפסיק — הרישום נסגר כ„ביקש להפסיק” ונספר במדד", async () => {
     await direct.$executeRawUnsafe(
       `INSERT INTO activation_nudge_optouts (id, tenant_id, user_id, token, opted_out_at, created_at)
