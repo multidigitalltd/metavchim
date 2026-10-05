@@ -22,7 +22,7 @@
  * פתוח גם שם וטלפון, שבלעדיהם אין את מי לשייך.)
  */
 
-import { normalizePhone } from "./contact-people.js";
+import { normalizePhone, VALID_PHONE } from "./contact-people.js";
 import { SHARED_TABU_NETWORK_LABEL } from "./shared-tabu.js";
 
 /**
@@ -175,7 +175,7 @@ export function intakeSellerRejectionReason(
      */
     const phone = normalizePhone(answers.phone ?? "");
     if (phone === "") return "נא למלא מספר טלפון";
-    if (!/^\+972[2-9]\d{7,8}$/u.test(phone)) return "מספר הטלפון אינו תקין";
+    if (!VALID_PHONE.test(phone)) return "מספר הטלפון אינו תקין";
   }
 
   if (answers.dealType === undefined) return "נא לבחור מכירה או השכרה";

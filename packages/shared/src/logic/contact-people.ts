@@ -53,7 +53,25 @@ export function isPhoneLabel(value: string): value is PhoneLabel {
 }
 
 /**
- * נרמול טלפון ל-E.164 ישראלי.
+ * ‎**טלפון תקין אחרי נרמול — כלל אחד לכל המערכת.**
+ *
+ * ‏ישראלי: ‎+972‎ ואחריו 8–9 ספרות שמתחילות ב-2–9. מחו״ל (בקשת
+ * ‏המשתמש — קונים ומוכרים תושבי חוץ): ‎+‎ וקידומת מדינה אחרת, 7–15
+ * ‏ספרות בסך הכל (E.164).
+ *
+ * ‏מספר מחו״ל מגיע תמיד עם ‎+‎ או ‎00‎. רצף ספרות בלי קידומת הוא
+ * ‏ישראלי או פסול — לא מנחשים מדינה.
+ */
+export const VALID_PHONE = /^\+(?:972[2-9]\d{7,8}|(?!972)[1-9]\d{6,14})$/u;
+
+/** ‏הצורה המנורמלת כשהמספר תקין, אחרת `undefined` — לייבוא ולחיפוש. */
+export function normalizeValidPhone(raw: string): string | undefined {
+  const phone = normalizePhone(raw);
+  return VALID_PHONE.test(phone) ? phone : undefined;
+}
+
+/**
+ * נרמול טלפון ל-E.164 — ישראלי, או מחו״ל כשהגיע עם קידומת מדינה.
  *
  * ישב עד כה בשני עותקים זהים בשני בקרים שונים. עכשיו יש לו שימוש
  * שלישי (הוספת טלפון לאיש קשר), והעתק שלישי היה מבטיח שיום אחד אחד
@@ -64,8 +82,10 @@ export function isPhoneLabel(value: string): value is PhoneLabel {
  * כדי שקלט פגום ייפסל בהודעה ברורה ולא יהפוך בשקט למחרוזת אחרת.
  */
 export function normalizePhone(raw: string): string {
-  const digits = raw.replace(/[^\d+]/gu, "");
-  if (digits.startsWith("+972")) return digits;
+  const stripped = raw.replace(/[^\d+]/gu, "");
+  /* ‏‎00‎ היא קידומת החיוג לחו״ל — ‎001…‎ הוא ‎+1…‎, ו-‎00972…‎ הוא ‎+972…‎ */
+  const digits = stripped.startsWith("00") ? `+${stripped.slice(2)}` : stripped;
+  if (digits.startsWith("+")) return digits;
   if (digits.startsWith("972")) return `+${digits}`;
   if (digits.startsWith("0")) return `+972${digits.slice(1)}`;
   /*

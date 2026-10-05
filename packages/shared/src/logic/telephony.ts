@@ -10,7 +10,7 @@
  * שהספק שלח, ומחליט מה לעשות איתו. כל החלטה כאן היא כזו שקל לטעות
  * בה בשקט, ולכן היא מכוסה בבדיקות.
  */
-import { normalizePhone } from "./contact-people.js";
+import { normalizePhone, VALID_PHONE } from "./contact-people.js";
 import { RECORDING_PROVIDER_REFUSAL } from "./recording-state.js";
 
 /**
@@ -408,7 +408,12 @@ export function sipUriFor(phone: string, domain: string): string {
    * תסמוך על מי שקרא לה.
    */
   const clean = phone.replace(/[^\d+]/gu, "");
-  const local = clean.startsWith("+972") ? `0${clean.slice(4)}` : clean;
+  /* ‏ומספר מחו״ל — בקידומת החיוג לחו״ל, ‎00‎, כמו שמחייגים ממרכזייה ישראלית */
+  const local = clean.startsWith("+972")
+    ? `0${clean.slice(4)}`
+    : clean.startsWith("+")
+      ? `00${clean.slice(1)}`
+      : clean;
   return `sip:${local}@${domain}`;
 }
 
@@ -421,8 +426,8 @@ export function phoneFromSipUri(uri: string): string {
 /* ==================== אירוע שיחה ==================== */
 
 /**
- * אותה תבנית של PhoneSchema — מספר ישראלי תקין אחרי נרמול.
- * מוגדרת כאן ולא מיובאת כדי שהקובץ יישאר בלי תלות ב-zod.
+ * ‏מספר ישראלי תקין אחרי נרמול — **המספרים שלנו**: המספר שחויג והמספרים
+ * ‏הווירטואליים. הלקוח בשיחה נבדק ב-`VALID_PHONE`, שמקבל גם מספר מחו״ל.
  */
 /*
  * מיוצא כדי שהמספרים הווירטואליים ישתמשו **באותה** בדיקה בדיוק.
@@ -534,7 +539,7 @@ export function telephonyParseIssue(raw: Record<string, unknown>): TelephonyPars
   const core = readCore(raw);
   if (core.providerCallId === "") return "no_call_id";
   if (core.peerRaw === "") return "no_phone";
-  if (!ISRAELI_PHONE.test(normalizePhone(core.peerRaw))) return "invalid_phone";
+  if (!VALID_PHONE.test(normalizePhone(core.peerRaw))) return "invalid_phone";
   return null;
 }
 
@@ -974,8 +979,9 @@ export function parseTelephonyEvent(
    * אבל אינו מאמת. בלי הבדיקה כאן ערך כמו "123" היה נשמר כשיחה, ואף
    * פותח כרטיס לקוח וליד עבור מספר שאינו קיים.
    */
+  /* ‏הלקוח — אותו כלל כמו בכרטיס, כולל מספר מחו״ל. המספר שלנו נשאר ישראלי. */
   const peerPhone = normalizePhone(peerRaw);
-  if (!ISRAELI_PHONE.test(peerPhone)) return null;
+  if (!VALID_PHONE.test(peerPhone)) return null;
 
   const status = pick(...STATUS_KEYS).toLowerCase();
   /*

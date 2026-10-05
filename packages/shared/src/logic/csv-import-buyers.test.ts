@@ -1,19 +1,26 @@
 import { describe, expect, it } from "vitest";
-import { normalizeIsraeliPhone, parseBuyersCsv } from "./csv-import-buyers.js";
+import { normalizeValidPhone } from "./contact-people.js";
+import { parseBuyersCsv } from "./csv-import-buyers.js";
 
-describe("normalizeIsraeliPhone", () => {
+describe("normalizeValidPhone", () => {
   it("מנרמל פורמטים מקומיים ל-E.164", () => {
-    expect(normalizeIsraeliPhone("050-1234567")).toBe("+972501234567");
-    expect(normalizeIsraeliPhone("050 123 4567")).toBe("+972501234567");
-    expect(normalizeIsraeliPhone("03-6123456")).toBe("+97236123456");
-    expect(normalizeIsraeliPhone("972501234567")).toBe("+972501234567");
-    expect(normalizeIsraeliPhone("+972501234567")).toBe("+972501234567");
+    expect(normalizeValidPhone("050-1234567")).toBe("+972501234567");
+    expect(normalizeValidPhone("050 123 4567")).toBe("+972501234567");
+    expect(normalizeValidPhone("03-6123456")).toBe("+97236123456");
+    expect(normalizeValidPhone("972501234567")).toBe("+972501234567");
+    expect(normalizeValidPhone("+972501234567")).toBe("+972501234567");
   });
 
-  it("דוחה מספרים לא ישראליים או קצרים מדי", () => {
-    expect(normalizeIsraeliPhone("12345")).toBeUndefined();
-    expect(normalizeIsraeliPhone("+14155551234")).toBeUndefined();
-    expect(normalizeIsraeliPhone("01-1234567")).toBeUndefined(); // קידומת 1 לא קיימת
+  it("דוחה מספרים קצרים מדי וקידומת ישראלית שאינה קיימת", () => {
+    expect(normalizeValidPhone("12345")).toBeUndefined();
+    expect(normalizeValidPhone("01-1234567")).toBeUndefined(); // קידומת 1 לא קיימת
+  });
+
+  it("מספר מחו״ל עם קידומת מדינה — ב-+ או ב-00", () => {
+    expect(normalizeValidPhone("+14155551234")).toBe("+14155551234");
+    expect(normalizeValidPhone("+44 7700 900123")).toBe("+447700900123");
+    expect(normalizeValidPhone("001 415 555 1234")).toBe("+14155551234");
+    expect(normalizeValidPhone("00972-50-1234567")).toBe("+972501234567");
   });
 
   /*
@@ -21,16 +28,16 @@ describe("normalizeIsraeliPhone", () => {
    * בלי שהמשתמש עשה דבר, ובלי שהוא רואה את זה עד שכל הקובץ נדחה.
    */
   it("מספר שאקסל הסיר ממנו את האפס המוביל", () => {
-    expect(normalizeIsraeliPhone("583216016")).toBe("+972583216016");
-    expect(normalizeIsraeliPhone("501234567")).toBe("+972501234567");
+    expect(normalizeValidPhone("583216016")).toBe("+972583216016");
+    expect(normalizeValidPhone("501234567")).toBe("+972501234567");
     // גם קווי: 03-6123456 בלי האפס
-    expect(normalizeIsraeliPhone("36123456")).toBe("+97236123456");
+    expect(normalizeValidPhone("36123456")).toBe("+97236123456");
   });
 
-  it("מספר זר בלי אפס מוביל אינו הופך לישראלי", () => {
-    // ההשלמה מותנית בתקינות ישראלית, ולכן אינה מרחיבה את מה שמתקבל
-    expect(normalizeIsraeliPhone("14155551234")).toBeUndefined();
-    expect(normalizeIsraeliPhone("1234567")).toBeUndefined();
+  it("רצף ספרות בלי קידומת מדינה אינו מנוחש כמספר מחו״ל", () => {
+    // ההשלמה ל-+972 מותנית בתקינות ישראלית, ומחו״ל מחייב + או 00
+    expect(normalizeValidPhone("14155551234")).toBeUndefined();
+    expect(normalizeValidPhone("1234567")).toBeUndefined();
   });
 });
 

@@ -963,8 +963,8 @@ describe("sipUriFor", () => {
     expect(sipUriFor("050-123-4567", "pbx.example")).toBe("sip:0501234567@pbx.example");
   });
 
-  it("מספר זר אינו מומר בכוח לצורה ישראלית", () => {
-    expect(sipUriFor("+14155550123", "pbx.example")).toBe("sip:+14155550123@pbx.example");
+  it("מספר מחו״ל — בקידומת החיוג לחו״ל, ולא בצורה ישראלית", () => {
+    expect(sipUriFor("+14155550123", "pbx.example")).toBe("sip:0014155550123@pbx.example");
   });
 });
 

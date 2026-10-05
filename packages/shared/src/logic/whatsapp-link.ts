@@ -1,3 +1,5 @@
+import { normalizePhone, VALID_PHONE } from "./contact-people.js";
+
 /**
  * קישור `wa.me` עם טקסט מוכן.
  *
@@ -26,6 +28,8 @@ const IL = "972";
 export function normalizePhoneForWhatsapp(phone: string): string {
   const digits = phone.replace(/\D/gu, "");
   if (digits === "") return "";
+  /* ‏‎+‎ בהתחלה — המספר כבר בינלאומי, גם כשהוא קצר כמו מספר ישראלי בלי 0 */
+  if (phone.trim().startsWith("+") && !digits.startsWith("0")) return digits;
   if (digits.startsWith("00")) return digits.slice(2);
   if (digits.startsWith(IL)) return digits;
   // מספר מקומי: 0 בהתחלה הוא קידומת חיוג פנימית ואינה חלק במספר
@@ -35,6 +39,21 @@ export function normalizePhoneForWhatsapp(phone: string): string {
    * (`50-1234567`), ואורכו 9. אורך אחר הוא כנראה מספר זר — לא נוגעים.
    */
   return digits.length === 9 ? `${IL}${digits}` : digits;
+}
+
+/**
+ * ‎**מזהה וואטסאפ של לקוח (`wa_id`) → טלפון ב-E.164.**
+ *
+ * ‏Meta שולחת את המספר המלא עם קידומת המדינה ובלי „+” — ‎`972501234567`‎,
+ * ‏וגם ‎`14155550100`‎ ללקוח מחו״ל. לכן ה-„+” פשוט חוזר: קריאה של מזהה
+ * ‏שאינו מתחיל ב-972 כמספר ישראלי מקומי הפכה תשובה של לקוח מחו״ל
+ * ‏ל-‎`+97214155550100`‎ ופתחה לו כרטיס שני (ביקורת Codex, P1).
+ *
+ * ‏צורה מקומית (‎0…‎), כמו בפנקס הכתובות של המתווך, עוברת בנרמול הרגיל.
+ */
+export function phoneFromWaId(waId: string): string {
+  const digits = waId.replace(/\D/gu, "");
+  return digits.startsWith("0") ? normalizePhone(digits) : `+${digits}`;
 }
 
 /** הקישור עצמו. ההודעה עוברת קידוד — היא עברית ורב-שורתית. */
@@ -50,11 +69,14 @@ export function whatsappLink(phone: string, message: string): string {
  * וואטסאפ לקו נייח אינה נכשלת ברעש**: Meta מקבלת את הבקשה, ההודעה
  * אינה מגיעה לאיש, ומבחינת המערכת „נשלח”.
  *
- * ולכן זו הבדיקה שקובעת אם יש בכלל טעם לפתוח כרטיס ולשלוח: מה
- * שאינו נייד ישראלי אינו נמען.
+ * ולכן זו הבדיקה שקובעת אם יש בכלל טעם לפתוח כרטיס ולשלוח: מספר
+ * ישראלי — רק נייד. ‏מספר מחו״ל (`VALID_PHONE`) אינו נושא בקידומת שלו
+ * ‏סימן לנייח או לנייד, ומי שמסר מספר מחו״ל למתווך מוסר כמעט תמיד את
+ * ‏הנייד שלו — ולכן הוא נמען.
  */
 export function canReceiveWhatsapp(phone: string): boolean {
-  return /^9725\d{8}$/u.test(normalizePhoneForWhatsapp(phone));
+  const normalized = normalizePhone(phone);
+  return /^\+9725\d{8}$/u.test(normalized) || (VALID_PHONE.test(normalized) && !normalized.startsWith("+972"));
 }
 
 /**

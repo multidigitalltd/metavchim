@@ -3,14 +3,14 @@ import type { PropertyType } from "../schemas/property.js";
 import {
   DEAL_TYPE_MAP,
   normalizeHeader,
-  normalizeIsraeliPhone,
   parseCsvRecords,
   parseShekelsToAgorot,
   PROPERTY_TYPE_MAP,
   unsanitizeFormulaCell,
 } from "./csv-import.js";
+import { normalizeValidPhone } from "./contact-people.js";
 
-export { DEAL_TYPE_MAP, normalizeIsraeliPhone };
+export { DEAL_TYPE_MAP };
 
 /**
  * מיפוי CSV לרשומות קונים (docs/08 §6 — Onboarding): משרד חדש מעלה גם את
@@ -284,7 +284,7 @@ export function parseBuyersCsv(
         // צירוף ולא דריסה: עמודת הסטטוס אולי כבר כתבה לכאן
         row.agentNotes = row.agentNotes ? `${raw} | ${row.agentNotes}` : raw;
       } else if (target === "phone") {
-        row.phone = normalizeIsraeliPhone(raw) ?? raw;
+        row.phone = normalizeValidPhone(raw) ?? raw;
       } else if (target === "email") {
         row.email = raw.toLowerCase();
       } else if (target === "cities") {

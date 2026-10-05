@@ -402,7 +402,7 @@ export class AgentResolveService {
         resolved.add(key);
       } else {
         delete params[key];
-        warnings.push(`„${raw}” אינו מספר טלפון ישראלי תקין`);
+        warnings.push(`„${raw}” אינו מספר טלפון תקין — מספר מחו״ל צריך קידומת מדינה (+)`);
       }
     }
   }

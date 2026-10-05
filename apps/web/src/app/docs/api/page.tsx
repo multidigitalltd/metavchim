@@ -54,7 +54,7 @@ const FIELDS: { name: string; type: string; required: boolean; note: string }[] 
     name: "phone",
     type: "string",
     required: true,
-    note: 'מספר ישראלי. כל צורה מקובלת — "050-1234567", "+972501234567".',
+    note: 'מספר ישראלי בכל צורה מקובלת — "050-1234567", "+972501234567" — או מספר מחו״ל עם קידומת מדינה: "+447700900123".',
   },
   {
     name: "email",

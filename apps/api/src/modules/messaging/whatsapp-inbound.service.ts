@@ -1,7 +1,7 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { ulid } from "ulid";
 import { z } from "zod";
-import { rolesWithCapability } from "@metavchim/shared";
+import { phoneFromWaId, rolesWithCapability } from "@metavchim/shared";
 import { CryptoService } from "../../core/crypto.service";
 import { PrismaService } from "../../core/prisma.service";
 import { ViewingReplyService } from "../calendar/viewing-reply.service";
@@ -370,7 +370,7 @@ export class WhatsAppInboundService {
             if (!message.button) continue;
             await this.viewingReplies.record(
               message.button.payload,
-              normalizeWaPhone(message.from),
+              phoneFromWaId(message.from),
             );
           }
           /*
@@ -489,7 +489,7 @@ export class WhatsAppInboundService {
             value.contacts?.find((c) => c.wa_id === message.from)?.profile?.name ?? "לקוח וואטסאפ";
           const ingested = await this.ingestMessage(tenantId, {
             externalId: message.id,
-            fromPhone: normalizeWaPhone(message.from),
+            fromPhone: phoneFromWaId(message.from),
             senderName,
             text: message.text.body,
             ...(connection ? { connectionId: connection.id, ownerUserId: connection.userId } : {}),
@@ -509,7 +509,7 @@ export class WhatsAppInboundService {
               ownerUserId: line.userId,
               contactId: ingested.contactId,
               leadId: ingested.leadId,
-              customerPhone: normalizeWaPhone(message.from),
+              customerPhone: phoneFromWaId(message.from),
               customerName: senderName,
               text: message.text.body,
               messageId: message.id,
@@ -551,7 +551,7 @@ export class WhatsAppInboundService {
        */
       const body = echo.text.body;
       const echoId = echo.id;
-      const customerPhone = normalizeWaPhone(echo.to);
+      const customerPhone = phoneFromWaId(echo.to);
       try {
         await this.prisma.withExplicitTenant(connection.tenantId, async (tx) => {
           const phoneHash = this.crypto.phoneHash(customerPhone);
@@ -739,7 +739,7 @@ export class WhatsAppInboundService {
     const texts = (thread.messages ?? []).filter((m) => m.type === "text" && m.text);
     if (texts.length === 0) return 0;
 
-    const phone = normalizeWaPhone(thread.id);
+    const phone = phoneFromWaId(thread.id);
     return this.prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT set_config('app.tenant_id', ${connection.tenantId}, true)`;
 
@@ -827,7 +827,7 @@ export class WhatsAppInboundService {
       const raw = entry.contact?.phone_number;
       if (!raw) continue;
 
-      const phone = normalizeWaPhone(raw);
+      const phone = phoneFromWaId(raw);
       const name = entry.contact?.full_name ?? entry.contact?.first_name;
       if (!name) continue;
 
@@ -1034,10 +1034,4 @@ export class WhatsAppInboundService {
       return { contactId: contact.id, leadId: lead.id };
     });
   }
-}
-
-/** wa_id של Meta הוא ספרות בלבד (9725...) — נורמליזציה ל-E.164. */
-function normalizeWaPhone(waId: string): string {
-  const digits = waId.replace(/\D/gu, "");
-  return digits.startsWith("972") ? `+${digits}` : `+972${digits.replace(/^0/u, "")}`;
 }

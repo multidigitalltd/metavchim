@@ -64,13 +64,22 @@ describe("צד המוכר — מה נדרש", () => {
     }
   });
 
-  it("מספר שאינו ישראלי נדחה", () => {
+  it("מספר קצר מדי נדחה", () => {
     expect(
       intakeSellerRejectionReason(
-        { ...minimal, fullName: "דנה כהן", phone: "+1 555 0100" },
+        { ...minimal, fullName: "דנה כהן", phone: "+1 555" },
         { needsIdentity: true },
       ),
     ).toBe("מספר הטלפון אינו תקין");
+  });
+
+  it("מספר מחו״ל עם קידומת מדינה מתקבל — מוכר תושב חוץ", () => {
+    expect(
+      intakeSellerRejectionReason(
+        { ...minimal, fullName: "דנה כהן", phone: "+44 7700 900123" },
+        { needsIdentity: true },
+      ),
+    ).not.toBe("מספר הטלפון אינו תקין");
   });
 
   it("„פנוי מ-” בלי תאריך נדחה — שדה חצי-מלא אינו תשובה", () => {

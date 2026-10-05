@@ -1,15 +1,19 @@
 import * as z from "../zod.js";
-import { normalizePhone } from "../logic/contact-people.js";
+import { normalizePhone, VALID_PHONE } from "../logic/contact-people.js";
 
 /** מזהה ישות — ULID (26 תווים, Crockford Base32). */
 export const IdSchema = z.string().regex(/^[0-9A-HJKMNP-TV-Z]{26}$/u, "מזהה לא תקין");
 export type Id = z.infer<typeof IdSchema>;
 
+/** ‏איך לכתוב מספר שנדחה — הודעה אחת לכל טופס שמקבל טלפון. */
+export const PHONE_HINT = "מספר טלפון לא תקין — למשל 050-1234567, או מחו״ל עם קידומת מדינה: ‎+44 7700 900123‎";
+
 /**
- * טלפון ישראלי מנורמל לפורמט E.164 (‎+9725XXXXXXXX).
- * הנורמליזציה נעשית בשכבת הקלט; בסכמה נשמר רק הפורמט הסופי.
+ * טלפון מנורמל לפורמט E.164 — ישראלי (‎+9725XXXXXXXX), או מחו״ל עם קידומת
+ * מדינה (`VALID_PHONE`). הנורמליזציה נעשית בשכבת הקלט; בסכמה נשמר רק
+ * הפורמט הסופי.
  */
-export const PhoneSchema = z.string().regex(/^\+972[2-9]\d{7,8}$/u, "מספר טלפון ישראלי לא תקין");
+export const PhoneSchema = z.string().regex(VALID_PHONE, PHONE_HINT);
 export type Phone = z.infer<typeof PhoneSchema>;
 
 /**
