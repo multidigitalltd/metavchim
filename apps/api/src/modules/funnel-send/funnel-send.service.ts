@@ -17,7 +17,7 @@ import {
 } from "@metavchim/shared";
 import { loadEnv } from "../../config/env";
 import { ActivationNudgeService } from "../../core/activation-nudge.service";
-import { EmailService } from "../../core/email.service";
+import { EmailService, isPermanentEmailRejection } from "../../core/email.service";
 import { OnboardingFactsService } from "../../core/onboarding-facts.service";
 import { PlatformSettingsService } from "../../core/platform-settings.service";
 import { PrismaService } from "../../core/prisma.service";
@@ -58,8 +58,16 @@ interface Reach {
   delivered: boolean;
 }
 
-/** ‏מה שהשליחה עצמה יודעת על התוצאה — לפני שה-Webhook אמר את דברו. */
-type Settlement = { status: "sent" | "failed"; sentAt?: Date; error: string | null };
+/**
+ * ‏מה שהשליחה עצמה יודעת על התוצאה — לפני שה-Webhook אמר את דברו.
+ * ‎`failed` נתפס שוב בסבב הבא; `rejected` — דחייה קבועה — לא.
+ */
+type Settlement = { status: "sent" | "failed" | "rejected"; sentAt?: Date; error: string | null };
+
+/** ‏משרד שמקבל דיוור שיווקי: בניסיון או פעיל — לא מושהה ולא סגור. */
+function isMarketable(status: string): boolean {
+  return status === "trial" || status === "active";
+}
 
 /** ‏עובדות שאינן משנות דבר — לסינון המוקדם, כשהשלבים בלי תנאי קהל. */
 const ANY_FACTS: FunnelFacts = {
@@ -258,9 +266,7 @@ export class FunnelSendService {
         }
         const tenant = tenantById.get(row.tenantId);
         // ‏משרד מושהה או סגור אינו מקבל דיוור שיווקי, גם כשהרישום עוד פתוח
-        if (tenant === undefined || (tenant.status !== "trial" && tenant.status !== "active")) {
-          continue;
-        }
+        if (tenant === undefined || !isMarketable(tenant.status)) continue;
         /*
          * ‎**משרד שכבר הגיע ליעד אינו מקבל עוד הודעה** (ביקורת Codex).
          * ‏תשלום שנכנס אחרי הסגירה של הסבב הזה היה מקבל עוד מייל שיווקי —
@@ -324,7 +330,7 @@ export class FunnelSendService {
               now.getTime() <= (funnelStageExpiresAt(stage, input.anchors)?.getTime() ?? 0),
           );
           if (partial.length > 0) {
-            if (await this.convertedNow(row.tenantId, now)) continue;
+            if (await this.leftAudienceNow(row.tenantId, now)) continue;
             // ‏ניסיון חוזר הוא משרד שנגענו בו — נספר בתקרה כמו כל אחר
             const reach: Reach = { attempted: false, delivered: false };
             for (const stage of partial) {
@@ -354,7 +360,7 @@ export class FunnelSendService {
           if (stage === null) continue;
           const copy = copies.get(stage.key);
           if (copy === undefined || !stage.channels.includes("email")) continue;
-          if (await this.convertedNow(row.tenantId, now)) continue;
+          if (await this.leftAudienceNow(row.tenantId, now)) continue;
           tally(await this.sendStage(row, tenant.name, stage, copy, now, recipients, replyTo));
         } catch (error: unknown) {
           // ‏משרד אחד שנכשל אינו עוצר את השאר — זו סריקה, לא עסקה
@@ -373,14 +379,15 @@ export class FunnelSendService {
   }
 
   /**
-   * ‎**שילם ממש עכשיו?** (ביקורת Codex) — קריאה טרייה רגע לפני השליחה.
+   * ‎**יצא מהקהל ממש עכשיו?** (ביקורת Codex) — קריאה טרייה רגע לפני השליחה.
    *
    * ‏הבדיקה שבראש הלולאה נשענת על שורות שנשלפו לדף שלם (עד 200
    * ‏רישומים) לפני שהטיפול בו התחיל, וכל רישום קודם שולח ומחכה. משרד
-   * ‏ששילם בינתיים היה מקבל עוד מייל שיווקי. שתי קריאות קטנות, ורק
-   * ‏למשרד שבאמת עומד לקבל — לא לכל רישום. משרד שנעלם אינו מקבל.
+   * ‏ששילם, הושהה או נסגר בינתיים היה מקבל עוד מייל שיווקי. שתי קריאות
+   * ‏קטנות, ורק למשרד שבאמת עומד לקבל — לא לכל רישום. משרד שנעלם אינו
+   * ‏מקבל.
    */
-  private async convertedNow(tenantId: string, now: Date): Promise<boolean> {
+  private async leftAudienceNow(tenantId: string, now: Date): Promise<boolean> {
     const [tenant, card] = await Promise.all([
       this.prisma.tenant.findUnique({
         where: { id: tenantId },
@@ -391,7 +398,7 @@ export class FunnelSendService {
         select: { cardTokenEncrypted: true, cardMonth: true, cardYear: true },
       }),
     ]);
-    if (tenant === null) return true;
+    if (tenant === null || !isMarketable(tenant.status)) return true;
     return hasFunnelConverted({
       hasValidCard: hasValidCard(card, now),
       subscribed: isTenantSubscribed(tenant),
@@ -450,7 +457,17 @@ export class FunnelSendService {
         });
         outcome = { status: "sent", sentAt: now, error: null };
       } catch (error: unknown) {
-        outcome = { status: "failed", error: String(error).slice(0, 300) };
+        /*
+         * ‎**דחייה קבועה אינה „נכשלה”** (ביקורת Codex, P1). נמען פסול ייכשל
+         * ‏זהה בכל סבב, וכל ניסיון כזה נספר בתקרה — קבוצה של כתובות פסולות
+         * ‏בראש הסדר הייתה תופסת את כל המקומות ומשאירה את השאר בלי הודעה.
+         * ‏`rejected` אינו נתפס שוב; חריגה מקצב (`retryable`) ותקלה עמומה
+         * ‏— כן.
+         */
+        outcome = {
+          status: isPermanentEmailRejection(error) ? "rejected" : "failed",
+          error: String(error).slice(0, 300),
+        };
       }
       if (await this.settle(enrollment, message.id, outcome)) delivered += 1;
     }

@@ -12,7 +12,7 @@ export interface FunnelStageStats {
   delivered: number;
   /** ‏חזרו — כתובת שגויה או תיבה מלאה */
   bounced: number;
-  /** ‏לא יצאו — הספק דחה או לא היה זמין; ייתכן ניסיון נוסף */
+  /** ‏לא יצאו — הספק דחה או לא היה זמין (כולל דחייה קבועה, שאינה נשלחת שוב) */
   failed: number;
   /** ‏הפיקסל נטען — הערכה בלבד */
   opened: number;
@@ -134,7 +134,7 @@ export class FunnelReportService {
                  count(*) FILTER (WHERE status IN ('sent', 'bounced')) AS sent,
                  count(delivered_at) AS delivered,
                  count(*) FILTER (WHERE status = 'bounced') AS bounced,
-                 count(*) FILTER (WHERE status = 'failed') AS failed,
+                 count(*) FILTER (WHERE status IN ('failed', 'rejected')) AS failed,
                  count(opened_at) AS opened,
                  count(clicked_at) AS clicked
             FROM funnel_messages

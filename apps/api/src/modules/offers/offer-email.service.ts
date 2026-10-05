@@ -18,7 +18,7 @@ import { ownershipFilter } from "../../common/ownership";
 import { actingUserId, TenantContext } from "../../common/tenant-context";
 import { loadEnv } from "../../config/env";
 import { AuditService } from "../../core/audit.service";
-import { EmailRejectedError, EmailService } from "../../core/email.service";
+import { EmailService, isPermanentEmailRejection } from "../../core/email.service";
 import { OutboxService } from "../../core/outbox.service";
 import { PrismaService } from "../../core/prisma.service";
 import { AgreementsService } from "../agreements/agreements.service";
@@ -925,7 +925,7 @@ export class OfferEmailService {
         ...(replyTo === null ? {} : { replyTo }),
       });
     } catch (error) {
-      if (error instanceof EmailRejectedError && !error.retryable) {
+      if (isPermanentEmailRejection(error)) {
         /*
          * דחייה ודאית (4xx) — כתובת פסולה וכדומה. ניסיון חוזר היה
          * נכשל זהה בכל סבב לנצח; הסימון מוציא את ההצעה מהמחזור

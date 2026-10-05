@@ -3,7 +3,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import type { Response } from "express";
 import { ActivationNudgeService } from "../../core/activation-nudge.service";
 import type { EmailDomainProviderService } from "../../core/email-domain-provider.service";
-import type { EmailService } from "../../core/email.service";
+import { EmailRejectedError, type EmailService } from "../../core/email.service";
 import { OnboardingFactsService } from "../../core/onboarding-facts.service";
 import type { PlanCatalogService } from "../../core/plan-catalog.service";
 import type { PlatformSettingsService } from "../../core/platform-settings.service";
@@ -732,6 +732,51 @@ describe("מסלול ההמרה — תקרה, תשלום באמצע הסבב ו�
     } as unknown as ActivationNudgeService;
     await service(undefined, paying).run(MONDAY_10);
     expect(send).not.toHaveBeenCalled();
+  });
+
+  it("משרד שהושהה אחרי שהדף נשלף ולפני תורו — אינו מקבל את ההודעה", async () => {
+    const real = new ActivationNudgeService(
+      prisma,
+      {} as EmailService,
+      {} as PlanCatalogService,
+      {} as PlatformSettingsService,
+    );
+    const suspending = {
+      recipients: async (tenantId: string) => {
+        await direct.$executeRawUnsafe(`UPDATE tenants SET status = 'suspended' WHERE id = $1`, TENANT);
+        return real.recipients(tenantId);
+      },
+      allOptedOut: (tenantId: string) => real.allOptedOut(tenantId),
+    } as unknown as ActivationNudgeService;
+    await service(undefined, suspending).run(MONDAY_10);
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it("דחייה קבועה (נמען פסול) — אינה נשלחת שוב; חריגה מקצב — כן", async () => {
+    send.mockImplementation(() => Promise.reject(new EmailRejectedError("נמען פסול", false)));
+    try {
+      await service().run(MONDAY_10);
+      expect((await messages())[0]!.status).toBe("rejected");
+      send.mockClear();
+      await service().run(new Date(MONDAY_10.getTime() + HOUR));
+      expect(send).not.toHaveBeenCalled();
+
+      // ‏אותו דבר עם חריגה מקצב — נשאר „נכשלה” ונשלח שוב
+      await direct.$executeRawUnsafe(`DELETE FROM funnel_messages WHERE tenant_id = $1`, TENANT);
+      await direct.$executeRawUnsafe(
+        `UPDATE funnel_enrollments SET last_sent_at = NULL WHERE tenant_id = $1`,
+        TENANT,
+      );
+      send.mockImplementation(() => Promise.reject(new EmailRejectedError("האטו", true)));
+      await service().run(new Date(MONDAY_10.getTime() + 2 * HOUR));
+      expect((await messages())[0]!.status).toBe("failed");
+      send.mockClear();
+      send.mockImplementation(() => Promise.resolve());
+      await service().run(new Date(MONDAY_10.getTime() + 3 * HOUR));
+      expect(send).toHaveBeenCalledTimes(1);
+    } finally {
+      send.mockImplementation(() => Promise.resolve());
+    }
   });
 
   it("משרד ששילם אחרי הסגירה של הסבב — אינו מקבל את ההודעה", async () => {
