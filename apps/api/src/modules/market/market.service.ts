@@ -406,9 +406,10 @@ export class MarketService {
       };
     });
 
-    // השנה המלאה האחרונה — לא השנה הנוכחית, שהדיווחים עליה עוד מגיעים
+    // השנה שנבחרה, או המלאה האחרונה — לא השנה הנוכחית, שהדיווחים עליה עוד
+    // מגיעים. שנה שנבחרה ואין לה נתונים בסגמנט נופלת לאחרונה, ולא לריק
     const full = yearly.filter((row) => !row.partial);
-    const last = full.at(-1) ?? null;
+    const last = full.find((row) => row.year === query.year) ?? full.at(-1) ?? null;
     const before = last ? (full.find((row) => row.year === last.year - 1) ?? null) : null;
     const refYear = last?.year ?? null;
 
@@ -450,6 +451,7 @@ export class MarketService {
         rooms: query.rooms,
       },
       database: await this.databaseSummary(),
+      years: full.map((row) => row.year).reverse(),
       headline: {
         year: refYear,
         deals: last?.deals ?? null,
