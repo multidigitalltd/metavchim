@@ -4,7 +4,7 @@ import type { Response } from "express";
 import { PublicTokenSchema } from "../../common/zod-validation.pipe";
 import { Public } from "../../common/auth.decorators";
 import { loadEnv } from "../../config/env";
-import { PrismaService } from "../../core/prisma.service";
+import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import { confirmMessageOut } from "./funnel-report.service";
 
 /** ‏GIF שקוף בגודל נקודה — התשובה לפיקסל הפתיחה, תמיד. */
@@ -31,6 +31,18 @@ const PIXEL = Buffer.from("R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBR
  * ‏מה לנחש (טוקן של 256 סיביות), וכל בקשה עולה לכל היותר קריאה אחת
  * ‏באינדקס וכתיבה אחת בפעם הראשונה; טוקן פסול נדחה לפני המסד.
  */
+/**
+ * ‎**השורה לפי הטוקן — נעולה עד סוף הרישום** (ביקורת Codex). תפיסה מחדש
+ * ‏לכתובת אחרת מחליפה את הטוקן; בלי הנעילה, פתיחה מהמייל הישן הייתה
+ * ‏מוצאת את השורה, ואז כותבת על הניסיון החדש אחרי שהטוקן כבר הוחלף.
+ * ‏עם הנעילה — מי שבא שני רואה את מה שהראשון כתב, וטוקן ישן לא מוצא דבר.
+ */
+async function lockByToken(tx: TenantTx, token: string): Promise<{ id: string } | null> {
+  const rows = await tx.$queryRaw<{ id: string }[]>`
+    SELECT id FROM funnel_messages WHERE token = ${token} FOR UPDATE`;
+  return rows[0] ?? null;
+}
+
 @Controller("public/funnel")
 export class FunnelTrackingController {
   private readonly logger = new Logger(FunnelTrackingController.name);
@@ -45,10 +57,7 @@ export class FunnelTrackingController {
       try {
         const now = new Date();
         await this.prisma.withFunnelAdmin(async (tx) => {
-          const message = await tx.funnelMessage.findUnique({
-            where: { token },
-            select: { id: true },
-          });
+          const message = await lockByToken(tx, token);
           if (message === null) return;
           await tx.funnelMessage.updateMany({
             where: { id: message.id, openedAt: null },
@@ -88,11 +97,12 @@ export class FunnelTrackingController {
   /** ‏רושם את הלחיצה (ואת הפתיחה, אם לא נרשמה) ומחזיר את הנתיב של השלב. */
   private async recordClick(token: string, now: Date): Promise<string | null> {
     return this.prisma.withFunnelAdmin(async (tx) => {
-      const message = await tx.funnelMessage.findUnique({
-        where: { token },
+      const locked = await lockByToken(tx, token);
+      if (locked === null) return null;
+      const message = await tx.funnelMessage.findUniqueOrThrow({
+        where: { id: locked.id },
         select: { id: true, track: true, stageKey: true, openedAt: true, clickedAt: true },
       });
-      if (message === null) return null;
       if (message.clickedAt === null) {
         await tx.funnelMessage.update({
           where: { id: message.id },

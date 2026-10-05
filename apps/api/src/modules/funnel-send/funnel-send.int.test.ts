@@ -1124,3 +1124,73 @@ describe("מסלול ההמרה — הוכחה מהנמען, ותפיסה לפנ
     }
   });
 });
+
+describe("מסלול ההמרה — אירוע ישן שרץ יחד עם תפיסה מחדש", () => {
+  /** ‏שליחה שנכשלה, ותפיסה מחדש לכתובת אחרת שמחזיקה את השורה עד ש-`release`. */
+  async function racing(
+    change: string,
+    during: (row: { id: string; token: string }) => Promise<unknown>,
+  ): Promise<string> {
+    send.mockImplementation(() => Promise.reject(new Error("פסק זמן")));
+    try {
+      await service().run(MONDAY_10);
+    } finally {
+      send.mockImplementation(() => Promise.resolve());
+    }
+    const [row] = await direct.$queryRawUnsafe<{ id: string; token: string }[]>(
+      `SELECT id, token FROM funnel_messages WHERE tenant_id = $1`,
+      TENANT,
+    );
+    const holder = new PrismaClient({ adapter: prismaAdapter(process.env["DIRECT_DATABASE_URL"]) });
+    try {
+      let release: (() => void) | undefined;
+      const held = new Promise<void>((resolve) => (release = resolve));
+      const reclaiming = holder.$transaction(async (tx) => {
+        await tx.$queryRawUnsafe(`SELECT id FROM funnel_messages WHERE id = $1 FOR UPDATE`, row!.id);
+        await held;
+        await tx.$executeRawUnsafe(change, row!.id);
+      });
+      await new Promise((r) => setTimeout(r, 100));
+      const event = during(row!);
+      await new Promise((r) => setTimeout(r, 100));
+      release!();
+      await reclaiming;
+      await event;
+    } finally {
+      await holder.$disconnect();
+    }
+    const [after] = await direct.$queryRawUnsafe<{ status: string }[]>(
+      `SELECT status FROM funnel_messages WHERE tenant_id = $1`,
+      TENANT,
+    );
+    return after!.status;
+  }
+
+  it("פתיחה מהמייל הישן בזמן שהטוקן מוחלף — אינה מאשרת את הניסיון החדש", async () => {
+    const status = await racing(
+      `UPDATE funnel_messages SET token = '${"n".repeat(43)}', destination = 'new@example.test' WHERE id = $1`,
+      (row) =>
+        new FunnelTrackingController(prisma).open(row.token, {
+          setHeader: vi.fn(),
+          end: vi.fn(),
+        } as unknown as Response),
+    );
+    expect(status).toBe("failed");
+  });
+
+  it("דיווח מסירה על הכתובת הישנה בזמן שהכתובת מוחלפת — אינו נוגע בניסיון החדש", async () => {
+    const status = await racing(
+      `UPDATE funnel_messages SET destination = 'new@example.test' WHERE id = $1`,
+      async (row) => {
+        const key = (send.mock.calls[0]![3] as { idempotency: { key: string } }).idempotency.key;
+        const parsed = parseFunnelIdempotencyKey(key)!;
+        await new FunnelReportService(prisma).recordEmailEvent(row.id, {
+          kind: "delivered",
+          at: MONDAY_10,
+          destinationTag: parsed.destinationTag,
+        });
+      },
+    );
+    expect(status).toBe("failed");
+  });
+});

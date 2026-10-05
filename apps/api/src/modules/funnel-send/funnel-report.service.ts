@@ -101,6 +101,12 @@ export class FunnelReportService {
   ): Promise<void> {
     await this.prisma.withFunnelAdmin(async (tx) => {
       /*
+       * ‎**השורה נעולה מהבדיקה ועד הכתיבה** (ביקורת Codex). תפיסה מחדש
+       * ‏(`claim`) שמחליפה כתובת ממתינה לנו או אנחנו לה — כך שהבדיקה שלהלן
+       * ‏והכתיבות שאחריה רואות את אותו ניסיון.
+       */
+      await tx.$queryRaw`SELECT id FROM funnel_messages WHERE id = ${messageId} FOR UPDATE`;
+      /*
        * ‎**אירוע של ניסיון קודם אינו נוגע בניסיון הנוכחי** (ביקורת Codex).
        * ‏אחרי שליחה חוזרת לכתובת שתוקנה, דיווח מאוחר על הכתובת הישנה
        * ‏(מסירה או חזרה) היה משנה את מצב השליחה החדשה.
