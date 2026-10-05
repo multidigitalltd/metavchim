@@ -8,6 +8,7 @@ import {
   splitForWhatsApp,
   templateButtonVerdict,
   whatsappButtonUrlTemplate,
+  WHATSAPP_TEMPLATE_LANG_DEFAULT,
   whatsappTemplateButton,
   type WhatsAppButton,
   type WhatsAppListRow,
@@ -20,7 +21,7 @@ import { PlatformSettingsService } from "../../core/platform-settings.service";
 import { PrismaService } from "../../core/prisma.service";
 import { WA_AUDIO_MAX_BYTES } from "./assistant-buttons";
 import { toWhatsAppAudio } from "./audio-transcode";
-import { GRAPH_BASE, tokenWabaIds } from "./meta-graph";
+import { appAccessToken, GRAPH_BASE, tokenWabaIds } from "./meta-graph";
 
 /**
  * שליחה דרך WhatsApp Cloud API (docs/05 §1) — הצד היוצא של הסוכן
@@ -714,7 +715,9 @@ export class WhatsAppSendService {
     if (!creds) return { ok: null, message: "חסרים Access Token או Phone Number ID", expected };
     const name = (await this.platformSettings.get("whatsappNotifyTemplate")) ?? "";
     if (name === "") return { ok: null, message: "לא הוגדרה תבנית התראות", expected };
-    const lang = (await this.platformSettings.get("whatsappNotifyTemplateLang")) ?? "";
+    // ‏אותה שפה שהשליחה בפועל בוחרת — לא „כל תרגום שחזר ראשון”
+    const lang =
+      (await this.platformSettings.get("whatsappNotifyTemplateLang"))?.trim() || WHATSAPP_TEMPLATE_LANG_DEFAULT;
 
     const graph = async (path: string, token: string): Promise<unknown> => {
       const res = await fetch(`${GRAPH_BASE}/${path}`, {
@@ -732,9 +735,9 @@ export class WhatsAppSendService {
           `${waba}/message_templates?name=${encodeURIComponent(name)}&fields=name,language,components&limit=100`,
           creds.token,
         )) as { data?: { name?: string; language?: string }[] };
-        const template = (templates.data ?? []).find((t) => t.name === name && (lang === "" || t.language === lang));
+        const template = (templates.data ?? []).find((t) => t.name === name && t.language === lang);
         if (template === undefined) {
-          return { ok: false, message: `התבנית „${name}”${lang ? ` (${lang})` : ""} לא נמצאה בחשבון העסקי ב-Meta`, expected };
+          return { ok: false, message: `התבנית „${name}” (${lang}) לא נמצאה בחשבון העסקי ב-Meta`, expected };
         }
         return { ...templateButtonVerdict(template, expected), expected };
       }
@@ -749,21 +752,26 @@ export class WhatsAppSendService {
   }
 
   /**
-   * ‏החשבונות העסקיים שהטוקן פותח. נבדקים שני הסודות המוכרים — של קו
-   * ‏הסוכן, ושל אפליקציית החיבור כשהיא נפרדת. ריק — לא זוהה דבר.
+   * ‏החשבונות העסקיים שהטוקן פותח. ריק — לא זוהה דבר.
+   *
+   * ‏`whatsappAppId` הוא של אפליקציית החיבור. כשקו הסוכן יושב באפליקציה
+   * ‏נפרדת, מזהה האפליקציה שלו אינו שמור בשום מקום — ושום צמד מזהה+סוד
+   * ‏אינו מתאים לטוקן שלו (ביקורת Codex). לכן אחרי הצמדים נבדק הטוקן
+   * ‏מול עצמו; Meta שדוחה גם את זה מחזירה „לא ניתן לזהות”, לא פסק שגוי.
    */
   private async tokenWabas(token: string): Promise<string[]> {
     const env = loadEnv();
     const appId = (await this.platformSettings.get("whatsappAppId")) ?? env.WHATSAPP_APP_ID;
-    if (!appId) return [];
-    const secrets = new Set(
-      [
-        (await this.platformSettings.get("whatsappAppSecret")) ?? env.WHATSAPP_APP_SECRET,
-        (await this.platformSettings.get("whatsappConnectAppSecret")) ?? env.WHATSAPP_CONNECT_APP_SECRET,
-      ].filter((secret): secret is string => Boolean(secret)),
-    );
-    for (const appSecret of secrets) {
-      const ids = await tokenWabaIds(token, { appId, appSecret }, SEND_TIMEOUT_MS).catch(() => []);
+    const secrets = [
+      (await this.platformSettings.get("whatsappAppSecret")) ?? env.WHATSAPP_APP_SECRET,
+      (await this.platformSettings.get("whatsappConnectAppSecret")) ?? env.WHATSAPP_CONNECT_APP_SECRET,
+    ].filter((secret): secret is string => Boolean(secret));
+    const access = new Set([
+      ...(appId ? secrets.map((appSecret) => appAccessToken({ appId, appSecret })) : []),
+      token,
+    ]);
+    for (const candidate of access) {
+      const ids = await tokenWabaIds(token, candidate, SEND_TIMEOUT_MS).catch(() => []);
       if (ids.length > 0) return ids;
     }
     return [];

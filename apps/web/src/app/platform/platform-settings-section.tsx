@@ -316,9 +316,10 @@ export function PlatformSettingsSection({
   useEffect(load, []);
 
   /*
-   * ‎**הכפתור „פתח במערכת” — נבדק מול Meta כשהמסך נפתח.** הבסיס של
-   * ‏הכתובת נקבע ביד בעורך התבניות של Meta; בסיס שגוי שולח כל לחיצה
-   * ‏ל„העמוד לא נמצא”, ובלי הבדיקה איש אינו יודע על כך.
+   * ‎**הכפתור „פתח במערכת” — נבדק מול Meta כשהמסך נפתח ואחרי כל
+   * ‏שמירה.** הבסיס של הכתובת נקבע ביד בעורך התבניות של Meta; בסיס
+   * ‏שגוי שולח כל לחיצה ל„העמוד לא נמצא”, ובלי הבדיקה איש אינו יודע
+   * ‏על כך.
    */
   const [buttonCheck, setButtonCheck] = useState<{
     ok: boolean | null;
@@ -335,7 +336,11 @@ export function PlatformSettingsSection({
     )
       .then(setButtonCheck)
       .catch(() => setButtonCheck({ ok: null, message: "הבדיקה מול Meta לא הושלמה" }));
-  }, [checksButton]);
+    /*
+     * ‏`settings` ולא רק הדגל: כל שמירה טוענת אותו מחדש, ותבנית, שפה או
+     * ‏פרטי חיבור שהשתנו חייבים פסק חדש ולא את זה של ההגדרות הקודמות.
+     */
+  }, [checksButton, settings]);
 
   /**
    * תיבת התמיכה — הכתובת שהפניות **נכנסות** אליה.

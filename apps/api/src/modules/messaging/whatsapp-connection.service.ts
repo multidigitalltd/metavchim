@@ -6,7 +6,7 @@ import { CryptoService } from "../../core/crypto.service";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PlatformSettingsService } from "../../core/platform-settings.service";
 import { PrismaService } from "../../core/prisma.service";
-import { GRAPH_BASE, tokenWabaIds } from "./meta-graph";
+import { appAccessToken, GRAPH_BASE, tokenWabaIds } from "./meta-graph";
 
 /**
  * חיבור המספר העסקי של משרד דרך Embedded Signup (docs/12, ADR-006).
@@ -760,7 +760,7 @@ export class WhatsAppConnectionService {
     token: string,
   ): Promise<string[]> {
     try {
-      return await tokenWabaIds(token, app, REQUEST_TIMEOUT_MS);
+      return await tokenWabaIds(token, appAccessToken(app), REQUEST_TIMEOUT_MS);
     } catch (error) {
       this.logger.warn(`בדיקת הטוקן מול Meta נכשלה: ${String(error)}`);
       return [];

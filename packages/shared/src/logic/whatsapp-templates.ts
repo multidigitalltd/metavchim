@@ -321,13 +321,20 @@ export function templateButtonVerdict(template: unknown, expected: string): Temp
         return (c as { type?: unknown }).type === "BUTTONS" && Array.isArray(list) ? list : [];
       })
     : [];
-  const url = buttons
-    .map((b) => b as { type?: unknown; url?: unknown })
-    .find((b) => b.type === "URL" && typeof b.url === "string")?.url as string | undefined;
+  /*
+   * ‏**הכפתור הראשון, לא „כפתור כתובת כלשהו”.** הסיפא נשלחת תמיד
+   * ‏ל-`index: "0"` (`whatsappTemplateButton`), ולכן כפתור כתובת שני
+   * ‏אחרי כפתור תשובה מהירה אינו מקבל אותה — ו-Meta דוחה את ההתראה.
+   */
+  const first = buttons[0] as { type?: unknown; url?: unknown } | undefined;
+  const url = first?.type === "URL" && typeof first.url === "string" ? first.url : undefined;
   if (url === undefined) {
+    const later = buttons.some((b) => (b as { type?: unknown }).type === "URL");
     return {
       ok: false,
-      message: "‏בתבנית שרשומה ב-Meta אין כפתור כתובת — כבו את „לתבנית יש כפתור” או הוסיפו כפתור בכתובת דינמית",
+      message: later
+        ? "‏כפתור הכתובת אינו הראשון בתבנית ב-Meta — המערכת שולחת את הקישור לכפתור הראשון. העבירו אותו לראש הכפתורים"
+        : "‏בתבנית שרשומה ב-Meta אין כפתור כתובת — כבו את „לתבנית יש כפתור” או הוסיפו כפתור בכתובת דינמית",
     };
   }
   const registered = url.trim();
@@ -347,6 +354,9 @@ export function templateButtonVerdict(template: unknown, expected: string): Temp
     registered,
   };
 }
+
+/** ‏שפת תבנית ההתראות כשלא הוגדרה — אחת לשליחה, למסך ולבדיקה מול Meta. */
+export const WHATSAPP_TEMPLATE_LANG_DEFAULT = "he";
 
 /**
  * הכפתור עצמו. `null` כשאין מה לפתוח — כפתור אינו נשלח ריק, וקורא

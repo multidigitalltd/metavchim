@@ -41,13 +41,21 @@ function service(settings: Record<string, string> = SETTINGS): WhatsAppSendServi
   return new WhatsAppSendService(platformSettings, {} as PrismaService, {} as CryptoService);
 }
 
-/** ‏Meta: חשבון עסקי אחד, המספר שלנו בתוכו, והתבנית עם הכפתור בכתובת `url` */
-function meta(url: string): void {
+/**
+ * ‏Meta: חשבון עסקי אחד, המספר שלנו בתוכו, והתבנית בשני תרגומים —
+ * ‏`url` בעברית ו-`otherUrl` באנגלית. `debugWith` — טוקן הגישה היחיד
+ * ‏ש-`debug_token` מקבל (ברירת מחדל: כל טוקן).
+ */
+function meta(url: string, options: { otherUrl?: string; debugWith?: string } = {}): void {
   vi.stubGlobal(
     "fetch",
     vi.fn((input: string | URL) => {
       const href = String(input);
       if (href.includes("/debug_token")) {
+        const access = new URL(href).searchParams.get("access_token");
+        if (options.debugWith !== undefined && access !== options.debugWith) {
+          return Promise.resolve(reply(false, {}));
+        }
         return Promise.resolve(
           reply(true, { data: { granular_scopes: [{ scope: "whatsapp_business_messaging", target_ids: ["999888777"] }] } }),
         );
@@ -57,6 +65,11 @@ function meta(url: string): void {
         return Promise.resolve(
           reply(true, {
             data: [
+              {
+                name: "metavchim_notify",
+                language: "en",
+                components: [{ type: "BUTTONS", buttons: [{ type: "URL", url: options.otherUrl ?? url }] }],
+              },
               {
                 name: "metavchim_notify",
                 language: "he",
@@ -96,6 +109,22 @@ describe("בדיקת הכפתור מול Meta", () => {
     const { whatsappNotifyTemplate: _omit, ...rest } = SETTINGS;
     expect((await service(rest).checkNotifyTemplateButton()).ok).toBeNull();
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  // ‏השליחה בוחרת עברית כשלא הוגדרה שפה — הבדיקה בודקת את אותו תרגום
+  it("בלי שפה מוגדרת — נבדק התרגום שנשלח בפועל, לא הראשון שחזר", async () => {
+    meta("https://app.example.test/{{1}}", { otherUrl: "https://example.test/{{1}}" });
+    const { whatsappNotifyTemplateLang: _omit, ...rest } = SETTINGS;
+    expect((await service(rest).checkNotifyTemplateButton()).ok).toBe(true);
+  });
+
+  /*
+   * ‏קו הסוכן באפליקציה נפרדת: מזהה האפליקציה השמור הוא של החיבור,
+   * ‏ושום צמד מזהה+סוד אינו מתאים לטוקן. הטוקן נבדק מול עצמו.
+   */
+  it("אפליקציות נפרדות — הטוקן מזוהה מול עצמו", async () => {
+    meta("https://app.example.test/{{1}}", { debugWith: "system-user-token" });
+    expect((await service().checkNotifyTemplateButton()).ok).toBe(true);
   });
 
   it("לא ניתן לזהות את החשבון העסקי — לא נבדק, עם הסבר", async () => {

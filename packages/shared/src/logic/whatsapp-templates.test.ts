@@ -280,4 +280,24 @@ describe("‏הכתובת שרשומה ב-Meta מול זו שצריכה להיו
   it("אין כפתור כתובת בתבנית — שגוי", () => {
     expect(templateButtonVerdict(template(undefined), expected).ok).toBe(false);
   });
+
+  // ‏הסיפא נשלחת ל-index 0 — כפתור כתובת תקין במקום השני אינו מקבל אותה
+  it("כפתור הכתובת אינו הראשון — שגוי, גם כשהכתובת עצמה נכונה", () => {
+    const verdict = templateButtonVerdict(
+      {
+        components: [
+          {
+            type: "BUTTONS",
+            buttons: [
+              { type: "QUICK_REPLY", text: "הבנתי" },
+              { type: "URL", url: expected },
+            ],
+          },
+        ],
+      },
+      expected,
+    );
+    expect(verdict.ok).toBe(false);
+    expect(verdict.message).toContain("אינו הראשון");
+  });
 });

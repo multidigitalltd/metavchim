@@ -34,6 +34,7 @@ import {
   whatsappButtonUrlTemplate,
   whatsappButtonLandsOn,
   whatsappDeepLinkSuffix,
+  WHATSAPP_TEMPLATE_LANG_DEFAULT,
   OptionalEmailSchema,
 } from "@metavchim/shared";
 import { loadEnv } from "../../config/env";
@@ -781,7 +782,8 @@ export class PlatformSettingsController {
            */
           notifyTemplate: (await this.platformSettings.get("whatsappNotifyTemplate")) ?? "",
           notifyTemplateLang:
-            (await this.platformSettings.get("whatsappNotifyTemplateLang")) ?? "he",
+            (await this.platformSettings.get("whatsappNotifyTemplateLang")) ??
+            WHATSAPP_TEMPLATE_LANG_DEFAULT,
           /*
            * ‎**לא מסומן היא ברירת המחדל הבטוחה**: תבנית שנרשמה לפני
            * שהאפשרות הזו קיימת אינה נושאת כפתור, ושליחת רכיב כפתור
