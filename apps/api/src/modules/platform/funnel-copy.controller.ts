@@ -1,8 +1,24 @@
-import { Body, Controller, Get, Param, Patch, UseGuards } from "@nestjs/common";
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  NotFoundException,
+  Param,
+  Patch,
+  Post,
+  UseGuards,
+} from "@nestjs/common";
 import { z } from "zod";
+import { firstNameOf, funnelEmail } from "@metavchim/shared";
 import { PlatformAdmin } from "../../common/auth.decorators";
 import { PlatformAdminGuard } from "../../common/platform-admin.guard";
+import { TenantContext } from "../../common/tenant-context";
 import { ZodValidationPipe, IdParam } from "../../common/zod-validation.pipe";
+import { loadEnv } from "../../config/env";
+import { EmailService } from "../../core/email.service";
+import { PrismaService } from "../../core/prisma.service";
 import { FunnelStageService, type FunnelStageCopy } from "../funnel/funnel-stage.service";
 
 /**
@@ -45,7 +61,11 @@ const CopySchema = z
 @UseGuards(PlatformAdminGuard)
 @PlatformAdmin()
 export class FunnelCopyController {
-  constructor(private readonly stages: FunnelStageService) {}
+  constructor(
+    private readonly stages: FunnelStageService,
+    private readonly prisma: PrismaService,
+    private readonly email: EmailService,
+  ) {}
 
   @Get("funnel-copy")
   async list(): Promise<FunnelStageCopy[]> {
@@ -59,5 +79,49 @@ export class FunnelCopyController {
   ): Promise<{ ok: true }> {
     await this.stages.updateCopy(id, body);
     return { ok: true };
+  }
+
+  /**
+   * ‎**המייל של שלב — לתיבה של בעל הפלטפורמה בלבד, לבדיקה.**
+   *
+   * ‏הנוסח השמור, דרך אותה `funnelEmail` שהשליחה האמיתית תשתמש בה,
+   * ‏ומצייני המקום מתמלאים בשם ובמשרד של מי שלחץ. הנמען אינו פרמטר:
+   * ‏הכתובת נשלפת מהמשתמש המחובר, ולכן אין כאן דרך לשלוח ללקוח.
+   * ‏גם אין שורה ב-`funnel_messages` — בדיקה אינה שלב שיצא.
+   */
+  @Post("funnel-copy/:id/test")
+  @HttpCode(200)
+  async test(@Param("id", IdParam) id: string): Promise<{ sentTo: string }> {
+    const stage = await this.stages.copy(id);
+    if (stage === null) throw new NotFoundException("השלב לא נמצא");
+    if (stage.unknownPlaceholders.length > 0) {
+      const names = stage.unknownPlaceholders.map((name) => `{{${name}}}`).join(", ");
+      throw new BadRequestException(`בנוסח יש מצייני מקום שלא יוחלפו: ${names}`);
+    }
+    const user = await this.prisma.user.findUnique({
+      where: { id: TenantContext.current().userId },
+      select: { email: true, name: true, tenant: { select: { name: true } } },
+    });
+    if (!user) throw new BadRequestException("משתמש לא נמצא");
+    const email = funnelEmail(
+      stage,
+      { שם_פרטי: firstNameOf(user.name), שם_המשרד: user.tenant.name },
+      loadEnv().WEB_ORIGIN,
+    );
+    if (email === null) throw new BadRequestException("לשלב הזה אין עדיין נושא וגוף למייל");
+    if (!(await this.email.isConfigured())) {
+      throw new BadRequestException("אין ספק אימייל מוגדר — מלאו את פרטי Postmark ושמרו");
+    }
+    await this.email.send(
+      user.email,
+      `[בדיקה] ${email.subject}`,
+      {
+        ...email.content,
+        footnote: `הודעת בדיקה של השלב „${stage.title}” ממסך נוסחי ההמרה. נשלחה רק אליך.`,
+      },
+      // ‏„שלחו שוב” הוא בדיוק מה שמבקשים בבדיקה, ובלי ספק אין מה לבדוק
+      { idempotency: null, required: true },
+    );
+    return { sentTo: user.email };
   }
 }
