@@ -56,14 +56,19 @@ const STALE_CLAIM_MS = 30 * 60 * 1000;
  */
 const REJECTED_RETRY_MS = 24 * HOUR_MS;
 
-/** ‏שורה שנתפסת שוב: נכשלה, או נדחתה לפני יותר מיממה. */
-function retryableWhere(now: Date) {
-  return {
-    OR: [
-      { status: "failed" },
-      { status: "rejected", updatedAt: { lt: new Date(now.getTime() - REJECTED_RETRY_MS) } },
-    ],
-  };
+/**
+ * ‎**שורה שנתפסת שוב — כלל אחד, לניסיון החוזר ולתפיסה.** נכשלה; או
+ * ‏נדחתה לצמיתות — לפני יותר מיממה, או לכתובת שאינה של הנמען עכשיו
+ * ‏(הכתובת שנדחתה אינה זו שתישלח).
+ */
+function canRetry(
+  row: { status: string; destination: string; updatedAt: Date },
+  email: string,
+  now: Date,
+): boolean {
+  if (row.status === "failed") return true;
+  if (row.status !== "rejected") return false;
+  return row.destination !== email || row.updatedAt.getTime() < now.getTime() - REJECTED_RETRY_MS;
 }
 
 /**
@@ -269,8 +274,18 @@ export class FunnelSendService {
         ),
         this.prisma.withFunnelAdmin((tx) =>
           tx.funnelMessage.findMany({
-            where: { enrollmentId: { in: page.map((row) => row.id) }, ...retryableWhere(now) },
-            select: { enrollmentId: true, stageKey: true, userId: true },
+            where: {
+              enrollmentId: { in: page.map((row) => row.id) },
+              status: { in: ["failed", "rejected"] },
+            },
+            select: {
+              enrollmentId: true,
+              stageKey: true,
+              userId: true,
+              status: true,
+              destination: true,
+              updatedAt: true,
+            },
           }),
         ),
       ]);
@@ -280,7 +295,7 @@ export class FunnelSendService {
       for (const r of sentRows) {
         sentKeys.set(r.enrollmentId, [...(sentKeys.get(r.enrollmentId) ?? []), r.stageKey]);
       }
-      const failedByEnrollment = new Map<string, { stageKey: string; userId: string }[]>();
+      const failedByEnrollment = new Map<string, (typeof failedRows)[number][]>();
       for (const r of failedRows) {
         failedByEnrollment.set(r.enrollmentId, [...(failedByEnrollment.get(r.enrollmentId) ?? []), r]);
       }
@@ -348,10 +363,13 @@ export class FunnelSendService {
            * ‏(ביקורת Codex).
            */
           const failed = failedByEnrollment.get(row.id) ?? [];
-          const current = new Set(recipients.map((owner) => owner.id));
+          const current = new Map(recipients.map((owner) => [owner.id, owner.email]));
           const partial = live.filter(
             (stage) =>
-              failed.some((f) => f.stageKey === stage.key && current.has(f.userId)) &&
+              failed.some((f) => {
+                const email = current.get(f.userId);
+                return f.stageKey === stage.key && email !== undefined && canRetry(f, email, now);
+              }) &&
               input.sent.includes(stage.key) &&
               now.getTime() <= (funnelStageExpiresAt(stage, input.anchors)?.getTime() ?? 0),
           );
@@ -505,8 +523,8 @@ export class FunnelSendService {
    * ‏מטפל בו עכשיו. שורה שנכשלה נתפסת מחדש בעדכון מותנה — שני עותקים
    * ‏שמנסים יחד מקבלים אחד שורה ואחד אפס.
    *
-   * ‏שורה שנדחתה לצמיתות נתפסת שוב אחרי יממה (`retryableWhere`), או מיד
-   * ‏כשכתובת הנמען השתנתה — הכתובת שנדחתה אינה זו שתישלח עכשיו.
+   * ‏מה נתפס שוב — `canRetry`. העדכון מותנה בסטטוס ובחותמת שנקראו,
+   * ‏כך שמי שהקדים אותנו משאיר לנו אפס שורות.
    */
   private async claim(
     enrollment: { id: string; tenantId: string },
@@ -524,18 +542,12 @@ export class FunnelSendService {
             channel: "email",
           },
         },
-        select: { id: true, token: true, status: true },
+        select: { id: true, token: true, status: true, destination: true, updatedAt: true },
       });
       if (existing !== null) {
-        if (existing.status !== "failed" && existing.status !== "rejected") return null;
+        if (!canRetry(existing, owner.email, now)) return null;
         const reclaimed = await tx.funnelMessage.updateMany({
-          where: {
-            id: existing.id,
-            OR: [
-              retryableWhere(now),
-              { status: "rejected", destination: { not: owner.email } },
-            ],
-          },
+          where: { id: existing.id, status: existing.status, updatedAt: existing.updatedAt },
           data: { status: "queued", destination: owner.email },
         });
         return reclaimed.count === 1 ? { id: existing.id, token: existing.token } : null;

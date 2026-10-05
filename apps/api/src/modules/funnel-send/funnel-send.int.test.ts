@@ -809,6 +809,40 @@ describe("מסלול ההמרה — תקרה, תשלום באמצע הסבב ו�
     }
   });
 
+  it("בעלים שנדחה אחרי שאחר קיבל, וכתובתו תוקנה — מקבל את אותו שלב מיד", async () => {
+    const SECOND = "01M1FNNLSENDOWNER000000006";
+    await direct.$executeRawUnsafe(
+      `INSERT INTO users (id, tenant_id, name, email, role, is_active, created_at, updated_at)
+       VALUES ($1, $2, 'יוסי לוי', 'yossi6.bad@example.test', 'owner', true, now(), now() + interval '1 second')`,
+      SECOND,
+      TENANT,
+    );
+    try {
+      send.mockImplementation((...args: unknown[]) =>
+        args[0] === "yossi6.bad@example.test"
+          ? Promise.reject(new EmailRejectedError("נמען פסול", false))
+          : Promise.resolve(),
+      );
+      await service().run(MONDAY_10);
+      expect((await messages()).map((m) => m.status).sort()).toEqual(["rejected", "sent"]);
+
+      await direct.$executeRawUnsafe(
+        `UPDATE users SET email = 'yossi6.fixed@example.test' WHERE id = $1`,
+        SECOND,
+      );
+      send.mockClear();
+      send.mockImplementation(() => Promise.resolve());
+      await service().run(new Date(MONDAY_10.getTime() + HOUR));
+      expect(send).toHaveBeenCalledTimes(1);
+      expect(send.mock.calls[0]![0]).toBe("yossi6.fixed@example.test");
+    } finally {
+      send.mockImplementation(() => Promise.resolve());
+      await direct.$executeRawUnsafe(`DELETE FROM funnel_messages WHERE user_id = $1`, SECOND);
+      await direct.$executeRawUnsafe(`DELETE FROM activation_nudge_optouts WHERE user_id = $1`, SECOND);
+      await direct.$executeRawUnsafe(`DELETE FROM users WHERE id = $1`, SECOND);
+    }
+  });
+
   it("בלי ספק אימייל מחובר — אין שליחה ואין שורות שנשרפות", async () => {
     emailConfigured = false;
     await service().run(MONDAY_10);
