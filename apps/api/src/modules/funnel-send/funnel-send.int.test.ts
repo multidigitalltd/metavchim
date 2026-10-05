@@ -430,7 +430,8 @@ describe("סגירת רישום כש„מוצה” — רק אחרי שהנמע�
    * ‏כל השלבים פגו מלבד „שבוע אחרי” (שעון הניסיון): המשפך התחיל לפני
    * ‏חודש, והניסיון נגמר לפני שבוע ושעה.
    */
-  async function seed(withFailed: boolean): Promise<void> {
+  /** ‏`pending` — סטטוס השורה של הבעלים השני, שעוד ממתין לניסיון חוזר. */
+  async function seed(pending: "failed" | "rejected" | null): Promise<void> {
     const now = Date.now();
     await direct.$executeRawUnsafe(
       `UPDATE tenants SET trial_ends_at = $2, created_at = $3 WHERE id = $1`,
@@ -465,7 +466,7 @@ describe("סגירת רישום כש„מוצה” — רק אחרי שהנמע�
         status === "sent" ? new Date(now - HOUR) : null,
       );
     await message("01M1FNNLSENDMSGSENT0000001", OWNER, "sent", "a".repeat(43));
-    if (withFailed) await message("01M1FNNLSENDMSGFAIL0000001", SECOND, "failed", "b".repeat(43));
+    if (pending !== null) await message("01M1FNNLSENDMSGFAIL0000001", SECOND, pending, "b".repeat(43));
   }
 
   async function reason(): Promise<string | null> {
@@ -488,19 +489,25 @@ describe("סגירת רישום כש„מוצה” — רק אחרי שהנמע�
   });
 
   it("נמען שנכשל בשלב האחרון — הרישום נשאר פתוח לניסיון החוזר", async () => {
-    await seed(true);
+    await seed("failed");
+    await sweep();
+    expect(await reason()).toBeNull();
+  });
+
+  it("נמען שנדחה לצמיתות בשלב האחרון — גם הוא ממתין לניסיון החוזר", async () => {
+    await seed("rejected");
     await sweep();
     expect(await reason()).toBeNull();
   });
 
   it("בלי נמען שנכשל — אותו מצב נסגר כ„סיים את הרצף”", async () => {
-    await seed(false);
+    await seed(null);
     await sweep();
     expect(await reason()).toBe("completed");
   });
 
   it("כל הבעלים הסירו את עצמם אחרי השלב האחרון — „ביקש להפסיק”, ולא „סיים את הרצף”", async () => {
-    await seed(false);
+    await seed(null);
     try {
       await direct.$executeRawUnsafe(
         `INSERT INTO activation_nudge_optouts (id, tenant_id, user_id, token, opted_out_at, created_at)

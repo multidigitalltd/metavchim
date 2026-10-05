@@ -711,10 +711,16 @@ export class FunnelEnrollmentService {
        * ‏קודמת לשליחה בסבב — כלומר הרישום היה נסגר כ„מוצה” לפני
        * ‏שהניסיון החוזר הגיע אליו. שלב כזה נשאר „עדיין אפשרי” עד שחלונו
        * ‏נסגר, ורק אז הרישום נסגר.
+       *
+       * ‏וגם `rejected`: דחייה קבועה נבדקת שוב אחרי יממה או כשהכתובת
+       * ‏תוקנה (ביקורת Codex), ורישום שנסגר קודם לכן לא היה נותן לה הזדמנות.
        */
       this.prisma.withFunnelAdmin((tx) =>
         tx.funnelMessage.findMany({
-          where: { enrollmentId: { in: live.map((row) => row.id) }, status: "failed" },
+          where: {
+            enrollmentId: { in: live.map((row) => row.id) },
+            status: { in: ["failed", "rejected"] },
+          },
           select: { enrollmentId: true, stageKey: true },
         }),
       ),
