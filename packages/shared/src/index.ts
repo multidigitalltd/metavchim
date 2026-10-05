@@ -11,6 +11,7 @@ export * from "./schemas/mentor.js";
 export * from "./schemas/forum.js";
 export * from "./schemas/signup.js";
 export * from "./logic/aes-gcm.js";
+export * from "./logic/database-connection.js";
 export * from "./schemas/market.js";
 export * from "./logic/audio-format.js";
 export * from "./logic/readiness.js";

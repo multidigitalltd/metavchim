@@ -1,4 +1,5 @@
 import { PrismaClient } from "@prisma/client";
+import { prismaAdapter } from "../../core/prisma-adapter";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ulid } from "ulid";
 import { advancePendingRow, takePendingRow } from "./whatsapp-pending";
@@ -73,7 +74,7 @@ beforeAll(() => {
   if (url === undefined || url === "") {
     throw new Error("DIRECT_DATABASE_URL חסר — הבדיקה דורשת מסד אמיתי");
   }
-  db = new PrismaClient({ datasources: { db: { url } } });
+  db = new PrismaClient({ adapter: prismaAdapter(url) });
 });
 
 afterAll(async () => {

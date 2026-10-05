@@ -1,6 +1,7 @@
 import { PrismaClient } from "@prisma/client";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { cityForNeighborhood } from "./neighborhood-city";
+import { prismaAdapter } from "../../core/prisma-adapter";
 
 /**
  * ‎**השלמת העיר מהשכונה — מול מסד אמיתי, כי זו שאילתה גולמית.**
@@ -27,9 +28,7 @@ async function resolve(neighborhood: string): Promise<string | null> {
 }
 
 beforeAll(async () => {
-  owner = new PrismaClient({
-    datasources: { db: { url: requiredEnv("DIRECT_DATABASE_URL") } },
-  });
+  owner = new PrismaClient({ adapter: prismaAdapter(requiredEnv("DIRECT_DATABASE_URL")) });
   await owner.$executeRaw`
     INSERT INTO tenants (id, name, created_at, updated_at)
     VALUES (${TENANT}, 'משרד השלמת עיר', now(), now())

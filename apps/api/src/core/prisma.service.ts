@@ -1,6 +1,7 @@
-import { Injectable, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
+import type { OnModuleDestroy, OnModuleInit } from "@nestjs/common";
 import { Prisma, PrismaClient } from "@prisma/client";
 import { officeContext, TenantContext } from "../common/tenant-context";
+import { prismaAdapter } from "./prisma-adapter";
 
 export type TenantTx = Prisma.TransactionClient;
 
@@ -15,8 +16,12 @@ export type TenantTx = Prisma.TransactionClient;
  * גישה ישירה (this.user וכו') שמורה לשכבת האימות בלבד (users/sessions,
  * שאינן תחת RLS בכוונה).
  */
-@Injectable()
 export class PrismaService extends PrismaClient implements OnModuleInit, OnModuleDestroy {
+  /** ‏הכתובת מפורשת — `CoreModule` מעביר את `DATABASE_URL`, ובדיקות המסד את שלהן. */
+  constructor(url: string | undefined) {
+    super({ adapter: prismaAdapter(url) });
+  }
+
   async onModuleInit(): Promise<void> {
     await this.$connect();
   }

@@ -1,5 +1,6 @@
 import { PrismaClient } from "@prisma/client";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { prismaAdapter } from "../../core/prisma-adapter";
 
 /**
  * ‎**הנעוץ חוזר אל המסך — מול מסד אמיתי.**
@@ -46,9 +47,7 @@ function messageId(n: number): string {
 const BASE = new Date("2026-09-01T06:00:00.000Z");
 
 beforeAll(async () => {
-  db = new PrismaClient({
-    datasources: { db: { url: requiredEnv("DIRECT_DATABASE_URL") } },
-  });
+  db = new PrismaClient({ adapter: prismaAdapter(requiredEnv("DIRECT_DATABASE_URL")) });
   await db.$executeRaw`
     INSERT INTO tenants (id, name, settings, created_at, updated_at)
     VALUES (${TENANT}, 'משרד נעוצים', '{}'::jsonb, now(), now())

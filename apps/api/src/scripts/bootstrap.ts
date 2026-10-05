@@ -12,8 +12,9 @@ import { randomBytes } from "node:crypto";
 import { PrismaClient } from "@prisma/client";
 import * as argon2 from "argon2";
 import { ulid } from "ulid";
+import { prismaAdapter } from "../core/prisma-adapter";
 
-const prisma = new PrismaClient();
+const prisma = new PrismaClient({ adapter: prismaAdapter(process.env["DATABASE_URL"]) });
 
 async function main(): Promise<void> {
   const [agencyName, email, ownerName] = process.argv.slice(2);

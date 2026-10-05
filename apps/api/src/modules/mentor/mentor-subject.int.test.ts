@@ -5,6 +5,7 @@ import { mentorSubjectFacts, mentorSubjectLines } from "@metavchim/shared";
 import { MentorSignalsService } from "./mentor-signals.service";
 import { CryptoService } from "../../core/crypto.service";
 import type { TenantTx } from "../../core/prisma.service";
+import { prismaAdapter } from "../../core/prisma-adapter";
 
 /**
  * ‎**הכרטיס שמצורף לשיחה עם המנטור — מול מסד אמיתי.**
@@ -81,9 +82,7 @@ function daysAgo(n: number): Date {
 }
 
 beforeAll(async () => {
-  db = new PrismaClient({
-    datasources: { db: { url: requiredEnv("DIRECT_DATABASE_URL") } },
-  });
+  db = new PrismaClient({ adapter: prismaAdapter(requiredEnv("DIRECT_DATABASE_URL")) });
   crypto = new CryptoService();
   signals = new MentorSignalsService(crypto);
 

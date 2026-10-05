@@ -31,8 +31,9 @@ RUN pnpm --filter @metavchim/api deploy --prod --legacy /prod/api \
 # ‏היה מוסיף שכבה עם מטמון הורדות של המנוע. ה-Workers אינם צריכים את
 # ‏כלי ה-CLI של Prisma בזמן ריצה, ו-`prune-prisma-cli.mjs` מסיר אותו ואת
 # ‏התלויות שרק הוא צריך (מחושב מהגרף, ונבדק). ה-API נושא את ה-CLI ממילא —
-# ‏הוא מריץ איתו את המיגרציות בעלייה.
-RUN cd /prod/api && node node_modules/prisma/build/index.js generate --schema=prisma/schema.prisma \
+# ‏הוא מריץ איתו את המיגרציות בעלייה. הסכימה וכתובת המיגרציות של ה-API
+# ‏ב-`prisma.config.ts`; ל-Workers אין קובץ כזה, ולכן הסכימה מפורשת.
+RUN cd /prod/api && node node_modules/prisma/build/index.js generate \
  && mkdir -p /prod/workers/prisma && cp prisma/schema.prisma /prod/workers/prisma/ \
  && cd /prod/workers && node /prod/api/node_modules/prisma/build/index.js generate --schema=prisma/schema.prisma \
  && cd /repo && node infra/docker/prune-prisma-cli.mjs @metavchim/workers /prod/workers
@@ -55,7 +56,7 @@ EXPOSE 3001
 COPY --chmod=755 infra/docker/api-entrypoint.sh /usr/local/bin/api-entrypoint
 ENTRYPOINT ["/usr/local/bin/api-entrypoint"]
 # מיגרציות רצות לפני עליית השרת — פריסה אטומית של סכימה+קוד
-CMD ["sh", "-c", "node node_modules/prisma/build/index.js migrate deploy --schema=prisma/schema.prisma && exec node dist/main.js"]
+CMD ["sh", "-c", "node node_modules/prisma/build/index.js migrate deploy && exec node dist/main.js"]
 
 # ---------- Workers ----------
 FROM base AS workers

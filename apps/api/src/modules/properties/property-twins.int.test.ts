@@ -1,4 +1,5 @@
 import { PrismaClient } from "@prisma/client";
+import { prismaAdapter } from "../../core/prisma-adapter";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ulid } from "ulid";
 import { canonicalTwinPair } from "@metavchim/shared";
@@ -53,7 +54,7 @@ beforeAll(async () => {
   if (url === undefined || url === "") {
     throw new Error("DIRECT_DATABASE_URL חסר — הבדיקה דורשת מסד אמיתי");
   }
-  db = new PrismaClient({ datasources: { db: { url } } });
+  db = new PrismaClient({ adapter: prismaAdapter(url) });
   await clean();
 });
 
@@ -99,7 +100,7 @@ describe("property_twins — הסדר הקנוני", () => {
      * השתנה.
      */
     await expect(insertPair(LOW, HIGH)).rejects.toMatchObject({
-      meta: { code: "23505" },
+      meta: { driverAdapterError: { cause: { originalCode: "23505" } } },
     });
   });
 

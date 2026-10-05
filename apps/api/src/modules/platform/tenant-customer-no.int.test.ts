@@ -1,5 +1,6 @@
 import { PrismaClient } from "@prisma/client";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { prismaAdapter } from "../../core/prisma-adapter";
 
 /**
  * ‎**מספר הלקוח — מול Postgres אמיתי, כי כולו במסד.**
@@ -46,12 +47,8 @@ async function createTenant(suffix: string): Promise<number> {
 }
 
 beforeAll(() => {
-  owner = new PrismaClient({
-    datasources: { db: { url: requiredEnv("DIRECT_DATABASE_URL") } },
-  });
-  app = new PrismaClient({
-    datasources: { db: { url: requiredEnv("APP_DATABASE_URL") } },
-  });
+  owner = new PrismaClient({ adapter: prismaAdapter(requiredEnv("DIRECT_DATABASE_URL")) });
+  app = new PrismaClient({ adapter: prismaAdapter(requiredEnv("APP_DATABASE_URL")) });
 });
 
 afterAll(async () => {

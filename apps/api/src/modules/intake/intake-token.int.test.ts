@@ -1,6 +1,7 @@
 import { PrismaClient } from "@prisma/client";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ulid } from "ulid";
+import { prismaAdapter } from "../../core/prisma-adapter";
 
 /**
  * הפוליסה הציבורית של טופס הלקוח — **מול מסד אמיתי.**
@@ -71,8 +72,8 @@ beforeAll(async () => {
   if (!ownerUrl || !appUrl) {
     throw new Error("DIRECT_DATABASE_URL / APP_DATABASE_URL חסרים — נדרש מסד אמיתי");
   }
-  owner = new PrismaClient({ datasources: { db: { url: ownerUrl } } });
-  app = new PrismaClient({ datasources: { db: { url: appUrl } } });
+  owner = new PrismaClient({ adapter: prismaAdapter(ownerUrl) });
+  app = new PrismaClient({ adapter: prismaAdapter(appUrl) });
   await clean();
   await seed(TENANT_A, TOKEN_A);
   await seed(TENANT_B, TOKEN_B);
