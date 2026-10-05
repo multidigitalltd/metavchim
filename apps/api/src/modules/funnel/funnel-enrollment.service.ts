@@ -647,7 +647,7 @@ export class FunnelEnrollmentService {
     now: Date,
   ): Promise<number> {
     const tenantIds = [...new Set(live.map((row) => row.tenantId))];
-    const [tenants, subscriptions, sentRows] = await Promise.all([
+    const [tenants, subscriptions, sentRows, failedRows] = await Promise.all([
       this.prisma.tenant.findMany({
         where: { id: { in: tenantIds } },
         /*
@@ -691,6 +691,20 @@ export class FunnelEnrollmentService {
           select: { enrollmentId: true, stageKey: true },
         }),
       ),
+      /*
+       * ‎**נמען שנכשל עוד ממתין לניסיון חוזר** (ביקורת Codex, P1).
+       *
+       * ‏שלב שיצא לבעלים אחד ונכשל אצל השני נחשב „נשלח”, והסגירה
+       * ‏קודמת לשליחה בסבב — כלומר הרישום היה נסגר כ„מוצה” לפני
+       * ‏שהניסיון החוזר הגיע אליו. שלב כזה נשאר „עדיין אפשרי” עד שחלונו
+       * ‏נסגר, ורק אז הרישום נסגר.
+       */
+      this.prisma.withFunnelAdmin((tx) =>
+        tx.funnelMessage.findMany({
+          where: { enrollmentId: { in: live.map((row) => row.id) }, status: "failed" },
+          select: { enrollmentId: true, stageKey: true },
+        }),
+      ),
     ]);
     /*
      * ‎**שורת הדייר כולה, ולא שדה לכל מפה.**
@@ -707,6 +721,7 @@ export class FunnelEnrollmentService {
       keys.push(row.stageKey);
       sentByEnrollment.set(row.enrollmentId, keys);
     }
+    const retrying = new Set(failedRows.map((row) => `${row.enrollmentId}:${row.stageKey}`));
 
     let closed = 0;
     for (const row of live) {
@@ -763,7 +778,9 @@ export class FunnelEnrollmentService {
         definitionsIncomplete: invalid.some(
           (row) => row.track === null || row.track === track,
         ),
-        sent: sentByEnrollment.get(row.id) ?? [],
+        sent: (sentByEnrollment.get(row.id) ?? []).filter(
+          (key) => !retrying.has(`${row.id}:${key}`),
+        ),
         anchors,
         now,
       });

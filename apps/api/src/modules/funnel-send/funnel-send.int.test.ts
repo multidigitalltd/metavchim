@@ -1,5 +1,5 @@
 import { PrismaClient } from "@prisma/client";
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Response } from "express";
 import { ActivationNudgeService } from "../../core/activation-nudge.service";
 import type { EmailDomainProviderService } from "../../core/email-domain-provider.service";
@@ -382,5 +382,83 @@ describe("מסלול ההמרה — תיקוני הביקורת", () => {
     );
     expect(after[0]).toMatchObject({ status: "sent" });
     expect(after[0]!.sent_at).not.toBeNull();
+  });
+});
+
+describe("סגירת רישום כש„מוצה” — רק אחרי שהנמען שנכשל קיבל הזדמנות", () => {
+  const SECOND = "01M1FNNLSENDOWNER000000003";
+  const ENROLLMENT = "01M1FNNLSENDENROLL00000001";
+
+  /*
+   * ‏כל השלבים פגו מלבד „שבוע אחרי” (שעון הניסיון): המשפך התחיל לפני
+   * ‏חודש, והניסיון נגמר לפני שבוע ושעה.
+   */
+  async function seed(withFailed: boolean): Promise<void> {
+    const now = Date.now();
+    await direct.$executeRawUnsafe(
+      `UPDATE tenants SET trial_ends_at = $2, created_at = $3 WHERE id = $1`,
+      TENANT,
+      new Date(now - 7 * DAY - HOUR),
+      new Date(now - 40 * DAY),
+    );
+    await direct.$executeRawUnsafe(
+      `INSERT INTO users (id, tenant_id, name, email, role, is_active, created_at, updated_at)
+       VALUES ($1, $2, 'יוסי לוי', 'yossi3.funnel@example.test', 'owner', true, now(), now())`,
+      SECOND,
+      TENANT,
+    );
+    await direct.$executeRawUnsafe(
+      `INSERT INTO funnel_enrollments (id, tenant_id, track, started_at, created_at, updated_at)
+       VALUES ($1, $2, 'conversion', $3, now(), now())`,
+      ENROLLMENT,
+      TENANT,
+      new Date(now - 30 * DAY),
+    );
+    const message = (id: string, user: string, status: string, token: string): Promise<number> =>
+      direct.$executeRawUnsafe(
+        `INSERT INTO funnel_messages
+           (id, tenant_id, enrollment_id, track, stage_key, user_id, destination, channel, status, token, sent_at, created_at, updated_at)
+         VALUES ($1, $2, $3, 'conversion', 'trial_last_call', $4, 'x@example.test', 'email', $5, $6, $7, now(), now())`,
+        id,
+        TENANT,
+        ENROLLMENT,
+        user,
+        status,
+        token,
+        status === "sent" ? new Date(now - HOUR) : null,
+      );
+    await message("01M1FNNLSENDMSGSENT0000001", OWNER, "sent", "a".repeat(43));
+    if (withFailed) await message("01M1FNNLSENDMSGFAIL0000001", SECOND, "failed", "b".repeat(43));
+  }
+
+  async function reason(): Promise<string | null> {
+    const rows = await direct.$queryRawUnsafe<{ ended_reason: string | null }[]>(
+      `SELECT ended_reason FROM funnel_enrollments WHERE id = $1`,
+      ENROLLMENT,
+    );
+    return rows[0]?.ended_reason ?? null;
+  }
+
+  async function sweep(): Promise<void> {
+    const stages = new FunnelStageService(prisma);
+    await new FunnelEnrollmentService(prisma, stages).sweep(new Date());
+  }
+
+  afterEach(async () => {
+    await direct.$executeRawUnsafe(`DELETE FROM funnel_messages WHERE enrollment_id = $1`, ENROLLMENT);
+    await direct.$executeRawUnsafe(`DELETE FROM funnel_enrollments WHERE id = $1`, ENROLLMENT);
+    await direct.$executeRawUnsafe(`DELETE FROM users WHERE id = $1`, SECOND);
+  });
+
+  it("נמען שנכשל בשלב האחרון — הרישום נשאר פתוח לניסיון החוזר", async () => {
+    await seed(true);
+    await sweep();
+    expect(await reason()).toBeNull();
+  });
+
+  it("בלי נמען שנכשל — אותו מצב נסגר כ„סיים את הרצף”", async () => {
+    await seed(false);
+    await sweep();
+    expect(await reason()).toBe("completed");
   });
 });

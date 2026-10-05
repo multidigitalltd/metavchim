@@ -15,7 +15,7 @@ import { loadEnv } from "../config/env";
 import { EmailService } from "./email.service";
 import { PlanCatalogService } from "./plan-catalog.service";
 import { PlatformSettingsService } from "./platform-settings.service";
-import { PrismaService } from "./prisma.service";
+import { PrismaService, type TenantTx } from "./prisma.service";
 import { Sweep } from "./sweeps";
 
 /** פעם בשעה — החלון נמדד בימים, כמו בהזמנה לשיחת ההיכרות. */
@@ -404,24 +404,33 @@ export class ActivationNudgeService {
          * בן חודש חייב להמשיך לעבוד, ולכן הוא אינו מתחלף בין
          * הודעות ואינו פוקע.
          */
-        const token =
-          row.nudgeOptOut?.token ??
-          (
-            await tx.activationNudgeOptOut.create({
-              data: {
-                id: ulid(),
-                tenantId,
-                userId: row.id,
-                token: randomBytes(32).toString("base64url"),
-              },
-              select: { token: true },
-            })
-          ).token;
+        const token = row.nudgeOptOut?.token ?? (await ensureToken(tx, tenantId, row.id));
         out.push({ id: row.id, name: row.name, email: row.email, token });
       }
       return out;
     });
   }
+}
+
+/**
+ * ‎**טוקן ההסרה — נוצר פעם אחת, גם כששני סבבים מבקשים אותו יחד.**
+ *
+ * ‏תזכורות ההפעלה ומסלול ההמרה רצים בסבבים נפרדים ועלולים להגיע לאותו
+ * ‏בעלים באותו רגע. „קרא ואז צור” היה נופל אצל אחד מהם על האילוץ
+ * ‏הייחודי, ואצל התזכורות זה קורה אחרי שהשלב כבר נתפס — כלומר תזכורת
+ * ‏שלא הייתה יוצאת לעולם (ביקורת Codex). `ON CONFLICT DO NOTHING`
+ * ‏ואז קריאה מחזירים את הטוקן של מי שניצח.
+ */
+async function ensureToken(tx: TenantTx, tenantId: string, userId: string): Promise<string> {
+  await tx.activationNudgeOptOut.createMany({
+    data: { id: ulid(), tenantId, userId, token: randomBytes(32).toString("base64url") },
+    skipDuplicates: true,
+  });
+  const row = await tx.activationNudgeOptOut.findUniqueOrThrow({
+    where: { userId },
+    select: { token: true },
+  });
+  return row.token;
 }
 
 /**
