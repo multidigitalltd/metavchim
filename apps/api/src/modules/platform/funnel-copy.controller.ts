@@ -78,6 +78,12 @@ export class FunnelCopyController {
     return this.stages.copyCatalog();
   }
 
+  /** ‏המדדים לכל שלב, ומה קרה למשרדים שבמסלול. */
+  @Get("funnel-stats")
+  async stats(): Promise<FunnelStats> {
+    return this.report.stats();
+  }
+
   /**
    * ‎**המפסק הראשי — כבוי, אלא אם הודלק כאן במפורש.**
    *
@@ -85,12 +91,6 @@ export class FunnelCopyController {
    * ‏דלוקים. כך אפשר להכין ולהדליק שלבים בשקט, ולפתוח את המסלול
    * ‏ברגע אחד.
    */
-  /** ‏המדדים לכל שלב, ומה קרה למשרדים שבמסלול. */
-  @Get("funnel-stats")
-  async stats(): Promise<FunnelStats> {
-    return this.report.stats();
-  }
-
   @Get("funnel-sending")
   async sending(): Promise<{ enabled: boolean }> {
     return { enabled: (await this.settings.get("funnelSending")) === "true" };
