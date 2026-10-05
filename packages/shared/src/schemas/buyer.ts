@@ -1,4 +1,4 @@
-import { z } from "zod";
+import * as z from "../zod.js";
 import { MoneyAgorotSchema } from "./common.js";
 import { PropertyTypeSchema, DealTypeSchema } from "./property.js";
 import { FLOOR_CHOICES, FLOOR_MAX, FLOOR_MIN } from "../logic/floor-preference.js";

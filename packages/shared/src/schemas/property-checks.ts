@@ -1,4 +1,4 @@
-import { z } from "zod";
+import * as z from "../zod.js";
 import {
   PROPERTY_CHECK_KEYS,
   PROPERTY_CHECK_NOTE_MAX,

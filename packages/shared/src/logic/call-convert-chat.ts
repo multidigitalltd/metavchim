@@ -13,7 +13,7 @@
  * ‏יודע מה זה, והשיחה כבר יצרה ליד ממילא.
  */
 
-import type { z } from "zod";
+import type * as z from "../zod.js";
 import { IdSchema } from "../schemas/common.js";
 import type { DealTypeSchema } from "../schemas/property.js";
 

@@ -1,4 +1,4 @@
-import { z } from "zod";
+import * as z from "../zod.js";
 import { PHOTO_BLUR_MAX_RECTS } from "../logic/property-photo.js";
 
 /** ‏שבר של התמונה — 0 עד 1. */

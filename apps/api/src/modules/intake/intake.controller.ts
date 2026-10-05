@@ -118,7 +118,8 @@ export const AnswersSchema = z
     budgetMinAgorot: z.number().int().min(0).max(1e13).nullish(),
     budgetMaxAgorot: z.number().int().min(0).max(1e13).nullish(),
     areaSqmMin: z.number().int().min(0).max(10_000).nullish(),
-    features: z.record(z.enum(INTAKE_FEATURES), z.enum(["must", "nice"])).optional(),
+    /* ‏‎`partialRecord`‎: ב-Zod 4 רשומה עם מפתחות enum דורשת את כולם, וכאן כל תכונה רשות */
+    features: z.partialRecord(z.enum(INTAKE_FEATURES), z.enum(["must", "nice"])).optional(),
     entryType: z.enum(["immediate", "by_date", "flexible"]).optional(),
     entryBy: z.string().regex(/^\d{4}-\d{2}-\d{2}$/u).optional(),
     notes: z.string().max(INTAKE_NOTES_MAX).optional(),
@@ -166,7 +167,7 @@ export const SellerAnswersSchema = z
     totalFloors: z.number().int().min(1).max(60).optional(),
     priceAgorot: z.number().int().min(0).max(1e13).optional(),
     priceFlexible: z.boolean().optional(),
-    features: z.record(z.enum(INTAKE_SELLER_FEATURES), z.boolean()).optional(),
+    features: z.partialRecord(z.enum(INTAKE_SELLER_FEATURES), z.boolean()).optional(),
     entryType: z.enum(["immediate", "from_date", "flexible"]).optional(),
     entryDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/u).optional(),
     notes: z.string().max(INTAKE_SELLER_NOTES_MAX).optional(),

@@ -1,4 +1,4 @@
-import { z } from "zod";
+import * as z from "../zod.js";
 import { IdSchema } from "./common.js";
 import { COMPARISON_MAX_PROPERTIES, COMPARISON_MIN_PROPERTIES } from "../logic/comparison.js";
 

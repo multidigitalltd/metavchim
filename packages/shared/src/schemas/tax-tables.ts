@@ -1,4 +1,4 @@
-import { z } from "zod";
+import * as z from "../zod.js";
 
 const Bracket = z.object({ upTo: z.number().positive().nullable(), percent: z.number().min(0).max(100) });
 const Brackets = z

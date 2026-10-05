@@ -1,4 +1,4 @@
-import { z } from "zod";
+import * as z from "../zod.js";
 
 export const LeadSourceSchema = z.enum([
   "voice_call",
