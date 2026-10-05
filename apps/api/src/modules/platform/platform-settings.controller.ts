@@ -34,6 +34,7 @@ import {
   whatsappButtonUrlTemplate,
   whatsappButtonLandsOn,
   whatsappDeepLinkSuffix,
+  WHATSAPP_TEMPLATE_LANG_DEFAULT,
   OptionalEmailSchema,
 } from "@metavchim/shared";
 import { loadEnv } from "../../config/env";
@@ -781,7 +782,8 @@ export class PlatformSettingsController {
            */
           notifyTemplate: (await this.platformSettings.get("whatsappNotifyTemplate")) ?? "",
           notifyTemplateLang:
-            (await this.platformSettings.get("whatsappNotifyTemplateLang")) ?? "he",
+            (await this.platformSettings.get("whatsappNotifyTemplateLang")) ??
+            WHATSAPP_TEMPLATE_LANG_DEFAULT,
           /*
            * ‎**לא מסומן היא ברירת המחדל הבטוחה**: תבנית שנרשמה לפני
            * שהאפשרות הזו קיימת אינה נושאת כפתור, ושליחת רכיב כפתור
@@ -982,6 +984,16 @@ export class PlatformSettingsController {
   @HttpCode(200)
   async testWhatsApp(): Promise<{ ok: boolean; message: string }> {
     return this.whatsappSender.probe();
+  }
+
+  /**
+   * ‎**הכפתור „פתח במערכת” — מה שרשום ב-Meta, מול מה שצריך.** המסך
+   * ‏קורא לזה כשהוא נפתח, ומציג ✓ או את הכתובת המדויקת לתיקון.
+   */
+  @Post("settings/check-whatsapp-template")
+  @HttpCode(200)
+  async checkWhatsAppTemplate(): Promise<{ ok: boolean | null; message: string; expected: string; registered?: string }> {
+    return this.whatsappSender.checkNotifyTemplateButton();
   }
 
   /**
