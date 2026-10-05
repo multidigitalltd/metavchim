@@ -29,6 +29,7 @@
  * כל כללי העיתוי בלי מסד, בלי שעון אמיתי, ובלי לשלוח דבר.
  */
 
+import type { EmailContent } from "./email-template.js";
 import {
   jerusalemDayStart,
   jerusalemWallIsoToUtc,
@@ -823,4 +824,58 @@ export function funnelPlaceholders(text: string): string[] {
 export function unknownFunnelPlaceholders(text: string): string[] {
   const known = new Set<string>(FUNNEL_PLACEHOLDERS);
   return funnelPlaceholders(text).filter((name) => !known.has(name));
+}
+
+/** ‏הערכים שמחליפים את מצייני המקום — אחד לכל שם ברשימה הסגורה. */
+export type FunnelPlaceholderValues = Record<FunnelPlaceholder, string>;
+
+/** ‏החלפת מצייני המקום. שם שאינו ברשימה נשאר כמו שהוא — `updateCopy` דוחה אותו ממילא. */
+export function fillFunnelPlaceholders(text: string, values: FunnelPlaceholderValues): string {
+  return text.replace(/\{\{([^{}]*)\}\}/gu, (whole, name: string) => {
+    const key = name.trim();
+    return Object.hasOwn(values, key) ? values[key as FunnelPlaceholder] : whole;
+  });
+}
+
+/** ‏נוסח המייל של שלב, כפי שנשמר במסך. */
+export interface FunnelEmailCopy {
+  emailSubject: string;
+  emailHeading: string;
+  emailBody: string;
+  ctaLabel: string;
+  ctaPath: string;
+}
+
+/**
+ * ‎**המייל של שלב — כפי שהנמען יקבל אותו.**
+ *
+ * ‏פונקציה אחת לשליחת הבדיקה ולשליחה האמיתית: מה שבעל הפלטפורמה
+ * ‏בודק בתיבה שלו הוא בדיוק מה שייצא, ולא עותק שנבנה בנפרד. `null`
+ * ‏= אין לשלב נוסח מייל (נושא או גוף ריקים).
+ *
+ * ‏הגוף מתפצל לפסקאות בשורה ריקה — אותו מבנה של `EmailContent`.
+ * ‏הכפתור נבנה רק כשיש גם תווית וגם נתיב, והנתיב יחסי למקור המערכת.
+ */
+export function funnelEmail(
+  copy: FunnelEmailCopy,
+  values: FunnelPlaceholderValues,
+  origin: string,
+): { subject: string; content: EmailContent } | null {
+  const fill = (text: string): string => fillFunnelPlaceholders(text, values).trim();
+  const subject = fill(copy.emailSubject);
+  const paragraphs = fill(copy.emailBody)
+    .split(/\n\s*\n/u)
+    .map((paragraph) => paragraph.trim())
+    .filter((paragraph) => paragraph !== "");
+  if (subject === "" || paragraphs.length === 0) return null;
+  const label = fill(copy.ctaLabel);
+  const path = copy.ctaPath.trim();
+  return {
+    subject,
+    content: {
+      heading: fill(copy.emailHeading) || subject,
+      paragraphs,
+      ...(label !== "" && path !== "" ? { button: { label, url: `${origin}${path}` } } : {}),
+    },
+  };
 }

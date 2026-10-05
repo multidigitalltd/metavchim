@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "@metavchim/ui";
 import { FUNNEL_PLACEHOLDERS, unknownFunnelPlaceholders } from "@metavchim/shared";
-import { apiGet, apiPatch } from "@/lib/api";
+import { ApiError, apiGet, apiPatch, apiPost } from "@/lib/api";
 import { Notice } from "../notice";
 
 /**
@@ -69,6 +69,9 @@ export function FunnelCopySection() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
+  /** ‏שליחת בדיקה: איזה שלב בדרך, ומה יצא מהאחרונה */
+  const [testing, setTesting] = useState<string | null>(null);
+  const [tested, setTested] = useState<{ id: string; ok: boolean; text: string } | null>(null);
 
   const load = useCallback(() => {
     setError(null);
@@ -103,6 +106,27 @@ export function FunnelCopySection() {
     }
   }
 
+  /*
+   * ‏הנוסח **השמור** נשלח — זה מה שייצא ללקוחות. שינוי שעוד לא נשמר
+   * ‏אינו נשלח, ולכן הכפתור נעול בזמן עריכה של אותו שלב.
+   */
+  async function sendTest(id: string) {
+    setTesting(id);
+    setTested(null);
+    try {
+      const { sentTo } = await apiPost<{ sentTo: string }>(`/platform/funnel-copy/${id}/test`, {});
+      setTested({ id, ok: true, text: `נשלח אל ${sentTo}` });
+    } catch (err) {
+      setTested({
+        id,
+        ok: false,
+        text: err instanceof ApiError ? err.message : "שליחת הבדיקה נכשלה",
+      });
+    } finally {
+      setTesting(null);
+    }
+  }
+
   /* ‏אזהרה חיה על מה שנכתב עכשיו, לפני שהשרת דוחה */
   const draftUnknown =
     draft === null
@@ -123,8 +147,9 @@ export function FunnelCopySection() {
 
       <Notice tone="info">
         ארבעה-עשר השלבים יושבים כאן עם טיוטות. <strong>כולם כבויים</strong> — מילוי נוסח אינו
-        הדלקה, וההפעלה היא החלטה נפרדת. תבניות הוואטסאפ טעונות אישור של מטא ומוגשות מ-WhatsApp
-        Manager.
+        הדלקה, וההפעלה היא החלטה נפרדת. „שלח אליי לבדיקה” שולח את המייל השמור לתיבה שלך בלבד,
+        עם השם והמשרד שלך במקום מצייני המקום. תבניות הוואטסאפ טעונות אישור של מטא ומוגשות
+        מ-WhatsApp Manager.
       </Notice>
 
       <p className="mt-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
@@ -175,12 +200,33 @@ export function FunnelCopySection() {
                         ) : null}
                         <Button
                           variant="secondary"
+                          disabled={testing !== null || open === row.id}
+                          title={
+                            open === row.id ? "שמרו קודם — הבדיקה שולחת את הנוסח השמור" : undefined
+                          }
+                          onClick={() => void sendTest(row.id)}
+                        >
+                          {testing === row.id ? "שולח…" : "שלח אליי לבדיקה"}
+                        </Button>
+                        <Button
+                          variant="secondary"
                           onClick={() => (open === row.id ? setOpen(null) : edit(row))}
                         >
                           {open === row.id ? "סגור" : "עריכה"}
                         </Button>
                       </span>
                     </div>
+                    {tested?.id === row.id ? (
+                      <p
+                        className="m-0 mt-2 text-sm"
+                        role={tested.ok ? "status" : "alert"}
+                        style={{
+                          color: tested.ok ? "var(--color-success)" : "var(--color-danger)",
+                        }}
+                      >
+                        {tested.text}
+                      </p>
+                    ) : null}
 
                     {open === row.id && draft !== null ? (
                       <div className="mt-3 flex flex-col gap-2">

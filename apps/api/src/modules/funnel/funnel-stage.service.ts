@@ -270,43 +270,15 @@ export class FunnelStageService {
   async copyCatalog(): Promise<FunnelStageCopy[]> {
     const rows = await this.prisma.funnelStage.findMany({
       orderBy: [{ track: "asc" }, { sortOrder: "asc" }],
-      select: {
-        id: true,
-        track: true,
-        key: true,
-        title: true,
-        enabled: true,
-        emailSubject: true,
-        emailHeading: true,
-        emailBody: true,
-        ctaLabel: true,
-        ctaPath: true,
-        whatsappTemplate: true,
-      },
+      select: COPY_SELECT,
     });
-    return rows.map((row) => ({
-      id: row.id,
-      track: row.track,
-      key: row.key,
-      title: row.title,
-      enabled: row.enabled,
-      emailSubject: row.emailSubject ?? "",
-      emailHeading: row.emailHeading ?? "",
-      emailBody: row.emailBody ?? "",
-      ctaLabel: row.ctaLabel ?? "",
-      ctaPath: row.ctaPath ?? "",
-      whatsappTemplate: row.whatsappTemplate ?? "",
-      /*
-       * ‏מחושב בשרת ולא במסך: המסך מציג אזהרה, אבל התשובה על
-       * ‏„האם הנוסח הזה בטוח לשליחה” צריכה להיות אחת — וזו שתיבדק
-       * ‏ביום שההדלקה תיאכף מולה.
-       */
-      unknownPlaceholders: unknownFunnelPlaceholders(
-        [row.emailSubject, row.emailHeading, row.emailBody, row.ctaLabel]
-          .filter((value): value is string => value !== null)
-          .join("\n"),
-      ),
-    }));
+    return rows.map(copyOf);
+  }
+
+  /** ‏נוסח של שלב אחד — לשליחת בדיקה. `null` = אין שלב כזה. */
+  async copy(id: string): Promise<FunnelStageCopy | null> {
+    const row = await this.prisma.funnelStage.findUnique({ where: { id }, select: COPY_SELECT });
+    return row === null ? null : copyOf(row);
   }
 
   /**
@@ -348,4 +320,57 @@ export class FunnelStageService {
 /** ‏שייכות לרשימה סגורה, בלי לוותר על הטיפוס. */
 function isOneOf<T extends string>(values: readonly T[], value: string): value is T {
   return (values as readonly string[]).includes(value);
+}
+
+/** ‏השדות של נוסח לעריכה — אותה שליפה לרשימה ולשלב בודד. */
+const COPY_SELECT = {
+  id: true,
+  track: true,
+  key: true,
+  title: true,
+  enabled: true,
+  emailSubject: true,
+  emailHeading: true,
+  emailBody: true,
+  ctaLabel: true,
+  ctaPath: true,
+  whatsappTemplate: true,
+} as const;
+
+function copyOf(row: {
+  id: string;
+  track: string;
+  key: string;
+  title: string;
+  enabled: boolean;
+  emailSubject: string | null;
+  emailHeading: string | null;
+  emailBody: string | null;
+  ctaLabel: string | null;
+  ctaPath: string | null;
+  whatsappTemplate: string | null;
+}): FunnelStageCopy {
+  return {
+    id: row.id,
+    track: row.track,
+    key: row.key,
+    title: row.title,
+    enabled: row.enabled,
+    emailSubject: row.emailSubject ?? "",
+    emailHeading: row.emailHeading ?? "",
+    emailBody: row.emailBody ?? "",
+    ctaLabel: row.ctaLabel ?? "",
+    ctaPath: row.ctaPath ?? "",
+    whatsappTemplate: row.whatsappTemplate ?? "",
+    /*
+     * ‏מחושב בשרת ולא במסך: המסך מציג אזהרה, אבל התשובה על
+     * ‏„האם הנוסח הזה בטוח לשליחה” צריכה להיות אחת — וזו שתיבדק
+     * ‏ביום שההדלקה תיאכף מולה.
+     */
+    unknownPlaceholders: unknownFunnelPlaceholders(
+      [row.emailSubject, row.emailHeading, row.emailBody, row.ctaLabel]
+        .filter((value): value is string => value !== null)
+        .join("\n"),
+    ),
+  };
 }
