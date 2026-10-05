@@ -474,7 +474,7 @@ export default function MentorPage() {
                   השוק ב{overview.market.settlement}
                 </h2>
                 <p className="mv-railcard__text">{overview.market.sentence}</p>
-                <Link href="/market" className="mv-railcard__link">
+                <Link href="/forum?tab=market" className="mv-railcard__link">
                   לנתוני השוק
                 </Link>
               </section>

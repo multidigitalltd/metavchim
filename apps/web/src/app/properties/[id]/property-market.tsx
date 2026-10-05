@@ -268,7 +268,7 @@ export function PropertyMarket({ propertyId, canEdit }: { propertyId: string; ca
           <div className="mv-card-head">
             <h3 id="building-heading" className="mv-card-head__title m-0">עסקאות בבניין</h3>
             {data.building.total > data.building.deals.length ? (
-              <Link href={`/market?gush=${data.parcel.gush}&helka=${data.parcel.helka}`} className="mv-card-head__link">
+              <Link href={`/forum?tab=market&view=building&gush=${data.parcel.gush}&helka=${data.parcel.helka}`} className="mv-card-head__link">
                 כל {data.building.total} העסקאות
               </Link>
             ) : null}

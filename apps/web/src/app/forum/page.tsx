@@ -1,9 +1,10 @@
 "use client";
 
-import { useRequireAuth } from "@/lib/use-auth";
+import { can, useRequireAuth } from "@/lib/use-auth";
 import { useFeature } from "@/lib/use-features";
 import { EntityTabs, TabPanel, useEntityTab } from "../entity-tabs";
-import { IconBell, IconChat, IconGear, IconStar, IconUsers } from "../icons";
+import { IconBell, IconChart, IconChat, IconGear, IconStar, IconUsers } from "../icons";
+import { MarketExplorer } from "../market/market-explorer";
 import { Calculators } from "./forum-calculators";
 import { FollowingPanel } from "./forum-following";
 import { ListingDirectory } from "./forum-listings";
@@ -12,8 +13,9 @@ import { ThreadList } from "./forum-threads";
 /**
  * הפורום המקצועי — המסך שמאחורי ההבטחה שהייתה כאן כ„בקרוב” (docs/16).
  *
- * ארבע לשוניות: השאלות והדיונים, הכלים, בעלי המקצוע, ומה שאני
- * עוקב/ת אחריו. הלשונית נשמרת בכתובת, כדי שקישור „לפורום, לכלים”
+ * חמש לשוניות: השאלות והדיונים, הכלים, בעלי המקצוע, מה שאני
+ * עוקב/ת אחריו, ונתוני השוק (docs/18 — עברו לכאן מהתפריט הראשי,
+ * בהחלטת בעל המוצר; מוצגת רק למי שרשאי לראות נכסים, כמו ה-API). הלשונית נשמרת בכתובת, כדי שקישור „לפורום, לכלים”
  * יוביל לכלים.
  *
  * ‎**בלי לשונית „בעילום שם” ובלי מונים** (החלטת בעל המוצר): עילום
@@ -27,13 +29,18 @@ const TABS = [
   { key: "tools", label: "כלים ומחשבונים", icon: <IconGear s={18} /> },
   { key: "pros", label: "בעלי מקצוע", icon: <IconStar s={18} /> },
   { key: "following", label: "במעקב שלי", icon: <IconBell s={18} /> },
+  { key: "market", label: "נתוני שוק", icon: <IconChart s={18} /> },
 ] as const;
-const TAB_KEYS = TABS.map((t) => t.key);
 
 export default function ForumPage() {
-  const { loading } = useRequireAuth();
+  const { user, loading } = useRequireAuth();
   const hasWhatsapp = useFeature("voice_intake");
-  const [tab, setTab] = useEntityTab([...TAB_KEYS], "threads");
+  // ‏נתוני השוק נפתחים תחת `properties.view` — אותו שער של ה-API
+  const tabs = TABS.filter((t) => t.key !== "market" || can(user, "properties.view"));
+  const [tab, setTab] = useEntityTab(
+    tabs.map((t) => t.key),
+    "threads",
+  );
 
   if (loading) return null;
 
@@ -52,7 +59,7 @@ export default function ForumPage() {
 
       <div className="mv-forum-tabs mt-5">
         <EntityTabs
-          tabs={TABS.map((t) => ({ key: t.key, label: t.label, icon: t.icon }))}
+          tabs={tabs.map((t) => ({ key: t.key, label: t.label, icon: t.icon }))}
           active={tab}
           onSelect={setTab}
           label="לשוניות הפורום"
@@ -85,6 +92,11 @@ export default function ForumPage() {
         <TabPanel tab="following" active={tab}>
           <FollowingPanel hasWhatsapp={hasWhatsapp} />
         </TabPanel>
+        {tabs.some((t) => t.key === "market") ? (
+          <TabPanel tab="market" active={tab}>
+            <MarketExplorer />
+          </TabPanel>
+        ) : null}
       </div>
     </div>
   );

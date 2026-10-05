@@ -641,3 +641,13 @@ export const IconTarget = ({ s }: IconProps) => (
     <circle cx="12" cy="12" r="1" />
   </svg>
 );
+
+/** ‏עמודות עולות — נתוני שוק (לשונית בפורום). */
+export const IconChart = ({ s }: IconProps) => (
+  <svg {...svgProps(s)}>
+    <line x1="4" y1="20" x2="20" y2="20" />
+    <rect x="5" y="12" width="3" height="8" rx="1" />
+    <rect x="10.5" y="8" width="3" height="12" rx="1" />
+    <rect x="16" y="4" width="3" height="16" rx="1" />
+  </svg>
+);

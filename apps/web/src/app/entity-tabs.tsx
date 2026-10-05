@@ -102,7 +102,12 @@ export function EntityTabs({
  * מפתח שאינו ברשימה נבלע ונופל ללשונית הראשונה: כתובת ישנה אחרי
  * שינוי שמות הלשוניות אמורה לפתוח משהו, לא מסך ריק.
  */
-export function useEntityTab(keys: string[], fallback: string): [string, (next: string) => void] {
+export function useEntityTab(
+  keys: string[],
+  fallback: string,
+  /** ‏שם הפרמטר בכתובת — לשוניות בתוך לשונית צריכות שם משלהן. */
+  param = "tab",
+): [string, (next: string) => void] {
   const [tab, setTab] = useState(fallback);
 
   /*
@@ -113,14 +118,14 @@ export function useEntityTab(keys: string[], fallback: string): [string, (next: 
    */
   const initial = keys.join(",");
   useEffect(() => {
-    const requested = new URLSearchParams(window.location.search).get("tab");
+    const requested = new URLSearchParams(window.location.search).get(param);
     if (requested !== null && initial.split(",").includes(requested)) setTab(requested);
-  }, [initial]);
+  }, [initial, param]);
 
   function select(next: string): void {
     setTab(next);
     const params = new URLSearchParams(window.location.search);
-    params.set("tab", next);
+    params.set(param, next);
     window.history.replaceState({}, "", `?${params.toString()}`);
   }
 
