@@ -12,6 +12,7 @@ import { LandingService } from "./landing.service";
 import { MediaController } from "./media.controller";
 import { OpenHouseController } from "./open-house.controller";
 import { OpenHouseService } from "./open-house.service";
+import { OpenHousePhoneBackfillService } from "./open-house-phone-backfill.service";
 import { MediaService } from "./media.service";
 import { PropertyPhotoService } from "./property-photo.service";
 import { PropertiesController } from "./properties.controller";
@@ -73,6 +74,7 @@ import { PropertyTwinsService } from "./property-twins.service";
     PropertyReofferService,
     PropertyBidsService,
     OpenHouseService,
+    OpenHousePhoneBackfillService,
   ],
   exports: [PropertiesService, LandingService, PropertyPhotoService],
 })
