@@ -46,6 +46,9 @@ const MAX_TENANTS_PER_SWEEP = 100;
  */
 const STALE_CLAIM_MS = 30 * 60 * 1000;
 
+/** ‏מה שהשליחה עצמה יודעת על התוצאה — לפני שה-Webhook אמר את דברו. */
+type Settlement = { status: "sent" | "failed"; sentAt?: Date; error: string | null };
+
 /** ‏עובדות שאינן משנות דבר — לסינון המוקדם, כשהשלבים בלי תנאי קהל. */
 const ANY_FACTS: FunnelFacts = {
   hasProperties: false,
@@ -342,6 +345,7 @@ export class FunnelSendService {
           optOutUrl: `${origin}/nudge-optout/${owner.token}`,
         },
       );
+      let outcome: Settlement;
       try {
         if (email === null) throw new Error("לשלב אין נושא וגוף למייל");
         await this.email.send(owner.email, email.subject, email.content, {
@@ -349,18 +353,11 @@ export class FunnelSendService {
           idempotency: { key: `funnel:${message.id}`, purpose: "funnel" },
           required: true,
         });
-        await this.settle(enrollment.tenantId, message.id, {
-          status: "sent",
-          sentAt: now,
-          error: null,
-        });
-        delivered += 1;
+        outcome = { status: "sent", sentAt: now, error: null };
       } catch (error: unknown) {
-        await this.settle(enrollment.tenantId, message.id, {
-          status: "failed",
-          error: String(error).slice(0, 300),
-        });
+        outcome = { status: "failed", error: String(error).slice(0, 300) };
       }
+      if (await this.settle(enrollment.tenantId, message.id, outcome)) delivered += 1;
     }
     if (delivered === 0) return false;
     await this.prisma.withFunnelAdmin((tx) =>
@@ -433,15 +430,19 @@ export class FunnelSendService {
    * ‏המסירה יכול להקדים את התשובה של הספק: חזרה מהירה שאחריה „התקבל”
    * ‏הייתה הופכת ל„נשלחה” ונעלמת מהמדד, ופסק זמן אחרי מסירה מאושרת
    * ‏היה מסמן אותה „נכשלה” ושולח שוב. מה שהספק דיווח גובר.
+   *
+   * ‏מחזיר האם ההודעה **יצאה בסוף** — לפי השורה ולא לפי מה שניסינו
+   * ‏לכתוב, כך שמסירה שה-Webhook אישר לפני פסק הזמן עדיין מעדכנת את
+   * ‏`lastSentAt` ונספרת בתקרה (ביקורת Codex).
    */
-  private async settle(
-    tenantId: string,
-    id: string,
-    data: { status: "sent" | "failed"; sentAt?: Date; error: string | null },
-  ): Promise<void> {
-    await this.prisma.withFunnelAdmin((tx) =>
-      tx.funnelMessage.updateMany({ where: { id, tenantId, status: "queued" }, data }),
-    );
+  private async settle(tenantId: string, id: string, data: Settlement): Promise<boolean> {
+    return this.prisma.withFunnelAdmin(async (tx) => {
+      await tx.funnelMessage.updateMany({ where: { id, tenantId, status: "queued" }, data });
+      const out = await tx.funnelMessage.count({
+        where: { id, status: { in: [...FUNNEL_MESSAGE_OUT_STATUSES] } },
+      });
+      return out === 1;
+    });
   }
 
   /**

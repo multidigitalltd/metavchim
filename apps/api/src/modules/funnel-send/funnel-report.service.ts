@@ -51,10 +51,28 @@ export class FunnelReportService {
        * ‏והספק בכל זאת מסר. בלי התיקון כאן היא הייתה גם „נמסרה” וגם
        * ‏„נכשלה”, ולא הייתה נספרת בהיסטוריית השלבים — והשלב היה נשלח שוב.
        */
-      await tx.funnelMessage.updateMany({
+      const unrecorded = await tx.funnelMessage.findFirst({
         where: { id: messageId, channel: "email", sentAt: null },
-        data: { sentAt: event.at },
+        select: { enrollmentId: true },
       });
+      if (unrecorded !== null) {
+        await tx.funnelMessage.updateMany({
+          where: { id: messageId, sentAt: null },
+          data: { sentAt: event.at },
+        });
+        /*
+         * ‏וגם הרישום: המרווח המזערי עד ההודעה הבאה נמדד מ-`lastSentAt`,
+         * ‏ושליחה שאצלנו נרשמה ככושלת לא עדכנה אותו — השלב הבא, אולי
+         * ‏בשעון השני, היה יוצא בלי 20 השעות (ביקורת Codex).
+         */
+        await tx.funnelEnrollment.updateMany({
+          where: {
+            id: unrecorded.enrollmentId,
+            OR: [{ lastSentAt: null }, { lastSentAt: { lt: event.at } }],
+          },
+          data: { lastSentAt: event.at },
+        });
+      }
       if (event.kind === "bounced") {
         await tx.funnelMessage.updateMany({
           where: { id: messageId, channel: "email", deliveredAt: null },

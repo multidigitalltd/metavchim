@@ -92,6 +92,14 @@ async function messages(): Promise<
   }));
 }
 
+async function lastSentAt(): Promise<Date | null> {
+  const rows = await direct.$queryRawUnsafe<{ last_sent_at: Date | null }[]>(
+    `SELECT last_sent_at FROM funnel_enrollments WHERE tenant_id = $1`,
+    TENANT,
+  );
+  return rows[0]?.last_sent_at ?? null;
+}
+
 async function cleanup(): Promise<void> {
   await direct.$executeRawUnsafe(`DELETE FROM funnel_messages WHERE tenant_id = $1`, TENANT);
   await direct.$executeRawUnsafe(`DELETE FROM funnel_enrollments WHERE tenant_id = $1`, TENANT);
@@ -382,6 +390,8 @@ describe("מסלול ההמרה — תיקוני הביקורת", () => {
     );
     expect(after[0]).toMatchObject({ status: "sent" });
     expect(after[0]!.sent_at).not.toBeNull();
+    // ‏והמרווח עד ההודעה הבאה נמדד ממנה
+    expect(await lastSentAt()).toEqual(MONDAY_10);
   });
 });
 
@@ -535,14 +545,18 @@ describe("מסלול ההמרה — שליחה שנקטעה, הסרה בין ש�
     expect((await messageRow()).status).toBe("bounced");
   });
 
-  it("מסירה מאושרת ואז פסק זמן — נשארת נשלחה, ואינה נשלחת שוב", async () => {
+  it("מסירה מאושרת ואז פסק זמן — נשארת נשלחה, נספרת, ואינה נשלחת שוב", async () => {
     send.mockImplementation(webhookFirst("delivered", () => Promise.reject(new Error("פסק זמן"))));
+    let result: { sent: number };
     try {
-      await service().run(MONDAY_10);
+      result = await service().run(MONDAY_10);
     } finally {
       send.mockImplementation(() => Promise.resolve());
     }
     expect((await messageRow()).status).toBe("sent");
+    // ‏נספרה בתקרה, והמרווח עד ההודעה הבאה נמדד ממנה
+    expect(result.sent).toBe(1);
+    expect(await lastSentAt()).toEqual(MONDAY_10);
     send.mockClear();
     await service().run(new Date(MONDAY_10.getTime() + DAY));
     expect(send).not.toHaveBeenCalled();
