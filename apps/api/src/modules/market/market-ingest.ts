@@ -380,6 +380,8 @@ export class MarketIngest {
             AND d.nature_group = b.nature_group
             AND EXTRACT(YEAR FROM d.deal_date)::int = b.y
             AND d.ppsqm IS NOT NULL
+            -- עסקה חלקית כבר מחוץ לסטטיסטיקה; „מחיר חריג” עליה היה תווית שנייה ומטעה
+            AND (d.flags & ${MARKET_FLAGS.partial | MARKET_FLAGS.tinyAmount}) = 0
             AND (d.ppsqm < b.lo OR d.ppsqm > b.hi)`,
       ]);
     }
