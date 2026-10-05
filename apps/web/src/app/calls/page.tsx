@@ -361,7 +361,8 @@ export default function CallsPage() {
       setAdding(false);
       load();
     } catch (err: unknown) {
-      setError(err instanceof ApiError ? err.message : "שמירת השיחה נכשלה");
+      /* ‏הסיבה ולא רק „קלט לא תקין” — למשל איך כותבים מספר מחו״ל */
+      setError(err instanceof ApiError ? (err.issues[0]?.message ?? err.message) : "שמירת השיחה נכשלה");
     } finally {
       setBusy(false);
     }
