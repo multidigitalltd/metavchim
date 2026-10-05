@@ -778,4 +778,4 @@ export function formatMarketIls(value: number): string {
 
 /** ייחוס המקור — מופיע בכל מסך שמציג נתון מהמאגר. */
 export const MARKET_SOURCE_ATTRIBUTION =
-  'מקור: עסקאות מיסוי מקרקעין, רשות המסים — באמצעות „גרסאות לעם” (over.org.il). הסכומים מדווחים ואינם שמאות.';
+  "מקור: עסקאות מיסוי מקרקעין, רשות המסים.";

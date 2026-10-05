@@ -1544,7 +1544,6 @@ export default function PropertyDetailPage({
               value={property.internalNotes}
               fieldId="internalNotes"
               title="הערות פנימיות"
-              empty="אין הערות עדיין — מה שנאמר בשיחה עם בעל הנכס נכתב כאן."
               canEdit={canEditOwner}
               onSave={saveNotes}
             />
