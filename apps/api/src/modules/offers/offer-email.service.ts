@@ -590,8 +590,8 @@ export class OfferEmailService {
         if (!activeProperties.has(candidate.propertyId)) continue;
         const contactId = contactByBuyer.get(candidate.buyerId);
         if (contactId === undefined || !reachable.has(contactId)) continue;
-        // בלי הזמנה בכתב חתומה על **הנכס הזה** אין שליחה (§9)
-        if (!signed.has(`${contactId}:${candidate.propertyId}`)) continue;
+        // בלי הזמנה בכתב חתומה על **הנכס הזה**, או הזמנה כללית, אין שליחה (§9)
+        if (!signed.covers(contactId, candidate.propertyId)) continue;
         batch.push({
           matchId: candidate.id,
           buyerId: candidate.buyerId,
@@ -1149,7 +1149,7 @@ export class OfferEmailService {
       marketable
         .filter((row) => {
           const contactId = contactByBuyer.get(row.buyerId);
-          return contactId !== undefined && !signed.has(`${contactId}:${row.propertyId}`);
+          return contactId !== undefined && !signed.covers(contactId, row.propertyId);
         })
         .map((row) => row.id),
     );

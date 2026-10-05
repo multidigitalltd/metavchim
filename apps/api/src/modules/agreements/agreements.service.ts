@@ -7,7 +7,7 @@ import {
 } from "@nestjs/common";
 import { createHash, randomBytes } from "node:crypto";
 import { ulid } from "ulid";
-import { AGREEMENT_KIND_LABELS, AGREEMENT_KINDS_ON_PROPERTY, BuyerRequirementsSchema, agreementAllowsOpenLink, agreementDealLabel, agreementRequiresProperty, jerusalemDayStart, OPEN_SIGNER_PLACEHOLDERS, openSignerBlanks, pendingAgreementRank, pendingAgreementState, REQUIRED_PLACEHOLDERS, SIGNER_ADDRESS_BLANK, SIGNER_BLANK, SIGNER_PROVIDED_PLACEHOLDERS, defaultAgreementTemplate, fillSignerAddress, fillSignerId, formatIsraeliNumber, formatJerusalemDate, renderAgreement, type AgreementKind, type AgreementValues, type PendingAgreementState, whatsappLink } from "@metavchim/shared";
+import { AGREEMENT_KIND_LABELS, AGREEMENT_KINDS_ON_PROPERTY, BuyerRequirementsSchema, agreementAllowsOpenLink, agreementDealLabel, agreementRequiresProperty, GENERAL_BROKERAGE_VALUES, jerusalemDayStart, OPEN_SIGNER_PLACEHOLDERS, openSignerBlanks, pendingAgreementRank, pendingAgreementState, REQUIRED_PLACEHOLDERS, SIGNER_ADDRESS_BLANK, SIGNER_BLANK, SIGNER_PROVIDED_PLACEHOLDERS, defaultAgreementTemplate, fillSignerAddress, fillSignerId, formatIsraeliNumber, formatJerusalemDate, renderAgreement, type AgreementKind, type AgreementValues, type PendingAgreementState, whatsappLink } from "@metavchim/shared";
 import {
   actionablePropertyIds,
   propertyRecordInScope,
@@ -48,6 +48,8 @@ export interface AgreementSummary {
   /** null = הלקוח נמחק וההסכם החתום נשמר בארכיון המשרד. */
   contactId: string | null;
   propertyId?: string;
+  /** ‏הזמנה כללית — חלה על כל הנכסים שהמשרד יציע ללקוח */
+  allProperties: boolean;
   signedAt?: Date;
   sentAt?: Date;
   url: string;
@@ -247,8 +249,18 @@ export class AgreementsService {
     // שיוצעו ללקוח מכאן והלאה (ביקורת Codex).
     const scope = { tenantId, contactId, kind, propertyId: propertyId ?? null };
 
+    /*
+     * ‎**חוץ מהזמנה כללית** — שזה בדיוק מה שהיא אומרת: הלקוח חתם על
+     * ‏כל נכס שהמשרד יציע לו. היא נבדקת רק כשנשאלים על נכס מסוים.
+     */
     const signed = await tx.agreement.findFirst({
-      where: { ...scope, status: "signed" },
+      where: {
+        tenantId,
+        contactId,
+        kind,
+        status: "signed",
+        OR: [{ propertyId: propertyId ?? null }, ...(propertyId === undefined ? [] : [{ allProperties: true }])],
+      },
       select: { id: true },
     });
     if (signed !== null) return true;
@@ -289,34 +301,38 @@ export class AgreementsService {
    * טרנזקציה פתוחה לאלפי שאילתות כל עשר דקות ומעכב את כל השאר
    * (ביקורת Codex).
    *
-   * מחזיר את הצמדים שנחתמו, כ-`contactId:propertyId`. **אותם שני
+   * מחזיר את מה שנחתם, ו-`covers` עונה על צמד לקוח–נכס. **אותם שני
    * מקורות בדיוק** כמו `hasSigned` — חתימה דיגיטלית ומסמך שנסרק — כי
    * שתיהן חייבות להסכים: שער שמחמיר בקבוצה יותר מאשר ביחיד חוסם
-   * לקוחות שחתמו על נייר.
+   * לקוחות שחתמו על נייר. וכמו שם, הזמנה כללית מכסה כל נכס של הלקוח.
    */
   async signedPairs(
     tx: TenantTx,
     tenantId: string,
     kind: AgreementKind,
     contactIds: readonly string[],
-  ): Promise<Set<string>> {
+  ): Promise<{ covers(contactId: string, propertyId: string): boolean }> {
     const ids = [...new Set(contactIds)];
-    if (ids.length === 0) return new Set();
-    const scope = { tenantId, contactId: { in: ids }, kind, propertyId: { not: null } };
+    if (ids.length === 0) return { covers: () => false };
+    const scope = { tenantId, contactId: { in: ids }, kind };
     const [agreements, documents] = await Promise.all([
       tx.agreement.findMany({
-        where: { ...scope, status: "signed" },
-        select: { contactId: true, propertyId: true },
+        where: { ...scope, status: "signed", OR: [{ propertyId: { not: null } }, { allProperties: true }] },
+        select: { contactId: true, propertyId: true, allProperties: true },
       }),
       tx.signedDocument.findMany({
         // אותה עמודה שמעידה „הוצהר כחתום” — ראו הנימוק ב-`hasSigned`
-        where: { ...scope, signedOn: { not: null } },
+        where: { ...scope, propertyId: { not: null }, signedOn: { not: null } },
         select: { contactId: true, propertyId: true },
       }),
     ]);
-    return new Set(
-      [...agreements, ...documents].map((row) => `${row.contactId!}:${row.propertyId!}`),
+    const general = new Set(agreements.filter((row) => row.allProperties).map((row) => row.contactId!));
+    const pairs = new Set(
+      [...agreements.filter((row) => !row.allProperties), ...documents].map(
+        (row) => `${row.contactId!}:${row.propertyId!}`,
+      ),
     );
+    return { covers: (contactId, propertyId) => general.has(contactId) || pairs.has(`${contactId}:${propertyId}`) };
   }
 
   /** הסכם ממתין קיים — כדי לא להציף את הלקוח בקישורים כפולים. */
@@ -325,6 +341,7 @@ export class AgreementsService {
     contactId: string,
     kind: AgreementKind,
     propertyId?: string,
+    allProperties = false,
   ): Promise<{ id: string; publicToken: string } | null> {
     return tx.agreement.findFirst({
       where: {
@@ -334,6 +351,8 @@ export class AgreementsService {
         // אותו היקף בדיוק כמו ב-hasSigned: מסמך ממתין על נכס אחד לא
         // נחשב "כבר נשלח" עבור נכס אחר
         propertyId: propertyId ?? null,
+        // ‏והזמנה כללית אינה הזמנה על נכס שתואר ביד, גם ששתיהן בלי נכס
+        allProperties,
         status: { in: ["pending", "viewed"] },
         tokenExpires: { gt: new Date() },
       },
@@ -348,7 +367,14 @@ export class AgreementsService {
    */
   async create(
     tx: TenantTx,
-    input: { kind: AgreementKind; contactId: string; propertyId?: string; values?: Partial<AgreementValues> },
+    input: {
+      kind: AgreementKind;
+      contactId: string;
+      propertyId?: string;
+      /** ‏הזמנה כללית — על כל הנכסים שהמשרד יציע ללקוח (`GENERAL_BROKERAGE_VALUES`) */
+      allProperties?: boolean;
+      values?: Partial<AgreementValues>;
+    },
   ): Promise<{ id: string; url: string; unfilled: string[]; reused: boolean }> {
     const { tenantId, userId } = TenantContext.current();
 
@@ -389,6 +415,11 @@ export class AgreementsService {
         `${AGREEMENT_KIND_LABELS[input.kind]} נִתן על נכס מסוים — בחרו את הנכס`,
       );
     }
+    /* ‏הזמנה כללית היא הזמנה בכתב על כל הנכסים, ולכן בלי נכס מסוים */
+    const allProperties = input.allProperties === true;
+    if (allProperties && (input.kind !== "brokerage" || input.propertyId !== undefined)) {
+      throw new BadRequestException("הסכם כללי הוא הזמנה בכתב על כל הנכסים — בלי נכס מסוים");
+    }
 
     await assertPropertyRecordScope(
       tx,
@@ -418,13 +449,14 @@ export class AgreementsService {
         contactId: input.contactId,
         kind: input.kind,
         propertyId: input.propertyId ?? null,
+        allProperties,
         status: { in: ["pending", "viewed"] },
         tokenExpires: { lte: new Date() },
       },
       data: { status: "expired" },
     });
 
-    const existing = await this.pendingFor(tx, input.contactId, input.kind, input.propertyId);
+    const existing = await this.pendingFor(tx, input.contactId, input.kind, input.propertyId, allProperties);
     if (existing) {
       return { id: existing.id, url: this.publicUrl(existing.publicToken), unfilled: [], reused: true };
     }
@@ -475,6 +507,7 @@ export class AgreementsService {
           kind: input.kind,
           contactId: input.contactId,
           propertyId: input.propertyId ?? null,
+          allProperties,
           renderedBody: text,
           bodyHash: AgreementsService.hashBody(text),
           presentedHash: AgreementsService.hashBody(text),
@@ -498,7 +531,7 @@ export class AgreementsService {
       action: "agreement.send",
       entityType: "agreement",
       entityId: row.id,
-      metadata: { kind: input.kind, contactId: input.contactId },
+      metadata: { kind: input.kind, contactId: input.contactId, ...(allProperties ? { allProperties } : {}) },
     });
 
     return { id: row.id, url: this.publicUrl(token), unfilled, reused: false };
@@ -793,7 +826,7 @@ export class AgreementsService {
   private async collectValues(
     tx: TenantTx,
     contact: { name: string; phone: string },
-    input: { propertyId?: string; values?: Partial<AgreementValues> },
+    input: { propertyId?: string; allProperties?: boolean; values?: Partial<AgreementValues> },
   ): Promise<Partial<AgreementValues>> {
     const tenantId = TenantContext.current().tenantId;
     const office = await this.officeValues();
@@ -866,6 +899,8 @@ export class AgreementsService {
       ...(input.propertyId === undefined
         ? {}
         : { סוג_העסקה: dealText, תיאור_הנכס: propertyText, מחיר_משוער: priceText }),
+      /* ‏ובהזמנה כללית — הנוסח הכללי, מאותה סיבה: הוא המקור ולא הבקשה */
+      ...(input.allProperties === true ? GENERAL_BROKERAGE_VALUES : {}),
       /*
        * שדות שהחותם ממלא נשארים בשליטת השרת — **אחרי** פריסת הערכים
        * מהבקשה ולא לפניה.
@@ -1563,6 +1598,7 @@ export class AgreementsService {
       status: row.status,
       contactId: row.contactId,
       propertyId: row.propertyId ?? undefined,
+      allProperties: row.allProperties,
       signedAt: row.signedAt ?? undefined,
       sentAt: row.sentAt ?? undefined,
       url: this.publicUrl(row.publicToken),
