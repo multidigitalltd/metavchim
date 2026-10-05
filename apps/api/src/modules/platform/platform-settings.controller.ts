@@ -985,6 +985,16 @@ export class PlatformSettingsController {
   }
 
   /**
+   * ‎**הכפתור „פתח במערכת” — מה שרשום ב-Meta, מול מה שצריך.** המסך
+   * ‏קורא לזה כשהוא נפתח, ומציג ✓ או את הכתובת המדויקת לתיקון.
+   */
+  @Post("settings/check-whatsapp-template")
+  @HttpCode(200)
+  async checkWhatsAppTemplate(): Promise<{ ok: boolean | null; message: string; expected: string; registered?: string }> {
+    return this.whatsappSender.checkNotifyTemplateButton();
+  }
+
+  /**
    * ‎**שליחת הודעת בדיקה אמיתית — מה שהבדיקה שמעליה אינה מוכיחה.**
    *
    * ‏קריאת פרטי המספר עוברת בהצלחה גם כשהטוקן חסר את הרשאת

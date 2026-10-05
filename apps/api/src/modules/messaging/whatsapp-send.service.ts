@@ -6,6 +6,8 @@ import {
   normalizePhoneForWhatsapp,
   replyButtonsPayload,
   splitForWhatsApp,
+  templateButtonVerdict,
+  whatsappButtonUrlTemplate,
   whatsappTemplateButton,
   type WhatsAppButton,
   type WhatsAppListRow,
@@ -18,6 +20,7 @@ import { PlatformSettingsService } from "../../core/platform-settings.service";
 import { PrismaService } from "../../core/prisma.service";
 import { WA_AUDIO_MAX_BYTES } from "./assistant-buttons";
 import { toWhatsAppAudio } from "./audio-transcode";
+import { GRAPH_BASE, tokenWabaIds } from "./meta-graph";
 
 /**
  * שליחה דרך WhatsApp Cloud API (docs/05 §1) — הצד היוצא של הסוכן
@@ -31,7 +34,6 @@ import { toWhatsAppAudio } from "./audio-transcode";
  * שלנו לא יצאה, אחרת ההודעה הנכנסת תישלח שוב ושוב.
  */
 
-const GRAPH_BASE = "https://graph.facebook.com/v23.0";
 const SEND_TIMEOUT_MS = 15_000;
 
 /**
@@ -686,6 +688,85 @@ export class WhatsAppSendService {
     } catch (error) {
       return { ok: false, message: `השליחה נכשלה: ${String(error)}` };
     }
+  }
+
+  /**
+   * ‎**הכתובת שרשומה ב-Meta בכפתור „פתח במערכת” — מול מה שצריך.**
+   *
+   * ‏הבסיס של הכתובת נקבע ביד בעורך התבניות של Meta, ולא כאן. בסיס שגוי
+   * ‏— למשל הדומיין הראשי במקום כתובת המערכת — שולח כל לחיצה ל„העמוד לא
+   * ‏נמצא”, ואיש לא יודע על כך עד שמתווך מתלונן. כאן קוראים את התבנית
+   * ‏מ-Meta ומשווים לכתובת שנגזרת מ-`WEB_ORIGIN`.
+   *
+   * ‏התבניות יושבות על החשבון העסקי (WABA) ולא על המספר, ואת החשבון
+   * ‏מזהים מהטוקן עצמו (`debug_token`), ובוחרים את זה שהמספר שלנו בתוכו.
+   * ‏`ok: null` — לא ניתן היה לבדוק, והסיבה בהודעה.
+   */
+  async checkNotifyTemplateButton(): Promise<{
+    ok: boolean | null;
+    message: string;
+    expected: string;
+    registered?: string;
+  }> {
+    const env = loadEnv();
+    const expected = whatsappButtonUrlTemplate(env.WEB_ORIGIN);
+    const creds = await this.credentials();
+    if (!creds) return { ok: null, message: "חסרים Access Token או Phone Number ID", expected };
+    const name = (await this.platformSettings.get("whatsappNotifyTemplate")) ?? "";
+    if (name === "") return { ok: null, message: "לא הוגדרה תבנית התראות", expected };
+    const lang = (await this.platformSettings.get("whatsappNotifyTemplateLang")) ?? "";
+
+    const graph = async (path: string, token: string): Promise<unknown> => {
+      const res = await fetch(`${GRAPH_BASE}/${path}`, {
+        headers: { authorization: `Bearer ${token}` },
+        signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return res.json();
+    };
+    try {
+      for (const waba of await this.tokenWabas(creds.token)) {
+        const numbers = (await graph(`${waba}/phone_numbers?fields=id`, creds.token)) as { data?: { id?: string }[] };
+        if (!(numbers.data ?? []).some((n) => n.id === creds.phoneNumberId)) continue;
+        const templates = (await graph(
+          `${waba}/message_templates?name=${encodeURIComponent(name)}&fields=name,language,components&limit=100`,
+          creds.token,
+        )) as { data?: { name?: string; language?: string }[] };
+        const template = (templates.data ?? []).find((t) => t.name === name && (lang === "" || t.language === lang));
+        if (template === undefined) {
+          return { ok: false, message: `התבנית „${name}”${lang ? ` (${lang})` : ""} לא נמצאה בחשבון העסקי ב-Meta`, expected };
+        }
+        return { ...templateButtonVerdict(template, expected), expected };
+      }
+      return {
+        ok: null,
+        message: "לא ניתן לזהות ב-Meta את החשבון העסקי של המספר — בדקו את הכפתור ידנית ב-WhatsApp Manager",
+        expected,
+      };
+    } catch (error) {
+      return { ok: null, message: `הבדיקה מול Meta נכשלה: ${String(error)}`, expected };
+    }
+  }
+
+  /**
+   * ‏החשבונות העסקיים שהטוקן פותח. נבדקים שני הסודות המוכרים — של קו
+   * ‏הסוכן, ושל אפליקציית החיבור כשהיא נפרדת. ריק — לא זוהה דבר.
+   */
+  private async tokenWabas(token: string): Promise<string[]> {
+    const env = loadEnv();
+    const appId = (await this.platformSettings.get("whatsappAppId")) ?? env.WHATSAPP_APP_ID;
+    if (!appId) return [];
+    const secrets = new Set(
+      [
+        (await this.platformSettings.get("whatsappAppSecret")) ?? env.WHATSAPP_APP_SECRET,
+        (await this.platformSettings.get("whatsappConnectAppSecret")) ?? env.WHATSAPP_CONNECT_APP_SECRET,
+      ].filter((secret): secret is string => Boolean(secret)),
+    );
+    for (const appSecret of secrets) {
+      const ids = await tokenWabaIds(token, { appId, appSecret }, SEND_TIMEOUT_MS).catch(() => []);
+      if (ids.length > 0) return ids;
+    }
+    return [];
   }
 
   async probe(): Promise<{ ok: boolean; message: string }> {

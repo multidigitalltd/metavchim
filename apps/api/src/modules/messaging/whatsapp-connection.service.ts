@@ -6,6 +6,7 @@ import { CryptoService } from "../../core/crypto.service";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PlatformSettingsService } from "../../core/platform-settings.service";
 import { PrismaService } from "../../core/prisma.service";
+import { GRAPH_BASE, tokenWabaIds } from "./meta-graph";
 
 /**
  * חיבור המספר העסקי של משרד דרך Embedded Signup (docs/12, ADR-006).
@@ -29,7 +30,6 @@ import { PrismaService } from "../../core/prisma.service";
  * כישלון שלה מסומן `status=error` עם הסיבה, ולא נבלע.
  */
 
-const GRAPH_BASE = "https://graph.facebook.com/v23.0";
 const REQUEST_TIMEOUT_MS = 15_000;
 
 /**
@@ -760,31 +760,7 @@ export class WhatsAppConnectionService {
     token: string,
   ): Promise<string[]> {
     try {
-      const url = new URL(`${GRAPH_BASE}/debug_token`);
-      url.searchParams.set("input_token", token);
-      /* טוקן האפליקציה — `app_id|app_secret`. הצורה שבה Meta מזהה אותנו כאן */
-      url.searchParams.set("access_token", `${app.appId}|${app.appSecret}`);
-      const res = await fetch(url, { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
-      if (!res.ok) {
-        this.logger.warn(`בדיקת הטוקן מול Meta נכשלה: HTTP ${res.status}`);
-        return [];
-      }
-      const json = (await res.json()) as {
-        data?: { granular_scopes?: { scope?: string; target_ids?: string[] }[] };
-      };
-      const ids = new Set<string>();
-      for (const entry of json.data?.granular_scopes ?? []) {
-        if (
-          entry.scope !== "whatsapp_business_management" &&
-          entry.scope !== "whatsapp_business_messaging"
-        ) {
-          continue;
-        }
-        for (const id of entry.target_ids ?? []) {
-          if (/^\d{5,30}$/u.test(id)) ids.add(id);
-        }
-      }
-      return [...ids];
+      return await tokenWabaIds(token, app, REQUEST_TIMEOUT_MS);
     } catch (error) {
       this.logger.warn(`בדיקת הטוקן מול Meta נכשלה: ${String(error)}`);
       return [];

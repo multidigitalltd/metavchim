@@ -296,6 +296,59 @@ export function whatsappButtonLandsOn(urlTemplate: string, suffix: string): stri
 }
 
 /**
+ * ‎**מה רשום באמת ב-Meta — מול מה שצריך להיות רשום.**
+ *
+ * ‏הכתובת שהכפתור פותח מורכבת משני חצאים: הסיפא נשלחת מכאן, והבסיס
+ * ‏נרשם ביד בעורך התבניות של Meta. כשהבסיס שגוי — למשל הדומיין הראשי
+ * ‏במקום כתובת המערכת — **כל** לחיצה נוחתת על „העמוד לא נמצא”, ושום
+ * ‏דבר במערכת אינו יודע על כך. כאן קוראים את התבנית מ-Meta ומשווים.
+ *
+ * ‏`template` הוא האובייקט כפי ש-Meta מחזירה אותו
+ * ‏(`components[].buttons[]`); `null` — התבנית לא נמצאה.
+ */
+export interface TemplateButtonVerdict {
+  ok: boolean;
+  message: string;
+  /** הכתובת שרשומה ב-Meta, כשיש כזו */
+  registered?: string;
+}
+
+export function templateButtonVerdict(template: unknown, expected: string): TemplateButtonVerdict {
+  const components = (template as { components?: unknown } | null)?.components;
+  const buttons = Array.isArray(components)
+    ? components.flatMap((c) => {
+        const list = (c as { type?: unknown; buttons?: unknown }).buttons;
+        return (c as { type?: unknown }).type === "BUTTONS" && Array.isArray(list) ? list : [];
+      })
+    : [];
+  const url = buttons
+    .map((b) => b as { type?: unknown; url?: unknown })
+    .find((b) => b.type === "URL" && typeof b.url === "string")?.url as string | undefined;
+  if (url === undefined) {
+    return {
+      ok: false,
+      message: "‏בתבנית שרשומה ב-Meta אין כפתור כתובת — כבו את „לתבנית יש כפתור” או הוסיפו כפתור בכתובת דינמית",
+    };
+  }
+  const registered = url.trim();
+  if (registered === expected) {
+    return { ok: true, message: "‏הכתובת שרשומה ב-Meta תואמת — הכפתור נוחת במערכת", registered };
+  }
+  if (!registered.includes("{{1}}")) {
+    return {
+      ok: false,
+      message: "‏הכפתור ב-Meta רשום בכתובת קבועה, בלי ‎{{1}}‎ — כל לחיצה נוחתת באותו מקום. ערכו אותו לכתובת שלמטה",
+      registered,
+    };
+  }
+  return {
+    ok: false,
+    message: "‏הכתובת שרשומה ב-Meta שונה ממה שהמערכת שולחת — לחיצה על הכפתור נוחתת על „העמוד לא נמצא”. ערכו את הכפתור לכתובת שלמטה",
+    registered,
+  };
+}
+
+/**
  * הכפתור עצמו. `null` כשאין מה לפתוח — כפתור אינו נשלח ריק, וקורא
  * שמצרף אותו בכל זאת שולח הודעה שתידחה.
  */

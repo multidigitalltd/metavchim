@@ -7,6 +7,7 @@ import {
   whatsappTemplateButton,
   whatsappTemplateParams,
   unescapedSlashPath,
+  templateButtonVerdict,
 } from "./whatsapp-templates.js";
 import { notificationUrl } from "./web-push.js";
 
@@ -248,5 +249,35 @@ describe("‏לוכסן מקודד בכפתור „פתח במערכת”", () =
   it("‏לעולם אינו יוצא מהאתר — גם כשהלוכסנים המקודדים מובילים", () => {
     expect(unescapedSlashPath("/%2F%2Fevil.example")).toBe("/evil.example");
     expect(unescapedSlashPath("/%2F")).toBe("/");
+  });
+});
+
+describe("‏הכתובת שרשומה ב-Meta מול זו שצריכה להיות", () => {
+  const expected = "https://app.example.co.il/{{1}}";
+  const template = (url: string | undefined) => ({
+    name: "notify",
+    components: [
+      { type: "BODY", text: "{{1}}" },
+      ...(url === undefined ? [] : [{ type: "BUTTONS", buttons: [{ type: "URL", text: "צפייה במערכת", url }] }]),
+    ],
+  });
+
+  it("תואמת — תקין", () => {
+    expect(templateButtonVerdict(template(expected), expected)).toMatchObject({ ok: true, registered: expected });
+  });
+
+  it("הדומיין הראשי במקום כתובת המערכת — שגוי, ומוחזרת הכתובת הרשומה", () => {
+    const verdict = templateButtonVerdict(template("https://example.co.il/{{1}}"), expected);
+    expect(verdict.ok).toBe(false);
+    expect(verdict.registered).toBe("https://example.co.il/{{1}}");
+    expect(verdict.message).toContain("העמוד לא נמצא");
+  });
+
+  it("כתובת קבועה בלי ‎{{1}}‎ — שגוי", () => {
+    expect(templateButtonVerdict(template("https://app.example.co.il/"), expected).message).toContain("כתובת קבועה");
+  });
+
+  it("אין כפתור כתובת בתבנית — שגוי", () => {
+    expect(templateButtonVerdict(template(undefined), expected).ok).toBe(false);
   });
 });
