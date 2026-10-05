@@ -4415,7 +4415,8 @@ model FunnelMessage {
   channel String @db.VarChar(20)
   /// queued | sent | failed | bounced | rejected — `bounced` יצא מאיתנו וחזר מהשרת של הנמען,
   /// ולכן נספר כשלב שנשלח ואינו נשלח שוב (`FUNNEL_MESSAGE_OUT_STATUSES`).
-  /// `rejected` — הספק דחה לצמיתות (נמען פסול): לא יצא, ואינו נשלח שוב.
+  /// `rejected` — הספק דחה לצמיתות (נמען פסול, תקלת הגדרה): לא יצא, ונבדק שוב רק
+  /// אחרי יממה או כשכתובת הנמען השתנתה.
   status  String @default("queued") @db.VarChar(20)
 
   /// **אקראי ולא נגזר מהמזהים.** כתובת מעקב שאפשר לנחש היא כתובת

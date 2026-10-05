@@ -49,6 +49,7 @@ const DAY = 24 * HOUR;
 let direct: PrismaClient;
 let prisma: PrismaService;
 let sendSwitch = "true";
+let emailConfigured = true;
 const send = vi.fn((..._args: unknown[]) => Promise.resolve());
 
 /**
@@ -73,7 +74,7 @@ function service(
     prisma,
     enrollment,
     stages,
-    { send } as unknown as EmailService,
+    { send, isConfigured: () => Promise.resolve(emailConfigured) } as unknown as EmailService,
     { get: () => Promise.resolve(sendSwitch) } as unknown as PlatformSettingsService,
     recipientsOf ??
       new ActivationNudgeService(
@@ -143,6 +144,7 @@ beforeAll(async () => {
 beforeEach(async () => {
   send.mockClear();
   sendSwitch = "true";
+  emailConfigured = true;
   await cleanup();
   await direct.$executeRawUnsafe(
     `INSERT INTO tenants (id, name, plan, status, trial_ends_at, created_at, updated_at)
@@ -752,7 +754,7 @@ describe("מסלול ההמרה — תקרה, תשלום באמצע הסבב ו�
     expect(send).not.toHaveBeenCalled();
   });
 
-  it("דחייה קבועה (נמען פסול) — אינה נשלחת שוב; חריגה מקצב — כן", async () => {
+  it("דחייה קבועה — לא בסבב הבא; אחרי יממה או כשהכתובת השתנתה — כן; חריגה מקצב — בסבב הבא", async () => {
     send.mockImplementation(() => Promise.reject(new EmailRejectedError("נמען פסול", false)));
     try {
       await service().run(MONDAY_10);
@@ -761,7 +763,31 @@ describe("מסלול ההמרה — תקרה, תשלום באמצע הסבב ו�
       await service().run(new Date(MONDAY_10.getTime() + HOUR));
       expect(send).not.toHaveBeenCalled();
 
-      // ‏אותו דבר עם חריגה מקצב — נשאר „נכשלה” ונשלח שוב
+      // ‏הכתובת תוקנה — נשלח מיד, לכתובת החדשה
+      await direct.$executeRawUnsafe(
+        `UPDATE users SET email = 'dana.fixed@example.test' WHERE id = $1`,
+        OWNER,
+      );
+      send.mockImplementation(() => Promise.resolve());
+      await service().run(new Date(MONDAY_10.getTime() + 2 * HOUR));
+      expect(send).toHaveBeenCalledTimes(1);
+      expect(send.mock.calls[0]![0]).toBe("dana.fixed@example.test");
+
+      // ‏ושוב נדחה, והכתובת לא השתנתה — רק אחרי יממה (למשל: הגדרת הספק תוקנה)
+      await direct.$executeRawUnsafe(
+        `UPDATE funnel_messages SET status = 'rejected', sent_at = NULL, updated_at = $2 WHERE tenant_id = $1`,
+        TENANT,
+        MONDAY_10,
+      );
+      await direct.$executeRawUnsafe(
+        `UPDATE funnel_enrollments SET last_sent_at = NULL WHERE tenant_id = $1`,
+        TENANT,
+      );
+      send.mockClear();
+      await service().run(new Date(MONDAY_10.getTime() + DAY + HOUR));
+      expect(send).toHaveBeenCalledTimes(1);
+
+      // ‏חריגה מקצב — נשארת „נכשלה” ונשלחת שוב בסבב הבא
       await direct.$executeRawUnsafe(`DELETE FROM funnel_messages WHERE tenant_id = $1`, TENANT);
       await direct.$executeRawUnsafe(
         `UPDATE funnel_enrollments SET last_sent_at = NULL WHERE tenant_id = $1`,
@@ -776,7 +802,18 @@ describe("מסלול ההמרה — תקרה, תשלום באמצע הסבב ו�
       expect(send).toHaveBeenCalledTimes(1);
     } finally {
       send.mockImplementation(() => Promise.resolve());
+      await direct.$executeRawUnsafe(
+        `UPDATE users SET email = 'dana.funnel@example.test' WHERE id = $1`,
+        OWNER,
+      );
     }
+  });
+
+  it("בלי ספק אימייל מחובר — אין שליחה ואין שורות שנשרפות", async () => {
+    emailConfigured = false;
+    await service().run(MONDAY_10);
+    expect(send).not.toHaveBeenCalled();
+    expect(await messages()).toHaveLength(0);
   });
 
   it("משרד ששילם אחרי הסגירה של הסבב — אינו מקבל את ההודעה", async () => {

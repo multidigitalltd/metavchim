@@ -50,6 +50,23 @@ const MAX_TENANTS_PER_SWEEP = 100;
 const STALE_CLAIM_MS = 30 * 60 * 1000;
 
 /**
+ * ‎**דחייה קבועה נבדקת שוב פעם ביממה.** „קבועה” אצל הספק כוללת גם
+ * ‏תקלות הגדרה (טוקן, שולח לא מאומת) שמישהו יתקן (ביקורת Codex) — ניסיון
+ * ‏יומי מוצא את התיקון, בלי שכתובות פסולות יתפסו את תקרת הסבב בכל שעה.
+ */
+const REJECTED_RETRY_MS = 24 * HOUR_MS;
+
+/** ‏שורה שנתפסת שוב: נכשלה, או נדחתה לפני יותר מיממה. */
+function retryableWhere(now: Date) {
+  return {
+    OR: [
+      { status: "failed" },
+      { status: "rejected", updatedAt: { lt: new Date(now.getTime() - REJECTED_RETRY_MS) } },
+    ],
+  };
+}
+
+/**
  * ‏מה עשה הסבב למשרד אחד: `attempted` — ניסה לשלוח (ייתכן שיצא),
  * ‎`delivered` — לפחות הודעה אחת יצאה בוודאות.
  */
@@ -60,7 +77,7 @@ interface Reach {
 
 /**
  * ‏מה שהשליחה עצמה יודעת על התוצאה — לפני שה-Webhook אמר את דברו.
- * ‎`failed` נתפס שוב בסבב הבא; `rejected` — דחייה קבועה — לא.
+ * ‎`failed` נתפס שוב בסבב הבא; `rejected` — דחייה קבועה — רק אחרי יממה.
  */
 type Settlement = { status: "sent" | "failed" | "rejected"; sentAt?: Date; error: string | null };
 
@@ -166,6 +183,15 @@ export class FunnelSendService {
     const { stages } = await this.stages.catalog();
     const live = stages.filter((stage) => stage.track === "conversion" && stage.enabled);
     if (live.length === 0) return 0;
+    /*
+     * ‎**בלי ספק אימייל מחובר — אין שליחה, ואין שורות** (ביקורת Codex).
+     * ‏השליחה הייתה נדחית כ„קבועה” לכל נמען, והשלבים היו נשרפים בזמן
+     * ‏שאיש לא קיבל דבר.
+     */
+    if (!(await this.email.isConfigured())) {
+      this.logger.warn("אין ספק אימייל מחובר — מסלול ההמרה אינו שולח");
+      return 0;
+    }
     const copies = new Map(
       (await this.stages.copyCatalog())
         .filter((copy) => copy.track === "conversion")
@@ -243,7 +269,7 @@ export class FunnelSendService {
         ),
         this.prisma.withFunnelAdmin((tx) =>
           tx.funnelMessage.findMany({
-            where: { enrollmentId: { in: page.map((row) => row.id) }, status: "failed" },
+            where: { enrollmentId: { in: page.map((row) => row.id) }, ...retryableWhere(now) },
             select: { enrollmentId: true, stageKey: true, userId: true },
           }),
         ),
@@ -430,7 +456,7 @@ export class FunnelSendService {
     const claimed: { owner: (typeof recipients)[number]; message: { id: string; token: string } }[] =
       [];
     for (const owner of recipients) {
-      const message = await this.claim(enrollment, stage.key, owner);
+      const message = await this.claim(enrollment, stage.key, owner, now);
       if (message !== null) claimed.push({ owner, message });
     }
     const attempted = claimed.length > 0;
@@ -461,8 +487,8 @@ export class FunnelSendService {
          * ‎**דחייה קבועה אינה „נכשלה”** (ביקורת Codex, P1). נמען פסול ייכשל
          * ‏זהה בכל סבב, וכל ניסיון כזה נספר בתקרה — קבוצה של כתובות פסולות
          * ‏בראש הסדר הייתה תופסת את כל המקומות ומשאירה את השאר בלי הודעה.
-         * ‏`rejected` אינו נתפס שוב; חריגה מקצב (`retryable`) ותקלה עמומה
-         * ‏— כן.
+         * ‏`rejected` נתפס שוב רק אחרי יממה או כשהכתובת השתנתה; חריגה
+         * ‏מקצב (`retryable`) ותקלה עמומה — בסבב הבא.
          */
         outcome = {
           status: isPermanentEmailRejection(error) ? "rejected" : "failed",
@@ -478,11 +504,15 @@ export class FunnelSendService {
    * ‎**תפיסת השורה לפני השליחה.** `null` = כבר נשלח, או שעותק אחר
    * ‏מטפל בו עכשיו. שורה שנכשלה נתפסת מחדש בעדכון מותנה — שני עותקים
    * ‏שמנסים יחד מקבלים אחד שורה ואחד אפס.
+   *
+   * ‏שורה שנדחתה לצמיתות נתפסת שוב אחרי יממה (`retryableWhere`), או מיד
+   * ‏כשכתובת הנמען השתנתה — הכתובת שנדחתה אינה זו שתישלח עכשיו.
    */
   private async claim(
     enrollment: { id: string; tenantId: string },
     stageKey: string,
     owner: { id: string; email: string },
+    now: Date,
   ): Promise<{ id: string; token: string } | null> {
     return this.prisma.withFunnelAdmin(async (tx) => {
       const existing = await tx.funnelMessage.findUnique({
@@ -497,9 +527,15 @@ export class FunnelSendService {
         select: { id: true, token: true, status: true },
       });
       if (existing !== null) {
-        if (existing.status !== "failed") return null;
+        if (existing.status !== "failed" && existing.status !== "rejected") return null;
         const reclaimed = await tx.funnelMessage.updateMany({
-          where: { id: existing.id, status: "failed" },
+          where: {
+            id: existing.id,
+            OR: [
+              retryableWhere(now),
+              { status: "rejected", destination: { not: owner.email } },
+            ],
+          },
           data: { status: "queued", destination: owner.email },
         });
         return reclaimed.count === 1 ? { id: existing.id, token: existing.token } : null;
