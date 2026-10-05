@@ -561,9 +561,13 @@ export class FunnelSendService {
       });
       if (existing !== null) {
         if (!canRetry(existing, owner.email, now)) return null;
+        /*
+         * ‏ניסיון חדש מתחיל נקי: `sentAt` של הניסיון הקודם (מייל שחזר) היה
+         * ‏מונע מהאישור של הניסיון הזה לקדם את המרווח (ביקורת Codex).
+         */
         const reclaimed = await tx.funnelMessage.updateMany({
           where: { id: existing.id, status: existing.status, updatedAt: existing.updatedAt },
-          data: { status: "queued", destination: owner.email },
+          data: { status: "queued", destination: owner.email, sentAt: null, error: null },
         });
         return reclaimed.count === 1 ? { id: existing.id, token: existing.token } : null;
       }

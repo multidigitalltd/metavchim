@@ -432,7 +432,7 @@ describe("סגירת רישום כש„מוצה” — רק אחרי שהנמע�
    * ‏חודש, והניסיון נגמר לפני שבוע ושעה.
    */
   /** ‏`pending` — סטטוס השורה של הבעלים השני, שעוד ממתין לניסיון חוזר. */
-  async function seed(pending: "failed" | "rejected" | null): Promise<void> {
+  async function seed(pending: "failed" | "rejected" | "bounced" | null): Promise<void> {
     const now = Date.now();
     await direct.$executeRawUnsafe(
       `UPDATE tenants SET trial_ends_at = $2, created_at = $3 WHERE id = $1`,
@@ -464,7 +464,7 @@ describe("סגירת רישום כש„מוצה” — רק אחרי שהנמע�
         user,
         status,
         token,
-        status === "sent" ? new Date(now - HOUR) : null,
+        status === "sent" || status === "bounced" ? new Date(now - HOUR) : null,
       );
     await message("01M1FNNLSENDMSGSENT0000001", OWNER, "sent", "a".repeat(43));
     if (pending !== null) await message("01M1FNNLSENDMSGFAIL0000001", SECOND, pending, "b".repeat(43));
@@ -497,6 +497,12 @@ describe("סגירת רישום כש„מוצה” — רק אחרי שהנמע�
 
   it("נמען שנדחה לצמיתות בשלב האחרון — גם הוא ממתין לניסיון החוזר", async () => {
     await seed("rejected");
+    await sweep();
+    expect(await reason()).toBeNull();
+  });
+
+  it("נמען שהמייל שלו חזר בשלב האחרון — ממתין עד שחלון השלב נסגר", async () => {
+    await seed("bounced");
     await sweep();
     expect(await reason()).toBeNull();
   });
@@ -850,6 +856,37 @@ describe("מסלול ההמרה — תקרה, תשלום באמצע הסבב ו�
       await direct.$executeRawUnsafe(`DELETE FROM funnel_messages WHERE user_id = $1`, SECOND);
       await direct.$executeRawUnsafe(`DELETE FROM activation_nudge_optouts WHERE user_id = $1`, SECOND);
       await direct.$executeRawUnsafe(`DELETE FROM users WHERE id = $1`, SECOND);
+    }
+  });
+
+  it("ניסיון חדש אחרי חזרה מתחיל נקי — בלי רגע השליחה של הניסיון שחזר", async () => {
+    await service().run(MONDAY_10);
+    const rows = await direct.$queryRawUnsafe<{ id: string }[]>(
+      `SELECT id FROM funnel_messages WHERE tenant_id = $1`,
+      TENANT,
+    );
+    await new FunnelReportService(prisma).recordEmailEvent(rows[0]!.id, {
+      kind: "bounced",
+      at: MONDAY_10,
+    });
+    await direct.$executeRawUnsafe(
+      `UPDATE users SET email = 'dana.fixed3@example.test' WHERE id = $1`,
+      OWNER,
+    );
+    send.mockImplementation(() => Promise.reject(new Error("פסק זמן")));
+    try {
+      await service().run(new Date(MONDAY_10.getTime() + HOUR));
+      const after = await direct.$queryRawUnsafe<{ status: string; sent_at: Date | null }[]>(
+        `SELECT status, sent_at FROM funnel_messages WHERE tenant_id = $1`,
+        TENANT,
+      );
+      expect(after[0]).toMatchObject({ status: "failed", sent_at: null });
+    } finally {
+      send.mockImplementation(() => Promise.resolve());
+      await direct.$executeRawUnsafe(
+        `UPDATE users SET email = 'dana.funnel@example.test' WHERE id = $1`,
+        OWNER,
+      );
     }
   });
 

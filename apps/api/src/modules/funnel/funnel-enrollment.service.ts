@@ -712,14 +712,15 @@ export class FunnelEnrollmentService {
        * ‏שהניסיון החוזר הגיע אליו. שלב כזה נשאר „עדיין אפשרי” עד שחלונו
        * ‏נסגר, ורק אז הרישום נסגר.
        *
-       * ‏וגם `rejected`: דחייה קבועה נבדקת שוב אחרי יממה או כשהכתובת
-       * ‏תוקנה (ביקורת Codex), ורישום שנסגר קודם לכן לא היה נותן לה הזדמנות.
+       * ‏וגם `rejected` ו-`bounced`: דחייה קבועה נבדקת שוב אחרי יממה או
+       * ‏כשהכתובת תוקנה, ומייל שחזר נשלח שוב לכתובת שתוקנה (ביקורת Codex) —
+       * ‏ורישום שנסגר קודם לכן לא היה נותן להם הזדמנות.
        */
       this.prisma.withFunnelAdmin((tx) =>
         tx.funnelMessage.findMany({
           where: {
             enrollmentId: { in: live.map((row) => row.id) },
-            status: { in: ["failed", "rejected"] },
+            status: { in: ["failed", "rejected", "bounced"] },
           },
           select: { enrollmentId: true, stageKey: true },
         }),
