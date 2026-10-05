@@ -45,6 +45,11 @@ export function LeadWebhookSection() {
     return `${window.location.origin}${API_BASE}/public/leads/${key}`;
   }
 
+  /** טופס „כמה שווה הדירה שלי” באותו מפתח — עמוד באפליקציה, לא נקודת API. */
+  function widgetFor(key: string): string {
+    return `${window.location.origin}/w/value/${key}`;
+  }
+
   async function create(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
     const form = event.currentTarget;
@@ -173,6 +178,36 @@ export function LeadWebhookSection() {
                   >
                     {endpointFor(hook.key)}
                   </p>
+                  {/*
+                    ‎**„כמה שווה הדירה שלי” באותו מפתח** (docs/14). הטופס
+                    מזין לידים של מוכרים לאותו מקור, ולכן הוא יושב כאן ולא
+                    במסך נפרד — מי שמחבר את האתר מוצא את שניהם יחד.
+                  */}
+                  <details className="mt-2">
+                    <summary className="cursor-pointer font-semibold">
+                      טופס „כמה שווה הדירה שלי” לאתר
+                    </summary>
+                    <p className="m-0 mt-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
+                      מבקר באתר מקבל טווח מעסקאות אמת, ומי שמשאיר פרטים נכנס כליד מוכר. קישור ישיר:
+                    </p>
+                    <p
+                      className="m-0 mt-1 overflow-x-auto rounded-lg border p-2 font-mono text-sm"
+                      dir="ltr"
+                      style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}
+                    >
+                      {widgetFor(hook.key)}
+                    </p>
+                    <p className="m-0 mt-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
+                      או להטמעה בדף באתר:
+                    </p>
+                    <p
+                      className="m-0 mt-1 overflow-x-auto rounded-lg border p-2 font-mono text-sm"
+                      dir="ltr"
+                      style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}
+                    >
+                      {`<iframe src="${widgetFor(hook.key)}" title="כמה שווה הדירה שלי" style="width:100%;min-height:760px;border:0"></iframe>`}
+                    </p>
+                  </details>
                 </li>
               ))}
             </ul>
