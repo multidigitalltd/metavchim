@@ -15,6 +15,7 @@ import {
   funnelStageEnableBlock,
   unknownFunnelPlaceholders,
 } from "@metavchim/shared";
+import type { Prisma } from "@prisma/client";
 import { PrismaService } from "../../core/prisma.service";
 
 /**
@@ -294,10 +295,10 @@ export class FunnelStageService {
    * ‏כאן, גם אם המסך נעקף. כיבוי תמיד מותר.
    */
   async setEnabled(id: string, enabled: boolean): Promise<void> {
-    const copy = await this.copy(id);
-    if (copy === null) throw new NotFoundException("השלב לא נמצא");
-    if (enabled && copy.enableBlock !== null) throw new BadRequestException(copy.enableBlock);
-    await this.prisma.funnelStage.update({ where: { id }, data: { enabled } });
+    await this.locked(id, async (tx, copy) => {
+      if (enabled && copy.enableBlock !== null) throw new BadRequestException(copy.enableBlock);
+      await tx.funnelStage.update({ where: { id }, data: { enabled } });
+    });
   }
 
   /**
@@ -327,30 +328,49 @@ export class FunnelStageService {
      * ‏הופכת כל שליחה שלו לכישלון. מה שחוסם הדלקה חוסם גם עריכה כזו —
      * ‏מכבים קודם, ואז מוחקים.
      */
-    const current = await this.copy(id);
-    if (current === null) throw new NotFoundException("השלב לא נמצא");
-    if (current.enabled) {
-      const block = funnelStageEnableBlock({
-        ...current,
-        emailSubject: input.emailSubject,
-        emailBody: input.emailBody,
-        unknownPlaceholders: unknown,
-      });
-      if (block !== null) {
-        throw new BadRequestException(`השלב דלוק — כבו אותו לפני השינוי הזה (${block})`);
+    await this.locked(id, async (tx, current) => {
+      if (current.enabled) {
+        const block = funnelStageEnableBlock({
+          ...current,
+          emailSubject: input.emailSubject,
+          emailBody: input.emailBody,
+          unknownPlaceholders: unknown,
+        });
+        if (block !== null) {
+          throw new BadRequestException(`השלב דלוק — כבו אותו לפני השינוי הזה (${block})`);
+        }
       }
-    }
-    const updated = await this.prisma.funnelStage.updateMany({
-      where: { id },
-      data: {
-        emailSubject: input.emailSubject.trim() === "" ? null : input.emailSubject,
-        emailHeading: input.emailHeading.trim() === "" ? null : input.emailHeading,
-        emailBody: input.emailBody.trim() === "" ? null : input.emailBody,
-        ctaLabel: input.ctaLabel.trim() === "" ? null : input.ctaLabel,
-        ctaPath: input.ctaPath.trim() === "" ? null : input.ctaPath,
-      },
+      await tx.funnelStage.update({
+        where: { id },
+        data: {
+          emailSubject: input.emailSubject.trim() === "" ? null : input.emailSubject,
+          emailHeading: input.emailHeading.trim() === "" ? null : input.emailHeading,
+          emailBody: input.emailBody.trim() === "" ? null : input.emailBody,
+          ctaLabel: input.ctaLabel.trim() === "" ? null : input.ctaLabel,
+          ctaPath: input.ctaPath.trim() === "" ? null : input.ctaPath,
+        },
+      });
     });
-    if (updated.count === 0) throw new NotFoundException("השלב לא נמצא");
+  }
+
+  /**
+   * ‎**בדיקה וכתיבה תחת נעילת השורה** (ביקורת Codex).
+   *
+   * ‏הדלקה ועריכה שרצות יחד היו בודקות כל אחת את השורה הישנה: ההדלקה
+   * ‏רואה נוסח מלא, העריכה רואה שלב כבוי ומרוקנת אותו — והתוצאה שלב
+   * ‏דלוק שאי אפשר לשלוח. `FOR UPDATE` מסדר אותן בתור, והשנייה בודקת
+   * ‏את מה שהראשונה כתבה.
+   */
+  private async locked(
+    id: string,
+    fn: (tx: Prisma.TransactionClient, copy: FunnelStageCopy) => Promise<void>,
+  ): Promise<void> {
+    await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM funnel_stages WHERE id = ${id} FOR UPDATE`;
+      const row = await tx.funnelStage.findUnique({ where: { id }, select: COPY_SELECT });
+      if (row === null) throw new NotFoundException("השלב לא נמצא");
+      await fn(tx, copyOf(row));
+    });
   }
 
 }

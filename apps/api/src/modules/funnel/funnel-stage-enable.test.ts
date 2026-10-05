@@ -40,11 +40,15 @@ const ROW: {
 
 function service(row: typeof ROW) {
   const update = vi.fn(() => Promise.resolve({}));
-  const updateMany = vi.fn(() => Promise.resolve({ count: 1 }));
+  const lock = vi.fn(() => Promise.resolve([]));
+  const tx = {
+    $queryRaw: lock,
+    funnelStage: { findUnique: vi.fn(() => Promise.resolve(row)), update },
+  };
   const prisma = {
-    funnelStage: { findUnique: vi.fn(() => Promise.resolve(row)), update, updateMany },
+    $transaction: (fn: (client: typeof tx) => Promise<unknown>) => fn(tx),
   } as unknown as PrismaService;
-  return { stages: new FunnelStageService(prisma), update, updateMany };
+  return { stages: new FunnelStageService(prisma), update, lock };
 }
 
 const COPY = {
@@ -56,9 +60,10 @@ const COPY = {
 };
 
 describe("הדלקת שלב", () => {
-  it("שלב תקין נדלק", async () => {
-    const { stages, update } = service(ROW);
+  it("שלב תקין נדלק — והשורה ננעלת לפני הבדיקה", async () => {
+    const { stages, update, lock } = service(ROW);
     await stages.setEnabled(ROW.id, true);
+    expect(lock).toHaveBeenCalledTimes(1);
     expect(update).toHaveBeenCalledWith({ where: { id: ROW.id }, data: { enabled: true } });
   });
 
@@ -75,18 +80,19 @@ describe("הדלקת שלב", () => {
   });
 
   it("שלב דלוק — מחיקת גוף המייל נדחית, ושינוי נוסח רגיל עובר", async () => {
-    const { stages, updateMany } = service({ ...ROW, enabled: true });
+    const { stages, update } = service({ ...ROW, enabled: true });
     await expect(stages.updateCopy(ROW.id, { ...COPY, emailBody: " " })).rejects.toBeInstanceOf(
       BadRequestException,
     );
-    expect(updateMany).not.toHaveBeenCalled();
+    expect(update).not.toHaveBeenCalled();
     await stages.updateCopy(ROW.id, { ...COPY, emailBody: "גוף חדש" });
-    expect(updateMany).toHaveBeenCalledTimes(1);
+    expect(update).toHaveBeenCalledTimes(1);
   });
 
   it("שלב כבוי — אפשר לרוקן את הנוסח", async () => {
-    const { stages, updateMany } = service(ROW);
+    const { stages, update, lock } = service(ROW);
     await stages.updateCopy(ROW.id, { ...COPY, emailBody: "" });
-    expect(updateMany).toHaveBeenCalledTimes(1);
+    expect(lock).toHaveBeenCalledTimes(1);
+    expect(update).toHaveBeenCalledTimes(1);
   });
 });

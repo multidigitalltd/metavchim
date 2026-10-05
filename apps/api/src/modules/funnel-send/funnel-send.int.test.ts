@@ -562,3 +562,46 @@ describe("מסלול ההמרה — שליחה שנקטעה, הסרה בין ש�
     expect(send).not.toHaveBeenCalled();
   });
 });
+
+describe("הדלקת שלב ועריכת נוסח שרצות יחד", () => {
+  it("העריכה שמרוקנת את הגוף מחזיקה את השורה — ההדלקה ממתינה, רואה גוף ריק ונדחית", async () => {
+    const stage = await direct.funnelStage.findFirstOrThrow({
+      where: { track: "conversion", key: "d1_empty_screen" },
+      select: { id: true, emailBody: true },
+    });
+    const holder = new PrismaClient({ adapter: prismaAdapter(process.env["DIRECT_DATABASE_URL"]) });
+    try {
+      let release: (() => void) | undefined;
+      const held = new Promise<void>((resolve) => (release = resolve));
+      // ‏„העריכה” — נועלת, ממתינה, מרוקנת את הגוף ומתחייבת
+      const editing = holder.$transaction(async (tx) => {
+        await tx.$queryRawUnsafe(`SELECT id FROM funnel_stages WHERE id = $1 FOR UPDATE`, stage.id);
+        await held;
+        await tx.$executeRawUnsafe(`UPDATE funnel_stages SET email_body = NULL WHERE id = $1`, stage.id);
+      });
+      await new Promise((r) => setTimeout(r, 100));
+
+      const enabling = new FunnelStageService(prisma).setEnabled(stage.id, true);
+      const outcome = enabling.then(
+        () => "enabled",
+        (error: unknown) => (error instanceof Error ? error.constructor.name : "error"),
+      );
+      await new Promise((r) => setTimeout(r, 100));
+      release!();
+      await editing;
+
+      expect(await outcome).toBe("BadRequestException");
+      const after = await direct.funnelStage.findUniqueOrThrow({
+        where: { id: stage.id },
+        select: { enabled: true },
+      });
+      expect(after.enabled).toBe(false);
+    } finally {
+      await holder.$disconnect();
+      await direct.funnelStage.update({
+        where: { id: stage.id },
+        data: { emailBody: stage.emailBody, enabled: false },
+      });
+    }
+  });
+});
