@@ -4,14 +4,20 @@ import { databaseConnection } from "./database-connection.js";
 describe("databaseConnection", () => {
   it("כל חיבור ב-UTC, עם המתנה תחומה", () => {
     const { pool } = databaseConnection("postgresql://u:p@db:5432/metavchim?schema=public");
-    expect(pool.options).toBe("-c TimeZone=UTC");
+    expect(pool.options).toBe("-c TimeZone=UTC -c search_path=public");
     expect(pool.connectionTimeoutMillis).toBe(10_000);
     expect(pool.connectionString).toBe("postgresql://u:p@db:5432/metavchim?schema=public");
   });
 
-  it("הסכימה מהכתובת, ו-public כשאין", () => {
-    expect(databaseConnection("postgresql://u:p@db:5432/x?schema=probe").schema).toBe("probe");
+  it("הסכימה מהכתובת — למתאם וכ-search_path — ו-public כשאין", () => {
+    const probe = databaseConnection("postgresql://u:p@db:5432/x?schema=probe");
+    expect(probe.schema).toBe("probe");
+    expect(probe.pool.options).toContain("-c search_path=probe");
     expect(databaseConnection("postgresql://u:p%40ss@db:5432/x").schema).toBe("public");
+  });
+
+  it("שם סכימה שאינו מזהה פשוט — נדחה, ולא נכנס לשורת האפשרויות", () => {
+    expect(() => databaseConnection("postgresql://u:p@db:5432/x?schema=a%20-c%20x%3Dy")).toThrow("סכימה");
   });
 
   it("כתובת חסרה — שגיאה שאומרת מה חסר", () => {

@@ -12,7 +12,10 @@
  *   ‏ברירת המחדל היא לחכות לנצח: מאגר מלא היה תוקע בקשות במקום להיכשל.
  * - ‏**חיבור פנוי נשמר חמש דקות**, כמו ב-Prisma 6. ב-`pg` — עשר שניות,
  *   ‏כלומר חיבור חדש כמעט לכל בקשה בשעות שקטות.
- * - ‏**הסכימה מהכתובת** (`?schema=`) — המתאם אינו קורא אותה בעצמו.
+ * - ‏**הסכימה מהכתובת** (`?schema=`) — גם למתאם וגם כ-`search_path` של
+ *   ‏החיבור, כמו ב-Prisma 6. המתאם מקדים את שם הסכימה רק לשאילתות שהוא בונה,
+ *   ‏ושאילתת SQL ישירה (`DELETE FROM server_errors`) הייתה פונה ל-`public`
+ *   ‏(ביקורת Codex). שם שאינו מזהה פשוט נדחה כאן — הוא נכנס לשורת האפשרויות.
  * - ‏**כתובת חסרה נכשלת כאן, בשם שלה** — ולא כ-„Invalid URL” בשאילתה הראשונה.
  *
  * ‏הפונקציה מחזירה נתונים בלבד: החבילה נטענת גם בדפדפן, והמתאם עצמו
@@ -28,13 +31,15 @@ export function databaseConnection(url: string | undefined): {
   schema: string;
 } {
   if (url === undefined || url === "") throw new Error("כתובת המסד חסרה (DATABASE_URL)");
+  const schema = decodeURIComponent(/[?&]schema=([^&#]+)/u.exec(url)?.[1] ?? "public");
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/u.test(schema)) throw new Error(`שם סכימה לא נתמך בכתובת המסד: ${schema}`);
   return {
     pool: {
       connectionString: url,
-      options: "-c TimeZone=UTC",
+      options: `-c TimeZone=UTC -c search_path=${schema}`,
       connectionTimeoutMillis: 10_000,
       idleTimeoutMillis: 300_000,
     },
-    schema: decodeURIComponent(/[?&]schema=([^&#]+)/u.exec(url)?.[1] ?? "public"),
+    schema,
   };
 }
