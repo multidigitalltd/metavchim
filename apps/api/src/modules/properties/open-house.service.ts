@@ -194,7 +194,7 @@ export class OpenHouseService {
       if (!isOpenHouseSlot(slotAt, event.startsAt, event.endsAt, event.slotMinutes)) {
         throw new BadRequestException("השעה אינה אחת ממשבצות האירוע");
       }
-      await this.adoptLegacyVisitor(tx, ctx.tenantId, event.id, input.phone);
+      await this.adoptLegacyVisitor(tx, ctx.tenantId, input.phone);
       const { leadId } = await this.webLeads.ingestIn(tx, ctx.tenantId, this.leadInput(property, input), OPEN_HOUSE_SOURCE);
       await this.upsertVisit(tx, { tenantId: ctx.tenantId, event, property, leadId, slotAt, status: "completed", createdBy: ctx.userId });
       return this.listIn(tx, property);
@@ -263,7 +263,7 @@ export class OpenHouseService {
         throw new BadRequestException("השעה אינה אחת ממשבצות האירוע");
       }
       if (!slotStillOpen(slotAt, event.slotMinutes, now)) throw new BadRequestException("השעה הזו כבר עברה — בחרו שעה מאוחרת יותר");
-      await this.adoptLegacyVisitor(tx, tenantId, event.id, input.phone);
+      await this.adoptLegacyVisitor(tx, tenantId, input.phone);
       const { leadId } = await this.webLeads.ingestIn(tx, tenantId, this.leadInput(property, input), OPEN_HOUSE_SOURCE);
       if (event.slotCapacity !== null) {
         const taken = await tx.appointment.count({
@@ -279,20 +279,24 @@ export class OpenHouseService {
 
   /**
    * ‏מבקר שנרשם לפני שהטלפון נורמל נשמר בכתיב שהקליד („050-123-4567”), ולכן
-   * ‏החתימה שלו אינה של הכתיב האחיד. הרשמה חוזרת לאותו אירוע הייתה פותחת לו
-   * ‏כרטיס שני ותופסת מקום שני (ביקורת Codex). כרטיס כזה בין מבקרי האירוע
-   * ‏עובר לכתיב האחיד לפני הקליטה, והקליטה מוצאת אותו — תחת נעילת המספר
-   * ‏שהקליטה עצמה נוטלת, כדי שלא יתנגש בכרטיס שנוצר במקביל.
+   * ‏החתימה שלו אינה של הכתיב האחיד. הרשמה חוזרת — לאותו אירוע או לאחר —
+   * ‏הייתה פותחת לו כרטיס שני, ובאותו אירוע גם תופסת מקום שני (ביקורת Codex).
+   * ‏כרטיס כזה בין מבקרי הבית הפתוח של המשרד עובר לכתיב האחיד לפני הקליטה,
+   * ‏והקליטה מוצאת אותו — תחת נעילת המספר שהקליטה עצמה נוטלת, כדי שלא
+   * ‏יתנגש בכרטיס שנוצר במקביל. הסריקה רצה רק כשאין עדיין כרטיס בכתיב האחיד,
+   * ‏כלומר לפני יצירת כרטיס חדש — ולא בהרשמה של מי שכבר מוכר.
    */
-  private async adoptLegacyVisitor(tx: TenantTx, tenantId: string, eventId: string, phone: string): Promise<void> {
+  private async adoptLegacyVisitor(tx: TenantTx, tenantId: string, phone: string): Promise<void> {
     const phoneHash = this.crypto.phoneHash(phone);
     await lockContactPhone(tx, tenantId, phoneHash);
     const current = await tx.contact.findUnique({ where: { tenantId_phoneHash: { tenantId, phoneHash } }, select: { id: true } });
     if (current !== null) return;
-    const visits = await tx.appointment.findMany({ where: { tenantId, openHouseId: eventId }, select: { leadId: true } });
-    const leadIds = visits.flatMap((visit) => (visit.leadId === null ? [] : [visit.leadId]));
-    if (leadIds.length === 0) return;
-    const leads = await tx.lead.findMany({ where: { tenantId, id: { in: leadIds } }, select: { contactId: true } });
+    const leads = await tx.lead.findMany({
+      where: { tenantId, source: OPEN_HOUSE_SOURCE },
+      select: { contactId: true },
+      distinct: ["contactId"],
+    });
+    if (leads.length === 0) return;
     const visitors = await tx.contact.findMany({
       where: { tenantId, id: { in: leads.map((lead) => lead.contactId) } },
       select: { id: true, phoneEncrypted: true },

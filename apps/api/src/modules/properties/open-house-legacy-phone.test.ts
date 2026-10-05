@@ -5,12 +5,11 @@ import { OpenHouseService } from "./open-house.service";
  * ‎**מבקר שנרשם לפני נרמול הטלפון — אינו נפתח שוב כלקוח שני.**
  *
  * ‏הכרטיס שלו נשמר בכתיב שהקליד, והקליטה מחפשת לפי החתימה של הכתיב
- * ‏האחיד. בלי האימוץ, הרשמה חוזרת לאותו אירוע הייתה יוצרת כרטיס שני
- * ‏ותופסת מקום שני (ביקורת Codex).
+ * ‏האחיד. בלי האימוץ, הרשמה חוזרת — לאותו אירוע או לאחר — הייתה יוצרת
+ * ‏כרטיס שני, ובאותו אירוע גם תופסת מקום שני (ביקורת Codex).
  */
 
 const TENANT = "01TENANTAAAAAAAAAAAAAAAAAA";
-const EVENT = "01EVENTAAAAAAAAAAAAAAAAAAA";
 const CANONICAL = "+972501234567";
 
 const crypto = {
@@ -19,7 +18,8 @@ const crypto = {
   decrypt: (stored: string) => stored.replace(/^enc:/u, ""),
 };
 
-function setup(contacts: { id: string; phone: string }[], visits: { leadId: string | null }[], leadContact: Record<string, string>) {
+/** ‏`openHouse` — אנשי הקשר שיש להם ליד מבית פתוח, בכל אירוע של המשרד */
+function setup(contacts: { id: string; phone: string }[], openHouse: string[]) {
   const rows = contacts.map((contact) => ({ id: contact.id, phoneHash: `hash:${contact.phone}`, phoneEncrypted: `enc:${contact.phone}` }));
   const tx = {
     $executeRaw: async () => 0,
@@ -31,10 +31,9 @@ function setup(contacts: { id: string; phone: string }[], visits: { leadId: stri
         Object.assign(rows.find((row) => row.id === where.id) ?? {}, data);
       },
     },
-    appointment: { findMany: async () => visits },
     lead: {
-      findMany: async ({ where }: { where: { id: { in: string[] } } }) =>
-        where.id.in.map((id) => ({ contactId: leadContact[id] ?? "" })),
+      findMany: async ({ where }: { where: { source: string } }) =>
+        where.source === "בית פתוח" ? openHouse.map((contactId) => ({ contactId })) : [],
     },
   };
   const service = new OpenHouseService(
@@ -47,13 +46,13 @@ function setup(contacts: { id: string; phone: string }[], visits: { leadId: stri
     {} as never, // outbox
     crypto as never,
   );
-  const adopt = () => service["adoptLegacyVisitor"](tx as never, TENANT, EVENT, CANONICAL);
+  const adopt = () => service["adoptLegacyVisitor"](tx as never, TENANT, CANONICAL);
   return { rows, adopt };
 }
 
 describe("מבקר בכתיב הישן", () => {
-  it("בין מבקרי האירוע — עובר לכתיב האחיד, והקליטה תמצא אותו", async () => {
-    const { rows, adopt } = setup([{ id: "C1", phone: "050-123-4567" }], [{ leadId: "L1" }, { leadId: null }], { L1: "C1" });
+  it("מבקר של בית פתוח כלשהו במשרד — עובר לכתיב האחיד, והקליטה תמצא אותו", async () => {
+    const { rows, adopt } = setup([{ id: "C1", phone: "050-123-4567" }], ["C1"]);
     await adopt();
     expect(rows[0]).toEqual({ id: "C1", phoneHash: `hash:${CANONICAL}`, phoneEncrypted: `enc:${CANONICAL}` });
   });
@@ -64,16 +63,21 @@ describe("מבקר בכתיב הישן", () => {
         { id: "C1", phone: "050-123-4567" },
         { id: "C2", phone: CANONICAL },
       ],
-      [{ leadId: "L1" }],
-      { L1: "C1" },
+      ["C1"],
     );
     await adopt();
     expect(rows[0]?.phoneHash).toBe("hash:050-123-4567");
   });
 
-  it("מספר אחר באירוע — אינו נוגע בו", async () => {
-    const { rows, adopt } = setup([{ id: "C1", phone: "052-765-4321" }], [{ leadId: "L1" }], { L1: "C1" });
+  it("מספר אחר — אינו נוגע בו", async () => {
+    const { rows, adopt } = setup([{ id: "C1", phone: "052-765-4321" }], ["C1"]);
     await adopt();
     expect(rows[0]?.phoneHash).toBe("hash:052-765-4321");
+  });
+
+  it("אותו מספר בכרטיס שלא נוצר מבית פתוח — אינו נוגע בו", async () => {
+    const { rows, adopt } = setup([{ id: "C1", phone: "050-123-4567" }], []);
+    await adopt();
+    expect(rows[0]?.phoneHash).toBe("hash:050-123-4567");
   });
 });
