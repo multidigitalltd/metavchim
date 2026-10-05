@@ -12,6 +12,9 @@
  *   ‏ברירת המחדל היא לחכות לנצח: מאגר מלא היה תוקע בקשות במקום להיכשל.
  * - ‏**חיבור פנוי נשמר חמש דקות**, כמו ב-Prisma 6. ב-`pg` — עשר שניות,
  *   ‏כלומר חיבור חדש כמעט לכל בקשה בשעות שקטות.
+ * - ‏**גודל המאגר — מעבדים × 2 + 1**, כמו ב-Prisma 6. ב-`pg` — עשרה קבועים,
+ *   ‏כלומר יותר חיבורים למסד במכונה קטנה ופחות במקבילות במכונה גדולה
+ *   ‏(ביקורת Codex). מספר המעבדים בא מהקורא — אין כאן `node:os`.
  * - ‏**הסכימה מהכתובת** (`?schema=`) — גם למתאם וגם כ-`search_path` של
  *   ‏החיבור, כמו ב-Prisma 6. המתאם מקדים את שם הסכימה רק לשאילתות שהוא בונה,
  *   ‏ושאילתת SQL ישירה (`DELETE FROM server_errors`) הייתה פונה ל-`public`
@@ -21,10 +24,14 @@
  * ‏הפונקציה מחזירה נתונים בלבד: החבילה נטענת גם בדפדפן, והמתאם עצמו
  * ‏נבנה אצל הקורא — כמו `node:crypto` ב-`aes-gcm.ts`.
  */
-export function databaseConnection(url: string | undefined): {
+export function databaseConnection(
+  url: string | undefined,
+  cpus: number,
+): {
   pool: {
     connectionString: string;
     options: string;
+    max: number;
     connectionTimeoutMillis: number;
     idleTimeoutMillis: number;
   };
@@ -37,6 +44,7 @@ export function databaseConnection(url: string | undefined): {
     pool: {
       connectionString: url,
       options: `-c TimeZone=UTC -c search_path=${schema}`,
+      max: Math.max(1, Math.floor(cpus)) * 2 + 1,
       connectionTimeoutMillis: 10_000,
       idleTimeoutMillis: 300_000,
     },

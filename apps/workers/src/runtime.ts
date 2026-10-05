@@ -1,4 +1,5 @@
 import "./env.js";
+import { availableParallelism } from "node:os";
 import IORedis from "ioredis";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient, type Prisma } from "@prisma/client";
@@ -12,7 +13,7 @@ export const connection = new IORedis(
   },
 );
 /* ‏הגדרות החיבור — אותן של ה-API (`databaseConnection`) */
-const db = databaseConnection(process.env["DATABASE_URL"]);
+const db = databaseConnection(process.env["DATABASE_URL"], availableParallelism());
 export const prisma = new PrismaClient({ adapter: new PrismaPg(db.pool, { schema: db.schema }) });
 
 /**

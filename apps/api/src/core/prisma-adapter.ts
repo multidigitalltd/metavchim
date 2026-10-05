@@ -1,3 +1,4 @@
+import { availableParallelism } from "node:os";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { databaseConnection } from "@metavchim/shared";
 
@@ -9,6 +10,6 @@ import { databaseConnection } from "@metavchim/shared";
  * ‏Nest, ואינם צריכים לטעון את הדקורטורים שלו.
  */
 export function prismaAdapter(url: string | undefined): PrismaPg {
-  const { pool, schema } = databaseConnection(url);
+  const { pool, schema } = databaseConnection(url, availableParallelism());
   return new PrismaPg(pool, { schema });
 }
