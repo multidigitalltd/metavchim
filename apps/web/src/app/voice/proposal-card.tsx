@@ -427,7 +427,8 @@ export function ProposalCard({
               role={nudged ? "alert" : undefined}
               style={{ color: nudged ? "var(--color-danger)" : "var(--color-text-muted)" }}
             >
-              {AGENT_CHOICE_PROMPT}
+              {/* ‏במסך תשובה בהודעה הבאה ממשיכה את הכרטיס (`prior`), ולכן גם „אמרו” */}
+              {AGENT_CHOICE_PROMPT} — או אמרו פרט מזהה כדי לצמצם
             </p>
           ) : null}
           {noCandidates ? (
