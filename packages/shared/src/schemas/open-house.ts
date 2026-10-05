@@ -1,5 +1,5 @@
 import * as z from "../zod.js";
-import { IdSchema } from "./common.js";
+import { IdSchema, PhoneInputSchema } from "./common.js";
 import { OPEN_HOUSE_MAX_CAPACITY, OPEN_HOUSE_MAX_HOURS, OPEN_HOUSE_SLOT_MINUTES } from "../logic/open-house.js";
 
 const IsoDate = z.string().datetime({ offset: true });
@@ -35,7 +35,8 @@ export type OpenHouseStatusUpdate = z.infer<typeof OpenHouseStatusUpdateSchema>;
 /** ‏הרשמה מהדף הציבורי. */
 export const OpenHouseRegisterSchema = z.object({
   name: z.string().trim().min(2).max(80),
-  phone: z.string().trim().min(9).max(20),
+  /* ‏אותו נרמול כמו בכרטיס — אחרת אותו מבקר בשני כתיבים נפתח כשני לקוחות */
+  phone: PhoneInputSchema,
   slotAt: IsoDate,
   /** honeypot */
   website: z.string().max(200).optional(),
@@ -45,7 +46,8 @@ export type OpenHouseRegister = z.infer<typeof OpenHouseRegisterSchema>;
 /** ‏מבקר שהגיע בלי להירשם — המתווך רושם בשטח. */
 export const OpenHouseWalkInSchema = z.object({
   name: z.string().trim().min(2).max(80),
-  phone: z.string().trim().min(9).max(20),
+  /* ‏אותו נרמול כמו בכרטיס — אחרת אותו מבקר בשני כתיבים נפתח כשני לקוחות */
+  phone: PhoneInputSchema,
   slotAt: IsoDate.optional(),
 });
 export type OpenHouseWalkIn = z.infer<typeof OpenHouseWalkInSchema>;

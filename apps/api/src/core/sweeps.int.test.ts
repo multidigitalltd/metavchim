@@ -62,6 +62,27 @@ describe("‏חכירת סבב בין מופעים", () => {
     expect(await counted(a, options)).toBe(1);
   });
 
+  it("‏סבב חד-פעמי — רץ פעם אחת, גם במופע אחר וגם אחרי שהחכירה פגה", async () => {
+    const options: SweepOptions = { ...sweep("once"), once: true };
+    const [a, b] = [instance(), instance()];
+    expect(await counted(a, options)).toBe(1);
+    await owner.$executeRawUnsafe(
+      `UPDATE sweep_leases SET until = now() - interval '1 second' WHERE name = '${options.name}'`,
+    );
+    expect(await counted(b, options)).toBe(0);
+    expect(await counted(a, options)).toBe(0);
+  });
+
+  it("‏סבב חד-פעמי שנכשל — אינו נרשם כגמור, והבא מנסה שוב", async () => {
+    const options: SweepOptions = { ...sweep("once-failed"), once: true };
+    const a = instance();
+    await a.runOnce(options, async () => {
+      throw new Error("boom");
+    });
+    expect(await counted(a, options)).toBe(1);
+    expect(await counted(a, options)).toBe(0);
+  });
+
   it("‏חכירה שפגה — מופע אחר תופס", async () => {
     const options = sweep("expired");
     const [a, b] = [instance(), instance()];

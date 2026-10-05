@@ -40,6 +40,13 @@ export interface SweepOptions {
    * ‏(למשל כתיבת מה שנצבר בזיכרון של התהליך).
    */
   perInstance?: boolean;
+  /**
+   * ‎**סבב חד-פעמי** — המרת נתונים שצריכה לקרות פעם אחת ולא לכל בקשה.
+   * ‏אחרי ריצה שהצליחה נרשם `<name>:done` ב-`sweep_leases` עם חכירה שאינה
+   * ‏פגה, ומאז אף מופע אינו מריץ אותו. ריצה שנכשלה אינה נרשמת, והבאה תנסה
+   * ‏שוב — ולכן הסבב חייב להיות בטוח להרצה חוזרת. לא יחד עם `perInstance`.
+   */
+  once?: boolean;
 }
 
 const SWEEP_METADATA = "metavchim:sweep";
@@ -143,6 +150,7 @@ export class SweepScheduler implements OnApplicationBootstrap, OnModuleDestroy {
     const leaseMs = sweepLeaseMs(options.everyMs);
     let heartbeat: NodeJS.Timeout | null = null;
     try {
+      if (options.once === true && (await this.done(options.name))) return false;
       if (options.perInstance !== true) {
         const claim = await this.claim(options.name, leaseMs);
         if (!claim.claimed) {
@@ -157,6 +165,7 @@ export class SweepScheduler implements OnApplicationBootstrap, OnModuleDestroy {
         heartbeat.unref();
       }
       await run();
+      if (options.once === true) await this.markDone(options.name);
       return true;
     } catch (error: unknown) {
       this.logger.error(`הסבב ${options.name} נכשל: ${String(error)}`);
@@ -221,6 +230,24 @@ export class SweepScheduler implements OnApplicationBootstrap, OnModuleDestroy {
       this.logger.warn(`חכירת הסבב ${name} לא נבדקה — רץ בלעדיה: ${String(error)}`);
       return { claimed: true };
     }
+  }
+
+  /** ‏סבב חד-פעמי שכבר הסתיים — ראו `once`. מסד שאינו עונה = עוד לא. */
+  private async done(name: string): Promise<boolean> {
+    try {
+      const rows = await this.prisma.$queryRaw<unknown[]>`
+        SELECT 1 FROM sweep_leases WHERE name = ${`${name}:done`}`;
+      return rows.length > 0;
+    } catch {
+      return false;
+    }
+  }
+
+  private async markDone(name: string): Promise<void> {
+    await this.prisma.$executeRaw`
+      INSERT INTO sweep_leases (name, holder, until)
+      VALUES (${`${name}:done`}, 'done', 'infinity')
+      ON CONFLICT (name) DO NOTHING`;
   }
 
   private async extend(name: string, leaseMs: number): Promise<void> {

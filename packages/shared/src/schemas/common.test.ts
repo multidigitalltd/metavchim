@@ -56,3 +56,17 @@ describe("PhoneInputSchema — מספר מחו״ל", () => {
     expect(() => PhoneInputSchema.parse("+1234567890123456")).toThrow();
   });
 });
+
+/*
+ * ‎**כל טופס שאדם מקליד בו טלפון — אותו נרמול.** בית פתוח שמר את המספר
+ * ‏כפי שהוקלד, ולכן אותו מבקר ב-‎0012125550100‎ וב-‎+1 212…‎ נפתח פעמיים.
+ */
+describe("בית פתוח — הטלפון מנורמל", () => {
+  it.each([
+    ["0012125550100", "+12125550100"],
+    ["050-123-4567", "+972501234567"],
+  ])("%s → %s", async (typed, stored) => {
+    const { OpenHouseWalkInSchema } = await import("./open-house.js");
+    expect(OpenHouseWalkInSchema.parse({ name: "דנה כהן", phone: typed }).phone).toBe(stored);
+  });
+});
