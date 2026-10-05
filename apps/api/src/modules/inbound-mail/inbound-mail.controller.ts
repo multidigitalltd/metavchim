@@ -99,8 +99,7 @@ export class InboundMailController {
     @Param("secret", new ZodValidationPipe(SecretSchema)) secret: string,
     @Body() body: unknown,
   ): Promise<{ ok: true }> {
-    const config = await this.tenantInbox.inboundConfig();
-    this.verify(secret, config?.secret ?? null);
+    this.verify(secret, await this.tenantInbox.webhookSecret());
     const parsed = EmailEventSchema.safeParse(body);
     if (!parsed.success) return { ok: true };
     const event = parsed.data;

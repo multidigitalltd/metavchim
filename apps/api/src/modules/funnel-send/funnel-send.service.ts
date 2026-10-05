@@ -6,6 +6,7 @@ import {
   firstNameOf,
   funnelEmail,
   funnelFacts,
+  funnelStageExpiresAt,
   hasValidCard,
   isFunnelSendingTime,
   nextFunnelStage,
@@ -149,7 +150,7 @@ export class FunnelSendService {
       cursor = page[page.length - 1]?.id ?? null;
 
       const tenantIds = page.map((row) => row.tenantId);
-      const [tenants, cards, sentRows] = await Promise.all([
+      const [tenants, cards, sentRows, failedRows] = await Promise.all([
         this.prisma.tenant.findMany({
           where: { id: { in: tenantIds } },
           select: {
@@ -175,12 +176,22 @@ export class FunnelSendService {
             select: { enrollmentId: true, stageKey: true },
           }),
         ),
+        this.prisma.withFunnelAdmin((tx) =>
+          tx.funnelMessage.findMany({
+            where: { enrollmentId: { in: page.map((row) => row.id) }, status: "failed" },
+            select: { enrollmentId: true, stageKey: true },
+          }),
+        ),
       ]);
       const tenantById = new Map(tenants.map((tenant) => [tenant.id, tenant]));
       const cardById = new Map(cards.map((card) => [card.tenantId, card]));
       const sentKeys = new Map<string, string[]>();
       for (const r of sentRows) {
         sentKeys.set(r.enrollmentId, [...(sentKeys.get(r.enrollmentId) ?? []), r.stageKey]);
+      }
+      const failedKeys = new Map<string, Set<string>>();
+      for (const r of failedRows) {
+        failedKeys.set(r.enrollmentId, (failedKeys.get(r.enrollmentId) ?? new Set()).add(r.stageKey));
       }
 
       for (const row of page) {
@@ -203,9 +214,57 @@ export class FunnelSendService {
           lastSentAt: row.lastSentAt,
           now,
         };
+        /*
+         * ‎**נמען שנכשל — אחרי שאחר כבר קיבל** (ביקורת Codex, P1).
+         *
+         * ‏השלב נחשב „נשלח” ברמת הרישום ברגע שבעלים אחד קיבל, ולכן
+         * ‏`nextFunnelStage` לא יחזור אליו. הניסיון החוזר כאן, כל עוד
+         * ‏חלון השלב פתוח; `claim` תופס רק את השורות שנכשלו. סבב שבו
+         * ‏היה ניסיון חוזר אינו מתקדם לשלב הבא — כך שאיש אינו מקבל
+         * ‏שתי הודעות באותו יום.
+         */
+        const partial = live.filter(
+          (stage) =>
+            failedKeys.get(row.id)?.has(stage.key) === true &&
+            input.sent.includes(stage.key) &&
+            now.getTime() <= (funnelStageExpiresAt(stage, input.anchors)?.getTime() ?? 0),
+        );
+        if (partial.length > 0) {
+          for (const stage of partial) {
+            const copy = copies.get(stage.key);
+            if (copy === undefined) continue;
+            try {
+              await this.sendStage(row, tenant.name, stage, copy, now);
+            } catch (error: unknown) {
+              this.logger.warn(`ניסיון חוזר למשרד ${row.tenantId} נכשל: ${String(error)}`);
+            }
+          }
+          continue;
+        }
         const anyDue = nextFunnelStage({ ...input, stages: unconditioned, facts: ANY_FACTS });
         if (anyDue === null) continue;
         try {
+          /*
+           * ‎**כל הבעלים ביקשו להפסיק — הרישום נסגר כ„ביקש להפסיק”**
+           * ‏(ביקורת Codex). בלי זה הוא נשאר „במסלול” לנצח ונסרק בכל
+           * ‏סבב, והמדד „ביקשו להפסיק” לא היה זז לעולם. משרד בלי בעלים
+           * ‏פעיל כלל אינו „ביקש” דבר, ולכן הוא נשאר פתוח.
+           */
+          const recipients = await this.recipientsOf.recipients(row.tenantId);
+          if (recipients.length === 0) {
+            const owners = await this.prisma.withExplicitTenant(row.tenantId, (tx) =>
+              tx.user.count({ where: { tenantId: row.tenantId, role: "owner", isActive: true } }),
+            );
+            if (owners > 0) {
+              const { id: _id, name: _name, ...snapshot } = tenant;
+              await this.enrollment.close(row.id, "opted_out", now, {
+                tenantId: row.tenantId,
+                tenant: snapshot,
+                hasCard: hasValidCard(cardById.get(row.tenantId) ?? null, now),
+              });
+            }
+            continue;
+          }
           const facts = funnelFacts({
             onboarding: await this.onboarding.facts(row.tenantId),
             calls: await this.prisma.withExplicitTenant(row.tenantId, (tx) =>
@@ -220,7 +279,7 @@ export class FunnelSendService {
           if (stage === null) continue;
           const copy = copies.get(stage.key);
           if (copy === undefined || !stage.channels.includes("email")) continue;
-          if (await this.sendStage(row, tenant.name, stage, copy, now)) sent += 1;
+          if (await this.sendStage(row, tenant.name, stage, copy, now, recipients)) sent += 1;
         } catch (error: unknown) {
           // ‏משרד אחד שנכשל אינו עוצר את השאר — זו סריקה, לא עסקה
           this.logger.warn(`מסלול ההמרה למשרד ${row.tenantId} נכשל: ${String(error)}`);
@@ -241,8 +300,9 @@ export class FunnelSendService {
     stage: FunnelStageDef,
     copy: FunnelStageCopy,
     now: Date,
+    known?: Awaited<ReturnType<ActivationNudgeService["recipients"]>>,
   ): Promise<boolean> {
-    const recipients = await this.recipientsOf.recipients(enrollment.tenantId);
+    const recipients = known ?? (await this.recipientsOf.recipients(enrollment.tenantId));
     const origin = loadEnv().WEB_ORIGIN;
     const tracked = `${origin}/api/v1/public/funnel`;
     let delivered = 0;

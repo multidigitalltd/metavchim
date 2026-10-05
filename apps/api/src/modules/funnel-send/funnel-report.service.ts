@@ -45,6 +45,16 @@ export class FunnelReportService {
     event: { kind: "delivered" | "bounced"; at: Date; detail?: string },
   ): Promise<void> {
     await this.prisma.withFunnelAdmin(async (tx) => {
+      /*
+       * ‎**אישור מהספק הוא הוכחה שההודעה יצאה** (ביקורת Codex). שליחה
+       * ‏שנגמרה בכישלון עמום (פסק זמן, 5xx) נרשמה `failed` בלי `sentAt`,
+       * ‏והספק בכל זאת מסר. בלי התיקון כאן היא הייתה גם „נמסרה” וגם
+       * ‏„נכשלה”, ולא הייתה נספרת בהיסטוריית השלבים — והשלב היה נשלח שוב.
+       */
+      await tx.funnelMessage.updateMany({
+        where: { id: messageId, channel: "email", sentAt: null },
+        data: { sentAt: event.at },
+      });
       if (event.kind === "bounced") {
         await tx.funnelMessage.updateMany({
           where: { id: messageId, channel: "email", deliveredAt: null },
@@ -53,15 +63,15 @@ export class FunnelReportService {
         return;
       }
       /*
-       * ‏חזרה זמנית (תיבה מלאה) שהספק ניסה שוב והצליח: המסירה גוברת,
-       * ‏וההודעה חוזרת להיות „נשלחה” — המדד אומר מה קרה בסוף.
+       * ‏והמסירה גוברת גם על חזרה זמנית (תיבה מלאה) שהספק ניסה שוב
+       * ‏והצליח: המדד אומר מה קרה בסוף.
        */
       await tx.funnelMessage.updateMany({
         where: { id: messageId, channel: "email", deliveredAt: null },
         data: { deliveredAt: event.at },
       });
       await tx.funnelMessage.updateMany({
-        where: { id: messageId, channel: "email", status: "bounced" },
+        where: { id: messageId, channel: "email", status: { not: "sent" } },
         data: { status: "sent", error: null },
       });
     });

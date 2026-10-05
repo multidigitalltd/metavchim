@@ -277,3 +277,79 @@ describe("מסלול ההמרה — המסירה והמדדים", () => {
     expect(row!.status).toBe("sent");
   });
 });
+
+describe("מסלול ההמרה — תיקוני הביקורת", () => {
+  const SECOND = "01M1FNNLSENDOWNER000000002";
+
+  it("בעלים שנכשל אחרי שאחר קיבל — מקבל בניסיון חוזר, והשני אינו מקבל פעמיים", async () => {
+    await direct.$executeRawUnsafe(
+      `INSERT INTO users (id, tenant_id, name, email, role, is_active, created_at, updated_at)
+       VALUES ($1, $2, 'יוסי לוי', 'yossi.funnel@example.test', 'owner', true, now(), now() + interval '1 second')`,
+      SECOND,
+      TENANT,
+    );
+    try {
+      // ‏הראשון מקבל, השני נכשל
+      send.mockImplementation((...args: unknown[]) =>
+        args[0] === "yossi.funnel@example.test"
+          ? Promise.reject(new Error("ספק לא זמין"))
+          : Promise.resolve(),
+      );
+      await service().run(MONDAY_10);
+      expect((await messages()).map((m) => m.status).sort()).toEqual(["failed", "sent"]);
+
+      // ‏שעה אחרי: רק השני מקבל, ונשלח לו אותו שלב
+      send.mockClear();
+      send.mockImplementation(() => Promise.resolve());
+      await service().run(new Date(MONDAY_10.getTime() + HOUR));
+      expect(send).toHaveBeenCalledTimes(1);
+      expect(send.mock.calls[0]![0]).toBe("yossi.funnel@example.test");
+      expect((await messages()).map((m) => m.status)).toEqual(["sent", "sent"]);
+    } finally {
+      send.mockImplementation(() => Promise.resolve());
+      await direct.$executeRawUnsafe(`DELETE FROM funnel_messages WHERE user_id = $1`, SECOND);
+      await direct.$executeRawUnsafe(`DELETE FROM users WHERE id = $1`, SECOND);
+    }
+  });
+
+  it("כל הבעלים ביקשו להפסיק — הרישום נסגר כ„ביקש להפסיק” ונספר במדד", async () => {
+    await direct.$executeRawUnsafe(
+      `INSERT INTO activation_nudge_optouts (id, tenant_id, user_id, token, opted_out_at, created_at)
+       VALUES ('01M1FNNLSENDOPTOUT00000002', $1, $2, $3, now(), now())`,
+      TENANT,
+      OWNER,
+      "p".repeat(43),
+    );
+    await service().run(MONDAY_10);
+    const rows = await direct.$queryRawUnsafe<{ ended_reason: string | null }[]>(
+      `SELECT ended_reason FROM funnel_enrollments WHERE tenant_id = $1`,
+      TENANT,
+    );
+    expect(rows[0]?.ended_reason).toBe("opted_out");
+    expect((await new FunnelReportService(prisma).stats()).enrollments.optedOut).toBeGreaterThanOrEqual(1);
+  });
+
+  it("מסירה שמאשרת שליחה שנרשמה ככושלת — ההודעה חוזרת ל„נשלחה”", async () => {
+    send.mockImplementation(() => Promise.reject(new Error("פסק זמן")));
+    try {
+      await service().run(MONDAY_10);
+    } finally {
+      send.mockImplementation(() => Promise.resolve());
+    }
+    const rows = await direct.$queryRawUnsafe<{ id: string; status: string }[]>(
+      `SELECT id, status FROM funnel_messages WHERE tenant_id = $1`,
+      TENANT,
+    );
+    expect(rows[0]?.status).toBe("failed");
+    await new FunnelReportService(prisma).recordEmailEvent(rows[0]!.id, {
+      kind: "delivered",
+      at: MONDAY_10,
+    });
+    const after = await direct.$queryRawUnsafe<{ status: string; sent_at: Date | null }[]>(
+      `SELECT status, sent_at FROM funnel_messages WHERE tenant_id = $1`,
+      TENANT,
+    );
+    expect(after[0]).toMatchObject({ status: "sent" });
+    expect(after[0]!.sent_at).not.toBeNull();
+  });
+});

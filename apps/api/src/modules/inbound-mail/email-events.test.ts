@@ -18,9 +18,8 @@ function setup() {
   const controller = new InboundMailController(
     {} as InboundMailService,
     {} as SupportInboxService,
-    {
-      inboundConfig: () => Promise.resolve({ address: "in@example.test", secret: SECRET }),
-    } as unknown as EmailInboxService,
+    // ‏סוד בלבד, בלי כתובת קליטה — שרת שמשמש לשליחה בלבד
+    { webhookSecret: () => Promise.resolve(SECRET) } as unknown as EmailInboxService,
     { recordEmailEvent } as unknown as FunnelReportService,
   );
   return { controller, recordEmailEvent };
