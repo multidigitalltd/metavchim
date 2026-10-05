@@ -432,7 +432,7 @@ describe("סגירת רישום כש„מוצה” — רק אחרי שהנמע�
    * ‏חודש, והניסיון נגמר לפני שבוע ושעה.
    */
   /** ‏`pending` — סטטוס השורה של הבעלים השני, שעוד ממתין לניסיון חוזר. */
-  async function seed(pending: "failed" | "rejected" | "bounced" | null): Promise<void> {
+  async function seed(pending: "queued" | "failed" | "rejected" | "bounced" | null): Promise<void> {
     const now = Date.now();
     await direct.$executeRawUnsafe(
       `UPDATE tenants SET trial_ends_at = $2, created_at = $3 WHERE id = $1`,
@@ -497,6 +497,12 @@ describe("סגירת רישום כש„מוצה” — רק אחרי שהנמע�
 
   it("נמען שנדחה לצמיתות בשלב האחרון — גם הוא ממתין לניסיון החוזר", async () => {
     await seed("rejected");
+    await sweep();
+    expect(await reason()).toBeNull();
+  });
+
+  it("נמען שנתפס ועוד לא הוכרע בשלב האחרון — הרישום אינו נסגר", async () => {
+    await seed("queued");
     await sweep();
     expect(await reason()).toBeNull();
   });
@@ -992,6 +998,7 @@ describe("מסלול ההמרה — תקרה, תשלום באמצע הסבב ו�
   it("מייל שחזר, והכתובת תוקנה — אותו שלב נשלח לכתובת החדשה, במפתח חדש", async () => {
     await service().run(MONDAY_10);
     const firstKey = (send.mock.calls[0]![3] as { idempotency: { key: string } }).idempotency.key;
+    const oldToken = (await messages())[0]!.token;
     const rows = await direct.$queryRawUnsafe<{ id: string }[]>(
       `SELECT id FROM funnel_messages WHERE tenant_id = $1`,
       TENANT,
@@ -1016,6 +1023,9 @@ describe("מסלול ההמרה — תקרה, תשלום באמצע הסבב ו�
       expect(send.mock.calls[0]![0]).toBe("dana.fixed2@example.test");
       const key = (send.mock.calls[0]![3] as { idempotency: { key: string } }).idempotency.key;
       expect(key).not.toBe(firstKey);
+      // ‏וטוקן מעקב חדש — הקישורים במייל הישן אינם מאשרים את השליחה החדשה
+      const [after] = await messages();
+      expect(after!.token).not.toBe(oldToken);
       expect((await messages())[0]!.status).toBe("sent");
     } finally {
       await direct.$executeRawUnsafe(

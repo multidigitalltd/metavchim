@@ -559,13 +559,17 @@ export class FunnelSendService {
         if (!canRetry(existing, owner.email, now)) return null;
         /*
          * ‏ניסיון חדש מתחיל נקי: `sentAt` של הניסיון הקודם (מייל שחזר) היה
-         * ‏מונע מהאישור של הניסיון הזה לקדם את המרווח (ביקורת Codex).
+         * ‏מונע מהאישור של הניסיון הזה לקדם את המרווח (ביקורת Codex). וכתובת
+         * ‏חדשה מקבלת טוקן מעקב חדש — פתיחה או לחיצה במייל לכתובת הישנה אינן
+         * ‏מוכיחות שהשליחה החדשה הגיעה.
          */
+        const token =
+          existing.destination === owner.email ? existing.token : randomBytes(32).toString("base64url");
         const reclaimed = await tx.funnelMessage.updateMany({
           where: { id: existing.id, status: existing.status, updatedAt: existing.updatedAt },
-          data: { status: "queued", destination: owner.email, sentAt: null, error: null },
+          data: { status: "queued", destination: owner.email, sentAt: null, error: null, token },
         });
-        return reclaimed.count === 1 ? { id: existing.id, token: existing.token } : null;
+        return reclaimed.count === 1 ? { id: existing.id, token } : null;
       }
       const created = await tx.funnelMessage.createMany({
         data: {

@@ -714,13 +714,14 @@ export class FunnelEnrollmentService {
        *
        * ‏וגם `rejected` ו-`bounced`: דחייה קבועה נבדקת שוב אחרי יממה או
        * ‏כשהכתובת תוקנה, ומייל שחזר נשלח שוב לכתובת שתוקנה (ביקורת Codex) —
-       * ‏ורישום שנסגר קודם לכן לא היה נותן להם הזדמנות.
+       * ‏ורישום שנסגר קודם לכן לא היה נותן להם הזדמנות. ו-`queued`: תפיסה
+       * ‏שעוד לא הוכרעה (תהליך שנפל באמצע) חוזרת לתור רק אחרי חצי שעה.
        */
       this.prisma.withFunnelAdmin((tx) =>
         tx.funnelMessage.findMany({
           where: {
             enrollmentId: { in: live.map((row) => row.id) },
-            status: { in: ["failed", "rejected", "bounced"] },
+            status: { in: ["queued", "failed", "rejected", "bounced"] },
           },
           select: { enrollmentId: true, stageKey: true },
         }),
