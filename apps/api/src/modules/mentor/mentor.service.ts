@@ -34,6 +34,7 @@ import {
   type ProcessGoalSuggestion,
   selectWins,
   suggestProcessGoals,
+  marketPulseSentence,
 } from "@metavchim/shared";
 import { TenantContext } from "../../common/tenant-context";
 import { AgentEventsService } from "../agent/agent-events.service";
@@ -44,6 +45,7 @@ import {
   MentorSignalsService,
   type GoalWithProgress,
 } from "./mentor-signals.service";
+import { MarketService } from "../market/market.service";
 
 /** כמה שבועות אחורה נספרים לצורך משפך ההמרה של המתווך. */
 const HISTORY_WEEKS = 13;
@@ -109,6 +111,14 @@ export interface MentorOverview {
   insights: MentorInsights;
   /** מה המנטור זוכר — דפוסים מהסיכומים של החודשיים האחרונים */
   patterns: MentorPattern[];
+  /**
+   * ‎**דופק השוק בעיר העיקרית של המשרד** (docs/14 §3, יכולת 7).
+   *
+   * משפט אחד או כלום: `null` כשאין עיר, אין נתונים, או שהבסיס דל מדי
+   * לטענה (`marketPulseSentence`). מנטור שאומר „השוק ירד 40%” על חמש
+   * עסקאות מאבד אמון בשבוע הראשון.
+   */
+  market: { settlement: string; sentence: string } | null;
 }
 
 /**
@@ -151,6 +161,7 @@ export class MentorService {
     private readonly gemini: GeminiService,
     private readonly signals: MentorSignalsService,
     private readonly events: AgentEventsService,
+    private readonly market: MarketService,
   ) {}
 
   async overview(now: Date = new Date()): Promise<MentorOverview> {
@@ -233,8 +244,43 @@ export class MentorService {
         streakWeeks,
         chatAvailable,
         patterns,
+        market: await this.marketPulse(tx, tenantId, now),
       };
     });
+  }
+
+  /**
+   * העיר שבה רוב הנכסים הפעילים של המשרד, והרבעון האחרון שם מול
+   * אשתקד. שקט על כל תקלה: המנטור אינו נשען על נתוני השוק, וכשל
+   * בהם לא יפיל את המסך שלו.
+   */
+  private async marketPulse(
+    tx: TenantTx,
+    tenantId: string,
+    now: Date,
+  ): Promise<MentorOverview["market"]> {
+    try {
+      const [top] = await tx.property.groupBy({
+        by: ["city"],
+        where: { tenantId, deletedAt: null, status: { in: ["active", "draft"] }, city: { not: null } },
+        _count: { city: true },
+        orderBy: { _count: { city: "desc" } },
+        take: 1,
+      });
+      const settlement = await this.market.resolveSettlement(top?.city ?? null);
+      if (!settlement) return null;
+      const pulse = await this.market.quarterPulse(settlement.id, now);
+      if (!pulse) return null;
+      const sentence = marketPulseSentence({
+        area: `ב${settlement.name}`,
+        periodLabel: pulse.label,
+        current: pulse.current,
+        previous: pulse.previous,
+      });
+      return sentence === null ? null : { settlement: settlement.name, sentence };
+    } catch {
+      return null;
+    }
   }
 
   async pulse(now: Date = new Date()): Promise<MentorPulse> {

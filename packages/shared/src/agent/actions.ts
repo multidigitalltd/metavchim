@@ -74,6 +74,7 @@ export const AGENT_ACTION_IDS = [
   "open_deal_room",
   "office_report",
   "agent_report",
+  "market_prices",
   "show_recommendations",
   "create_lead",
   "create_buyer",
@@ -1229,6 +1230,31 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
         hint: '"החודש" ⇒ 30, "הרבעון" ⇒ 90, "השנה" ⇒ 365',
         values: ["30", "90", "365"],
         valueLabels: { "30": "30 יום", "90": "רבעון", "365": "שנה" },
+      },
+    ],
+  },
+  {
+    id: "market_prices",
+    title: "מחירי עסקאות בשוק",
+    when:
+      'שאלה במה נמכרו דירות בעיר — מחיר חציוני, מחיר למ"ר, כמה עסקאות והמגמה מול השנה הקודמת. עסקאות אמת של רשות המסים, לא הנכסים של המשרד (לאלה יש „חיפוש נכסים”).',
+    examples: [
+      "כמה נמכרות דירות 4 חדרים בחיפה?",
+      'מה המחיר למטר בפתח תקווה',
+      "איך השוק בנתניה השנה",
+    ],
+    capability: "properties.view",
+    risk: "read",
+    fields: [
+      // זהים לשדות הנכס — מפתח משותף מוצהר זהה בכל הפעולות (actions.test)
+      { key: "city", label: "עיר", type: "string", maxLength: 80 },
+      {
+        key: "rooms",
+        label: "חדרים",
+        type: "number",
+        min: 1,
+        max: 20,
+        multipleOf: 0.5,
       },
     ],
   },

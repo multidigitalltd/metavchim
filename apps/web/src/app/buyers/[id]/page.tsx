@@ -39,6 +39,7 @@ import { IntakePanel } from "../../intake-panel";
 import { LoadError } from "../../load-error";
 import { Notice } from "../../notice";
 import { MarketChip } from "../../market/market-parts";
+import { BuyerMarket } from "./buyer-market";
 
 /**
  * כרטיס הקונה.
@@ -845,6 +846,9 @@ export default function BuyerDetailPage({
                 </>
               ) : null}
             </section>
+
+            {/* ---- התקציב מול השוק (docs/14) ---- */}
+            <BuyerMarket buyerId={id} />
           </div>
 
           <div className="grid gap-[18px]">

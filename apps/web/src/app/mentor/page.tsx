@@ -121,6 +121,8 @@ interface Overview {
   streakWeeks: number;
   chatAvailable: boolean;
   patterns: MentorPattern[];
+  /** דופק השוק בעיר העיקרית של המשרד — משפט אחד או כלום (docs/14). */
+  market: { settlement: string; sentence: string } | null;
 }
 
 interface Turn {
@@ -299,6 +301,22 @@ export default function MentorPage() {
             />
           </div>
           <WeekSection overview={overview} />
+          {overview.market ? (
+            <section className="mt-8" aria-labelledby="mentor-market-heading">
+              <div className="mv-card-head mv-domain-blue mb-3">
+                <span className="mv-tile" aria-hidden="true">
+                  <IconTarget s={19} />
+                </span>
+                <h2 id="mentor-market-heading" className="mv-card-head__title m-0">
+                  השוק ב{overview.market.settlement}
+                </h2>
+                <Link href="/market" className="mv-card-head__link">
+                  לנתוני השוק
+                </Link>
+              </div>
+              <p className="mv-card mv-card--pad m-0">{overview.market.sentence}</p>
+            </section>
+          ) : null}
           <GoalsSection overview={overview} onChanged={load} />
           {overview.patterns.length > 0 ? (
             <section className="mt-8" aria-labelledby="mentor-memory-heading">
