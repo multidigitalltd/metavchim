@@ -69,6 +69,10 @@ import {
   mentorGoalLabel,
   mentorGoalStatusLine,
   mentorStatusMessage,
+  formatIsraeliNumber,
+  formatMarketIls,
+  marketRoomBucket,
+  marketRoomBucketLabel,
 } from "@metavchim/shared";
 import { isCardAccessible,
   assertContactAccess,
@@ -136,6 +140,7 @@ import { OffersService } from "../offers/offers.service";
 import { PropertiesService } from "../properties/properties.service";
 import { SearchService } from "../search/search.service";
 import { TasksService } from "../tasks/tasks.service";
+import { MarketService } from "../market/market.service";
 
 /**
  * ביצוע — **דרך אותם שירותים שהטפסים הידניים משתמשים בהם.**
@@ -449,6 +454,7 @@ export class AgentExecuteService {
     private readonly mentor: MentorService,
     private readonly practice: MentorPracticeService,
     private readonly forum: ForumService,
+    private readonly market: MarketService,
   ) {}
 
   async execute(
@@ -735,6 +741,8 @@ export class AgentExecuteService {
         return this.logCall(params);
       case "agent_report":
         return this.agentReport(params);
+      case "market_prices":
+        return this.marketPrices(params);
       case "send_owner_update":
         return this.sendOwnerUpdate(params);
       case "show_payout_balance":
@@ -2479,6 +2487,61 @@ export class AgentExecuteService {
       message: `ההודעה ל${name} — הבעלים של ${label} — מוכנה. פתחו את הקישור ולחצו שלח.`,
       link: waUrl,
       ...refOf(label, "property", propertyId),
+    };
+  }
+
+  /**
+   * ‎**„כמה נמכרות דירות 4 חדרים בחיפה”** — עסקאות רשות המסים (docs/18).
+   *
+   * השנה המלאה האחרונה ולא השנה הנוכחית: הדיווחים על החודשים
+   * האחרונים עוד מגיעים, ומספר על „השנה” היה יורד מעצמו בכל שבוע
+   * בלי שהשוק זז. המשפט נושא את השנה ואת מספר העסקאות — המתווך
+   * יצטט אותו ללקוח, והוא צריך לדעת על מה הוא נשען.
+   */
+  private async marketPrices(params: Record<string, unknown>): Promise<ExecuteResult> {
+    const city = str(params["city"]);
+    if (city === undefined) {
+      return { message: "באיזו עיר לבדוק? למשל: „כמה נמכרות דירות 4 חדרים בחיפה”" };
+    }
+    const settlement = await this.market.resolveSettlement(city);
+    if (!settlement) {
+      return { message: `לא מצאתי את ${city} במאגר העסקאות`, href: "/market" };
+    }
+    const rooms = marketRoomBucket(num(params["rooms"]) ?? null);
+    const overview = await this.market.overview(
+      { settlementId: settlement.id, group: "apartment", rooms },
+      new Date(),
+    );
+    const href = `/market?settlementId=${settlement.id}${rooms === 0 ? "" : `&rooms=${rooms}`}`;
+    const h = overview.headline;
+    if (h.year === null || h.deals === null || h.medianPrice === null) {
+      return {
+        message: `אין עדיין מספיק עסקאות ב${settlement.name}${rooms === 0 ? "" : ` ב${marketRoomBucketLabel(rooms)}`}`,
+        href,
+      };
+    }
+    const size = rooms === 0 ? "דירות" : `דירות ${marketRoomBucketLabel(rooms)}`;
+    const parts = [
+      `ב${settlement.name} נמכרו ב-${h.year} ${formatIsraeliNumber(h.deals)} ${size}, במחיר חציוני של ${formatMarketIls(h.medianPrice)}`,
+    ];
+    if (h.medianPpsqm !== null) parts.push(`${formatIsraeliNumber(h.medianPpsqm)} ₪ למ"ר`);
+    const change =
+      h.ppsqmChangePct === null
+        ? undefined
+        : h.ppsqmChangePct === 0
+          ? `המחיר למ"ר יציב מול ${h.year - 1}`
+          : `המחיר למ"ר ${h.ppsqmChangePct > 0 ? "עלה" : "ירד"} ${Math.abs(h.ppsqmChangePct)}% מול ${h.year - 1}`;
+    return {
+      href,
+      message: `${parts.join(", ")}.`,
+      ...(change === undefined ? {} : { insight: change }),
+      data: {
+        settlement: settlement.name,
+        year: h.year,
+        deals: h.deals,
+        medianPrice: h.medianPrice,
+        medianPpsqm: h.medianPpsqm,
+      },
     };
   }
 

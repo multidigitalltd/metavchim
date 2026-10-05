@@ -12,6 +12,7 @@ import { apiGet, apiPatch, apiPost, ApiError } from "@/lib/api";
 import { formatPrice } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
 import { Notice } from "../notice";
+import { MarketChip } from "../market/market-parts";
 
 /**
  * מסך ההתאמות לפי קובץ העיצוב: מתג "לפי נכס ← קונים / לפי קונה ←
@@ -26,7 +27,13 @@ interface MatchRow {
   score: number;
   explanation: string;
   status: string;
-  property: { address: string; title?: string; priceAgorot?: number };
+  property: {
+    address: string;
+    title?: string;
+    priceAgorot?: number;
+    /** המחיר מול עסקאות דומות — „מתחת לשוק” הוא נימוק לשלוח עכשיו. */
+    market?: { position: "below" | "within" | "above"; diffPct: number; sample: number };
+  };
   buyerName: string | null;
 }
 
@@ -378,6 +385,7 @@ function MatchesView() {
                   {g.sub}
                 </span>
               ) : null}
+              {direction === "byProperty" ? <MarketChip market={g.items[0]?.property.market} /> : null}
               <span className="mv-pill ms-auto" style={{ background: "var(--color-primary-soft)", color: "var(--color-primary)", fontSize: "var(--type-caption)" }}>
                 {g.items.length} התאמות
               </span>

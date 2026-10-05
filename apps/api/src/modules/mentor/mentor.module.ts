@@ -1,5 +1,6 @@
 import { Module } from "@nestjs/common";
 import { AgentEventsService } from "../agent/agent-events.service";
+import { MarketModule } from "../market/market.module";
 import { MentorController } from "./mentor.controller";
 import { MentorPracticeService } from "./mentor-practice.service";
 import { MentorReviewService } from "./mentor-review.service";
@@ -7,6 +8,8 @@ import { MentorSignalsService } from "./mentor-signals.service";
 import { MentorService } from "./mentor.service";
 
 @Module({
+  // דופק השוק (docs/18) — המנטור קורא, אינו מחזיק עותק של השאילתות
+  imports: [MarketModule],
   controllers: [MentorController],
   /*
    * יומן האירועים מסופק כאן ולא מיובא מ-AgentModule: זה היה מעגל

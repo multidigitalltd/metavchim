@@ -48,6 +48,8 @@ import { AgentPicker } from "../../agent-picker";
 import { Notice } from "../../notice";
 import { PropertyPitchDialog } from "../../property-pitch-dialog";
 import { ComparisonPanel } from "./comparison-panel";
+import { MarketChip } from "../../market/market-parts";
+import { BuyerMarket } from "./buyer-market";
 
 /**
  * כרטיס הקונה.
@@ -129,7 +131,12 @@ interface MatchRow {
   score: number;
   explanation: string;
   status: string;
-  property: { address: string; title?: string; priceAgorot?: number };
+  property: {
+    address: string;
+    title?: string;
+    priceAgorot?: number;
+    market?: { position: "below" | "within" | "above"; diffPct: number; sample: number };
+  };
 }
 
 interface OfferInfo {
@@ -1214,6 +1221,9 @@ export default function BuyerDetailPage({
                 </>
               ) : null}
             </section>
+
+            {/* ---- התקציב מול השוק (docs/18) ---- */}
+            <BuyerMarket buyerId={id} />
           </div>
 
           <div className="grid content-start gap-[18px]">
@@ -1388,6 +1398,9 @@ export default function BuyerDetailPage({
                               · {formatPrice(m.property.priceAgorot)}
                             </span>
                           ) : null}
+                          <span className="ms-1.5">
+                            <MarketChip market={m.property.market} />
+                          </span>
                         </div>
                         <div
                           className="text-[length:var(--type-caption-lg)]"

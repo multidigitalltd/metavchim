@@ -79,6 +79,7 @@ import {
   PROPERTY_READY_SCORE,
   rowToFields,
   type PropertyDto,
+  marketSnapshot,
 } from "./property.mapper";
 
 /**
@@ -1360,6 +1361,19 @@ export class PropertiesService {
           ...(occupancy === "owner" || occupancy === "vacant" || occupantCleared === true
             ? { leaseEndsAt: null, noticePeriodDays: null }
             : {}),
+          /*
+           * ‎**נכס שזז מאבד את החלקה שנגזרה מהמיקום הקודם** (docs/18).
+           *
+           * גוש-חלקה שהסבב גזר מהנקודה (`lookup`) נכון רק לנקודה
+           * ההיא, וגם „לא נמצאה חלקה” (`none`) נאמר עליה; סבב השוק
+           * יגזור מחדש מהחדשה. חלקה שאדם הקליד מנסח
+           * טאבו (`agent`, `tabu`) נשארת — הוא יודע יותר מהסיכה.
+           */
+          ...((existing.parcelSource === "lookup" || existing.parcelSource === "none") &&
+          ((fieldPatch.latitude !== undefined && fieldPatch.latitude !== existing.latitude) ||
+            (fieldPatch.longitude !== undefined && fieldPatch.longitude !== existing.longitude))
+            ? { gush: null, helka: null, subParcel: null, parcelSource: null, marketCheckedAt: null }
+              : {}),
           /* ‏חותמת „נשאל ונענה” — ראו `sharedTabuAnswered` בחתימה */
           ...(patch.sharedTabuAnswered === true
             ? { sharedTabuConfirmedAt: new Date() }
@@ -1615,6 +1629,7 @@ export class PropertiesService {
           : { leaseEndsAt: row.leaseEndsAt.toISOString().slice(0, 10) }),
         ...(row.noticePeriodDays === null ? {} : { noticePeriodDays: row.noticePeriodDays }),
         archived: row.deletedAt !== null,
+        ...marketSnapshot(row),
         /* ‏המחיר הקודם ומועד השינוי — „ירד המחיר” בכרטיס; ‎null = לא השתנה מעולם */
         previousPriceAgorot: row.previousPriceAgorot ? Number(row.previousPriceAgorot) : null,
         priceChangedAt: row.priceChangedAt ? row.priceChangedAt.toISOString() : null,
@@ -2010,6 +2025,7 @@ export class PropertiesService {
           ...(row.agentUserId === null ? {} : { agentUserId: row.agentUserId }),
           ...(agentName === undefined ? {} : { agentName }),
           archived: row.deletedAt !== null,
+          ...marketSnapshot(row),
           previousPriceAgorot: row.previousPriceAgorot ? Number(row.previousPriceAgorot) : null,
           priceChangedAt: row.priceChangedAt ? row.priceChangedAt.toISOString() : null,
           createdAt: row.createdAt,

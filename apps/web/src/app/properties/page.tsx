@@ -41,6 +41,7 @@ import {
 import { AgentTag } from "../agent-tag";
 import { IconAction } from "../icon-action";
 import { Notice } from "../notice";
+import { MarketChip } from "../market/market-parts";
 import { readinessBand } from "@/lib/readiness";
 
 /**
@@ -68,6 +69,8 @@ interface PropertyRow {
   missingFields: string[];
   thumbnailUrl?: string;
   suggestedMatchCount?: number;
+  /** המחיר המבוקש מול עסקאות דומות — צילום מסבב נתוני השוק (docs/18). */
+  market?: { position: "below" | "within" | "above"; diffPct: number; sample: number };
   createdAt?: string;
 }
 
@@ -1289,6 +1292,7 @@ export default function PropertiesPage() {
                       <span className={`mv-pill ${statusDomain(p.status)}`}>
                         {STATUS_LABELS[p.status] ?? p.status}
                       </span>
+                      <MarketChip market={p.market} />
                       {p.suggestedMatchCount ? (
                         <Link
                           href={`/matches?property=${p.id}`}
@@ -1428,7 +1432,10 @@ export default function PropertiesPage() {
                             : "כל השדות מלאים"}
                         </span>
                       </span>
-                      <span className="text-sm font-bold">{formatPrice(p.priceAgorot)}</span>
+                      <span className="flex flex-col items-start gap-1">
+                        <span className="text-sm font-bold">{formatPrice(p.priceAgorot)}</span>
+                        <MarketChip market={p.market} />
+                      </span>
                       {/*
                         התאמות הן **סגול** ולא ירוק (§2 של מערכת העיצוב:
                         „VIOLET — matching engine”). אפס עובר לניטרלי —

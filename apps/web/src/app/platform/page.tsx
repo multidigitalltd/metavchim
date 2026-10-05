@@ -14,6 +14,7 @@ import { useRequireAuth } from "@/lib/use-auth";
 import { IconPlus } from "../icons";
 import { BackupsSection } from "./backups-section";
 import { WhatsappSeatsPanel } from "./whatsapp-seats-panel";
+import { MarketDataSection } from "./market-data-section";
 import { LeadPricesSection } from "./lead-prices-section";
 import { PaymentsSection } from "./payments-section";
 import { PlansSection } from "./plans-section";
@@ -751,6 +752,8 @@ export default function PlatformPage() {
       <TabPanel tab="system" active={tab}>
         <SystemUpdateSection />
         <BackupsSection />
+        {/* נתוני השוק — צמוד לגיבויים: הם הנפח הגדול במסד, ואינם נגבים */}
+        <MarketDataSection />
         {/*
           מפתח ה-Gemini מוגדר ב"חיבורים", וכאן רואים כמה הוא עולה
           בפועל — פקודות, אסימונים, ואיפה זה נצרך.

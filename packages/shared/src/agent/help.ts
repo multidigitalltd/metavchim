@@ -44,6 +44,7 @@ const GROUPS: { label: string; ids: readonly string[] }[] = [
       "search",
       "show_matches",
       "show_card",
+      "market_prices",
     ],
   },
   {

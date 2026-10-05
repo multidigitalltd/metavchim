@@ -145,6 +145,10 @@ erDiagram
 - **forum_listings / forum_ratings** — המדריך: כלי או בעל מקצוע עם `rating_sum`/`rating_count`; דירוג אחד לכל מדרג (`rater_key`), שם רק בהזדהות.
 - **forum_reports** — דיווחים לניהול הפלטפורמה. **forum_mail_state** — עד איזו התראה נשלח מייל לכל משתמש.
 
+### נתוני שוק ([18](18-market-data.md))
+- **market_settlements / market_natures / market_deals / market_parcels / market_segment_stats / market_sync_runs** — עסקאות מיסוי מקרקעין של כל הארץ, הסטטיסטיקה המחושבת מראש ויומן הסנכרון. **מחוץ ל-RLS ובלי `tenant_id`**: מידע ציבורי, אחד לכל המשרדים, בלי פרטים של אדם; כותב רק סבב הסנכרון. מזהה עסקה = hash של המפתח הטבעי (upsert ולא כפילות). לא נכנסות לגיבוי היומי — נבנות מחדש מהמקור.
+- על **properties**: `gush`/`helka`/`sub_parcel`/`parcel_source` (אדם גובר על חישוב), וצילום המחיר מול השוק `market_position`/`market_diff_pct`/`market_sample`/`market_checked_at` — נכתב ב-SQL כדי לא לגעת ב-`updated_at`.
+
 ### פלטפורמה
 - **support_threads / support_messages / support_attachments** — תיבת התמיכה של הפלטפורמה: שרשור לכל פונה (עם `reply_token` שנשתל בכתובת התשובה), ההודעות בשני הכיוונים, והקבצים המצורפים. מחוץ ל-RLS **ובלי `tenant_id` חובה**: פנייה יכולה להגיע ממי שאינו לקוח כלל. שיוך למשרד נעשה לפי כתובת השולח כשהיא מוכרת, ומחיקת משרד מוחקת את השרשורים שלו (בהם יושבים כתובת ותוכן).
 - **support_tickets / support_ticket_messages / support_ticket_attachments** — הפניות שנפתחו מכפתור „תמיכה” שבמערכת. **תחת RLS** (`tenant_isolation` + `support_desk`), בשונה משלוש הטבלאות שמעליהן: כאן הפונה הוא תמיד משתמש של משרד, והמשרד קורא את השיחה שלו — ומה שהמשרד קורא יושב מאחורי פוליסה במסד ולא מאחורי סינון באפליקציה. הפנייה נושאת את השם, המייל **והטלפון** מהפרופיל, את ההקשר הטכני וצילום המסך; השיחה יושבת ב-`support_ticket_messages` עם `send_state` לכל תשובה יוצאת. `support_tickets.reply` נשמר לתאימות ומסונכרן עם ההודעה האחרונה, אך אינו מקור האמת.

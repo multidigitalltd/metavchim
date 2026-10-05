@@ -241,7 +241,7 @@ describe("שער: תקרת וובהוק נספרת לפי המשרד", () => {
   });
 
   /* ‏והצד החיובי: שני הנתיבים האלה אכן מצהירים. */
-  it("‏ושני נתיבי הוובהוק מצהירים על ההגבלה לפי משרד", () => {
+  it("‏ונתיבי המפתח הציבוריים מצהירים על ההגבלה לפי משרד", () => {
     const declaring = sources(ROOT)
       .filter(({ length }) => length > 0)
       .filter((path) => /@ThrottleWebhook\(/u.test(readFileSync(path, "utf8")))
@@ -249,6 +249,8 @@ describe("שער: תקרת וובהוק נספרת לפי המשרד", () => {
       .sort();
     expect(declaring).toEqual([
       "modules/leads/web-lead.controller.ts",
+      // „כמה שווה הדירה שלי” — אותו מפתח קליטה, ויוצר ליד (docs/18)
+      "modules/market/market-public.controller.ts",
       "modules/telephony/telephony.controller.ts",
     ]);
   });

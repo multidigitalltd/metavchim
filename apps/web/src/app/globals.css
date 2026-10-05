@@ -10391,3 +10391,26 @@ a.mv-bar-row:focus-visible {
     display: inline-flex;
   }
 }
+
+/*
+ * ‎**הדפסה — רק המסמך.**
+ *
+ * דו"ח המחיר לבעלים (docs/18) ומסמכי ההסכמים מודפסים מתוך המערכת,
+ * והתפריט והסרגל העליון הודפסו איתם: עמוד ראשון של דו"ח לבעלים
+ * שחציו רשימת קישורים למסכים של המשרד. הסתרה כאן ולא בכל עמוד —
+ * המעטפת אחת, וכל מסמך שיודפס מחר יקבל אותה בלי לזכור.
+ */
+@media print {
+  .mv-sidebar,
+  .mv-topbar {
+    display: none !important;
+  }
+  .mv-main,
+  .mv-content {
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+  body {
+    background: #fff !important;
+  }
+}

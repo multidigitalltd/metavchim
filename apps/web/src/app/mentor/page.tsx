@@ -74,6 +74,7 @@ import {
   IconShield,
   IconSparkle,
   IconStar,
+  IconTarget,
   IconUsers,
 } from "../icons";
 import { LoadError } from "../load-error";
@@ -158,6 +159,8 @@ interface Overview {
   streakWeeks: number;
   chatAvailable: boolean;
   patterns: MentorPattern[];
+  /** דופק השוק בעיר העיקרית של המשרד — משפט אחד או כלום (docs/18). */
+  market: { settlement: string; sentence: string } | null;
   advice: MentorAdvice[];
   persona: MentorPersona;
   /** 30 הימים הראשונים — `null` למי שכבר עבר אותם (docs/14 §7.5) */
@@ -457,6 +460,24 @@ export default function MentorPage() {
                 onGoalSet={load}
                 onAsk={setAskMentor}
               />
+            ) : null}
+
+            {overview.market ? (
+              <section
+                className="mv-railcard"
+                aria-labelledby="mentor-market-heading"
+              >
+                <h2 id="mentor-market-heading" className="mv-railcard__head">
+                  <span className="mv-railcard__icon" aria-hidden="true">
+                    <IconTarget s={16} />
+                  </span>
+                  השוק ב{overview.market.settlement}
+                </h2>
+                <p className="mv-railcard__text">{overview.market.sentence}</p>
+                <Link href="/market" className="mv-railcard__link">
+                  לנתוני השוק
+                </Link>
+              </section>
             ) : null}
 
             {overview.patterns.length > 0 ? (

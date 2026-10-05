@@ -84,6 +84,7 @@ export const RULE_ACTION_MAP: Record<VoiceAction, AgentActionId | null> = {
   show_team: "show_team",
   show_profile: "show_profile",
   show_office_settings: "show_office_settings",
+  market_prices: "market_prices",
   show_payout_balance: "show_payout_balance",
   show_referral_board: "show_referral_board",
   show_reach: "show_reach",

@@ -219,6 +219,9 @@ const UpdateSettingsSchema = z
       .optional(),
     /** ספק פענוח הכתובות. ‎none‎ = לא פונים לאיש. */
     geocodingProvider: z.enum(["none", "govmap", "mapbox"]).optional(),
+    /** סנכרון נתוני השוק — מנוהל ממסך „נתוני שוק” בפלטפורמה (docs/18). */
+    marketSyncEnabled: z.boolean().optional(),
+    marketRequestIntervalMs: z.number().int().min(500).max(60_000).optional(),
     /**
      * כתובת שאליה נשלחת התראה על פנייה חדשה לתמיכה.
      *
