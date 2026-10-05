@@ -2505,14 +2505,14 @@ export class AgentExecuteService {
     }
     const settlement = await this.market.resolveSettlement(city);
     if (!settlement) {
-      return { message: `לא מצאתי את ${city} במאגר העסקאות`, href: "/market" };
+      return { message: `לא מצאתי את ${city} במאגר העסקאות`, href: "/forum?tab=market" };
     }
     const rooms = marketRoomBucket(num(params["rooms"]) ?? null);
     const overview = await this.market.overview(
       { settlementId: settlement.id, group: "apartment", rooms },
       new Date(),
     );
-    const href = `/market?settlementId=${settlement.id}${rooms === 0 ? "" : `&rooms=${rooms}`}`;
+    const href = `/forum?tab=market&settlementId=${settlement.id}${rooms === 0 ? "" : `&rooms=${rooms}`}`;
     const h = overview.headline;
     if (h.year === null || h.deals === null || h.medianPrice === null) {
       return {

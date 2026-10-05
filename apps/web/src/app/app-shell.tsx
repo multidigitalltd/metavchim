@@ -52,7 +52,6 @@ const SCREEN_TITLES: [prefix: string, title: string][] = [
   ["/leads", "לידים"],
   ["/calls", "שיחות"],
   ["/matches", "התאמות"],
-  ["/market", "נתוני שוק"],
   ["/offers", "הצעות"],
   ["/calendar", "יומן"],
   ["/reports", "דוחות"],
@@ -112,15 +111,6 @@ function Icon({ children }: { children: ReactNode }) {
 }
 
 const ICONS = {
-  /* עמודות עולות — נתוני שוק */
-  market: (
-    <Icon>
-      <line x1="4" y1="20" x2="20" y2="20" />
-      <rect x="5" y="12" width="3" height="8" rx="1" />
-      <rect x="10.5" y="8" width="3" height="12" rx="1" />
-      <rect x="16" y="4" width="3" height="16" rx="1" />
-    </Icon>
-  ),
   dashboard: (
     <Icon>
       <rect x="3" y="3" width="8" height="8" rx="2" />
@@ -302,8 +292,6 @@ const NAV_MODULE: Record<string, readonly string[]> = {
    */
   "/calls": ["leads", "buyers"],
   "/matches": ["matches"],
-  // נתוני השוק נפתחים תחת `properties.view` (docs/18) — אותו מודול
-  "/market": ["properties"],
   "/offers": ["offers"],
   "/calendar": ["calendar"],
   "/tasks": ["calendar"],
@@ -800,8 +788,6 @@ export function AppShell({ children }: { children: ReactNode }) {
         )}
         {navLink("/calls", "שיחות", ICONS.calls)}
         {navLink("/matches", "התאמות", ICONS.matches, count(counts?.matches))}
-        {/* עסקאות אמת של כל הארץ — צמוד להתאמות: אותה שיחה על מחיר */}
-        {navLink("/market", "נתוני שוק", ICONS.market)}
         {navLink("/offers", "הצעות", ICONS.offers)}
         {navLink(
           "/inbox",
