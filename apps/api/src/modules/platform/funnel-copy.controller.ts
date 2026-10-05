@@ -21,6 +21,7 @@ import { EmailService } from "../../core/email.service";
 import { PlatformSettingsService } from "../../core/platform-settings.service";
 import { PrismaService } from "../../core/prisma.service";
 import { FunnelStageService, type FunnelStageCopy } from "../funnel/funnel-stage.service";
+import { FunnelReportService, type FunnelStats } from "../funnel-send/funnel-report.service";
 
 /**
  * ‎**עריכת נוסחי מסלול ההמרה — לבעל הפלטפורמה בלבד.**
@@ -69,6 +70,7 @@ export class FunnelCopyController {
     private readonly prisma: PrismaService,
     private readonly email: EmailService,
     private readonly settings: PlatformSettingsService,
+    private readonly report: FunnelReportService,
   ) {}
 
   @Get("funnel-copy")
@@ -83,6 +85,12 @@ export class FunnelCopyController {
    * ‏דלוקים. כך אפשר להכין ולהדליק שלבים בשקט, ולפתוח את המסלול
    * ‏ברגע אחד.
    */
+  /** ‏המדדים לכל שלב, ומה קרה למשרדים שבמסלול. */
+  @Get("funnel-stats")
+  async stats(): Promise<FunnelStats> {
+    return this.report.stats();
+  }
+
   @Get("funnel-sending")
   async sending(): Promise<{ enabled: boolean }> {
     return { enabled: (await this.settings.get("funnelSending")) === "true" };

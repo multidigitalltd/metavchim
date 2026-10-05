@@ -1053,6 +1053,19 @@ export function PlatformSettingsSection({
           secret={officeInboundSecret}
           alreadySet={settings.postmark.inboundSecretSet}
         />
+        {/*
+          ‏**אירועי המסירה של המיילים היוצאים.** באותו סוד, בנתיב אחר: ב-Postmark
+          ‏(השרת היוצא → Webhooks) מוסיפים את הכתובת ומסמנים Delivery ו-Bounce.
+          ‏משם מגיעים „נמסרו” ו„חזרו” במדדי מסלול ההמרה.
+        */}
+        <p className="mb-0 mt-3 text-sm font-medium">
+          Webhook מסירה — ב-Postmark, בשרת היוצא: Webhooks ← הוספה, לסמן Delivery ו-Bounce
+        </p>
+        <WebhookUrl
+          path="/public/email/events/"
+          secret={officeInboundSecret}
+          alreadySet={settings.postmark.inboundSecretSet}
+        />
 
         {/*
           ‎**כפתור שבודק, ולא עוד שדה שאומר „מוגדר”.**

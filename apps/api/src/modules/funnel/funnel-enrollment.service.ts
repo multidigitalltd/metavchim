@@ -3,6 +3,7 @@ import { ulid } from "ulid";
 import {
   FUNNEL_DEFAULT_DAILY_ENTRIES,
   FUNNEL_FRESH_SIGNUP_HOURS,
+  FUNNEL_MESSAGE_OUT_STATUSES,
   funnelExitReason,
   hasValidCard,
   trialAnchorOf,
@@ -684,7 +685,7 @@ export class FunnelEnrollmentService {
         tx.funnelMessage.findMany({
           where: {
             enrollmentId: { in: live.map((row) => row.id) },
-            status: "sent",
+            status: { in: [...FUNNEL_MESSAGE_OUT_STATUSES] },
             sentAt: { not: null },
           },
           select: { enrollmentId: true, stageKey: true },

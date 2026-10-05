@@ -5,6 +5,7 @@ import type { EmailService } from "../../core/email.service";
 import type { PlatformSettingsService } from "../../core/platform-settings.service";
 import type { PrismaService } from "../../core/prisma.service";
 import type { FunnelStageCopy, FunnelStageService } from "../funnel/funnel-stage.service";
+import type { FunnelReportService } from "../funnel-send/funnel-report.service";
 import { FunnelCopyController } from "./funnel-copy.controller";
 
 /**
@@ -50,6 +51,7 @@ function setup(stage: FunnelStageCopy | null = STAGE) {
     { user: { findUnique } } as unknown as PrismaService,
     { send, isConfigured: vi.fn(() => Promise.resolve(true)) } as unknown as EmailService,
     {} as PlatformSettingsService,
+    {} as FunnelReportService,
   );
   const run = <T>(fn: () => Promise<T>): Promise<T> =>
     TenantContext.run(

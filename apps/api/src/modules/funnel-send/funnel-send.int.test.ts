@@ -11,6 +11,7 @@ import { prismaAdapter } from "../../core/prisma-adapter";
 import { PrismaService } from "../../core/prisma.service";
 import { FunnelEnrollmentService } from "../funnel/funnel-enrollment.service";
 import { FunnelStageService } from "../funnel/funnel-stage.service";
+import { FunnelReportService } from "./funnel-report.service";
 import { FunnelSendService } from "./funnel-send.service";
 import { FunnelTrackingController } from "./funnel-tracking.controller";
 
@@ -224,5 +225,55 @@ describe("מסלול ההמרה — השליחה", () => {
       redirect,
     } as unknown as Response);
     expect(redirect).toHaveBeenCalledWith(302, "https://app.example.test");
+  });
+});
+
+describe("מסלול ההמרה — המסירה והמדדים", () => {
+  async function sentMessageId(): Promise<string> {
+    await service().run(MONDAY_10);
+    const rows = await direct.$queryRawUnsafe<{ id: string }[]>(
+      `SELECT id FROM funnel_messages WHERE tenant_id = $1`,
+      TENANT,
+    );
+    return rows[0]!.id;
+  }
+
+  it("מסירה, פתיחה ולחיצה נספרים בשלב — וגם מי שבמסלול", async () => {
+    const id = await sentMessageId();
+    const report = new FunnelReportService(prisma);
+    await report.recordEmailEvent(id, { kind: "delivered", at: MONDAY_10 });
+    const [row] = await messages();
+    await new FunnelTrackingController(prisma).click(row!.token, {
+      redirect: vi.fn(),
+    } as unknown as Response);
+
+    const stats = await report.stats();
+    const stage = stats.stages.find((s) => s.key === STAGE_KEY)!;
+    expect(stage).toMatchObject({ sent: 1, delivered: 1, opened: 1, clicked: 1, bounced: 0 });
+    expect(stats.enrollments.live).toBeGreaterThanOrEqual(1);
+  });
+
+  it("מייל שחזר — נספר כחוזר, נחשב כשלב שיצא, ואינו נשלח שוב", async () => {
+    const id = await sentMessageId();
+    const report = new FunnelReportService(prisma);
+    await report.recordEmailEvent(id, { kind: "bounced", at: MONDAY_10, detail: "HardBounce" });
+    const [row] = await messages();
+    expect(row!.status).toBe("bounced");
+    const stage = (await report.stats()).stages.find((s) => s.key === STAGE_KEY)!;
+    expect(stage).toMatchObject({ sent: 1, bounced: 1, delivered: 0 });
+
+    // ‏יום אחרי: השלב אינו נשלח שוב לאותה כתובת
+    send.mockClear();
+    await service().run(new Date(MONDAY_10.getTime() + DAY));
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it("חזרה שמגיעה אחרי מסירה אינה מבטלת אותה", async () => {
+    const id = await sentMessageId();
+    const report = new FunnelReportService(prisma);
+    await report.recordEmailEvent(id, { kind: "delivered", at: MONDAY_10 });
+    await report.recordEmailEvent(id, { kind: "bounced", at: MONDAY_10 });
+    const [row] = await messages();
+    expect(row!.status).toBe("sent");
   });
 });

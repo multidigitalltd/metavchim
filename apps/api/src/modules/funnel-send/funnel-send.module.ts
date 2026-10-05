@@ -1,5 +1,6 @@
 import { Module } from "@nestjs/common";
 import { FunnelModule } from "../funnel/funnel.module";
+import { FunnelReportService } from "./funnel-report.service";
 import { FunnelSendService } from "./funnel-send.service";
 import { FunnelTrackingController } from "./funnel-tracking.controller";
 
@@ -12,8 +13,8 @@ import { FunnelTrackingController } from "./funnel-tracking.controller";
  */
 @Module({
   imports: [FunnelModule],
-  providers: [FunnelSendService],
+  providers: [FunnelSendService, FunnelReportService],
   controllers: [FunnelTrackingController],
-  exports: [FunnelSendService],
+  exports: [FunnelSendService, FunnelReportService],
 })
 export class FunnelSendModule {}

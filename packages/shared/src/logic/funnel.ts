@@ -983,3 +983,18 @@ export function funnelFacts(input: {
     chargeFailing: input.chargeFailing,
   };
 }
+
+/**
+ * ‎**הסטטוסים שבהם ההודעה יצאה** — `sent`, וגם `bounced`.
+ *
+ * ‏מייל שחזר מהשרת של הנמען (`bounced`) יצא מאיתנו: הכתובת היא
+ * ‏שגויה, לא השליחה. הוא נספר כשלב שנשלח — אחרת המסלול היה נתקע על
+ * ‏השלב הזה עד שיפוג — ואינו נשלח שוב, כי אותה כתובת תחזיר אותו שוב.
+ */
+export const FUNNEL_MESSAGE_OUT_STATUSES = ["sent", "bounced"] as const;
+
+/** ‏מזהה הודעת המסלול מתוך מפתח האידמפוטנטיות שנוסע עם המייל. `null` = אינה של המסלול. */
+export function funnelMessageIdFromIdempotencyKey(key: string): string | null {
+  const match = /^funnel:([0-9A-Z]{26})$/u.exec(key);
+  return match?.[1] ?? null;
+}

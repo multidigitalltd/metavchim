@@ -2,7 +2,11 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "@metavchim/ui";
-import { FUNNEL_PLACEHOLDERS, unknownFunnelPlaceholders } from "@metavchim/shared";
+import {
+  FUNNEL_PLACEHOLDERS,
+  formatIsraeliNumber,
+  unknownFunnelPlaceholders,
+} from "@metavchim/shared";
 import { ApiError, apiGet, apiPatch, apiPost } from "@/lib/api";
 import { ConfirmDialog } from "../confirm-dialog";
 import { Notice } from "../notice";
@@ -44,6 +48,28 @@ interface StageCopy {
   enableBlock: string | null;
 }
 
+/** ‏המדדים — מ-`GET /platform/funnel-stats`. */
+interface FunnelStats {
+  stages: {
+    key: string;
+    title: string;
+    enabled: boolean;
+    sent: number;
+    delivered: number;
+    bounced: number;
+    failed: number;
+    opened: number;
+    clicked: number;
+  }[];
+  enrollments: { live: number; paid: number; completed: number; optedOut: number };
+}
+
+/** ‏„12 (40%)” — הכמות, ושיעורה מתוך מה שנשלח. */
+function ofSent(count: number, sent: number): string {
+  const n = formatIsraeliNumber(count);
+  return sent === 0 || count === 0 ? n : `${n} (${Math.round((count / sent) * 100)}%)`;
+}
+
 /** ‏מה ממתין לאישור: המפסק הראשי, או שלב אחד. */
 type Toggle =
   | { kind: "sending"; enabled: boolean }
@@ -77,6 +103,7 @@ export function FunnelCopySection() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
+  const [stats, setStats] = useState<FunnelStats | null>(null);
   /** ‏המפסק הראשי של המסלול — `null` עד שנטען */
   const [funnelSending, setFunnelSending] = useState<boolean | null>(null);
   const [toggle, setToggle] = useState<Toggle | null>(null);
@@ -90,6 +117,9 @@ export function FunnelCopySection() {
     apiGet<StageCopy[]>("/platform/funnel-copy")
       .then(setRows)
       .catch(() => setError("טעינת הנוסחים נכשלה"));
+    apiGet<FunnelStats>("/platform/funnel-stats")
+      .then(setStats)
+      .catch(() => setStats(null));
     apiGet<{ enabled: boolean }>("/platform/funnel-sending")
       .then(({ enabled }) => setFunnelSending(enabled))
       .catch(() => setError("טעינת מצב המסלול נכשלה"));
@@ -198,6 +228,61 @@ export function FunnelCopySection() {
           {funnelSending ? "עצירת המסלול" : "הפעלת המסלול"}
         </Button>
       </div>
+
+      {stats !== null ? (
+        <div className="mt-4">
+          <h3 className="mb-2 text-[length:var(--type-body)] font-bold">מדדים</h3>
+          <p className="m-0 mb-2 text-sm">
+            במסלול עכשיו: <strong>{formatIsraeliNumber(stats.enrollments.live)}</strong> · הפכו
+            ללקוחות: <strong>{formatIsraeliNumber(stats.enrollments.paid)}</strong> · סיימו את
+            הרצף: {formatIsraeliNumber(stats.enrollments.completed)} · ביקשו להפסיק:{" "}
+            {formatIsraeliNumber(stats.enrollments.optedOut)}
+          </p>
+          <div
+            className="overflow-x-auto rounded-xl border"
+            style={{ borderColor: "var(--color-border)" }}
+          >
+            <table className="w-full text-sm" style={{ fontVariantNumeric: "tabular-nums" }}>
+              <caption className="mv-visually-hidden">מדדי המייל לכל שלב במסלול ההמרה</caption>
+              <thead style={{ background: "var(--color-table-head)" }}>
+                <tr>
+                  <th scope="col" className="p-2 text-start">שלב</th>
+                  <th scope="col" className="p-2 text-start">נשלחו</th>
+                  <th scope="col" className="p-2 text-start">נמסרו</th>
+                  <th scope="col" className="p-2 text-start">נפתחו (הערכה)</th>
+                  <th scope="col" className="p-2 text-start">לחצו</th>
+                  <th scope="col" className="p-2 text-start">חזרו</th>
+                  <th scope="col" className="p-2 text-start">נכשלו</th>
+                </tr>
+              </thead>
+              <tbody>
+                {stats.stages.map((row) => (
+                  <tr
+                    key={row.key}
+                    className="border-t"
+                    style={{ borderColor: "var(--color-row-border)" }}
+                  >
+                    <td className="p-2">
+                      {row.title}
+                      {row.enabled ? "" : " · כבוי"}
+                    </td>
+                    <td className="p-2">{formatIsraeliNumber(row.sent)}</td>
+                    <td className="p-2">{ofSent(row.delivered, row.sent)}</td>
+                    <td className="p-2">{ofSent(row.opened, row.sent)}</td>
+                    <td className="p-2">{ofSent(row.clicked, row.sent)}</td>
+                    <td className="p-2">{formatIsraeliNumber(row.bounced)}</td>
+                    <td className="p-2">{formatIsraeliNumber(row.failed)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="m-0 mt-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
+            „נמסרו” ו„חזרו” מגיעים מ-Postmark — דרך כתובת ה-Webhook „מסירה” שבהגדרות האימייל. „נפתחו” היא
+            הערכה: Apple ו-Gmail טוענים את התמונה גם בלי פתיחה, ולכן לחיצה היא המדד האמין.
+          </p>
+        </div>
+      ) : null}
 
       <Notice tone="info">
         מילוי נוסח אינו הדלקה: כל שלב נדלק בנפרד, ויוצא רק כשהמסלול פעיל. „שלח אליי לבדיקה”

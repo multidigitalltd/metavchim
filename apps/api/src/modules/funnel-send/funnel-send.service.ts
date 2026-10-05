@@ -2,6 +2,7 @@ import { Injectable, Logger } from "@nestjs/common";
 import { randomBytes } from "node:crypto";
 import { ulid } from "ulid";
 import {
+  FUNNEL_MESSAGE_OUT_STATUSES,
   firstNameOf,
   funnelEmail,
   funnelFacts,
@@ -168,7 +169,7 @@ export class FunnelSendService {
           tx.funnelMessage.findMany({
             where: {
               enrollmentId: { in: page.map((row) => row.id) },
-              status: "sent",
+              status: { in: [...FUNNEL_MESSAGE_OUT_STATUSES] },
               sentAt: { not: null },
             },
             select: { enrollmentId: true, stageKey: true },
@@ -178,7 +179,9 @@ export class FunnelSendService {
       const tenantById = new Map(tenants.map((tenant) => [tenant.id, tenant]));
       const cardById = new Map(cards.map((card) => [card.tenantId, card]));
       const sentKeys = new Map<string, string[]>();
-      for (const r of sentRows) sentKeys.set(r.enrollmentId, [...(sentKeys.get(r.enrollmentId) ?? []), r.stageKey]);
+      for (const r of sentRows) {
+        sentKeys.set(r.enrollmentId, [...(sentKeys.get(r.enrollmentId) ?? []), r.stageKey]);
+      }
 
       for (const row of page) {
         if (sent >= MAX_TENANTS_PER_SWEEP) {
@@ -200,7 +203,8 @@ export class FunnelSendService {
           lastSentAt: row.lastSentAt,
           now,
         };
-        if (nextFunnelStage({ ...input, stages: unconditioned, facts: ANY_FACTS }) === null) continue;
+        const anyDue = nextFunnelStage({ ...input, stages: unconditioned, facts: ANY_FACTS });
+        if (anyDue === null) continue;
         try {
           const facts = funnelFacts({
             onboarding: await this.onboarding.facts(row.tenantId),
@@ -262,7 +266,11 @@ export class FunnelSendService {
           idempotency: { key: `funnel:${message.id}`, purpose: "funnel" },
           required: true,
         });
-        await this.settle(enrollment.tenantId, message.id, { status: "sent", sentAt: now, error: null });
+        await this.settle(enrollment.tenantId, message.id, {
+          status: "sent",
+          sentAt: now,
+          error: null,
+        });
         delivered += 1;
       } catch (error: unknown) {
         await this.settle(enrollment.tenantId, message.id, {
