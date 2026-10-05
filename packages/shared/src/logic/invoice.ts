@@ -106,7 +106,12 @@ export function grossFromNet(netAgorot: number, vatPercent: number): number {
 }
 
 /** מה נקנה — הבסיס לשורת המסמך. */
-export type InvoicePurpose = "subscription" | "credits" | "number_rental" | "whatsapp_seat";
+export type InvoicePurpose =
+  | "subscription"
+  | "credits"
+  | "number_rental"
+  | "whatsapp_seat"
+  | "media_order";
 
 /**
  * תיאור השורה במסמך.
@@ -123,6 +128,8 @@ export function invoiceLineDescription(input: {
   credits?: number | undefined;
   /** המספר שהושכר, בהשכרת מספר וירטואלי. */
   phone?: string | undefined;
+  /** "מגזין טאבו — מודעה רבע עמוד", בהזמנת מדיה. */
+  mediaProduct?: string | undefined;
 }): string {
   if (input.purpose === "credits") {
     const credits = input.credits ?? 0;
@@ -142,6 +149,10 @@ export function invoiceLineDescription(input: {
    */
   if (input.purpose === "whatsapp_seat") {
     return "מקום נוסף לסוכן הוואטסאפ — חודש";
+  }
+  // אותו לקח: הזמנת פרסום אינה „מנוי חודשי”. השורה נוקבת במה שנקנה.
+  if (input.purpose === "media_order") {
+    return input.mediaProduct ? `פרסום — ${input.mediaProduct}` : "פרסום במדיה";
   }
   const cycle = input.billingCycle === "yearly" ? "מנוי שנתי" : "מנוי חודשי";
   return input.planLabel ? `${cycle} — מסלול ${input.planLabel}` : cycle;

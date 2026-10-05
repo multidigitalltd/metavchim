@@ -25,6 +25,8 @@ import { formatJerusalemDate, formatJerusalemTime } from "./israel-time.js";
  * וההערות הן יומן פנימי של הסוכן.
  */
 export interface OwnerAppointmentRow {
+  /** ‏מזהה הפגישה — לא חובה; כשקיים הוא עובר לרשומה כדי שהמסך יוכל לחזור אליה */
+  id?: string;
   /** viewing | meeting | call */
   kind: string;
   startsAt: Date;
@@ -82,6 +84,8 @@ export type OwnerActivityResult =
   | "unknown";
 
 export interface OwnerActivityEntry {
+  /** ‏מזהה הפגישה שממנה נבנתה הרשומה — רק לפגישות, ורק כשהקלט נשא אותו */
+  appointmentId?: string;
   at: Date;
   kind: OwnerActivityKind;
   result: OwnerActivityResult;
@@ -182,7 +186,18 @@ export function buildOwnerActivity(input: {
   for (const row of input.appointments) {
     const kind = APPOINTMENT_KINDS[row.kind];
     if (kind === undefined) continue;
-    entries.push({ at: row.startsAt, kind, result: appointmentResult(row) });
+    entries.push({
+      at: row.startsAt,
+      kind,
+      result: appointmentResult(row),
+      /*
+       * ‏המזהה עובר כשניתן — ולא נגזר אחר כך מהמועד: שני סיורים
+       * ‏באותו נכס באותה שעה (שני קונים) הם שתי רשומות, ומפתח לפי
+       * ‏מועד היה מצמיד את שתיהן לאותו סיור, ועריכת משוב באחת
+       * ‏הייתה כותבת על השנייה (ביקורת Codex).
+       */
+      ...(row.id === undefined ? {} : { appointmentId: row.id }),
+    });
   }
 
   for (const row of input.calls) {
@@ -324,6 +339,14 @@ export function ownerActivityText(input: {
    * העובדה שיש עוד (ביקורת Codex).
    */
   truncated?: boolean;
+  /**
+   * „מה אמרו הקונים” — משפטים מסוכמים מהמשוב שנאסף אחרי הביקורים
+   * (`viewingFeedbackSentences`). מספרים בלבד: אין בהם מי, ואין
+   * בהם את המשפט החופשי של הסוכן.
+   */
+  feedbackSentences?: readonly string[];
+  /** „הצעות מחיר” — משפטים מסוכמים מהמו״מ (`bidSummarySentences`), מספרים בלי שמות. */
+  bidSentences?: readonly string[];
   now: Date;
 }): string {
   const summary = summarizeOwnerActivity(input.entries, input.now);
@@ -333,10 +356,23 @@ export function ownerActivityText(input: {
     "",
   ];
 
+  /* ‏המו״מ אינו „פעילות בתקופה” — הצעה על השולחן נאמרת גם כשלא היה סיור */
+  const bids = input.bidSentences ?? [];
+  const bidLines = bids.length > 0 ? ["הצעות מחיר:", ...bids.map((sentence) => `• ${sentence}`)] : [];
+
   if (input.entries.length === 0) {
     lines.push("לא נרשמה פעילות בתקופה זו.");
+    if (bidLines.length > 0) lines.push("", ...bidLines);
     return lines.join("\n");
   }
+
+  const feedback = input.feedbackSentences ?? [];
+  if (feedback.length > 0) {
+    lines.push("מה אמרו הקונים שביקרו:");
+    for (const sentence of feedback) lines.push(`• ${sentence}`);
+    lines.push("");
+  }
+  if (bidLines.length > 0) lines.push(...bidLines, "");
 
   const headline = [
     summary.held > 0 ? `${summary.held} מפגשים התקיימו` : null,
@@ -360,4 +396,91 @@ export function ownerActivityText(input: {
     lines.push("", `ועוד ${omitted} פעולות — ברשימה המלאה בקובץ.`);
   }
   return lines.join("\n");
+}
+
+/**
+ * ‎**אותו דוח כאימייל — נושא וגוף.**
+ *
+ * ## למה זה קיים בנפרד מ-`ownerActivityText`
+ *
+ * ‏הטקסט נבנה להודעה אחת רצופה: שורת כותרת, שורת משרד, ואז נקודות.
+ * אימייל אינו הודעה רצופה — יש לו נושא משלו, פנייה בשם, פסקאות
+ * ותחתית — ודחיסת אותו טקסט לפסקה אחת נותנת מייל שנראה כמו הודעת
+ * ווטסאפ שהודבקה, וזה בדיוק מה שגורם לבעל נכס לא לקרוא אותו.
+ *
+ * ## הרשימה בגוף **וגם** בקובץ
+ *
+ * ‏הגוף נושא עד `OWNER_ACTIVITY_TEXT_LINES` שורות, והקובץ המצורף
+ * נושא הכול. בעל נכס פותח מייל בטלפון ולא מוריד CSV — אם הגוף ריק
+ * מתוכן והכול „בקובץ המצורף”, הוא לא ראה דבר. הקובץ הוא הגיבוי
+ * המלא, לא התוכן.
+ *
+ * ‏מה שנחתך נאמר, כאן כמו שם: „ועוד N פעולות” ולא שתיקה.
+ */
+export function ownerActivityEmail(input: {
+  propertyLabel: string;
+  officeName: string;
+  periodLabel: string;
+  /** שם בעל הנכס — לפנייה. חסר = פנייה כללית. */
+  ownerName?: string;
+  entries: readonly OwnerActivityEntry[];
+  truncated?: boolean;
+  /** „מה אמרו הקונים” — ראו `ownerActivityText`. */
+  feedbackSentences?: readonly string[];
+  /** „הצעות מחיר” — ראו `ownerActivityText`. */
+  bidSentences?: readonly string[];
+  now: Date;
+}): { subject: string; heading: string; greeting?: string; paragraphs: string[]; footnote: string } {
+  const summary = summarizeOwnerActivity(input.entries, input.now);
+  const paragraphs: string[] = [`${input.periodLabel} · ${input.officeName}`];
+
+  const bids = input.bidSentences ?? [];
+  if (input.entries.length === 0) {
+    paragraphs.push("לא נרשמה פעילות בתקופה זו.");
+    if (bids.length > 0) paragraphs.push(`הצעות מחיר: ${bids.join(" ")}`);
+  } else {
+    const feedback = input.feedbackSentences ?? [];
+    if (feedback.length > 0) {
+      paragraphs.push(`מה אמרו הקונים שביקרו: ${feedback.join(" · ")}.`);
+    }
+    if (bids.length > 0) {
+      paragraphs.push(`הצעות מחיר: ${bids.join(" ")}`);
+    }
+    const headline = [
+      summary.held > 0 ? `${summary.held} מפגשים התקיימו` : null,
+      summary.upcoming > 0 ? `${summary.upcoming} נקבעו וטרם התקיימו` : null,
+      summary.inquiries > 0 ? `${summary.inquiries} פניות של מתעניינים` : null,
+    ].filter((part): part is string => part !== null);
+    if (headline.length > 0) paragraphs.push(headline.join(" · "));
+
+    const shown = input.entries.slice(0, OWNER_ACTIVITY_TEXT_LINES);
+    for (const entry of shown) {
+      paragraphs.push(
+        `${formatJerusalemDate(entry.at)} ${formatJerusalemTime(entry.at)} — ` +
+          `${OWNER_ACTIVITY_KIND_LABELS[entry.kind]} · ${OWNER_ACTIVITY_RESULT_LABELS[entry.result]}`,
+      );
+    }
+
+    const omitted = input.entries.length - shown.length;
+    if (input.truncated === true) {
+      paragraphs.push("ועוד פעולות נוספות — הרשימה המלאה בקובץ המצורף.");
+    } else if (omitted > 0) {
+      paragraphs.push(`ועוד ${omitted} פעולות — הרשימה המלאה בקובץ המצורף.`);
+    }
+  }
+
+  return {
+    subject: `דוח פעילות — ${input.propertyLabel}`,
+    heading: `דוח פעילות — ${input.propertyLabel}`,
+    ...(input.ownerName === undefined || input.ownerName.trim() === ""
+      ? {}
+      : { greeting: `שלום ${input.ownerName.trim()},` }),
+    paragraphs,
+    /*
+     * ‏„אין צורך להשיב” **לא** נכתב כאן: המייל יוצא מהמשרד עם
+     * כתובת תשובה אמיתית, ובעל נכס שקורא דוח פעילות הוא בדיוק מי
+     * שעשוי לרצות לשאול עליו.
+     */
+    footnote: `הדוח מתאר ביקורים, פגישות ופניות בנכס. הוא אינו כולל שמות, מספרי טלפון או תוכן שיחות. נשלח מ${input.officeName}.`,
+  };
 }

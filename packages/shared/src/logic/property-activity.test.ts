@@ -4,6 +4,7 @@ import {
   OWNER_ACTIVITY_TRUNCATED_NOTE,
   buildOwnerActivity,
   ownerActivityCsv,
+  ownerActivityEmail,
   ownerActivityFileName,
   ownerActivityText,
   summarizeOwnerActivity,
@@ -304,5 +305,133 @@ describe("ownerActivityText", () => {
       OWNER_ACTIVITY_TEXT_LINES,
     );
     expect(text).toContain("ועוד 5 פעולות");
+  });
+});
+
+/**
+ * ‏המייל הוא מה שבעל הנכס באמת מקבל — ולכן הוא נבדק כמו הודעה
+ * שיוצאת ללקוח ולא כמו פונקציית עזר: מה יש בו, ומה אין בו.
+ */
+describe("ownerActivityEmail", () => {
+  const base = {
+    propertyLabel: "רבי עקיבא 12",
+    officeName: "משרד הדגמה",
+    periodLabel: "‏30 הימים האחרונים",
+    now: NOW,
+  };
+  const someEntries: OwnerActivityEntry[] = [
+    { at: new Date("2026-08-20T06:30:00.000Z"), kind: "viewing", result: "held" },
+    { at: new Date("2026-08-21T06:30:00.000Z"), kind: "inquiry", result: "answered" },
+  ];
+
+  it("הנושא נושא את הנכס, והפנייה את שם הבעלים", () => {
+    const mail = ownerActivityEmail({ ...base, ownerName: "יוסי לוי", entries: someEntries });
+    expect(mail.subject).toBe("דוח פעילות — רבי עקיבא 12");
+    expect(mail.greeting).toBe("שלום יוסי לוי,");
+  });
+
+  it("בלי שם בעלים אין פנייה חצי-ריקה", () => {
+    const mail = ownerActivityEmail({ ...base, entries: someEntries });
+    expect(mail.greeting).toBeUndefined();
+    const blank = ownerActivityEmail({ ...base, ownerName: "   ", entries: someEntries });
+    expect(blank.greeting).toBeUndefined();
+  });
+
+  it("הפעילות בגוף ההודעה ולא רק בקובץ — בעל נכס פותח מייל בטלפון", () => {
+    const mail = ownerActivityEmail({ ...base, entries: someEntries });
+    expect(mail.paragraphs.some((p) => p.includes("ביקור"))).toBe(true);
+    expect(mail.paragraphs[0]).toContain("‏30 הימים האחרונים");
+  });
+
+  it("תקופה בלי פעילות נאמרת, ולא נשלחת כמייל ריק", () => {
+    const mail = ownerActivityEmail({ ...base, entries: [] });
+    expect(mail.paragraphs).toContain("לא נרשמה פעילות בתקופה זו.");
+  });
+
+  it("קיטום נאמר — גם כשהוא במסד וגם כשהוא בגוף", () => {
+    const many: OwnerActivityEntry[] = Array.from({ length: 45 }, (_, i) => ({
+      at: new Date(NOW.getTime() - i * 3_600_000),
+      kind: "inquiry",
+      result: "answered",
+    }));
+    expect(ownerActivityEmail({ ...base, entries: many }).paragraphs).toContain(
+      "ועוד 5 פעולות — הרשימה המלאה בקובץ המצורף.",
+    );
+    /* ‏הקיטום שבמסד אינו יודע כמה נשארו, ולכן אינו נוקב במספר */
+    const cut = ownerActivityEmail({ ...base, entries: many, truncated: true });
+    expect(cut.paragraphs).toContain("ועוד פעולות נוספות — הרשימה המלאה בקובץ המצורף.");
+    expect(cut.paragraphs).not.toContain("ועוד 5 פעולות — הרשימה המלאה בקובץ המצורף.");
+  });
+
+  it("אין בו שם, טלפון או תוכן שיחה — וזה נאמר לנמען", () => {
+    const mail = ownerActivityEmail({ ...base, ownerName: "יוסי לוי", entries: someEntries });
+    const body = mail.paragraphs.join("\n");
+    expect(body).not.toMatch(/05\d/u);
+    expect(mail.footnote).toContain("אינו כולל שמות");
+  });
+});
+
+describe("„מה אמרו הקונים” בדוח למוכר", () => {
+  const entries = buildOwnerActivity({
+    appointments: [{ kind: "viewing", startsAt: new Date("2026-09-10T10:00:00Z"), status: "completed", outcome: "liked" }],
+    calls: [],
+  });
+  const feedbackSentences = ["2 מתוך 3 אמרו שהמחיר גבוה", "אחד ציין שהנכס דורש שיפוץ"];
+  it("ההודעה נושאת את המשפטים כרשימה לפני הפירוט", () => {
+    const text = ownerActivityText({ propertyLabel: "דיזנגוף 10", officeName: "המשרד", periodLabel: "כל התקופה", entries, feedbackSentences, now: new Date("2026-09-16T00:00:00Z") });
+    expect(text).toContain("מה אמרו הקונים שביקרו:");
+    expect(text).toContain("• 2 מתוך 3 אמרו שהמחיר גבוה");
+  });
+  it("המייל נושא אותם בפסקה אחת, ובלי משוב — אין פסקה", () => {
+    const withFeedback = ownerActivityEmail({ propertyLabel: "דיזנגוף 10", officeName: "המשרד", periodLabel: "כל התקופה", entries, feedbackSentences, now: new Date("2026-09-16T00:00:00Z") });
+    expect(withFeedback.paragraphs.some((p) => p.startsWith("מה אמרו הקונים שביקרו:"))).toBe(true);
+    const without = ownerActivityEmail({ propertyLabel: "דיזנגוף 10", officeName: "המשרד", periodLabel: "כל התקופה", entries, now: new Date("2026-09-16T00:00:00Z") });
+    expect(without.paragraphs.some((p) => p.includes("מה אמרו הקונים"))).toBe(false);
+  });
+});
+
+describe("מזהה הפגישה עובר לרשומה", () => {
+  it("שני סיורים באותה שעה נשארים שתי רשומות עם שני מזהים", () => {
+    const at = new Date("2026-09-10T10:00:00Z");
+    const entries = buildOwnerActivity({
+      appointments: [
+        { id: "A", kind: "viewing", startsAt: at, status: "completed", outcome: null },
+        { id: "B", kind: "viewing", startsAt: at, status: "completed", outcome: null },
+      ],
+      calls: [],
+    });
+    expect(entries.map((e) => e.appointmentId).sort()).toEqual(["A", "B"]);
+  });
+  it("בלי מזהה בקלט — אין שדה מזהה ברשומה", () => {
+    const entries = buildOwnerActivity({
+      appointments: [{ kind: "viewing", startsAt: new Date(), status: "scheduled", outcome: null }],
+      calls: [],
+    });
+    expect("appointmentId" in entries[0]!).toBe(false);
+  });
+});
+
+describe("הצעות מחיר בדוח למוכר", () => {
+  it("הטקסט והמייל נושאים את משפטי המו״מ אחרי המשוב", () => {
+    const entries = buildOwnerActivity({
+      appointments: [{ kind: "viewing", startsAt: new Date("2026-09-10T10:00:00Z"), status: "completed", outcome: null }],
+      calls: [],
+    });
+    const bidSentences = ["2 הצעות על השולחן, הגבוהה 2,200,000 ₪."];
+    const text = ownerActivityText({ propertyLabel: "דיזנגוף 10", officeName: "המשרד", periodLabel: "כל התקופה", entries, bidSentences, now: new Date("2026-09-16T00:00:00Z") });
+    expect(text).toContain("הצעות מחיר:\n• 2 הצעות על השולחן, הגבוהה 2,200,000 ₪.");
+    const email = ownerActivityEmail({ propertyLabel: "דיזנגוף 10", officeName: "המשרד", periodLabel: "כל התקופה", entries, bidSentences, now: new Date("2026-09-16T00:00:00Z") });
+    expect(email.paragraphs.some((p) => p.startsWith("הצעות מחיר: 2 הצעות"))).toBe(true);
+    /* ‏בלי הצעות — בלי כותרת ריקה */
+    expect(ownerActivityText({ propertyLabel: "x", officeName: "y", periodLabel: "z", entries, now: new Date() })).not.toContain("הצעות מחיר");
+  });
+
+  it("הצעות מחיר נאמרות גם בתקופה בלי פעילות — בטקסט ובמייל", () => {
+    const base = { propertyLabel: "ויטל 41", officeName: "משרד", periodLabel: "החודש", entries: [], bidSentences: ["הצעה אחת על השולחן, הגבוהה 2,000,000 ₪."], now: new Date("2026-09-16T10:00:00Z") };
+    const text = ownerActivityText(base);
+    expect(text).toContain("לא נרשמה פעילות בתקופה זו.");
+    expect(text).toContain("הצעות מחיר:\n• הצעה אחת על השולחן, הגבוהה 2,000,000 ₪.");
+    const mail = ownerActivityEmail(base);
+    expect(mail.paragraphs).toContain("הצעות מחיר: הצעה אחת על השולחן, הגבוהה 2,000,000 ₪.");
   });
 });

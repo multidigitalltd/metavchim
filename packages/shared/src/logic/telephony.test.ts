@@ -5,8 +5,11 @@ import {
   callIsFinal,
   callOutcomeOf,
   nextRefusalStreak,
+  recordingPullResultOf,
+  INTEGRATION_DIAGNOSIS_RESET,
   callSpoke,
   describeCall,
+  isGeneratedCallSummary,
   incomingCallTitle,
   parseTelephonyEvent,
   telephonyProvider,
@@ -27,6 +30,12 @@ import {
   softphoneGap,
   softphoneOfficeReady,
 } from "./telephony.js";
+import {
+  RECORDING_PROVIDER_REFUSAL,
+  RECORDING_REFUSALS_BEFORE_PAUSE,
+  recordingPullHealth,
+  recordingReasonLabel,
+} from "./recording-state.js";
 
 function event(overrides: Partial<TelephonyEvent> = {}): TelephonyEvent {
   return {
@@ -1056,7 +1065,7 @@ describe("diagnosticFields", () => {
    * מולו. נתיב הקלטה הוא המקרה שהוליד את זה.
    */
   it("שדה טכני נשמר עם הערך", () => {
-    const out = diagnosticFields({ recording: "/rec/2026/08/19/abc.wav", status: "hangup" });
+    const out = diagnosticFields({ recording: "/rec/2026/08/19/abc.wav", status: "hangup" }, "telephony");
     expect(out).toContain("recording=/rec/2026/08/19/abc.wav");
     expect(out).toContain("status=hangup");
   });
@@ -1070,7 +1079,7 @@ describe("diagnosticFields", () => {
       callerid_external: "0501234567",
       callername: "דנה לוי",
       snumber: "0509999999",
-    });
+    }, "telephony");
     expect(out).toContain("callerid_external");
     expect(out).not.toContain("0501234567");
     expect(out).not.toContain("דנה לוי");
@@ -1078,18 +1087,18 @@ describe("diagnosticFields", () => {
   });
 
   it("שדה שאינו ברשימת ההיתר נשמר בשמו בלבד", () => {
-    const out = diagnosticFields({ mystery: "סוד" });
+    const out = diagnosticFields({ mystery: "סוד" }, "telephony");
     expect(out).toContain("mystery");
     expect(out).not.toContain("סוד");
   });
 
   it("שם שדה לא תקני מסומן ואינו נכתב", () => {
-    expect(diagnosticFields({ "0501234567": "x" })).toContain("‹שדה לא תקני›");
-    expect(diagnosticFields({ "0501234567": "x" })).not.toContain("0501234567");
+    expect(diagnosticFields({ "0501234567": "x" }, "telephony")).toContain("‹שדה לא תקני›");
+    expect(diagnosticFields({ "0501234567": "x" }, "telephony")).not.toContain("0501234567");
   });
 
   it("ערך ארוך נחתך ואינו מציף את השורה", () => {
-    const out = diagnosticFields({ recording: "a".repeat(500) });
+    const out = diagnosticFields({ recording: "a".repeat(500) }, "telephony");
     expect(out.length).toBeLessThan(200);
   });
 
@@ -1100,7 +1109,7 @@ describe("diagnosticFields", () => {
    * „direction הגיע” אינו אומר אם הכיוון ידוע או לא.
    */
   it("שדה טכני שהגיע ריק מסומן כריק, ולא כשדה מוסתר", () => {
-    const out = diagnosticFields({ direction: "", extension: "", status: "Hangup" });
+    const out = diagnosticFields({ direction: "", extension: "", status: "Hangup" }, "telephony");
     expect(out).toContain(`direction=${EMPTY_FIELD_MARK}`);
     expect(out).toContain(`extension=${EMPTY_FIELD_MARK}`);
     expect(out).toContain("status=Hangup");
@@ -1114,8 +1123,8 @@ describe("diagnosticFields", () => {
    * „ריק” אינו ערך של לקוח: סימונו אומר שאין מה לחשוף.
    */
   it("שדה מזהה ריק מסומן כריק; עם ערך — השם בלבד", () => {
-    expect(diagnosticFields({ callerid_external: "0501234567" })).toBe("callerid_external");
-    expect(diagnosticFields({ callerid_external: "" })).toBe(
+    expect(diagnosticFields({ callerid_external: "0501234567" }, "telephony")).toBe("callerid_external");
+    expect(diagnosticFields({ callerid_external: "" }, "telephony")).toBe(
       `callerid_external=${EMPTY_FIELD_MARK}`,
     );
   });
@@ -1126,13 +1135,13 @@ describe("diagnosticFields", () => {
    * payload היו סותרות זו את זו בדיוק בשאלה שבגללה קוראים אותו.
    */
   it("שדה שמלא ברווחים בלבד נחשב ריק, כמו בניתוח", () => {
-    const out = diagnosticFields({ direction: "   ", callerid_external: "  " });
+    const out = diagnosticFields({ direction: "   ", callerid_external: "  " }, "telephony");
     expect(out).toContain(`direction=${EMPTY_FIELD_MARK}`);
     expect(out).toContain(`callerid_external=${EMPTY_FIELD_MARK}`);
   });
 
   it("ערך שאינו טקסט או מספר נחשב ריק ולא מודלף", () => {
-    const out = diagnosticFields({ status: { nested: "סוד" }, callername: { x: "דנה" } });
+    const out = diagnosticFields({ status: { nested: "סוד" }, callername: { x: "דנה" } }, "telephony");
     expect(out).toContain(`status=${EMPTY_FIELD_MARK}`);
     expect(out).toContain(`callername=${EMPTY_FIELD_MARK}`);
     expect(out).not.toContain("סוד");
@@ -1153,12 +1162,12 @@ describe("unmappedFields", () => {
       callerid_external: "0501234567",
       A_PARTY: "0509999999",
       queue_name: "מכירות",
-    });
+    }, "telephony");
     expect(out).toEqual(["A_PARTY", "queue_name"]);
   });
 
   it("payload שכולו מוכר מחזיר רשימה ריקה", () => {
-    expect(unmappedFields({ callid: "x", status: "hangup", caller: "0501234567" })).toEqual([]);
+    expect(unmappedFields({ callid: "x", status: "hangup", caller: "0501234567" }, "telephony")).toEqual([]);
   });
 
   /*
@@ -1166,15 +1175,15 @@ describe("unmappedFields", () => {
    * להופיע כ"מפוספס" ולשלוח לתקן משהו שעובד.
    */
   it("שם חלופי שכבר נתמך אינו מדווח כמפוספס", () => {
-    expect(unmappedFields({ uniqueid: "x", billsec: "10", dst: "03111111" })).toEqual([]);
+    expect(unmappedFields({ uniqueid: "x", billsec: "10", dst: "03111111" }, "telephony")).toEqual([]);
   });
 
   it("שדה ריק אינו מידע שהוחמץ", () => {
-    expect(unmappedFields({ extra: "", blank: "   " })).toEqual([]);
+    expect(unmappedFields({ extra: "", blank: "   " }, "telephony")).toEqual([]);
   });
 
   it("שם שדה לא תקני מסומן ואינו נכתב", () => {
-    const out = unmappedFields({ "0501234567": "x" });
+    const out = unmappedFields({ "0501234567": "x" }, "telephony");
     expect(out).toEqual(["‹שדה לא תקני›"]);
   });
 });
@@ -1240,5 +1249,250 @@ describe("nextRefusalStreak", () => {
   it("כישלון מקומי בין סירובים אינו מבטל את הרצף", () => {
     const seq = ["refused", "refused", "other", "refused"] as const;
     expect(seq.reduce<number>((n, r) => nextRefusalStreak(n, r), 0)).toBe(3);
+  });
+});
+
+/*
+ * ‎**הצד השני של אותו כלל.** הסבב יודע את התוצאה כי הוא קרא לספק;
+ * שורת החיבור יודעת רק את הקוד שנרשם עליה. כשהתרגום הזה לא היה
+ * קיים, אבחון המשיכה קידם את המונה על כל כישלון בזמן שהסבב קידם
+ * רק על סירוב — שני מונים שונים באותה עמודה, ושני קוראים שמסכימים
+ * רק כשאין תקלות רשת.
+ */
+describe("recordingPullResultOf — מקוד הכישלון אל התוצאה", () => {
+  it("סירוב של הספק הוא refused, על כל קוד סטטוס", () => {
+    for (const code of ["401", "402", "403", "404", "500"]) {
+      expect(recordingPullResultOf(`provider_rejected_${code}`)).toBe("refused");
+    }
+  });
+
+  /*
+   * שלושת הקודים שהממצא נקב בהם במפורש: כשל מקומי שאינו אומר דבר
+   * על הספק, ולכן אינו מקרב את המשרד לסף העצירה.
+   */
+  it("כשל מקומי הוא other — הוא אינו „לא” של הספק", () => {
+    for (const reason of [
+      "network_error",
+      "response_unreadable",
+      "missing_credentials",
+      "path_unreadable",
+      "empty_audio",
+      "too_large",
+      "no_integration",
+    ]) {
+      expect(recordingPullResultOf(reason)).toBe("other");
+    }
+  });
+
+  /*
+   * הרצף שהתקלה ייצרה: שלוש תקלות רשת, והמסך מכריז „הסבב עצר” על
+   * משרד שהסבב ממשיך למשוך ממנו כרגיל.
+   */
+  it("שלוש תקלות רשת אינן מגיעות לסף העצירה", () => {
+    const streak = ["network_error", "network_error", "network_error"].reduce<number>(
+      (n, reason) => nextRefusalStreak(n, recordingPullResultOf(reason)),
+      0,
+    );
+    expect(streak).toBeLessThan(RECORDING_REFUSALS_BEFORE_PAUSE);
+  });
+
+  it("ושלושה סירובים כן", () => {
+    const streak = ["provider_rejected_403", "provider_rejected_403", "provider_rejected_403"].reduce<number>(
+      (n, reason) => nextRefusalStreak(n, recordingPullResultOf(reason)),
+      0,
+    );
+    expect(streak).toBeGreaterThanOrEqual(RECORDING_REFUSALS_BEFORE_PAUSE);
+  });
+
+  /*
+   * הקידומת עצמה היא הצומת: `recordingReasonLabel` מפרקת לפיה,
+   * והתרגום הזה מחליט לפיה. שתי הגדרות היו מסכימות רק במקרה.
+   */
+  it("הקידומת היא אותה קידומת שהניסוח מפרק", () => {
+    const reason = `${RECORDING_PROVIDER_REFUSAL}_401`;
+    expect(recordingPullResultOf(reason)).toBe("refused");
+    expect(recordingReasonLabel(reason)).toContain("שם המשתמש");
+  });
+});
+
+/*
+ * ‏החלפת ספק מוחקת אבחון, ולכן הרשימה חייבת לכסות **את כל** השדות
+ * ‏שהאבחון יושב עליהם. ארבעת שדות המשיכה נוספו אחרי שדות האירוע,
+ * ‏ורשימה שנכתבה ידנית בשני מסלולי שמירה לא ידעה עליהם.
+ */
+describe("INTEGRATION_DIAGNOSIS_RESET", () => {
+  it("מכסה גם את האירוע וגם את המשיכה", () => {
+    expect(Object.keys(INTEGRATION_DIAGNOSIS_RESET).sort()).toEqual(
+      [
+        "lastEventAt",
+        "lastEventIssue",
+        "lastEventKeys",
+        "lastEventOk",
+        "lastPullAt",
+        "lastPullIssue",
+        "lastPullOk",
+        "pullFailStreak",
+      ].sort(),
+    );
+  });
+
+  /*
+   * ‏אחרי האיפוס `recordingPullHealth` חייבת לומר „טרם נוסתה”, ולא
+   * ‏להישאר על התקלה של הספק הקודם — זה כל מה שהאיפוס נועד לו.
+   */
+  it("אחרי החלפת ספק המסך אומר „עדיין לא נוסתה משיכה”", () => {
+    expect(recordingPullHealth(INTEGRATION_DIAGNOSIS_RESET).level).toBe("unknown");
+  });
+});
+
+describe("isGeneratedCallSummary — מה שהמערכת כתבה מול מה שאדם כתב", () => {
+  /*
+   * ‎**בדיקת הלוך-ושוב.** כל צורה ש-`describeCall` מסוגלת לייצר
+   * חייבת להיות מזוהה, אחרת התמלול ימשיך לכבד טקסט אוטומטי כאילו
+   * מתווך כתב אותו. זו הטענה שמונעת מהשתיים להיפרד כשתתווסף צורה
+   * חמישית.
+   */
+  it("מזהה כל פלט של describeCall", () => {
+    const events = [
+      { type: "missed", direction: "inbound" },
+      { type: "missed", direction: "outbound" },
+      { type: "answered", direction: "inbound", durationSeconds: 0 },
+      { type: "answered", direction: "outbound", durationSeconds: 0 },
+      { type: "answered", direction: "inbound", durationSeconds: 45 },
+      { type: "answered", direction: "outbound", durationSeconds: 185 },
+      { type: "answered", direction: "inbound", durationSeconds: 3600 },
+    ] as unknown as Parameters<typeof describeCall>[0][];
+    for (const event of events) {
+      const text = describeCall(event);
+      expect(isGeneratedCallSummary(text), text).toBe(true);
+    }
+  });
+
+  it("ריק נחשב אוטומטי — אין מה לשמר", () => {
+    expect(isGeneratedCallSummary("")).toBe(true);
+    expect(isGeneratedCallSummary(null)).toBe(true);
+    expect(isGeneratedCallSummary(undefined)).toBe(true);
+    expect(isGeneratedCallSummary("   ")).toBe(true);
+  });
+
+  /*
+   * ‎**הצד השני חשוב לא פחות:** סיכום שמתווך הקליד לא ייחשב
+   * אוטומטי, אחרת התמלול ידרוס עבודה אנושית — וזה נזק חמור יותר
+   * מהבאג שהפונקציה באה לתקן.
+   */
+  it("סיכום שאדם כתב אינו אוטומטי", () => {
+    for (const written of [
+      "הלקוח מחפש 4 חדרים בבני ברק, תקציב 2.4 מיליון",
+      "שיחה נכנסת — הלקוח ביקש שנחזור מחר",
+      "לא נענתה, ניסיתי שוב בערב",
+      "שיחה נכנסת שלא נענתה. השארתי הודעה.",
+    ]) {
+      expect(isGeneratedCallSummary(written), written).toBe(false);
+    }
+  });
+
+  /*
+   * ‎**המקרה שהפיל את הגרסה הראשונה** (ביקורת Codex).
+   *
+   * הדקדוק הסתיים ב-`· .+`, כלומר *כל* טקסט אחרי הנקודה. מתווך
+   * שכתב „שיחה נכנסת · הלקוח ביקש שנחזור מחר” — משפט סביר לגמרי,
+   * ובאותו סימן הפרדה שהמערכת עצמה משתמשת בו — סווג כאוטומטי,
+   * והעלאת הקלטה **דרסה את ההערה שלו**. הערה ביד אינה ניתנת
+   * לשחזור.
+   */
+  it("נקודת ההפרדה של המערכת אינה הופכת טקסט אנושי לאוטומטי", () => {
+    for (const written of [
+      "שיחה נכנסת · הלקוח ביקש שנחזור מחר",
+      "שיחה יוצאת · לא ענה, ננסה שוב",
+      "שיחה נכנסת · 3 חדרים בפרדס כץ",
+      /* מספר בלי יחידה — נראה קרוב, ואינו פלט של describeCall */
+      "שיחה נכנסת · 45",
+      "שיחה יוצאת · 2 דק׳",
+      /* צירוף מוצלב: הכיוונים צמודים לניסוח שלהם */
+      "שיחה נכנסת ללא מענה",
+      "שיחה יוצאת שלא נענתה",
+    ]) {
+      expect(isGeneratedCallSummary(written), written).toBe(false);
+    }
+  });
+
+  /*
+   * הדקדוק חייב לכסות **כל** אורך אפשרי, ולא רק את הדגימות למעלה:
+   * שנייה בודדת, גבול הדקה, ושעה עגולה עם אפס שניות.
+   */
+  it("כל אורך שיחה אפשרי מזוהה", () => {
+    for (let seconds = 0; seconds <= 3700; seconds += 7) {
+      const text = describeCall({
+        type: "answered",
+        direction: "inbound",
+        durationSeconds: seconds,
+      } as unknown as Parameters<typeof describeCall>[0]);
+      expect(isGeneratedCallSummary(text), text).toBe(true);
+    }
+  });
+});
+
+/**
+ * ‎**„לא ממופה” נשאל מול הנתיב שהפנייה הגיעה בו.**
+ *
+ * ‏שדות של טופס ליד — שם, טלפון, הודעה — אינם מידע שאנחנו
+ * ‏מפספסים; הם בדיוק מה שנקלט. מול רשימת המרכזייה כולם היו
+ * ‏מסומנים כחסרים, ועמודה שמסמנת את הכול אינה מסמנת דבר.
+ */
+describe("‏unmappedFields לפי מקור", () => {
+  const LEAD = { name: "ישראל", phone: "0501234567", message: "שלום" };
+
+  it("‏שדות הליד אינם „לא ממופים” בנתיב הלידים", () => {
+    expect(unmappedFields(LEAD, "lead")).toEqual([]);
+  });
+
+  it("‏ובנתיב המרכזייה כולם היו נראים כחסרים — וזו הטעות שנמנעה", () => {
+    expect(unmappedFields(LEAD, "telephony").length).toBeGreaterThan(0);
+  });
+
+  /* ‏ומה שבאמת אינו מוכר בטופס — כן מסומן */
+  it("‏שדה שאינו בסכימת הטופס מסומן", () => {
+    expect(unmappedFields({ ...LEAD, surprise: "x" }, "lead")).toEqual(["surprise"]);
+  });
+
+  /* ‏שדה ריק אינו מידע שהוחמץ, בשני הנתיבים */
+  it("‏שדה ריק אינו מסומן", () => {
+    expect(unmappedFields({ ...LEAD, surprise: "  " }, "lead")).toEqual([]);
+  });
+});
+
+/**
+ * ‎**וערך של שדה בטופס ליד אינו נשמר לעולם** (ביקורת Codex, P1).
+ *
+ * ‏`VALUE_SAFE_KEYS` היא רשימה של המרכזייה: `status` ו-`recording`
+ * ‏הם שם טכני שם. בטופס ליד הם שדה חופשי שהשולח בחר — הסכימה
+ * ‏דוחה אותו, אבל שורת היומן כבר נכתבה, וכך ערך שרירותי
+ * ‏מהאינטרנט היה נכתב בטקסט גלוי ליומן פלטפורמה חוצה-דיירים
+ * ‏לתשעים יום.
+ */
+describe("‏diagnosticFields לפי מקור", () => {
+  const HOSTILE = {
+    name: "ישראל",
+    recording: "https://cdn.example/rec?token=SECRET",
+    status: "לקוח VIP חייב 40 אלף",
+  };
+
+  it("‏בליד — שמות בלבד, בלי שום ערך", () => {
+    const out = diagnosticFields(HOSTILE, "lead");
+    expect(out).toContain("recording");
+    expect(out).toContain("status");
+    expect(out).not.toContain("SECRET");
+    expect(out).not.toContain("40 אלף");
+    expect(out).not.toContain("=");
+  });
+
+  /* ‏ובמרכזייה הערך כן נשמר — זו הרשימה שלה, וזה מה שמאבחן שם */
+  it("‏ובמרכזייה הערך הטכני נשמר כמו קודם", () => {
+    expect(diagnosticFields({ status: "hangup" }, "telephony")).toBe("status=hangup");
+  });
+
+  /* ‏והשם עצמו נשמר בשני המקרים — בלעדיו אין מה לאבחן */
+  it("‏השם נשמר בשני המקורות", () => {
+    expect(diagnosticFields({ status: "hangup" }, "lead")).toBe("status");
   });
 });

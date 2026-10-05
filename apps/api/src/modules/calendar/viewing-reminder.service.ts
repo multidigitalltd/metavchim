@@ -1,6 +1,8 @@
-import { Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import { ulid } from "ulid";
 import {
+  dailyEmailIdempotencyKey,
+
   DEFAULT_VIEWING_REMINDER_MESSAGES,
   jerusalemWallParts,
   viewingReminderWhenLabel,
@@ -22,6 +24,7 @@ import { PlatformSettingsService } from "../../core/platform-settings.service";
 import { PrismaService } from "../../core/prisma.service";
 import { ContactsService } from "../contacts/contacts.service";
 import { WhatsAppSendService } from "../messaging/whatsapp-send.service";
+import { Sweep } from "../../core/sweeps";
 
 /**
  * תזכורת לפני סיור — לזה שגר בנכס, ולקונה שבא לראות אותו.
@@ -67,11 +70,8 @@ interface Recipient {
 }
 
 @Injectable()
-export class ViewingReminderService implements OnModuleInit, OnModuleDestroy {
+export class ViewingReminderService {
   private readonly logger = new Logger(ViewingReminderService.name);
-  private timer: NodeJS.Timeout | null = null;
-  private first: NodeJS.Timeout | null = null;
-  private running = false;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -81,23 +81,12 @@ export class ViewingReminderService implements OnModuleInit, OnModuleDestroy {
     private readonly settings: PlatformSettingsService,
   ) {}
 
-  onModuleInit(): void {
-    this.first = setTimeout(() => {
-      void this.tick();
-      this.timer = setInterval(() => void this.tick(), SWEEP_INTERVAL_MS);
-    }, FIRST_SWEEP_DELAY_MS);
-    // אחרת התהליך לא יוצא בבדיקות ובסקריפטים קצרים
-    this.first.unref?.();
-  }
-
-  onModuleDestroy(): void {
-    if (this.first) clearTimeout(this.first);
-    if (this.timer) clearInterval(this.timer);
-  }
-
+  @Sweep({
+    name: "viewing-reminder",
+    everyMs: SWEEP_INTERVAL_MS,
+    firstDelayMs: FIRST_SWEEP_DELAY_MS,
+  })
   async tick(): Promise<{ sent: number; tasks: number }> {
-    if (this.running) return { sent: 0, tasks: 0 };
-    this.running = true;
     try {
       return await this.sweep();
     } catch (error: unknown) {
@@ -107,8 +96,6 @@ export class ViewingReminderService implements OnModuleInit, OnModuleDestroy {
        */
       this.logger.error(`סבב תזכורות הסיור נכשל: ${String(error)}`);
       return { sent: 0, tasks: 0 };
-    } finally {
-      this.running = false;
     }
   }
 
@@ -186,6 +173,7 @@ export class ViewingReminderService implements OnModuleInit, OnModuleDestroy {
           status: true,
           kind: true,
           buyerId: true,
+          leadId: true,
           propertyId: true,
           createdBy: true,
           ownerUserId: true,
@@ -226,6 +214,7 @@ export class ViewingReminderService implements OnModuleInit, OnModuleDestroy {
       status: string;
       kind: string;
       buyerId: string | null;
+      leadId: string | null;
       propertyId: string | null;
       createdBy: string | null;
       ownerUserId: string | null;
@@ -335,7 +324,7 @@ export class ViewingReminderService implements OnModuleInit, OnModuleDestroy {
   /** שני הנמענים וכתובת הנכס — כל מה שההודעה צריכה. */
   private async audience(
     tenantId: string,
-    appointment: { buyerId: string | null; propertyId: string | null },
+    appointment: { buyerId: string | null; leadId: string | null; propertyId: string | null },
   ): Promise<{ address: string; recipients: Recipient[] }> {
     return this.prisma.withExplicitTenant(tenantId, async (tx) => {
       const wanted: { audience: ViewingReminderAudience; contactId: string }[] = [];
@@ -376,6 +365,18 @@ export class ViewingReminderService implements OnModuleInit, OnModuleDestroy {
           select: { contactId: true },
         });
         if (buyer !== null) wanted.push({ audience: "buyer", contactId: buyer.contactId });
+      } else if (appointment.leadId !== null) {
+        /*
+         * ‏סיור שנקבע לליד — מי שנרשם לבית פתוח מדף הנחיתה, או ליד
+         * ‏שעוד לא הפך לקונה. בתזכורת הוא „הקונה”: אותו נוסח, אותה
+         * ‏שעה, אותה דלת. בלעדיו כל מבקר בבית פתוח היה נשאר בלי
+         * ‏התזכורת שכל סיור אחר מקבל.
+         */
+        const lead = await tx.lead.findFirst({
+          where: { id: appointment.leadId, tenantId },
+          select: { contactId: true },
+        });
+        if (lead !== null) wanted.push({ audience: "buyer", contactId: lead.contactId });
       }
 
       /*
@@ -522,7 +523,14 @@ export class ViewingReminderService implements OnModuleInit, OnModuleDestroy {
           // אותה תווית שבגוף ההודעה — נושא שאומר „היום” על מחר גרוע מכולם
           `תזכורת לסיור ${whenLabel}`,
           { heading: "תזכורת לסיור", paragraphs: body.split("\n").filter(Boolean) },
-          { tenantId },
+          {
+            /* ‏תזכורת אחת לסיור הזה ליום — סבב שרץ שוב אינו תזכורת שנייה */
+            idempotency: {
+              key: dailyEmailIdempotencyKey("viewing", appointmentId, new Date()),
+              purpose: "reminder",
+            },
+            tenantId,
+          },
         );
         delivered = true;
       } catch (error: unknown) {
@@ -550,9 +558,33 @@ export class ViewingReminderService implements OnModuleInit, OnModuleDestroy {
     const assignee = appointment.ownerUserId ?? appointment.createdBy;
     if (assignee === null) return false;
 
-    const who = unreachable
-      .map((r) => `${r.name}${r.optedOut ? " (ביקש/ה לא לקבל הודעות)" : ""}`)
-      .join(", ");
+    /*
+     * ‎**התפקיד, ולא השם — כי `notes` הוא טקסט חופשי בלי שער משלו.**
+     *
+     * ‏השם המפוענח של הנמען נכתב כאן לתוך המשימה, והמשימה מוטלת על
+     * ‏מי שקבע את הסיור — שיכול להיות סוכן שנחסם מבעלי הנכסים של
+     * ‏המשרד. משם הוא המשיך לזרום: `toDtos` מחזיר את ההערות כמות
+     * ‏שהן, ו-`CalendarSyncService` מעתיק אותן לתיאור האירוע
+     * ‏ב-Google (ביקורת Codex, P1).
+     *
+     * ‎**וזו הסיבה שהתיקון בכתיבה ולא בקריאה.** סינון בקריאה היה
+     * ‏צריך לחזור על עצמו בכל קורא — לוח המשימות, סנכרון היומן,
+     * ‏ייצוא — ולפספס את הבא. שם שלא נכתב אינו דורש שער בשום מקום.
+     *
+     * ‏המשימה עדיין אומרת את מה שצריך לעשות: מי לא קיבל (בעל
+     * ‏הנכס/הדייר או הקונה), ושכדאי להתקשר. סוכן שרשאי לאותו לקוח
+     * ‏ימצא את שמו בכרטיס; מי שאינו רשאי — לא היה אמור לקבלו כאן.
+     */
+    const who = [
+      ...new Set(
+        unreachable.map(
+          (r) =>
+            `${r.audience === "buyer" ? "הקונה" : "בעל הנכס/הדייר"}${
+              r.optedOut ? " (ביקש/ה לא לקבל הודעות)" : ""
+            }`,
+        ),
+      ),
+    ].join(", ");
 
     const entity =
       appointment.buyerId !== null

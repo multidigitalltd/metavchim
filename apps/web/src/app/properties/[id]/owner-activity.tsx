@@ -8,9 +8,17 @@ import {
   ownerActivityText,
   type OwnerActivityKind,
   type OwnerActivityResult,
+  VIEWING_CONDITION_FEEDBACK,
+  VIEWING_CONDITION_LABELS,
+  VIEWING_FIT_FEEDBACK,
+  VIEWING_FIT_LABELS,
+  VIEWING_PRICE_FEEDBACK,
+  VIEWING_PRICE_LABELS,
+  type ViewingFeedbackSummary,
 } from "@metavchim/shared";
-import { API_BASE, apiGet } from "@/lib/api";
+import { API_BASE, ApiError, apiGet, apiPatch, apiPost } from "@/lib/api";
 import { useCopy } from "@/lib/clipboard";
+import { IconSheet } from "../../icons";
 import { Notice } from "../../notice";
 
 /**
@@ -30,13 +38,29 @@ interface ActivityEntry {
   kind: OwnerActivityKind;
   result: OwnerActivityResult;
   durationMinutes?: number;
+  /** רק לסיור שהתקיים — כדי לרשום משוב מכאן (docs/03 — appointments) */
+  appointmentId?: string;
+  feedback?: { price: string | null; condition: string | null; fit: string | null };
 }
 
 interface ActivityReport {
   entries: ActivityEntry[];
   summary: { total: number; held: number; upcoming: number; inquiries: number; lastAt?: string };
   truncated: boolean;
+  /** „מה אמרו הקונים” — המספרים והמשפטים שיוצאים למוכר; חסר בשרת ישן */
+  feedback?: { summary: ViewingFeedbackSummary; sentences: string[] };
+  /** ‏„הצעות מחיר” — המשפטים שיוצאים למוכר; חסר בשרת ישן */
+  bids?: { sentences: string[] };
+  /**
+   * ‏במה אפשר להגיע לבעל הנכס — מהשרת, כי פרטיו מוצפנים והמסך אינו
+   * מחזיק אותם. השדה אופציונלי כדי שגרסת מסך חדשה מול שרת ישן לא
+   * תקרוס; היעדרו נקרא כ„אין ערוצים”, וזו התשובה הבטוחה.
+   */
+  owner?: { name?: string; whatsapp: boolean; email: boolean };
 }
+
+/** ‏באיזה ערוץ הדוח יוצא — המתווך בוחר. */
+type SendChannel = "whatsapp" | "email";
 
 /** שלוש התקופות שמתווך באמת מבקש, ולא בורר תאריכים שאיש לא ממלא. */
 const PERIODS = [
@@ -86,10 +110,20 @@ export function OwnerActivity({
   propertyId,
   propertyLabel,
   officeName,
+  canSend,
+  canEditFeedback,
 }: {
   propertyId: string;
   propertyLabel: string;
   officeName: string;
+  /** ‏`properties.edit` — השליחה יוצאת ללקוח בשם המשרד. */
+  canSend: boolean;
+  /**
+   * ‎`calendar.manage` — עריכת המשוב כותבת על הפגישה (`PATCH /appointments`),
+   * ‏וזו יכולת נפרדת מעריכת הנכס. עורך שנפתח ותמיד מחזיר 403 גרוע
+   * ‏מעורך שאינו מוצג (ביקורת Codex).
+   */
+  canEditFeedback: boolean;
 }) {
   /*
    * התקופה **וגבול הטווח שלה יחד**, בעדכון מצב אחד.
@@ -108,6 +142,12 @@ export function OwnerActivity({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [downloading, setDownloading] = useState(false);
+  /*
+   * ‎`null` = לא נשלח כלום כרגע. שם הערוץ = הכפתור הזה בעבודה —
+   * ולא דגל בוליאני אחד, שהיה מנטרל את שני הכפתורים כשנלחץ אחד.
+   */
+  const [sending, setSending] = useState<SendChannel | null>(null);
+  const [sent, setSent] = useState<string | null>(null);
   const copy = useCopy();
   /*
    * מונה בקשות. בלעדיו החלפת תקופה מהירה משאירה שתי טעינות באוויר,
@@ -182,9 +222,49 @@ export function OwnerActivity({
     }
   }
 
+  /**
+   * ‎**השליחה בפועל — הפעולה שהמסך הזה לא ידע לעשות.**
+   *
+   * ‏עד עכשיו היו כאן „הורדת קובץ” ו„העתקת הודעה”, כלומר הדוח נבנה
+   * והמתווך היה אמור להדביק אותו בעצמו לוואטסאפ. מי שלא עשה זאת
+   * השאיר את בעל הנכס בלי דוח, ומהמסך זה נראה כאילו נשלח.
+   *
+   * ‏השגיאה מהשרת מוצגת כלשונה ולא מוחלפת ב„השליחה נכשלה”: היא
+   * אומרת **מה** חסם — אין אימייל בכרטיס, הוואטסאפ אינו מחובר,
+   * חלון 24 השעות של Meta נסגר — וזה ההבדל בין מתווך שיודע מה
+   * לעשות עכשיו לבין מתווך שלוחץ שוב.
+   */
+  async function send(channel: SendChannel): Promise<void> {
+    setSending(channel);
+    setError(null);
+    setSent(null);
+    try {
+      const periodLabel = PERIODS.find((p) => p.key === selection.period)?.label ?? "כל התקופה";
+      const result = await apiPost<{ channel: SendChannel; to: string; count: number }>(
+        `/properties/${propertyId}/activity/send${query}`,
+        { channel, periodLabel },
+      );
+      setSent(
+        channel === "whatsapp"
+          ? `הדוח נשלח בוואטסאפ אל ${result.to}`
+          : `הדוח נשלח באימייל אל ${result.to}, עם הרשימה המלאה כקובץ מצורף`,
+      );
+    } catch (err) {
+      setError(
+        err instanceof ApiError && err.message.trim() !== ""
+          ? err.message
+          : "שליחת הדוח נכשלה — אפשר להעתיק את ההודעה ולשלוח ידנית",
+      );
+    } finally {
+      setSending(null);
+    }
+  }
+
   function messageText(): string {
     const periodLabel = PERIODS.find((p) => p.key === selection.period)?.label ?? "כל התקופה";
     return ownerActivityText({
+      ...(report?.feedback === undefined ? {} : { feedbackSentences: report.feedback.sentences }),
+      ...(report?.bids === undefined ? {} : { bidSentences: report.bids.sentences }),
       propertyLabel,
       officeName,
       periodLabel,
@@ -207,25 +287,86 @@ export function OwnerActivity({
   const empty = report !== null && report.entries.length === 0;
 
   return (
-    <section className="mv-list-card px-[22px] py-[18px]">
-      <h2 className="m-0 text-[length:calc(17/16*1rem)] font-bold">דוח פעילות לבעל הנכס</h2>
-      <p className="m-0 mt-[6px] text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
+    <section className="mv-card mv-card--pad">
+      {/* אריח, שם, ובקצה בורר התקופה — אותה כותרת של כל כרטיס במערכת */}
+      <div className="mv-card-head">
+        <span className="mv-tile mv-tile--44 mv-domain-green" aria-hidden="true">
+          <IconSheet s={20} />
+        </span>
+        <h2 className="mv-card-head__title">דוח פעילות לבעל הנכס</h2>
+        <div className="mv-seg ms-auto" role="group" aria-label="תקופת הדוח">
+          {PERIODS.map((option) => (
+            <button
+              key={option.key}
+              type="button"
+              aria-pressed={selection.period === option.key}
+              onClick={() => choose(option.key)}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <p
+        className="m-0 text-[length:var(--type-caption-lg)]"
+        style={{ color: "var(--color-text-muted)" }}
+      >
         ביקורים, פגישות ופניות של מתעניינים בנכס. בלי שמות, בלי מספרי טלפון ובלי תוכן השיחות.
       </p>
 
-      <div className="mt-[14px] flex flex-wrap gap-2">
-        {PERIODS.map((option) => (
-          <button
-            key={option.key}
-            type="button"
-            className="mv-chip"
-            aria-pressed={selection.period === option.key}
-            onClick={() => choose(option.key)}
-          >
-            {option.label}
-          </button>
-        ))}
-      </div>
+      {/*
+        ‎**ארבעה אריחים לפני הטבלה.**
+
+        השאלה שבעל נכס שואל היא „כמה”, והתשובה הייתה משפט אחד באמצע
+        הכרטיס. ארבעת המספרים נסרקים במבט, והטבלה שמתחתיהם היא
+        הפירוט למי שרוצה שורה־שורה. המספרים הם מה שהשרת החזיר —
+        ‎`summary` — ולא ספירה של השורות שהוצגו.
+      */}
+      {report === null ? null : (
+        <dl className="mt-[14px] grid grid-cols-2 gap-2.5 sm:gap-3 lg:grid-cols-4">
+          {[
+            { label: "מפגשים שהתקיימו", value: report.summary.held },
+            { label: "נקבעו וטרם התקיימו", value: report.summary.upcoming },
+            { label: "פניות מתעניינים", value: report.summary.inquiries },
+            { label: "סה״כ פעולות", value: report.summary.total },
+          ].map((tile) => (
+            <div
+              key={tile.label}
+              /* „אפס לעולם אינו נראה ככישלון” — אריח שערכו אפס עובר לניטרלי */
+              className={`mv-kpi mv-kpi--sm ${
+                tile.value === 0 ? "mv-domain-neutral" : "mv-domain-green"
+              }`}
+            >
+              <dt className="mv-kpi__head">
+                <span className="mv-kpi__label">{tile.label}</span>
+              </dt>
+              <dd className="mv-kpi__value">{tile.value}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+
+      {/*
+        ‏„מה אמרו הקונים” — מה שמוריד מחיר בלי ויכוח. המשפטים הם
+        ‏בדיוק מה שייכנס לדוח שיוצא למוכר: מספרים, בלי מי ובלי המשפט
+        ‏החופשי של הסוכן (docs/03 — appointments).
+      */}
+      {report !== null && report.feedback !== undefined && report.feedback.sentences.length > 0 ? (
+        <section className="mv-card mv-card--pad mt-[14px]" aria-labelledby="viewing-feedback-heading">
+          <h3 id="viewing-feedback-heading" className="m-0 text-[length:var(--type-body)] font-extrabold">
+            מה אמרו הקונים שביקרו
+            <span className="ms-2 font-semibold" style={{ color: "var(--color-text-muted)" }}>
+              {report.feedback.summary.withFeedback} עם משוב
+            </span>
+          </h3>
+          <ul className="m-0 mt-2 flex list-none flex-col gap-1 p-0 text-[length:var(--type-caption-lg)]">
+            {report.feedback.sentences.map((sentence) => (
+              <li key={sentence}>• {sentence}</li>
+            ))}
+          </ul>
+          <p className="mv-form-hint mt-2">נכנס לדוח למוכר כמות שהוא — בלי שמות ובלי ההערות שלכם.</p>
+        </section>
+      ) : null}
 
       {error ? <Notice tone="danger">{error}</Notice> : null}
 
@@ -243,16 +384,6 @@ export function OwnerActivity({
 
       {!loading && report !== null && report.entries.length > 0 ? (
         <>
-          <p className="m-0 mt-[14px] text-[length:var(--type-caption-lg)] font-bold">
-            {[
-              report.summary.held > 0 ? `${report.summary.held} מפגשים התקיימו` : null,
-              report.summary.upcoming > 0 ? `${report.summary.upcoming} נקבעו וטרם התקיימו` : null,
-              report.summary.inquiries > 0 ? `${report.summary.inquiries} פניות` : null,
-            ]
-              .filter((part): part is string => part !== null)
-              .join(" · ")}
-          </p>
-
           <div className="mt-[12px] max-h-[360px] overflow-auto">
             <table className="w-full border-collapse text-[length:var(--type-caption)]">
               <thead>
@@ -260,6 +391,7 @@ export function OwnerActivity({
                   <th className="p-[6px] text-right font-bold">מתי</th>
                   <th className="p-[6px] text-right font-bold">פעולה</th>
                   <th className="p-[6px] text-right font-bold">תוצאה</th>
+                  <th className="p-[6px] text-right font-bold">מה אמר הקונה</th>
                 </tr>
               </thead>
               <tbody>
@@ -280,6 +412,16 @@ export function OwnerActivity({
                     <td className="p-[6px] font-bold" style={{ color: RESULT_TONE[entry.result] }}>
                       {OWNER_ACTIVITY_RESULT_LABELS[entry.result]}
                     </td>
+                    <td className="p-[6px]">
+                      {entry.appointmentId !== undefined && entry.feedback !== undefined ? (
+                        <ViewingFeedbackCell
+                          appointmentId={entry.appointmentId}
+                          feedback={entry.feedback}
+                          canEdit={canEditFeedback}
+                          onSaved={() => void load()}
+                        />
+                      ) : null}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -293,7 +435,57 @@ export function OwnerActivity({
             </Notice>
           ) : null}
 
+        </>
+      ) : null}
+
+      {/*
+        ‏פעולות המסירה מחוץ לענף „יש שורות”: תקופה בלי פעילות היא
+        דוח לגיטימי — השרת ובונה המייל שולחים עליה „לא נרשמה פעילות
+        בתקופה זו”, וזה בדיוק מה שבעל נכס ששאל „מה קורה” צריך לקבל.
+        כשהכפתורים ישבו בפנים, המצב הזה היה נתמך בשרת ובלתי אפשרי
+        מהמסך (ביקורת Codex).
+      */}
+      {!loading && report !== null ? (
+        <>
+          {sent ? <Notice tone="success">{sent}</Notice> : null}
+
+          {/*
+            ‏שתי השליחות ראשונות ומודגשות, ואחריהן ההורדה וההעתקה.
+            הסדר הוא ההבדל: עד עכשיו הפעולה הראשונה במסך הייתה
+            „הורדת קובץ”, כלומר המסך הציע למתווך לעשות את השליחה
+            בעצמו — וזה בדיוק מה שלא קרה.
+          */}
           <div className="mt-[14px] flex flex-wrap gap-2">
+            <button
+              type="button"
+              className="mv-button mv-button--primary"
+              disabled={sending !== null || !canSend || report.owner?.whatsapp !== true}
+              title={
+                !canSend
+                  ? "שליחה לבעל הנכס דורשת הרשאת עריכת נכסים"
+                  : report.owner?.whatsapp === true
+                    ? undefined
+                    : "אין טלפון בכרטיס בעל הנכס — אפשר להוסיף אותו בכרטיס"
+              }
+              onClick={() => void send("whatsapp")}
+            >
+              {sending === "whatsapp" ? "שולח…" : "שליחה בוואטסאפ"}
+            </button>
+            <button
+              type="button"
+              className="mv-button mv-button--secondary"
+              disabled={sending !== null || !canSend || report.owner?.email !== true}
+              title={
+                !canSend
+                  ? "שליחה לבעל הנכס דורשת הרשאת עריכת נכסים"
+                  : report.owner?.email === true
+                    ? undefined
+                    : "אין אימייל בכרטיס בעל הנכס — אפשר להוסיף אותו בכרטיס"
+              }
+              onClick={() => void send("email")}
+            >
+              {sending === "email" ? "שולח…" : "שליחה באימייל"}
+            </button>
             <button
               type="button"
               className="mv-btn-plain"
@@ -303,6 +495,10 @@ export function OwnerActivity({
             >
               {downloading ? "מוריד…" : "הורדת קובץ"}
             </button>
+            {/*
+              ‏ההעתקה נשארת: היא המסלול של מי שרוצה לשלוח בערוץ אחר,
+              והיא גם מה שהשגיאות מפנות אליו כשהשליחה נחסמה.
+            */}
             <button
               type="button"
               className="mv-btn-plain"
@@ -317,5 +513,90 @@ export function OwnerActivity({
         </>
       ) : null}
     </section>
+  );
+}
+
+/* ---------- משוב לסיור — מהכרטיס ---------- */
+
+/**
+ * שלוש הקשות על שורת סיור שהתקיים. מוצג כתוויות כשיש, וכשלושה
+ * בוררים קטנים כשאין — או כשלוחצים „לשנות”.
+ */
+export function ViewingFeedbackCell({
+  appointmentId,
+  feedback,
+  canEdit,
+  onSaved,
+}: {
+  appointmentId: string;
+  feedback: { price: string | null; condition: string | null; fit: string | null };
+  canEdit: boolean;
+  onSaved: () => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [price, setPrice] = useState(feedback.price ?? "");
+  const [condition, setCondition] = useState(feedback.condition ?? "");
+  const [fit, setFit] = useState(feedback.fit ?? "");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const labels = [
+    feedback.price === null ? null : (VIEWING_PRICE_LABELS as Record<string, string>)[feedback.price] ?? null,
+    feedback.condition === null ? null : (VIEWING_CONDITION_LABELS as Record<string, string>)[feedback.condition] ?? null,
+    feedback.fit === null ? null : (VIEWING_FIT_LABELS as Record<string, string>)[feedback.fit] ?? null,
+  ].filter((label): label is string => label !== null);
+
+  async function save(): Promise<void> {
+    setBusy(true);
+    setError(null);
+    try {
+      await apiPatch(`/appointments/${appointmentId}`, {
+        feedbackPrice: price === "" ? null : price,
+        feedbackCondition: condition === "" ? null : condition,
+        feedbackFit: fit === "" ? null : fit,
+      });
+      setEditing(false);
+      onSaved();
+    } catch (err: unknown) {
+      setError(err instanceof ApiError ? err.message : "השמירה נכשלה");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!editing) {
+    return (
+      <span className="flex flex-wrap items-center gap-1.5">
+        {labels.length === 0 ? (
+          <span style={{ color: "var(--color-text-muted)" }}>—</span>
+        ) : (
+          labels.map((label) => <span key={label} className="mv-pill mv-domain-neutral">{label}</span>)
+        )}
+        {canEdit ? (
+          <button type="button" className="mv-btn-plain" onClick={() => setEditing(true)}>
+            {labels.length === 0 ? "לרשום משוב" : "לשנות"}
+          </button>
+        ) : null}
+      </span>
+    );
+  }
+  const selectStyle = { borderColor: "var(--color-input-border)", background: "var(--color-field)" } as const;
+  return (
+    <span className="flex flex-wrap items-center gap-1.5">
+      <select aria-label="על המחיר" value={price} onChange={(e) => setPrice(e.target.value)} className="rounded-lg border px-2 py-1" style={selectStyle}>
+        <option value="">על המחיר…</option>
+        {VIEWING_PRICE_FEEDBACK.map((v) => <option key={v} value={v}>{VIEWING_PRICE_LABELS[v]}</option>)}
+      </select>
+      <select aria-label="על מצב הנכס" value={condition} onChange={(e) => setCondition(e.target.value)} className="rounded-lg border px-2 py-1" style={selectStyle}>
+        <option value="">על המצב…</option>
+        {VIEWING_CONDITION_FEEDBACK.map((v) => <option key={v} value={v}>{VIEWING_CONDITION_LABELS[v]}</option>)}
+      </select>
+      <select aria-label="על ההתאמה" value={fit} onChange={(e) => setFit(e.target.value)} className="rounded-lg border px-2 py-1" style={selectStyle}>
+        <option value="">על ההתאמה…</option>
+        {VIEWING_FIT_FEEDBACK.map((v) => <option key={v} value={v}>{VIEWING_FIT_LABELS[v]}</option>)}
+      </select>
+      <button type="button" className="mv-btn-soft" disabled={busy} onClick={() => void save()}>{busy ? "שומר…" : "לשמור"}</button>
+      <button type="button" className="mv-btn-plain" disabled={busy} onClick={() => setEditing(false)}>ביטול</button>
+      {error ? <span style={{ color: "var(--color-danger)" }}>{error}</span> : null}
+    </span>
   );
 }

@@ -126,34 +126,6 @@ export function whatsappAgentSeats(input: {
 export const WHATSAPP_SEAT_LIVE_STATUSES = ["active", "past_due"] as const;
 
 /**
- * ‎**מקום שבוטל ממשיך להיספר עד תום התקופה ששולמה.**
- *
- * הביטול אומר במפורש „המקום יישאר עד סוף התקופה, בלי החזר”, וכל
- * ספירות המכסה בדקו `active | past_due` בלבד — כלומר המכסה ירדה
- * ברגע הלחיצה. המשרד ראה פחות מקומות ממה ששילם עליהם, וגרוע מזה:
- * בעל משרד שכיבה מחזיק אחד כדי להעביר את המקום **ששולם** לסוכן
- * אחר נחסם בהקצאה החוזרת (ביקורת Codex).
- *
- * ולכן אי אפשר לבטא את זה ברשימת סטטוסים: המצב תלוי בזמן. הפונקציה
- * הזו מחזירה את התנאי המלא, והיא המקום היחיד שמכיר אותו.
- */
-export function whatsappSeatCountsForQuota(
-  seat: { status: string; currentPeriodEnd: Date | null },
-  now: Date,
-): boolean {
-  if ((WHATSAPP_SEAT_LIVE_STATUSES as readonly string[]).includes(seat.status)) return true;
-  /*
-   * ‎`null` בתקופה = מעולם לא שולם (ביטול לפני תשלום), ואז אין מה
-   * לספור — להבדיל מתקופה שעברה, שגם היא אינה נספרת.
-   */
-  return (
-    seat.status === "cancelled" &&
-    seat.currentPeriodEnd !== null &&
-    seat.currentPeriodEnd.getTime() > now.getTime()
-  );
-}
-
-/**
  * מה להציע למי שאין לו מקום — **מחיר, או „פנו אלינו”.**
  *
  * ‎`null` בשדה המחיר של המסלול אינו „טרם הוגדר”: הוא אומר שהמסלול
@@ -163,15 +135,36 @@ export function whatsappSeatCountsForQuota(
 export type WhatsappSeatOffer =
   /** אפשר לרכוש כאן ועכשיו, במחיר הזה */
   | { kind: "purchase"; monthlyAgorot: number }
-  /** המסלול אינו מוכר מקומות נוספים — פנייה אנושית */
-  | { kind: "contact" };
+  /**
+   * ‏אי אפשר לרכוש כאן — פנייה אנושית. ‏`reason` אומר למה, כי שתי
+   * ‏הסיבות מובילות לשתי פעולות שונות: מחיר למסלול נקבע במסך המסלולים,
+   * ‏והסליקה מופעלת בהגדרות הפלטפורמה. מסלול בלי מחיר קודם — הפעלת
+   * ‏הסליקה לבדה לא תאפשר בו רכישה.
+   */
+  | { kind: "contact"; reason: "unpriced" | "checkout_off" };
 
 export function whatsappSeatOffer(
   planSeatMonthlyAgorot: number | null,
+  /**
+   * ‎**האם יש בכלל לאן לשלוח לתשלום** (ביקורת Codex, P2).
+   *
+   * ‏מחיר במסלול וסליקה מוגדרת הם שני תנאים נפרדים לגמרי: המחיר
+   * ‏נקבע בקטלוג המסלולים, והסליקה בהגדרות הפלטפורמה. כשהמחיר
+   * ‏קיים והסליקה לא, המסך הראה כפתור „הוספת מקום” בעוד הפאנל
+   * ‏עצמו מודיע „התשלום המקוון טרם הופעל” — שתי אמירות סותרות על
+   * ‏אותו מסך.
+   *
+   * ‏הפרמטר **חובה** ולא ברירת מחדל: קורא שישכח אותו הוא בדיוק
+   * ‏הבאג הזה, והמהדר הוא מי שצריך לתפוס אותו.
+   */
+  checkoutAvailable: boolean,
 ): WhatsappSeatOffer {
-  return planSeatMonthlyAgorot !== null && planSeatMonthlyAgorot > 0
+  if (planSeatMonthlyAgorot === null || planSeatMonthlyAgorot <= 0) {
+    return { kind: "contact", reason: "unpriced" };
+  }
+  return checkoutAvailable
     ? { kind: "purchase", monthlyAgorot: planSeatMonthlyAgorot }
-    : { kind: "contact" };
+    : { kind: "contact", reason: "checkout_off" };
 }
 
 /**
@@ -190,9 +183,48 @@ export function whatsappSeatOffer(
  * ‎`purchase`, והוא מייצר אותו רק מעל אפס — ולכן „חינם + מע"מ”,
  * שהוא השטות ש-`formatPriceExVat` נועד למנוע, אינו נגזר מכאן.
  */
+/**
+ * ‎**„המקומות תפוסים” — ומה לעשות עכשיו, בשתי המילים של המסך.**
+ *
+ * ## הבעיה שהנוסח הזה בא לפתור
+ *
+ * ‏ההודעה הקודמת אמרה „כבו אותו אצל מי שמחזיק בו כרגע, או פנו
+ * ‏אלינו להוספת מקום”, ושתי הזרועות שלה היו מבוי סתום:
+ *
+ * ‏1. ‎**„כבו” אינו כתוב בשום מקום במסך.** הפקד שמשחרר מקום הוא
+ * ‏   התווית „מחזיק בסוכן”, ולחיצה עליה משחררת — אבל שום דבר לא
+ * ‏   אמר זאת. הנוסח כאן מצטט את התווית עצמה, כך שהמשפט מצביע על
+ * ‏   כפתור שקיים על המסך (דיווח מהשטח).
+ * ‏2. ‎**„פנו אלינו” כשאפשר לקנות כאן ועכשיו.** מאז שיש דף תשלום
+ * ‏   למקום נוסף, ההפניה לאדם היא נכונה רק כשהמסלול אינו מוכר
+ * ‏   מקומות — ולכן היא נגזרת מההצעה ולא מקובעת.
+ *
+ * ‎`offer` ולא מחיר גולמי: ההבחנה בין „אפשר לקנות” ל„פנו אלינו”
+ * נקבעת במקום אחד (`whatsappSeatOffer`), וכאן רק נאמרת.
+ */
+export function whatsappSeatsFullText(input: {
+  /** כמה מקומות יש למשרד — כולם תפוסים ברגע שהנוסח הזה נאמר */
+  seats: number;
+  offer: WhatsappSeatOffer;
+}): string {
+  const held =
+    input.seats === 1
+      ? "הסוכן בוואטסאפ כלול לסוכן אחד במשרד."
+      : `המשרד מחזיק ${input.seats} מקומות לסוכן בוואטסאפ, וכולם תפוסים.`;
+  const release =
+    input.seats === 1
+      ? "כדי להעביר אותו — לחצו „מחזיק בסוכן” ליד מי שמחזיק בו כרגע, וההקצאה תשוחרר"
+      : "לשחרור — לחצו „מחזיק בסוכן” ליד אחד המחזיקים";
+  const add =
+    input.offer.kind === "purchase"
+      ? `, או הוסיפו מקום נוסף כאן: ${formatPlanPrice(input.offer.monthlyAgorot)} לחודש ${VAT_EXCLUDED_SUFFIX}.`
+      : ", או פנו אלינו להוספת מקום.";
+  return `${held} ${release}${add}`;
+}
+
 export function whatsappSeatOfferText(offer: WhatsappSeatOffer): string {
   if (offer.kind === "contact") {
-    return "המסלול הנוכחי אינו כולל מקומות נוספים — פנו אלינו ונתאים.";
+    return "אפשר להוסיף מקומות נוספים למנוי — פנו אלינו ונוסיף.";
   }
   return (
     `מקום נוסף לסוכן במשרד: ${formatPlanPrice(offer.monthlyAgorot)} לחודש ` +

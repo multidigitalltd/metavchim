@@ -15,6 +15,9 @@ import {
   type AgentField,
   type AgentHistoryRef,
   type AgentProposal,
+  isOpenRecruitment,
+  recruitmentAddress,
+  recruitmentStatusLabel,
 } from "@metavchim/shared";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { TenantContext } from "../../common/tenant-context";
@@ -24,6 +27,7 @@ import { DealRoomService } from "../collaboration/deal-room.service";
 import { ListingsService } from "../collaboration/listings.service";
 import { SearchService } from "../search/search.service";
 import { TasksService } from "../tasks/tasks.service";
+import { RecruitmentService } from "../recruitment/recruitment.service";
 import type { Interpretation } from "./interpret.service";
 
 /**
@@ -57,6 +61,8 @@ export class AgentResolveService {
     private readonly buyers: BuyersService,
     private readonly search: SearchService,
     private readonly tasks: TasksService,
+    // ‏נכסים לגיוס — מהמשפך ולא מהחיפוש הגלובלי; ראו `candidatesFor`
+    private readonly recruitment: RecruitmentService,
     private readonly collaboration: CollaborationService,
     private readonly listings: ListingsService,
     private readonly dealRooms: DealRoomService,
@@ -656,6 +662,28 @@ export class AgentResolveService {
     }
 
     /*
+     * ‎**נכס לגיוס — מהמשפך, ופתוחים בלבד.**
+     *
+     * ‏אינו בחיפוש הגלובלי: חיפוש טקסט מוצא **נכסים** של המשרד,
+     * ‏ושורת גיוס היא בדיוק מה שהמשרד עדיין אינו מייצג. „הרצל 12”
+     * ‏יכול להיות שניהם, ותשובה מהמאגר הכללי הייתה מעדכנת סטטוס
+     * ‏גיוס על נכס שכבר במלאי — או להפך.
+     *
+     * ‏פתוחים בלבד, מאותו נימוק של משימות: דיווח („התקשרתי”,
+     * ‏„קבעתי פגישה”) מדבר תמיד על מה שעוד בעבודה.
+     */
+    if (kind === "recruitment") {
+      return (await this.recruitment.list({ q: phrase }))
+        .filter((row) => isOpenRecruitment(row.status))
+        .slice(0, 8)
+        .map((row) => ({
+          id: row.id,
+          label: recruitmentAddress(row, "נכס לגיוס"),
+          detail: recruitmentStatusLabel(row.status),
+        }));
+    }
+
+    /*
      * ‎**סוכן — מרשימת המשרד, לא מהחיפוש.** ההשוואה מכילה ובלי
      * תלות ברישיות, בדיוק כמו במשימות: „דנה” צריך למצוא את „דנה
      * לוי”, וזו הצורה היחידה שבה שם נאמר בדיבור.
@@ -922,6 +950,7 @@ const DATE_FIELD: Record<string, string | undefined> = {
  */
 type LookupKind =
   | "buyer"
+  | "recruitment"
   | "property"
   | "lead"
   | "task"
@@ -1056,9 +1085,9 @@ const ENTITY_LOOKUP: Record<
   },
   /*
    * ‎**רשות, ובכוונה.** „מה המצב עם הבלעדיות” בלי שם נכס היא השאלה
-   * השכיחה יותר — כל מה שבסיכון במשרד, לפי דחיפות. דרישת נכס
-   * הייתה הופכת את השאלה הזו לשאלת הבהרה על משהו שאין לו תשובה
-   * יחידה.
+   * השכיחה יותר — כל מה שבסיכון **בטיפולו של הדובר**, לפי דחיפות
+   * ‎(`ownedPropertyScope`; מנהל מקבל את כל המשרד). דרישת נכס הייתה
+   * הופכת את השאלה הזו לשאלת הבהרה על משהו שאין לו תשובה יחידה.
    */
   show_exclusivity: {
     key: "propertyPhrase",
@@ -1306,6 +1335,17 @@ const ENTITY_LOOKUP: Record<
     },
   },
   complete_task: { key: "taskPhrase", idKey: "taskId", label: "איזו משימה", kind: "task" },
+  /*
+   * ‏הפתרון כאן ולא בביצוע, ובכוונה: זו הטבלה שהמסך בונה ממנה
+   * ‏את הבורר. פתרון שנעשה בתוך הביצוע היה מחזיר „יש כמה” כשגיאה
+   * ‏אחרי שהמתווך כבר אישר, במקום לשאול אותו לפני.
+   */
+  update_recruitment_status: {
+    key: "recruitmentPhrase",
+    idKey: "recruitmentId",
+    label: "איזה נכס לגיוס",
+    kind: "recruitment",
+  },
   update_task: { key: "taskPhrase", idKey: "taskId", label: "איזו משימה", kind: "task" },
   /*
    * „קשור ל” היה שדה מת: המודל התבקש למלא אותו, הוא הוצג בכרטיס,
@@ -1319,11 +1359,41 @@ const ENTITY_LOOKUP: Record<
     label: "קשור ל",
     kind: "card",
     optional: true,
+    /*
+     * ‎**„תשייך משימה לדנה” — יצירה והטלה במשפט אחד.**
+     *
+     * ‏עד עכשיו זה דרש שתי פניות: `create_task` יצרה תמיד על
+     * ‏היוצר, ו-`assign_task` העבירה אחר כך. בשיחה בוואטסאפ הפער
+     * ‏הזה נקרא כאילו הבקשה לא הובנה.
+     *
+     * ‎`optional` — ורוב הפעמים ריק, כי „תזכיר לי” הוא על עצמי.
+     * ‏השער עצמו אינו כאן: `TasksService` דורשת `tasks.assign`
+     * ‏ליעד שאינו אתה, ואת אותה הרשאה בדיוק המנהל נותן.
+     */
+    also: {
+      key: "assigneePhrase",
+      idKey: "assigneeId",
+      label: "על מי להטיל",
+      kind: "user",
+      optional: true,
+    },
   },
   add_note: { key: "cardPhrase", idKey: "cardId", label: "לאיזה כרטיס", kind: "card" },
   show_card: { key: "cardPhrase", idKey: "cardId", label: "איזה כרטיס", kind: "anyCard" },
   play_recording: { key: "cardPhrase", idKey: "cardId", label: "שיחה עם מי", kind: "card" },
   update_lead_status: { key: "leadPhrase", idKey: "leadId", label: "איזה ליד", kind: "lead" },
+  /*
+   * ‎**„תעביר את הליד של משה כהן לדנה”.** שני הביטויים חובה: מסירה
+   * ‏בלי לדעת למי אינה מסירה, וליד שיישאר במקומו בשקט הוא בדיוק
+   * ‏הכישלון שהפעולה נועדה למנוע. אותו נימוק של `assign_task`.
+   */
+  transfer_lead: {
+    key: "leadPhrase",
+    idKey: "leadId",
+    label: "איזה ליד",
+    kind: "lead",
+    also: { key: "assigneePhrase", idKey: "assigneeId", label: "למי למסור", kind: "user" },
+  },
   // המרה יוצרת קונה על אותו איש קשר — הליד הוא המפתח היחיד
   convert_lead: { key: "leadPhrase", idKey: "leadId", label: "איזה ליד", kind: "lead" },
   create_property_from_lead: {
@@ -1466,6 +1536,7 @@ const RECOMMENDED: Record<string, readonly string[]> = {
    */
   add_note: ["cardPhrase", "note"],
   update_lead_status: ["leadPhrase", "leadStatus"],
+  transfer_lead: ["leadPhrase", "assigneePhrase"],
   update_buyer: ["buyerPhrase"],
   update_property: ["propertyPhrase"],
   show_exclusivity: ["propertyPhrase"],

@@ -82,3 +82,69 @@ if (missing.length > 0 || extra.length > 0 || undocumented.length > 0) {
 console.log(
   `✓ ${exampleKeys.size} משתני חובה ו-${keys(templateOptional).size} של פרופילי רשות — הדוגמה והתבנית תואמות`,
 );
+
+/*
+ * ================================================================
+ * שני סקריפטי ההקצאה של תפקיד האפליקציה — **אותן הרשאות בדיוק.**
+ *
+ * `infra/postgres/init-app-role.sh` רץ בעליית מסד הייצור,
+ * `apps/api/prisma/sql/create_app_role.sql` רץ בפיתוח וב-CI, והוא
+ * מצהיר על עצמו בהערה כמקבילה של הראשון. הם נפרדו: לייצור הייתה
+ * שורת ברירת מחדל לרצפים ולפיתוח לא, ולכן `tenant_customer_no_seq`
+ * — ואיתו כל יצירת משרד — נפל על `permission denied for sequence`
+ * על כל מסד פיתוח שכבר הוקצה.
+ *
+ * הכשל הזה שקט לגמרי עד שנוצר הרצף הראשון אחרי ההקצאה, ולכן הוא
+ * בדיוק מה ששער צריך לתפוס. אותה משפחה כמו ההצמדה שמעל: שני
+ * קבצים שחייבים לומר את אותו דבר על אותה מערכת.
+ *
+ * מושווים ה-GRANT וברירות המחדל בלבד. ה-REVOKE של הטבלאות
+ * ה-Append-Only חי רק בקובץ ה-SQL, בכוונה ובהסבר: בייצור הוא
+ * מגיע מהמיגרציות עצמן.
+ * ================================================================
+ */
+const roleSql = readFileSync(
+  join(root, "apps/api/prisma/sql/create_app_role.sql"),
+  "utf8",
+);
+const roleSh = readFileSync(join(root, "infra/postgres/init-app-role.sh"), "utf8");
+
+/**
+ * הצהרות ההרשאה בקובץ, מנורמלות.
+ *
+ * רב-שורתי (`ALTER DEFAULT PRIVILEGES` נכתב בשתי שורות בשני
+ * הקבצים), בלי הערות, ורווחים מכווצים — כדי שעימוד שונה לא ייחשב
+ * להפרש, ושורה חסרה כן.
+ */
+function grants(text) {
+  const withoutComments = text
+    .replace(/\/\*[\s\S]*?\*\//gu, " ")
+    .replace(/^\s*--.*$/gmu, " ")
+    .replace(/^\s*#.*$/gmu, " ");
+  return new Set(
+    [...withoutComments.matchAll(/\b(GRANT|ALTER DEFAULT PRIVILEGES)\b[\s\S]*?;/gu)]
+      .map((match) => match[0].replace(/\s+/gu, " ").trim())
+      .filter((statement) => statement.includes("metavchim_app")),
+  );
+}
+
+const sqlGrants = grants(roleSql);
+const shGrants = grants(roleSh);
+
+const onlySql = [...sqlGrants].filter((g) => !shGrants.has(g));
+const onlySh = [...shGrants].filter((g) => !sqlGrants.has(g));
+
+if (sqlGrants.size === 0 || shGrants.size === 0) {
+  console.error("✗ לא נמצאה אף הצהרת GRANT באחד מסקריפטי ההקצאה — הסריקה שבורה");
+  process.exit(1);
+}
+
+if (onlySql.length > 0 || onlySh.length > 0) {
+  console.error("✗ שני סקריפטי ההקצאה של metavchim_app אינם מעניקים את אותן הרשאות:\n");
+  for (const g of onlySql) console.error(`  רק ב-create_app_role.sql: ${g}`);
+  for (const g of onlySh) console.error(`  רק ב-init-app-role.sh:   ${g}`);
+  console.error("");
+  process.exit(1);
+}
+
+console.log(`✓ ${sqlGrants.size} הרשאות — שני סקריפטי ההקצאה של תפקיד האפליקציה זהים`);

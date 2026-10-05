@@ -1,6 +1,8 @@
-import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import { ulid } from "ulid";
-import { BILLING_GRACE_DAYS, RENEWAL_WARN_WITHIN_DAYS, accessUntil, billingAnchorDay, describeCycle, effectiveCyclePriceAgorot, formatJerusalemDate, isBillingCycle, nextPeriodEnd, periodDaysLeft, shekels, type BillingCycle } from "@metavchim/shared";
+import {
+  dailyEmailIdempotencyKey,
+ BILLING_GRACE_DAYS, RENEWAL_WARN_WITHIN_DAYS, accessUntil, billingAnchorDay, describeCycle, effectiveCyclePriceAgorot, formatJerusalemDate, isBillingCycle, nextPeriodEnd, periodDaysLeft, shekels, type BillingCycle } from "@metavchim/shared";
 import { loadEnv } from "../../config/env";
 import { CardcomService } from "../../core/cardcom.service";
 import { VatService } from "../../core/vat.service";
@@ -9,6 +11,7 @@ import { EmailService } from "../../core/email.service";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PrismaService } from "../../core/prisma.service";
 import { InvoiceService } from "./invoice.service";
+import { Sweep } from "../../core/sweeps";
 
 /**
  * חידוש מנוי אוטומטי — בטוקן השמור, בלי דף תשלום ובלי וובהוק.
@@ -32,10 +35,8 @@ const TICK_MS = 60 * 60 * 1000;
 /** כמה מנויים לחדש בכל סבב. תקרה, לא יעד. */
 const BATCH = 25;
 @Injectable()
-export class RenewalService implements OnModuleInit, OnModuleDestroy {
+export class RenewalService {
   private readonly logger = new Logger(RenewalService.name);
-  private timer: NodeJS.Timeout | null = null;
-  private running = false;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -47,19 +48,8 @@ export class RenewalService implements OnModuleInit, OnModuleDestroy {
     private readonly vat: VatService,
   ) {}
 
-  onModuleInit(): void {
-    this.timer = setInterval(() => void this.tick(), TICK_MS);
-    // ‎unref‎ כדי שהטיימר לא יחזיק את התהליך בכיבוי מסודר
-    this.timer.unref();
-  }
-
-  onModuleDestroy(): void {
-    if (this.timer) clearInterval(this.timer);
-  }
-
+  @Sweep({ name: "renewal", everyMs: TICK_MS })
   async tick(): Promise<void> {
-    if (this.running) return; // אין טיקים חופפים
-    this.running = true;
     try {
       /*
        * התזכורות **לפני** החידושים, באותו סבב.
@@ -72,8 +62,6 @@ export class RenewalService implements OnModuleInit, OnModuleDestroy {
       await this.renewDue();
     } catch (error) {
       this.logger.error(`סבב החידושים נכשל: ${String(error)}`);
-    } finally {
-      this.running = false;
     }
   }
 
@@ -212,6 +200,8 @@ export class RenewalService implements OnModuleInit, OnModuleDestroy {
      */
     const amount = amountAgorot !== null ? `${shekels(amountAgorot)} ₪ (כולל מע"מ)` : "";
 
+    /* ‏תזכורת אחת ליום למשרד — סריקה שרצה שוב באותו יום אינה הודעה שנייה */
+    const idempotency = { key: dailyEmailIdempotencyKey("renewsoon", tenantId, now), purpose: "renewal" };
     await this.email.send(payer.email, "המנוי מתחדש בקרוב", {
       heading: "תזכורת לפני חידוש",
       paragraphs: [
@@ -223,7 +213,7 @@ export class RenewalService implements OnModuleInit, OnModuleDestroy {
       ],
       button: { label: "למסך המנוי", url: `${loadEnv().WEB_ORIGIN}/settings/billing` },
       footnote: "אין צורך לעשות דבר אם הכל תקין — ההודעה נשלחת פעם אחת לפני כל חידוש.",
-    });
+    }, { idempotency });
   }
 
   private async renewOne(tenantId: string, now: Date): Promise<boolean> {
@@ -362,6 +352,11 @@ export class RenewalService implements OnModuleInit, OnModuleDestroy {
   private async notifyFailure(tenantId: string, payer: { email: string }, planName: string): Promise<void> {
     if (!payer.email || !(await this.email.isConfigured())) return;
     try {
+      /* ‏„החיוב נדחה” פעם ביום: ניסיון נוסף מחר הוא מצב חדש, לא כפילות */
+      const idempotency = {
+        key: dailyEmailIdempotencyKey("renewfail", tenantId, new Date()),
+        purpose: "renewal",
+      };
       await this.email.send(payer.email, "חידוש המנוי לא הושלם", {
         heading: "החיוב לא עבר",
         paragraphs: [
@@ -370,7 +365,7 @@ export class RenewalService implements OnModuleInit, OnModuleDestroy {
         ],
         button: { label: "למסך המנוי", url: `${loadEnv().WEB_ORIGIN}/settings/billing` },
         footnote: "לא בוצע חיוב. אם עדכנתם כבר אמצעי תשלום — אפשר להתעלם מהודעה זו.",
-      });
+      }, { idempotency });
     } catch (error) {
       this.logger.warn(`שליחת הודעה על חידוש שנכשל נכשלה (${tenantId}): ${String(error)}`);
     }

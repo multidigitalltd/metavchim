@@ -8,6 +8,7 @@ import { CalendarService } from "./calendar.service";
 import { CalendarSyncService } from "./calendar-sync.service";
 import { GoogleCalendarController } from "./google-calendar.controller";
 import { GoogleCalendarService } from "./google-calendar.service";
+import { ViewingFeedbackService } from "./viewing-feedback.service";
 import { ViewingReminderService } from "./viewing-reminder.service";
 
 @Module({
@@ -21,6 +22,8 @@ import { ViewingReminderService } from "./viewing-reminder.service";
     CalendarSyncService,
     // סבב התזכורות יושב כאן כי הוא קורא פגישות — ראו הקובץ עצמו
     ViewingReminderService,
+    // המשוב מהביקור — אותה כתיבה מהטופס ומהוואטסאפ
+    ViewingFeedbackService,
   ],
   // הסוכן קובע פגישות דרך אותו שירות שהמסך משתמש בו
   exports: [CalendarService],

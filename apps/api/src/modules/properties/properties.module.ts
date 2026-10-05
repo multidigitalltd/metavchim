@@ -1,17 +1,28 @@
 import { Module } from "@nestjs/common";
+import { SearchModule } from "../search/search.module";
 import { CollaborationModule } from "../collaboration/collaboration.module";
 import { ContactsModule } from "../contacts/contacts.module";
 import { LeadsModule } from "../leads/leads.module";
 import { MatchingModule } from "../matching/matching.module";
 import { MessagingModule } from "../messaging/messaging.module";
+import { TasksModule } from "../tasks/tasks.module";
 import { FeatureCatalogueModule } from "./feature-catalogue.module";
 import { LandingController } from "./landing.controller";
 import { LandingService } from "./landing.service";
 import { MediaController } from "./media.controller";
+import { OpenHouseController } from "./open-house.controller";
+import { OpenHouseService } from "./open-house.service";
 import { MediaService } from "./media.service";
+import { PropertyPhotoService } from "./property-photo.service";
 import { PropertiesController } from "./properties.controller";
 import { PropertiesService } from "./properties.service";
 import { PropertyActivityService } from "./property-activity.service";
+import { PropertyChecksController } from "./property-checks.controller";
+import { PropertyChecksService } from "./property-checks.service";
+import { PropertyBidsController } from "./property-bids.controller";
+import { PropertyBidsService } from "./property-bids.service";
+import { PropertyReofferController } from "./property-reoffer.controller";
+import { PropertyReofferService } from "./property-reoffer.service";
 import { PropertyTwinsController } from "./property-twins.controller";
 import { PropertyTwinsService } from "./property-twins.service";
 
@@ -29,20 +40,40 @@ import { PropertyTwinsService } from "./property-twins.service";
      * ב-`ListingsService`.
      */
     CollaborationModule,
+    /*
+     * ‎`SearchModule` — תמונה שנשלחה בוואטסאפ מוצאת את הנכס שלה
+     * ‏באותו חיפוש שהסוכן מזהה בו נכס מביטוי, ולכן באותו היקף
+     * ‏ראייה. מודול עלה בלי `imports` משלו — אין מעגל.
+     */
+    SearchModule,
+    /*
+     * ‎`TasksModule` — בדיקה שטרם נעשתה בתיק הבדיקות הופכת למשימה
+     * ‏דרך אותו שירות שהמסך והסוכן משתמשים בו, עם אותה אידמפוטנטיות.
+     */
+    TasksModule,
   ],
   controllers: [
     PropertiesController,
     PropertyTwinsController,
     MediaController,
     LandingController,
+    PropertyChecksController,
+    PropertyReofferController,
+    PropertyBidsController,
+    OpenHouseController,
   ],
   providers: [
     PropertiesService,
     PropertyActivityService,
     PropertyTwinsService,
     MediaService,
+    PropertyPhotoService,
     LandingService,
+    PropertyChecksService,
+    PropertyReofferService,
+    PropertyBidsService,
+    OpenHouseService,
   ],
-  exports: [PropertiesService, LandingService],
+  exports: [PropertiesService, LandingService, PropertyPhotoService],
 })
 export class PropertiesModule {}

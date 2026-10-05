@@ -19,7 +19,7 @@ import {
 } from "@metavchim/shared";
 import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
-import { EmailRejectedError, EmailService } from "../../core/email.service";
+import { EmailService, emailSendOutcome } from "../../core/email.service";
 import { PlatformAdminNotifierService } from "../../core/platform-admin-notifier.service";
 import { PlatformSettingsService } from "../../core/platform-settings.service";
 import { PrismaService } from "../../core/prisma.service";
@@ -499,7 +499,7 @@ export class SupportService {
     const replyBody = (input.reply ?? "").trim();
     const files = input.files ?? [];
     const attachments = files.map((file) => {
-      const kind = emailAttachmentKind(file.mimetype);
+      const kind = emailAttachmentKind(file.mimetype, file.buffer);
       if (kind === null) throw new BadRequestException(`סוג קובץ שאינו נתמך: ${file.originalname}`);
       return {
         name: safeAttachmentName(file.originalname),
@@ -575,6 +575,8 @@ export class SupportService {
         supportReplySubject(context),
         supportReplyEmail({ body: replyBody, context }),
         {
+          /* ‏אותו כלל: הרשומה הממתינה היא הזהות, ולא הנוסח */
+          idempotency: { key: `ticketreply:${messageId}`, purpose: "support" },
           /*
            * ‎`required` — **זה כל השינוי.** בלעדיו דחייה של הספק
            * נבלעת, והמסך מדווח „נענה” על מייל שלא יצא.
@@ -595,19 +597,19 @@ export class SupportService {
       );
     } catch (error: unknown) {
       /*
-       * ‎**„נכשלה” רק כשידוע שלא יצאה.** דחייה של הספק היא ודאות;
-       * פסק זמן ו-5xx אינם, וייתכן שהפונה כן קיבל.
+       * ‎**„נכשלה” רק כשידוע שלא יצאה** — אותה פונקציה כמו בשלושת
+       * ‏נתיבי השליחה האחרים.
        */
-      const certainlyNotSent = error instanceof EmailRejectedError;
+      const outcome = emailSendOutcome(error);
       await this.prisma
         .withSupportDesk((tx) =>
           tx.supportTicketMessage.update({
             where: { id: messageId },
-            data: { sendState: certainlyNotSent ? "failed" : "unknown" },
+            data: { sendState: outcome },
           }),
         )
         .catch(() => this.logger.error(`סימון מצב תשובת תמיכה נכשל: ${messageId}`));
-      if (certainlyNotSent) throw error;
+      if (outcome === "failed") throw error;
       state = "unknown";
       this.logger.warn(`תשובת תמיכה הסתיימה בתוצאה עמומה: ${messageId} — ${String(error)}`);
     }

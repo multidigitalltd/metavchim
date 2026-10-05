@@ -4,6 +4,7 @@ import {
   Delete,
   Get,
   HttpCode,
+  HttpException,
   NotFoundException,
   Param,
   Patch,
@@ -16,10 +17,18 @@ import {
 import { Throttle } from "@nestjs/throttler";
 import type { Request, Response } from "express";
 import { z } from "zod";
-import { afterLoginTarget, IdSchema, safeLoginReturnPath } from "@metavchim/shared";
+import {
+  afterLoginTarget,
+  MOBILE_HANDOFF_CODE_PATTERN,
+  mobileGoogleReturnUrl,
+  OptionalPhoneInputSchema,
+  safeLoginReturnPath,
+  type MobileGoogleError,
+} from "@metavchim/shared";
 import { loadEnv } from "../../config/env";
-import { ZodValidationPipe } from "../../common/zod-validation.pipe";
+import { ZodValidationPipe, IdParam, PublicTokenSchema } from "../../common/zod-validation.pipe";
 import { AnyAuthenticated, BillingAllowed, Public } from "../../common/auth.decorators";
+import { SESSION_COOKIE, sessionTokenOf, setSessionCookie } from "../../common/session-token";
 import { TenantContext } from "../../common/tenant-context";
 import {
   AuthService,
@@ -28,19 +37,44 @@ import {
   type SessionInfo,
 } from "./auth.service";
 import { GoogleAuthService } from "./google-auth.service";
+import { SignupService } from "../signup/signup.service";
 import { LoginOtpService } from "./login-otp.service";
 import { LoginThrottleService } from "./login-throttle.service";
+import { MobileHandoffService } from "./mobile-handoff.service";
 import { PasswordResetService } from "./password-reset.service";
 
-export const SESSION_COOKIE = "mv_session";
+/** ‏השם חי ב-`common/session-token.ts`; מיוצא מכאן לצרכנים הקיימים. */
+export { SESSION_COOKIE };
 /** state+nonce (ואם יש — יעד החזרה) של סבב ה-OAuth — קצר-חיים, נמחק מיד בסיום. */
 const OAUTH_COOKIE = "mv_oauth";
 const OAUTH_TTL_MS = 10 * 60 * 1000;
+
+/**
+ * ‏מי מתחבר — דפדפן או האפליקציה לנייד.
+ *
+ * ‏לדפדפן ה-Session נכנס לעוגיית `httpOnly` והגוף אינו נושא אותו.
+ * ‏לנייד אין צנצנת עוגיות שאפשר לסמוך עליה, ולכן הטוקן חוזר בגוף
+ * ‏התשובה והאפליקציה שומרת אותו ב-Keychain / Keystore ומצרפת אותו
+ * ‏בכותרת `Authorization` (ראו `common/session-token.ts`).
+ *
+ * ‏ההצהרה היא של הלקוח ולא ניחוש מ-User-Agent: מכשיר נייד שפותח את
+ * ‏אפליקציית הווב הוא עדיין דפדפן, ומגיע לו עוגייה.
+ */
+const ClientSchema = z.enum(["web", "mobile"]).default("web");
+
+/**
+ * ‏בקשת האפליקציה ל-Session ארוך ומתגלגל (30 יום) במקום 12 שעות —
+ * ‏כשהמכשיר עצמו נעול. השרת מכבד אותה רק מ-`client: "mobile"`
+ * ‏(`session-lifetime.ts`); בגוף של דפדפן היא מתעלמת.
+ */
+const PersistentSchema = z.boolean().default(false);
 
 const LoginSchema = z
   .object({
     email: z.string().email().max(254),
     password: z.string().min(8).max(200),
+    client: ClientSchema,
+    persistent: PersistentSchema,
   })
   .strict();
 
@@ -55,8 +89,8 @@ const UpdateProfileSchema = z
     // trim לפני הבדיקה: בלעדיו שם של רווחים בלבד עובר min(2) ואז
     // נשמר כמחרוזת ריקה, ושובר את כותרת הפרופיל (ביקורת Codex)
     name: z.string().trim().min(2).max(120).optional(),
-    /** ספרות, רווחים ומקפים; "" מנקה את השדה */
-    phone: z.union([z.string().regex(/^[\d\-+ ]{9,20}$/u), z.literal("")]).optional(),
+    /** ‏הכלל המשותף — כל צורה שאדם מקליד, נשמר מנורמל; "" מנקה את השדה */
+    phone: OptionalPhoneInputSchema,
     email: z.string().email().max(254).optional(),
     currentPassword: z.string().min(1).max(200).optional(),
     preferences: z.record(z.string(), z.unknown()).optional(),
@@ -79,17 +113,65 @@ const VerifyOtpSchema = z
   .object({
     otpToken: z.string().regex(/^[A-Za-z0-9_-]{32}$/u),
     code: z.string().regex(/^\d{6}$/u),
+    client: ClientSchema,
+    persistent: PersistentSchema,
   })
   .strict();
+
+/**
+ * ‏תשובת התחברות. לנייד — גם ה-Session עצמו; לדפדפן הוא בעוגייה
+ * ‏ואינו מופיע כאן, כדי שסקריפט בדף לא יוכל לקרוא אותו.
+ */
+type LoginResult =
+  | { user: AuthenticatedUser }
+  | { user: AuthenticatedUser; session: { token: string; expiresAt: string } };
 
 const ForgotPasswordSchema = z.object({ email: z.string().email().max(254) }).strict();
 
+/** ‏הסימן ל-web שהוא רץ בתוך האפליקציה — אותו שם כמו ב-`apps/web/src/lib/embedded.ts`. */
+const EMBEDDED_COOKIE = "mv_embedded";
+const EMBEDDED_COOKIE_TTL_MS = 365 * 24 * 60 * 60 * 1000;
+
+/** ‏נתיב פנימי לאחר הנחיתה — לוכסן אחד בתחילתו, ואחרת לוח הבקרה. */
+function safeInternalPath(next: unknown): string {
+  return typeof next === "string" && /^\/(?!\/)[^\s]*$/u.test(next) ? next : "/";
+}
+
+/** ‏הקוד שהאפליקציה קיבלה בכתובת החזרה מ-Google (ראו `mobile-handoff.service.ts`). */
+const GoogleExchangeSchema = z
+  .object({ code: z.string().regex(MOBILE_HANDOFF_CODE_PATTERN), persistent: PersistentSchema })
+  .strict();
+
 const ResetPasswordSchema = z
   .object({
-    token: z.string().regex(/^[A-Za-z0-9_-]{43}$/u),
+    token: PublicTokenSchema,
     newPassword: z.string().min(10).max(200),
   })
   .strict();
+
+/**
+ * ‎**„אין חשבון כזה” — הכרעה אחת, ולא ביטוי רגולרי בשני מקומות.**
+ *
+ * ‏`loginWithVerifiedEmail` זורק את ההודעה הזו גם על משתמש שאינו
+ * ‏קיים וגם על משתמש מושבת. שני הענפים שמסתמכים עליה — פתיחת משרד
+ * ‏חינמי, וההודעה שחוזרת למסך — חייבים לזהות אותה אותו דבר; שתי
+ * ‏בדיקות נפרדות היו מתפצלות ביום שהנוסח משתנה, ואז אחד מהם היה
+ * ‏שותק.
+ */
+function isUnknownAccount(error: unknown): boolean {
+  return error instanceof UnauthorizedException && /לא קיים/u.test(error.message);
+}
+
+/**
+ * ‎**„נחסמת בגלל קצב” — נשאל מהסטטוס, ולא מנוסח ההודעה.**
+ *
+ * ‏התקרה על פתיחת דיירים יושבת בעומק `SignupService`, ומה שמגיע
+ * ‏לכאן הוא חריגה עם סטטוס ‎429. בדיקה לפי טקסט הייתה נשברת בשקט
+ * ‏בשינוי נוסח, ואז מי שנחסם לשעה היה מקבל „נסו שוב”.
+ */
+function isRateLimited(error: unknown): boolean {
+  return error instanceof HttpException && error.getStatus() === 429;
+}
 
 @Controller("auth")
 export class AuthController {
@@ -99,6 +181,12 @@ export class AuthController {
     private readonly otp: LoginOtpService,
     private readonly passwordReset: PasswordResetService,
     private readonly google: GoogleAuthService,
+    private readonly handoff: MobileHandoffService,
+    /*
+     * ‏רק לפתיחת משרד חינמי לכתובת Google שאין לה חשבון. הכניסה
+     * ‏עצמה נשארת ב-`AuthService`.
+     */
+    private readonly signup: SignupService,
   ) {}
 
   /** אילו אמצעי התחברות פעילים — מסך הכניסה מציג לפי זה. */
@@ -122,8 +210,16 @@ export class AuthController {
   @Get("google/start")
   async googleStart(@Req() req: Request, @Res() res: Response): Promise<void> {
     const { state, nonce } = GoogleAuthService.newHandshake();
-    const next = safeLoginReturnPath((req.query as Record<string, unknown>)["next"]);
-    res.cookie(OAUTH_COOKIE, `${state}.${nonce}${next === null ? "" : `.${next}`}`, {
+    const query = req.query as Record<string, unknown>;
+    const next = safeLoginReturnPath(query["next"]);
+    /*
+     * ‏מי פתח את הסבב — הדפדפן או האפליקציה לנייד — נוסע גם הוא
+     * ‏בעוגייה, כמקטע רביעי. הסיום שונה לגמרי (ראו `googleCallback`),
+     * ‏והאפליקציה אינה יכולה להגיד זאת בחזרה: את החזרה עושה Google.
+     */
+    const client = query["client"] === "mobile" ? "mobile" : "web";
+    const handshake = [state, nonce, next ?? "", client === "mobile" ? "mobile" : ""].join(".").replace(/\.+$/u, "");
+    res.cookie(OAUTH_COOKIE, handshake, {
       httpOnly: true,
       secure: loadEnv().COOKIE_SECURE,
       // lax ולא strict: העוגייה חייבת להישלח בחזרה מהניווט של Google
@@ -137,6 +233,11 @@ export class AuthController {
   /**
    * שלב 2 — חזרה מ-Google. בסיום מפנים תמיד למסך של האפליקציה
    * (הצלחה או שגיאה), כי זה ניווט של הדפדפן ולא קריאת API.
+   *
+   * ‏לאפליקציה לנייד הסיום אחר: במקום עוגייה והפניה למסך ב-web —
+   * ‏הפניה לכתובת עם הסכימה של האפליקציה, ובה קוד חד-פעמי שהאפליקציה
+   * ‏ממירה ל-Session ב-`google/exchange`. גם הכישלון חוזר לשם, עם
+   * ‏אותן סיבות שמסך ההתחברות ב-web מכיר.
    */
   @Public()
   @Get("google/callback")
@@ -147,20 +248,24 @@ export class AuthController {
     res.clearCookie(OAUTH_COOKIE, { path: "/" }); // חד-פעמי בכל מקרה
 
     /*
-     * שלושת החלקים מופרדים בנקודה, ואף אחד מהם אינו יכול להכיל
-     * אותה: state ו-nonce הם base64url, ורשימת ההיתר של יעד החזרה
-     * אינה מתירה נקודה. נתיב שנכנס בכל זאת ייחתך כאן ואז ייפול
-     * בבדיקה החוזרת — כלומר ליעד ברירת המחדל, לא ליעד זר.
+     * ארבעת החלקים מופרדים בנקודה, ואף אחד מהם אינו יכול להכיל
+     * אותה: state ו-nonce הם base64url, רשימת ההיתר של יעד החזרה
+     * אינה מתירה נקודה, והמקטע הרביעי הוא `mobile` או ריק. נתיב
+     * שנכנס בכל זאת ייחתך כאן ואז ייפול בבדיקה החוזרת — כלומר ליעד
+     * ברירת המחדל, לא ליעד זר.
      */
-    const [expectedState, expectedNonce, returnPath] = (handshake ?? "").split(".");
+    const [expectedState, expectedNonce, returnPath, client] = (handshake ?? "").split(".");
+    const mobile = client === "mobile";
     const target = afterLoginTarget(returnPath);
     /*
      * גם כישלון חוזר עם היעד: מי שניסה עם Google ונדחה מנסה מיד
      * אחר כך עם סיסמה, ואם היעד נשמט כאן הלינק אבד באותה מידה.
      */
-    const loginError = (reason: string): string =>
-      `${webOrigin}/login?googleError=${reason}` +
-      (target === "/" ? "" : `&next=${encodeURIComponent(target)}`);
+    const loginError = (reason: MobileGoogleError): string =>
+      mobile
+        ? mobileGoogleReturnUrl({ kind: "error", error: reason })
+        : `${webOrigin}/login?googleError=${reason}` +
+          (target === "/" ? "" : `&next=${encodeURIComponent(target)}`);
     const code = query["code"];
 
     if (query["error"] !== undefined || !code || !expectedState || !expectedNonce) {
@@ -180,29 +285,157 @@ export class AuthController {
         res.redirect(loginError("unverified"));
         return;
       }
-      const user = await this.auth.loginWithVerifiedEmail(identity.email);
+      /*
+       * ‎**כתובת שאין לה חשבון פותחת משרד חינמי, ולא נעצרת בדלת.**
+       *
+       * ‏עד כה כאן נגמר הסיפור: „החשבון לא קיים במערכת — פנו למנהל
+       * ‏המשרד”. זה נכון למי שהוזמן למשרד קיים, ולא נכון בכלל למי
+       * ‏שסתם רוצה להתחיל — הוא הגיע עם כתובת ש-Google אימתה, ואין
+       * ‏לו שום דרך להמשיך (בקשת המשתמש).
+       *
+       * ‏הפתיחה דרך `SignupService` ולא כתיבה כאן: שם יושבים בחירת
+       * ‏המסלול, בדיקת הכתובת, הדייר והמשתמש בטרנזקציה אחת ומייל
+       * ‏הפתיחה. ‎`null` משם = לא נפתח חשבון (כתובת תפוסה, או שאין
+       * ‏מסלול חינמי ציבורי), ואז חוזרים להודעה הרגילה במקום לומר
+       * ‏משהו שאינו נכון.
+       */
+      let user: Awaited<ReturnType<AuthService["loginWithVerifiedEmail"]>>;
+      try {
+        user = await this.auth.loginWithVerifiedEmail(identity.email);
+      } catch (error) {
+        if (!isUnknownAccount(error)) throw error;
+        const created = await this.signup.createFromVerifiedIdentity(identity, req.ip);
+        if (created === null) throw error;
+        user = created;
+      }
+      if (mobile) {
+        /*
+         * ‏לא Session — קוד. ה-Session ייוולד בבקשה של האפליקציה
+         * ‏עצמה (`googleExchange`), ולא בדפדפן שהאפליקציה פתחה.
+         */
+        res.redirect(mobileGoogleReturnUrl({ kind: "code", code: await this.handoff.issueGoogle(user.id) }));
+        return;
+      }
       const { token, expiresAt } = await this.auth.issueSession(user, {
         ip: req.ip,
         userAgent: req.headers["user-agent"],
       });
-      this.setSessionCookie(res, token, expiresAt);
+      setSessionCookie(res, token, expiresAt);
       res.redirect(`${webOrigin}${target}`);
     } catch (error) {
       // אימייל שאינו רשום במשרד — הודעה נפרדת, כי זו לא תקלה אלא
       // חוסר הרשאה, והמתווך צריך לדעת לפנות למנהל
-      const unknown = error instanceof UnauthorizedException && /לא קיים/u.test(error.message);
-      res.redirect(loginError(unknown ? "unknown" : "failed"));
+      if (isUnknownAccount(error)) {
+        res.redirect(loginError("unknown"));
+        return;
+      }
+      /*
+       * ‎**„נסו שוב בעוד שעה” ולא „נסו שוב”.** התקרה על פתיחת
+       * ‏חשבונות היא המקום היחיד כאן שחוסם למשך זמן, והודעת הכישלון
+       * ‏הכללית („נסו שוב או התחברו עם סיסמה”) הייתה שולחת את מי
+       * ‏שנתקל בה ללחוץ שוב ושוב על כפתור שלא ייפתח לו — ועוד בלי
+       * ‏שיש לו בכלל סיסמה לחזור אליה.
+       */
+      res.redirect(loginError(isRateLimited(error) ? "busy" : "failed"));
     }
   }
 
-  private setSessionCookie(res: Response, token: string, expiresAt: Date): void {
-    res.cookie(SESSION_COOKIE, token, {
-      httpOnly: true,
-      secure: loadEnv().COOKIE_SECURE,
+  /**
+   * ‏שלב 3, לנייד בלבד — המרת הקוד מכתובת החזרה ל-Session בגוף
+   * ‏התשובה, כמו `login` עם `client: "mobile"`. המשתמש נבדק שוב
+   * ‏(קיים, פעיל, המשרד רשאי לעבוד): הקוד הוכיח בעלות על הכתובת לפני
+   * ‏פחות מדקה, לא יותר מזה.
+   */
+  @Public()
+  @Post("google/exchange")
+  @Throttle({ default: { ttl: 60_000, limit: 10 } })
+  @HttpCode(200)
+  async googleExchange(
+    @Body(new ZodValidationPipe(GoogleExchangeSchema)) body: z.infer<typeof GoogleExchangeSchema>,
+    @Req() req: Request,
+  ): Promise<LoginResult> {
+    const userId = await this.handoff.redeemGoogle(body.code);
+    const user = await this.auth.getUserForSession(userId);
+    const { token, expiresAt } = await this.auth.issueSession(user, {
+      ip: req.ip,
+      userAgent: req.headers["user-agent"],
+      client: "mobile",
+      persistent: body.persistent,
+    });
+    return { user, session: { token, expiresAt: expiresAt.toISOString() } };
+  }
+
+  /**
+   * ‏הכיוון ההפוך: ה-Session של האפליקציה אל הדפדפן המוטמע שלה.
+   *
+   * ‏האפליקציה מציגה את מסכי ה-web שאין לה גרסה נייטיבית שלהם בתוך
+   * ‏WebView, וה-web מדבר עם ה-API בעוגייה. הקוד כאן נושא את **אותו**
+   * ‏Session (ולא מנפיק חדש — שער „חיבור אחד לחשבון” ב-web היה רואה
+   * ‏חיבור שני), תקף לדקה ולשימוש אחד. ראו `mobile-handoff.service.ts`.
+   *
+   * ‏`BillingAllowed`: משרד שתקופתו נגמרה צריך להגיע דווקא למסך המנוי
+   * ‏ב-web — וזה הנתיב שמביא אותו לשם.
+   */
+  @AnyAuthenticated()
+  @BillingAllowed()
+  @Post("web-session")
+  @Throttle({ default: { ttl: 60_000, limit: 30 } })
+  @HttpCode(200)
+  async webSession(@Req() req: Request): Promise<{ code: string; webOrigin: string }> {
+    const token = sessionTokenOf(req);
+    if (token === null) throw new UnauthorizedException();
+    /*
+     * ‏גם המקור של ה-web: בייצור הוא זהה ל-API (Caddy), אבל בפיתוח
+     * ‏ה-API ב-3001 וה-web ב-3000 — והאפליקציה מכירה רק את ה-API.
+     * ‏הנחיתה מפנה ל-`WEB_ORIGIN`, וה-WebView חייב לדעת שזה „שלנו”.
+     */
+    return { code: await this.handoff.issueWebSession(token), webOrigin: loadEnv().WEB_ORIGIN };
+  }
+
+  /**
+   * ‏הנחיתה של ה-WebView: הקוד → אותו Session בעוגייה (עם התפוגה
+   * ‏המקורית שלו), עוגיית `mv_embedded` שמסתירה את מעטפת ה-web (ראו
+   * ‏`apps/web/src/lib/embedded.ts`), והפניה למסך המבוקש.
+   *
+   * ‏`next` הוא נתיב פנימי בלבד — לוכסן אחד בתחילתו, ולא שניים
+   * ‏(`//host` הוא כתובת מוחלטת בעיני הדפדפן): הפניה לפי קלט שלא
+   * ‏נבדק היא open redirect, גם כשהקלט מגיע מהאפליקציה שלנו.
+   */
+  @Public()
+  @Get("web-session/:code")
+  async webSessionLanding(
+    @Param("code") code: string,
+    @Req() req: Request,
+    @Res() res: Response,
+  ): Promise<void> {
+    const env = loadEnv();
+    const next = safeInternalPath((req.query as Record<string, unknown>)["next"]);
+    if (!MOBILE_HANDOFF_CODE_PATTERN.test(code)) {
+      res.redirect(`${env.WEB_ORIGIN}/login`);
+      return;
+    }
+    let token: string;
+    try {
+      token = await this.handoff.redeemWebSession(code);
+    } catch {
+      res.redirect(`${env.WEB_ORIGIN}/login`);
+      return;
+    }
+    const expiresAt = await this.auth.sessionExpiry(token);
+    if (expiresAt === null || expiresAt.getTime() <= Date.now()) {
+      res.redirect(`${env.WEB_ORIGIN}/login`);
+      return;
+    }
+    setSessionCookie(res, token, expiresAt);
+    res.cookie(EMBEDDED_COOKIE, "1", {
+      // ‏נקראת בצד הלקוח (ה-AppShell), ולכן אינה httpOnly
+      httpOnly: false,
+      secure: env.COOKIE_SECURE,
       sameSite: "lax",
-      expires: expiresAt,
+      maxAge: EMBEDDED_COOKIE_TTL_MS,
       path: "/",
     });
+    res.redirect(`${env.WEB_ORIGIN}${next}`);
   }
 
   @Public()
@@ -213,7 +446,7 @@ export class AuthController {
     @Body() body: z.infer<typeof LoginSchema>,
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
-  ): Promise<{ user: AuthenticatedUser } | { otpRequired: true; otpToken: string }> {
+  ): Promise<LoginResult | { otpRequired: true; otpToken: string }> {
     // הזמנה אטומית לפני כל עבודת סיסמה — גם בקשות מקבילות לא עוקפות
     // את הסף (docs/04 §6; ביקורת Codex, PR #15).
     await this.throttle.reserveAttempt(body.email, req.ip);
@@ -241,8 +474,28 @@ export class AuthController {
     const { token, expiresAt, user } = await this.auth.issueSession(validated, {
       ip: req.ip,
       userAgent: req.headers["user-agent"],
+      client: body.client,
+      persistent: body.persistent,
     });
-    this.setSessionCookie(res, token, expiresAt);
+    return this.deliverSession(res, body.client, user, token, expiresAt);
+  }
+
+  /**
+   * ‏מסירת ה-Session ללקוח לפי סוגו — עוגייה לדפדפן, גוף לנייד.
+   * ‏אף פעם לא שניהם: Session שנמצא גם בעוגייה וגם בידי סקריפט הוא
+   * ‏הגרוע שבשני העולמות.
+   */
+  private deliverSession(
+    res: Response,
+    client: z.infer<typeof ClientSchema>,
+    user: AuthenticatedUser,
+    token: string,
+    expiresAt: Date,
+  ): LoginResult {
+    if (client === "mobile") {
+      return { user, session: { token, expiresAt: expiresAt.toISOString() } };
+    }
+    setSessionCookie(res, token, expiresAt);
     return { user };
   }
 
@@ -257,18 +510,19 @@ export class AuthController {
     @Body(new ZodValidationPipe(VerifyOtpSchema)) body: z.infer<typeof VerifyOtpSchema>,
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
-  ): Promise<{ user: AuthenticatedUser }> {
+  ): Promise<LoginResult> {
     if (!(await this.otp.isActive())) {
       throw new UnauthorizedException();
     }
     const userId = await this.otp.verify(body.otpToken, body.code);
     const user = await this.auth.getUserForSession(userId);
-    const { token, expiresAt } = await this.auth.issueSession(user, {
+    const { token, expiresAt, user: sessionUser } = await this.auth.issueSession(user, {
       ip: req.ip,
       userAgent: req.headers["user-agent"],
+      client: body.client,
+      persistent: body.persistent,
     });
-    this.setSessionCookie(res, token, expiresAt);
-    return { user };
+    return this.deliverSession(res, body.client, sessionUser, token, expiresAt);
   }
 
   /**
@@ -307,7 +561,7 @@ export class AuthController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<{ ok: true }> {
-    const token = (req.cookies as Record<string, string> | undefined)?.[SESSION_COOKIE];
+    const token = sessionTokenOf(req) ?? undefined;
     if (token) {
       await this.auth.logout(token);
     }
@@ -377,7 +631,7 @@ export class AuthController {
   ): Promise<ProfileDto> {
     const user = (req as Request & { authUser?: AuthenticatedUser }).authUser;
     if (!user) throw new UnauthorizedException();
-    const token = (req.cookies as Record<string, string> | undefined)?.[SESSION_COOKIE];
+    const token = sessionTokenOf(req) ?? undefined;
     return this.auth.updateProfile(user.id, body, token);
   }
 
@@ -412,7 +666,7 @@ export class AuthController {
     if (!user) {
       throw new UnauthorizedException();
     }
-    const token = (req.cookies as Record<string, string> | undefined)?.[SESSION_COOKIE];
+    const token = sessionTokenOf(req) ?? undefined;
     await this.auth.changePassword(user.id, body.currentPassword, body.newPassword, token);
     return { ok: true };
   }
@@ -433,7 +687,7 @@ export class AuthController {
   async sessions(@Req() req: Request): Promise<{ sessions: SessionInfo[] }> {
     const user = (req as Request & { authUser?: AuthenticatedUser }).authUser;
     if (!user) throw new UnauthorizedException();
-    const token = (req.cookies as Record<string, string> | undefined)?.[SESSION_COOKIE];
+    const token = sessionTokenOf(req) ?? undefined;
     return { sessions: await this.auth.listSessions(user.id, token) };
   }
 
@@ -447,7 +701,7 @@ export class AuthController {
   @Delete("sessions/:id")
   @HttpCode(200)
   async revokeSession(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
     @Req() req: Request,
   ): Promise<{ ok: true }> {
     const user = (req as Request & { authUser?: AuthenticatedUser }).authUser;
@@ -469,7 +723,7 @@ export class AuthController {
   async revokeOtherSessions(@Req() req: Request): Promise<{ revoked: number }> {
     const user = (req as Request & { authUser?: AuthenticatedUser }).authUser;
     if (!user) throw new UnauthorizedException();
-    const token = (req.cookies as Record<string, string> | undefined)?.[SESSION_COOKIE];
+    const token = sessionTokenOf(req) ?? undefined;
     return { revoked: await this.auth.revokeAllSessions(user.id, token) };
   }
 }

@@ -1,8 +1,13 @@
 import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Query } from "@nestjs/common";
 import { z } from "zod";
-import { IdSchema, PROPERTY_READINESS_FIELDS, TASK_PRIORITIES } from "@metavchim/shared";
+import {
+  IdSchema,
+  PROPERTY_READINESS_FIELDS,
+  TASK_ENTITY_TYPES,
+  TASK_PRIORITIES,
+} from "@metavchim/shared";
 import { RequireCapability } from "../../common/auth.decorators";
-import { ZodValidationPipe } from "../../common/zod-validation.pipe";
+import { ZodValidationPipe, IdParam } from "../../common/zod-validation.pipe";
 import { TasksService, type TaskDto } from "./tasks.service";
 
 /**
@@ -15,7 +20,7 @@ const CreateTaskSchema = z
     notes: z.string().max(2000).optional(),
     dueAt: z.coerce.date().optional(),
     priority: z.enum(TASK_PRIORITIES).optional(),
-    entityType: z.enum(["lead", "buyer", "property"]).optional(),
+    entityType: z.enum(TASK_ENTITY_TYPES).optional(),
     entityId: IdSchema.optional(),
     /** ריק = על עצמי. אחר דורש tasks.assign — נאכף בשירות. */
     assignedToUserId: IdSchema.optional(),
@@ -60,9 +65,8 @@ const ListQuerySchema = z
   })
   .strict();
 
-const EntityTypeSchema = z.enum(["lead", "buyer", "property"]);
+const EntityTypeSchema = z.enum(TASK_ENTITY_TYPES);
 
-const IdParam = new ZodValidationPipe(IdSchema);
 
 @Controller("tasks")
 export class TasksController {
@@ -77,11 +81,26 @@ export class TasksController {
   }
 
   /**
-   * מי אפשר להטיל עליו. `tasks.assign` ולא `users.manage`: זו רשימה
-   * לבחירה, לא ניהול צוות.
+   * ‎**מי במשרד אפשר למסור לו — שם ומזהה, ותו לא.**
+   *
+   * ‎`tasks.assign` ולא `users.manage`: זו רשימה לבחירה, לא ניהול
+   * ‏צוות.
+   *
+   * ‎**וגם `leads.edit`, כי שתיהן שואלות את אותה שאלה.** מסירת ליד
+   * ‏בין סוכנים אינה פעולת מנהל („בין סוכנים ניתן להעביר לידים
+   * ‏בלבד”), וסוכן שיוצא לחופשה חייב לדעת למי למסור. בלי זה הבורר
+   * ‏שנפתח לו היה נשלף ב-403, נבלע לרשימה ריקה, ומשאיר כפתור מושבת
+   * ‏לנצח — פיצ'ר שנראה קיים ואינו עובד (ביקורת Codex, P1).
+   *
+   * ‎**מה שנחשף הוא שם ומזהה של עמית באותו משרד** — לא לקוחות, לא
+   * ‏לידים, ולא פרטי קשר. אי אפשר למסור למי שאי אפשר לנקוב בשמו,
+   * ‏וזה המינימום שהפעולה דורשת.
+   *
+   * ‎`RequireCapability` הוא „אחת מהן” (`some` ב-`AuthGuard`), ולכן
+   * ‏זו הרחבה ולא החלפה: מי שיש לו `tasks.assign` ממשיך כרגיל.
    */
   @Get("assignees")
-  @RequireCapability("tasks.assign")
+  @RequireCapability("tasks.assign", "leads.edit")
   assignees(): Promise<{ id: string; name: string }[]> {
     return this.tasks.assignees();
   }

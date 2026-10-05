@@ -26,6 +26,7 @@ function plan(overrides: Partial<PlanDefinition> = {}): PlanDefinition {
     maxAutomations: null,
     maxNetworkListings: null,
     maxNetworkDemands: null,
+    whatsappSeatMonthlyAgorot: null,
     features: ["analytics"],
     trialDays: 14,
     priceOnRequest: false,

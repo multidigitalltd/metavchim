@@ -38,7 +38,7 @@ export function VoiceConsole(): React.JSX.Element | null {
      * mv-agent ולא mv-card: המשתמש ביקש שהאזור יהיה תחום, צבעוני
      * ומזמין — כרטיס לבן בין כרטיסים לבנים אינו אף אחד מהשלושה.
      */
-    <section className="mv-agent mb-4" aria-labelledby="agent-console-title">
+    <section className="mv-agent" aria-labelledby="agent-console-title">
       <div className="mv-agent-head">
         <span className="mv-agent-badge" aria-hidden="true">
           <IconMic s={21} />
@@ -78,11 +78,15 @@ export function VoiceConsole(): React.JSX.Element | null {
           שנייה באותו שדה נכתבת על הראשונה במקום להתווסף אחריה.
         */}
         {/*
-          ‎`browserOnly` — „מהיר” בלבד: כאן מדברים פקודה קצרה ורוצים
-          לראות אותה זוחלת על המסך תוך כדי.
+          ‎`standalone` — כאן המיקרופון הוא כל מה שהמסגרת מציעה, ולכן
+          ‏כשאין לו מנוע כלל נאמר זאת במקום להיעלם.
+
+          ‏זיהוי הדפדפן נשאר המצב המועדף — פקודה קצרה זוחלת על המסך
+          ‏תוך כדי הדיבור — אבל הוא כבר אינו היחיד: מכשיר שבו הוא
+          ‏חסום נופל לתמלול בשרת, כמו בכל שדה אחר.
         */}
         <DictationControls
-          browserOnly
+          standalone
           onAppend={(spoken) => setText(base === "" ? spoken : `${base} ${spoken}`)}
           onIdle={() => setBase(text)}
         />

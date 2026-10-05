@@ -1,7 +1,6 @@
 import { Body, Controller, Get, Param, Put, Query } from "@nestjs/common";
 import { z } from "zod";
 import {
-  IdSchema,
   MarketDealsQuerySchema,
   MarketNatureGroupSchema,
   MarketScopeQuerySchema,
@@ -19,7 +18,7 @@ import {
   type PropertyParcelInput,
 } from "@metavchim/shared";
 import { RequireCapability } from "../../common/auth.decorators";
-import { ZodValidationPipe } from "../../common/zod-validation.pipe";
+import { IdParam, ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { MarketBuyerService } from "./market-buyer.service";
 import { MarketPropertyService } from "./market-property.service";
 import { MarketService } from "./market.service";
@@ -33,7 +32,7 @@ const MapQuerySchema = z
 const ProspectingQuerySchema = z.object({ settlementId: SettlementIdSchema }).strict();
 
 /**
- * ‎**נתוני שוק — מסכי המשרד** (docs/14).
+ * ‎**נתוני שוק — מסכי המשרד** (docs/18).
  *
  * הקריאה הכללית (סטטיסטיקה, עסקאות, חלקה, מפה) תחת `properties.view`:
  * זה מידע ציבורי, וכל מי שעובד במשרד ומורשה לראות נכסים מורשה לראות
@@ -53,14 +52,14 @@ export class MarketController {
 
   @Get("properties/:id")
   @RequireCapability("properties.view")
-  async property(@Param("id", new ZodValidationPipe(IdSchema)) id: string): Promise<PropertyMarketDto> {
+  async property(@Param("id", IdParam) id: string): Promise<PropertyMarketDto> {
     return this.properties.forProperty(id, new Date());
   }
 
   @Put("properties/:id/parcel")
   @RequireCapability("properties.edit")
   async setParcel(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
     @Body(new ZodValidationPipe(z.object({ parcel: PropertyParcelSchema }).strict()))
     body: { parcel: PropertyParcelInput },
   ): Promise<PropertyMarketDto> {
@@ -69,7 +68,7 @@ export class MarketController {
 
   @Get("buyers/:id")
   @RequireCapability("buyers.view_own")
-  async buyer(@Param("id", new ZodValidationPipe(IdSchema)) id: string): Promise<BuyerMarketDto> {
+  async buyer(@Param("id", IdParam) id: string): Promise<BuyerMarketDto> {
     return this.buyers.forBuyer(id, new Date());
   }
 

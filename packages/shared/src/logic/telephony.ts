@@ -11,6 +11,7 @@
  * בה בשקט, ולכן היא מכוסה בבדיקות.
  */
 import { normalizePhone } from "./contact-people.js";
+import { RECORDING_PROVIDER_REFUSAL } from "./recording-state.js";
 
 /**
  * שני ספקים, ושניהם ממומשים.
@@ -25,11 +26,39 @@ import { normalizePhone } from "./contact-people.js";
  */
 export type TelephonyProviderId = "generic" | "015";
 
+/**
+ * ‎**מה נשבר בלי השדה הזה — ולמה זו לא רשימה של „חובה”.**
+ *
+ * ‏קליטת שיחות נכנסות אינה מופיעה כאן **בכוונה**: היא אינה תלויה
+ * ‏באף שדה. המרכזייה דוחפת לכתובת, המפתח שבתוכה מזהה את המשרד, וזה
+ * ‏כל מה שנדרש. שדות 015 פותחים דברים **אחרים** — חיוג יוצא,
+ * ‏משיכת הקלטות, סופטפון — וכל אחד מהם ממשיך לא לעבוד עד שימולא,
+ * ‏בלי לעצור את מה שכבר עובד.
+ *
+ * ‎`undefined` = לא חוסם דבר (מזהה מתקשר, קו ברירת מחדל).
+ */
+export type TelephonyCapability = "dialling" | "recordings" | "softphone";
+
+/** ‏מה כל יכולת נותנת, במילים של מנהל המשרד. */
+export const TELEPHONY_CAPABILITY_LABELS: Record<TelephonyCapability, string> = {
+  dialling: "חיוג בלחיצה מהמערכת",
+  recordings: "משיכת הקלטות השיחות",
+  softphone: "מענה ושיחה מתוך הדפדפן",
+};
+
+export interface TelephonyField {
+  key: string;
+  label: string;
+  secret: boolean;
+  /** ‏מה לא יעבוד כל עוד הוא ריק. `undefined` = לא חוסם דבר. */
+  needed?: TelephonyCapability;
+}
+
 export interface TelephonyProvider {
   id: TelephonyProviderId;
   label: string;
   /** מה המשרד צריך להזין כדי לחבר את הספק. */
-  fields: { key: string; label: string; secret: boolean }[];
+  fields: TelephonyField[];
   /**
    * האם **קיים מימוש** של חיוג יוצא לספק הזה — לא האם הספק תומך.
    *
@@ -37,6 +66,20 @@ export interface TelephonyProvider {
    * והמסך הבטיח פיצ'ר שלא קרה. הוא נכון רק כשיש `dial` בשירות.
    */
   clickToDial: boolean;
+  /**
+   * ‎**האם קיים מימוש של משיכת הקלטות לספק הזה** — לא האם הספק
+   * ‏תומך.
+   *
+   * ‏אותו כלל של `clickToDial`, ומאותה סיבה: `RecordingFetchService`
+   * ‏מדבר עם ה-API של 015 בלבד, וכל מסך שהציע „ייבוא הקלטות” למשרד
+   * ‏גנרי הזמין פעולה שחוזרת ב-400 „אין מרכזיית 015 מחוברת” —
+   * ‏כלומר האשים את המשתמש במה שהמסך הציע לו.
+   *
+   * ‏שני מסכים מציעים את הפעולה (המשרד ושולחן החיבורים), ולכן
+   * ‏התנאי יושב כאן ולא בכל אחד מהם: השני נכתב בהעתקה, וזה בדיוק
+   * ‏מה שסוטה.
+   */
+  recordingImport: boolean;
 }
 
 /**
@@ -53,6 +96,7 @@ export const TELEPHONY_PROVIDERS: readonly TelephonyProvider[] = [
     label: "מרכזייה כללית (Webhook)",
     fields: [],
     clickToDial: false,
+    recordingImport: false,
   },
   {
     /*
@@ -83,9 +127,9 @@ export const TELEPHONY_PROVIDERS: readonly TelephonyProvider[] = [
        * כאן מעולם. משרד שלא ימלא אותו יקבל הודעה שאומרת בדיוק מה
        * חסר, ולא שיחה שנכשלת בלי סיבה גלויה.
        */
-      { key: "customer", label: "מספר לקוח ב-015 (customer)", secret: false },
-      { key: "authUsername", label: "שם משתמש ב-015", secret: false },
-      { key: "authPassword", label: "סיסמה ב-015", secret: true },
+      { key: "customer", label: "מספר לקוח ב-015 (customer)", secret: false, needed: "dialling" },
+      { key: "authUsername", label: "שם משתמש ב-015", secret: false, needed: "dialling" },
+      { key: "authPassword", label: "סיסמה ב-015", secret: true, needed: "dialling" },
       /*
        * **קבוצת ההקלטות — של המשרד, ולא של המערכת.**
        *
@@ -102,6 +146,8 @@ export const TELEPHONY_PROVIDERS: readonly TelephonyProvider[] = [
         key: "recordGroup",
         label: "מספר קבוצת ההקלטות ב-015 (recordgroup)",
         secret: false,
+        /* ‏יש נפילה לאחור לפי הנתיב, ולכן „חלקי” ולא „לא עובד” */
+        needed: "recordings",
       },
       {
         key: "defaultLine",
@@ -114,12 +160,67 @@ export const TELEPHONY_PROVIDERS: readonly TelephonyProvider[] = [
        * זהים לכולם — מה שמשתנה בין סוכנים הוא קו ה-SIP האישי, והוא
        * יושב על המשתמש.
        */
-      { key: "sipWssUrl", label: "כתובת WSS לסופטפון (wss://…)", secret: false },
-      { key: "sipDomain", label: "דומיין SIP (למשל sip.015.net)", secret: false },
+      { key: "sipWssUrl", label: "כתובת WSS לסופטפון (wss://…)", secret: false, needed: "softphone" },
+      { key: "sipDomain", label: "דומיין SIP (למשל sip.015.net)", secret: false, needed: "softphone" },
     ],
     clickToDial: true,
+    recordingImport: true,
   },
 ];
+
+/**
+ * ‎**מה כבר עובד, ומה עוד חסר — וזו אינה שאלה של „מחובר”.**
+ *
+ * ‏עד כה כתובת ה-Webhook הוצגה רק אחרי שנשמר חיבור, והטופס של 015
+ * ‏הציג שמונה שדות שנראים חובה. מנהל שממתין לפרטי הגישה מ-015 —
+ * ‏המצב הרגיל בימים הראשונים — לא יכול היה להוציא את הכתובת, ולכן
+ * ‏**אף שיחה לא נקלטה** בזמן שהוא מחכה. הצימוד הזה היה השגיאה:
+ * ‏המפתח שבכתובת מזהה את המשרד, ואינו נגזר משום פרט של 015.
+ *
+ * ‏הפונקציה הזו אומרת בדיוק את זה: קליטת השיחות עובדת מרגע
+ * ‏שהכתובת הודבקה במרכזייה, ולכל יכולת נוספת יש רשימת שדות משלה.
+ * ‏כלל אחד לשני המסכים — של המשרד ושל הפלטפורמה — כדי ששניהם לא
+ * ‏יספרו שני סיפורים על אותו חיבור.
+ *
+ * ‎`filled` הוא „מה שיש לו ערך”: ערכים גלויים מ-`config`, וסודות
+ * ‏לפי **שמות** בלבד (`secretsSet`) — הערך עצמו אינו עוזב את השרת.
+ */
+export interface TelephonyGap {
+  capability: TelephonyCapability;
+  label: string;
+  /** ‏השדות שחסרים ליכולת הזו, בשמות שהמנהל רואה בטופס. */
+  missing: string[];
+}
+
+export function telephonyGaps(
+  provider: TelephonyProvider,
+  config: Readonly<Record<string, unknown>>,
+  secretsSet: readonly string[],
+): TelephonyGap[] {
+  const filled = (field: TelephonyField): boolean =>
+    field.secret
+      ? secretsSet.includes(field.key)
+      : String(config[field.key] ?? "").trim() !== "";
+  const byCapability = new Map<TelephonyCapability, string[]>();
+  for (const field of provider.fields) {
+    if (field.needed === undefined || filled(field)) continue;
+    const list = byCapability.get(field.needed) ?? [];
+    list.push(field.label);
+    byCapability.set(field.needed, list);
+  }
+  /*
+   * ‏הסדר קבוע ונגזר מהרשימה הקבועה ולא מסדר המפה: מסך שמסדר את
+   * ‏אותם פערים אחרת בכל טעינה נראה כאילו משהו השתנה.
+   */
+  const order: TelephonyCapability[] = ["dialling", "recordings", "softphone"];
+  return order
+    .filter((capability) => byCapability.has(capability))
+    .map((capability) => ({
+      capability,
+      label: TELEPHONY_CAPABILITY_LABELS[capability],
+      missing: byCapability.get(capability) ?? [],
+    }));
+}
 
 export function telephonyProvider(id: string): TelephonyProvider | undefined {
   return TELEPHONY_PROVIDERS.find((p) => p.id === id);
@@ -144,6 +245,34 @@ export function telephonyProvider(id: string): TelephonyProvider | undefined {
  *   מרשימת הסודות (או עבר להיות גלוי) מתנקה מעצמו בשמירה הבאה,
  *   ומחרוזת ריקה לא נשמרת כאילו היא ערך.
  */
+/**
+ * ‎**כל האבחון שהחלפת ספק חייבת למחוק** — רשימה אחת, לא עותק לכל מסלול.
+ *
+ * שני מסלולי שמירה כותבים את שורת החיבור: הגדרות המשרד ושולחן
+ * החיבורים בפלטפורמה. שניהם ניקו את אבחון הוובהוק בשתי רשימות
+ * מועתקות — ואז נוספו ארבעת שדות המשיכה, ואיש מהם לא ניקה אותם.
+ *
+ * התוצאה לא הייתה „לא מדויק לרגע”: משרד שעבר מ-015 לספק גנרי אחרי
+ * כישלון משיכה נשאר עם האבחון הישן **לתמיד**, כי `pendingFor` מושכת
+ * הקלטות רק מ-015 ולכן שום משיכה חדשה לא תדרוס אותו. שולחן החיבורים
+ * היה מציג את התקלה של הספק הקודם כבריאות של החיבור הנוכחי
+ * ‏(ביקורת Codex).
+ *
+ * הערכים הם `null`/`0` ולא „לא ידוע”: `recordingPullHealth` קוראת
+ * ‎`lastPullAt === null` כ„עדיין לא נוסתה משיכה”, וזו האמת המדויקת
+ * על חיבור שהרגע הוחלף.
+ */
+export const INTEGRATION_DIAGNOSIS_RESET = {
+  lastEventAt: null,
+  lastEventKeys: null,
+  lastEventOk: null,
+  lastEventIssue: null,
+  lastPullAt: null,
+  lastPullOk: null,
+  lastPullIssue: null,
+  pullFailStreak: 0,
+} as const;
+
 export function mergeIntegrationSecrets(
   previous: Record<string, string>,
   incoming: Record<string, string>,
@@ -555,10 +684,42 @@ const KNOWN_KEYS = new Set<string>([
  * ‎`website` ו-honeypots דומים אינם מסוננים כאן במכוון: הם באמת
  * שדות שאנחנו מתעלמים מהם, וזה בדיוק מה שהרשימה אומרת.
  */
-export function unmappedFields(raw: Record<string, unknown>): string[] {
+/**
+ * ‎**השדות שטופס הלידים צורך.**
+ *
+ * ‏„לא ממופה” נשאל מול מה שהנתיב **הזה** מכיר. בלי הרשימה הזו כל
+ * ‏שדה של ליד — שם, טלפון, הודעה — היה מסומן באדום כמידע שאנחנו
+ * ‏מפספסים, בזמן שהוא בדיוק מה שנקלט. עמודה שמסמנת את הכול אינה
+ * ‏מסמנת דבר.
+ *
+ * ‏השוואה מול סכימת הקליטה נאכפת בבדיקה בצד ה-API, כדי ששתי
+ * ‏הרשימות לא ייפרדו.
+ */
+export const LEAD_WEBHOOK_KEYS = new Set<string>([
+  "name",
+  "phone",
+  "message",
+  "pageUrl",
+  "email",
+  "intent",
+  "propertyId",
+  "website",
+]);
+
+export function unmappedFields(
+  raw: Record<string, unknown>,
+  /**
+   * ‎**מול איזו רשימה נשאלת השאלה — חובה, ולא ברירת מחדל.**
+   *
+   * ‏ברירת מחדל „מרכזייה” הייתה נכונה לקורא של היום ושגויה בשקט
+   * ‏אצל השני, והתוצאה נראית תקינה לגמרי: רשימת שדות באדום.
+   */
+  source: "telephony" | "lead",
+): string[] {
+  const known = source === "lead" ? LEAD_WEBHOOK_KEYS : KNOWN_KEYS;
   const out: string[] = [];
   for (const key of Object.keys(raw)) {
-    if (KNOWN_KEYS.has(key)) continue;
+    if (known.has(key)) continue;
     if (!SAFE_KEY.test(key)) {
       out.push("‹שדה לא תקני›");
       continue;
@@ -724,7 +885,25 @@ export const EMPTY_FIELD_MARK = "‹ריק›";
  * „ריק” אינו ערך של לקוח, ולכן סימונו אינו חושף דבר: הוא אומר
  * שאין מה לחשוף.
  */
-export function diagnosticFields(raw: Record<string, unknown>): string {
+export function diagnosticFields(
+  raw: Record<string, unknown>,
+  /**
+   * ‎**מול איזו רשימה „שדה טכני” נמדד — חובה, ולא ברירת מחדל.**
+   *
+   * ‏`VALUE_SAFE_KEYS` היא רשימה של **המרכזייה**: שם כמו `status`
+   * ‏או `recording` הוא שם טכני שם, ולכן ערכו נשמר. בטופס ליד
+   * ‏אותם שמות הם שדה חופשי שהשולח בחר — הסכימה `strict` דוחה
+   * ‏אותו, אבל שורת היומן כבר נכתבה — וכך ערך שרירותי מהאינטרנט
+   * ‏נכתב בטקסט גלוי ליומן פלטפורמה חוצה-דיירים, לתשעים יום.
+   *
+   * ‏בליד נשמרים **שמות בלבד**: הסכימה סגורה, ולכן אין שם שדה
+   * ‏שערכו מאבחן — מה שמאבחן הוא אילו שמות הגיעו.
+   *
+   * ‏זו אותה תקלה בדיוק של `unmappedFields` שמעליה, בפונקציה
+   * ‏השכנה (ביקורת Codex, P1).
+   */
+  source: "telephony" | "lead",
+): string {
   const parts: string[] = [];
   for (const key of Object.keys(raw).slice(0, MAX_DIAGNOSTIC_KEYS)) {
     if (!SAFE_KEY.test(key)) {
@@ -750,7 +929,9 @@ export function diagnosticFields(raw: Record<string, unknown>): string {
     }
     // יש ערך: לשדה טכני מציגים אותו, לשדה מזהה — השם בלבד
     parts.push(
-      VALUE_SAFE_KEYS.has(key) ? `${key}=${asText.slice(0, MAX_VALUE_LENGTH)}` : key,
+      source === "telephony" && VALUE_SAFE_KEYS.has(key)
+        ? `${key}=${asText.slice(0, MAX_VALUE_LENGTH)}`
+        : key,
     );
   }
   return [...new Set(parts)].join(", ").slice(0, 1000);
@@ -1152,6 +1333,26 @@ export function nextRefusalStreak(streak: number, result: RecordingPullResult): 
   return streak;
 }
 
+/**
+ * ‎**מקוד הכישלון אל התוצאה שהמונה מבין.**
+ *
+ * הסבב מכיר את התוצאה מיד — הוא זה שקרא לספק. השורה בטבלה מכירה רק
+ * את **הקוד** שנרשם עליה, ולכן מי שרוצה להחיל עליה את אותו כלל צריך
+ * את התרגום הזה.
+ *
+ * ובלעדיו הכלל אכן נשבר: אבחון המשיכה על שורת החיבור קידם את המונה
+ * על **כל** כישלון — `network_error`, `response_unreadable`,
+ * `missing_credentials` — בזמן שהסבב מקדם רק על סירוב. שלוש תקלות
+ * רשת היו מציגות „שבור, הסבב עצר” על משרד שהסבב ממשיך למשוך ממנו
+ * ברגיל (ביקורת Codex).
+ *
+ * ‎`stored` אינו מיוצג כאן במכוון: הצלחה אינה נושאת קוד כישלון, ומי
+ * שמאפס עושה זאת מהיעדר סיבה ולא מתרגום שלה.
+ */
+export function recordingPullResultOf(reason: string): RecordingPullResult {
+  return reason.startsWith(RECORDING_PROVIDER_REFUSAL) ? "refused" : "other";
+}
+
 /** תוצאת השיחה כפי שהיא נרשמת ומוצגת. ראו `CALL_OUTCOME_LABELS`. */
 export type CallOutcome = "answered" | "missed" | "unknown";
 
@@ -1211,8 +1412,9 @@ export function recordingWorthPulling(outcome: string | null | undefined): boole
 }
 
 /** כותרת ההתראה שהמתווך רואה כשהטלפון מצלצל. */
-export function incomingCallTitle(contactName: string | null, phone: string): string {
-  return contactName ? `📞 ${contactName} מתקשר` : `📞 שיחה נכנסת מ-${phone}`;
+export function incomingCallTitle(contactName: string | null, phone: string | null): string {
+  if (contactName) return `📞 ${contactName} מתקשר`;
+  return phone === null ? "📞 שיחה נכנסת" : `📞 שיחה נכנסת מ-${phone}`;
 }
 
 /**
@@ -1221,11 +1423,15 @@ export function incomingCallTitle(contactName: string | null, phone: string): st
  * המספר מופיע גם כשהלקוח מוכר: מי שקורא את ההתראה בטלפון רוצה לחזור
  * אליו עכשיו, וחיפוש הכרטיס כדי למצוא מספר הוא בדיוק החיכוך שההתראה
  * באה לחסוך.
+ *
+ * ‎**ו-`phone: null` הוא הכותרת הציבורית** (ביקורת Codex, P1).
+ * ‏במשרד שהפעיל הפרדה, השורה המשרדית אינה יודעת מי התקשר — ולכן
+ * ‏גם המספר יורד ממנה, לא רק השם. ראו `publicNotification`.
  */
-export function missedCallTitle(contactName: string | null, phone: string): string {
-  return contactName
-    ? `📵 ${contactName} התקשר ולא נענה — ${phone}`
-    : `📵 שיחה שלא נענתה מ-${phone}`;
+export function missedCallTitle(contactName: string | null, phone: string | null): string {
+  if (contactName && phone !== null) return `📵 ${contactName} התקשר ולא נענה — ${phone}`;
+  if (contactName) return `📵 ${contactName} התקשר ולא נענה`;
+  return phone === null ? "📵 שיחה שלא נענתה" : `📵 שיחה שלא נענתה מ-${phone}`;
 }
 
 /** תיאור השיחה לציר הזמן. */
@@ -1240,6 +1446,53 @@ export function describeCall(event: TelephonyEvent): string {
   const rest = seconds % 60;
   const length = minutes > 0 ? `${minutes} דק׳ ${rest} שנ׳` : `${rest} שנ׳`;
   return `${direction} · ${length}`;
+}
+
+/**
+ * ‎**האם הסיכום הזה נכתב על ידי המערכת ולא על ידי אדם.**
+ *
+ * ## למה זה נחוץ
+ *
+ * ‏צינור התמלול מסרב לדרוס סיכום קיים, בהנחה שמי שכתב אותו הוא
+ * המתווך — והנחה זו נכונה כמעט תמיד. היא **אינה** נכונה בשיחה שלא
+ * נענתה: שם `describeCall` כתב „שיחה נכנסת שלא נענתה” ברגע
+ * שהוובהוק נקלט, בלי שאיש נגע.
+ *
+ * התוצאה הייתה שמעלים הקלטה לאותה שיחה, התמלול רץ, מפיק סיכום
+ * אמיתי — **וזורק אותו**, כי השדה „כבר תפוס”. הכרטיס נשאר „שיחה
+ * שלא נענתה” לנצח, וזה נראה כאילו התמלול לא עבד.
+ *
+ * ## למה כאן ולא בוורקר
+ *
+ * ‎`describeCall` הוא המקור **היחיד** לטקסטים האלה, ולכן הזיהוי
+ * חייב לשבת לצידו: פונקציה שמנחשת אותם ממקום אחר מתיישנת ביום
+ * שמישהו יוסיף צורה חמישית. בדיקת הלוך-ושוב מריצה כל צורה
+ * ש-`describeCall` מסוגלת לייצר דרך הפונקציה הזו.
+ *
+ * ## למה הדקדוק מדויק ולא „מתחיל ב-שיחה נכנסת”
+ *
+ * ‎**הגרסה הראשונה שכתבתי הסתיימה ב-`· .+`** (ביקורת Codex), כלומר
+ * ‎*כל* טקסט אחרי הנקודה. מתווך שכתב „שיחה נכנסת · הלקוח ביקש
+ * שנחזור מחר” — משפט סביר לגמרי — סווג כאוטומטי, והעלאת הקלטה
+ * לאותה שיחה **דרסה את ההערה שלו** בסיכום מהתמלול. הערה שנכתבה
+ * ביד אינה ניתנת לשחזור, ולכן זה נזק חמור מהבאג שהפונקציה באה
+ * לתקן.
+ *
+ * ‎`describeCall` מייצרת אורך בצורה אחת בלבד — `N דק׳ M שנ׳` או
+ * ‎`M שנ׳` — והדקדוק כאן מתיר בדיוק אותה. טעות בכיוון הזה בטוחה:
+ * סיכום אוטומטי שלא זוהה נשאר על המסך עד שיוחלף ידנית, בעוד
+ * שסיכום אנושי שזוהה בטעות **נמחק**.
+ *
+ * ‎**הזוגות צמודים לכיוון**, כפי ש-`describeCall` כותבת אותם:
+ * ‏„שלא נענתה” לנכנסת ו„ללא מענה” ליוצאת. צירוף מוצלב אינו פלט של
+ * המערכת, ולכן הוא טקסט של אדם.
+ */
+export function isGeneratedCallSummary(summary: string | null | undefined): boolean {
+  const text = (summary ?? "").trim();
+  if (text === "") return true;
+  return /^(שיחה נכנסת שלא נענתה|שיחה יוצאת ללא מענה|שיחה (נכנסת|יוצאת)( · (\d+ דק׳ )?\d+ שנ׳)?)$/u.test(
+    text,
+  );
 }
 
 /* ==================== חיוג יוצא — 015 ==================== */

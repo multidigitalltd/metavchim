@@ -41,3 +41,40 @@ export function normalizePhoneForWhatsapp(phone: string): string {
 export function whatsappLink(phone: string, message: string): string {
   return `https://wa.me/${normalizePhoneForWhatsapp(phone)}?text=${encodeURIComponent(message)}`;
 }
+
+/**
+ * ‎**האם אפשר בכלל לשלוח וואטסאפ למספר הזה.**
+ *
+ * ‎`ISRAELI_PHONE` מקבל גם קווי — `+9722…` עד `+9724…`, `+9728…`,
+ * ‎`+9729…` — כי שיחה נכנסת מקו נייח היא שיחה לכל דבר. אבל **הודעת
+ * וואטסאפ לקו נייח אינה נכשלת ברעש**: Meta מקבלת את הבקשה, ההודעה
+ * אינה מגיעה לאיש, ומבחינת המערכת „נשלח”.
+ *
+ * ולכן זו הבדיקה שקובעת אם יש בכלל טעם לפתוח כרטיס ולשלוח: מה
+ * שאינו נייד ישראלי אינו נמען.
+ */
+export function canReceiveWhatsapp(phone: string): boolean {
+  return /^9725\d{8}$/u.test(normalizePhoneForWhatsapp(phone));
+}
+
+/**
+ * ‎**חיבור ואטסאפ שעובד — ושורה שנשארה אחרי ניתוק.**
+ *
+ * ‏שורת החיבור **נשמרת** בניתוק (`status: "disconnected"`,
+ * ‏`disconnectedAt` נקבע), כדי שההיסטוריה לא תיעלם. ולכן ספירה של
+ * ‏השורות היא ספירה של „היה פעם חיבור” ולא של „יש חיבור” — משרד
+ * ‏שניתק את הקו היחיד שלו היה מדווח כמחובר לנצח.
+ *
+ * ‏שלושת המצבים כאן הם אלה שבהם המערכת מתייחסת לחיבור כקיים, כולל
+ * ‏`pending_history` (מחובר, ההיסטוריה עוד נסרקת) ו-`payment_required`
+ * ‏(מחובר, המנוי חוסם). שתי שאלות שונות — „מחובר” ו„פועל” — אבל
+ * ‏שתיהן אינן „מנותק”.
+ *
+ * ‏קבוע אחד ולא רשימה שנכתבת בכל שאילתה: שני עותקים של רשימת מצבים
+ * ‏נפרדים ביום שבו ייווסף מצב רביעי.
+ */
+export const WHATSAPP_CONNECTION_LIVE_STATUSES = [
+  "connected",
+  "pending_history",
+  "payment_required",
+] as const;

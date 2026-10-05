@@ -11,9 +11,12 @@ SaaS רב-דיירים (Multi-Tenant) למשרדי תיווך: לידים מכל
 | **מה המערכת עושה** (למשתמשים, בלי התחברות) | `/docs` בסביבה רצה — אותו תוכן שב-`/guides` בתוך המערכת; Markdown ב-`/docs/md` |
 | **קליטת לידים ממקורות חיצוניים** (API, Make, n8n) | `/docs/api` |
 | **חיבור שיחות ומרכזייה** | `/docs/telephony` |
-| **חיבור וואטסאפ עסקי** (Meta Cloud API, שלב אחרי שלב) | `/docs/whatsapp` · מצב המימוש ב-[docs/whatsapp-setup.md](docs/whatsapp-setup.md) |
+| **וואטסאפ ביזנס — חיבור המספר של הסוכן** | `/docs/whatsapp-business` בסביבה רצה; התכנון והמצב מול Meta ב-[docs/12](docs/12-whatsapp-coexistence.md) |
+| **הפורום המקצועי** — אנונימיות שנאכפת במסד, התראות בארבעה ערוצים, וואטסאפ דו-כיווני | [docs/16](docs/16-forum.md) |
 | **התכנון המלא** — ארכיטקטורה, נתונים, אבטחה, אינטגרציות, נגישות, ביצועים, תפעול, פריסה | [docs/README.md](docs/README.md) |
-| **איך כותבים תיעוד והדרכות** | [docs/12](docs/12-docs-and-guides.md) |
+| **איך כותבים תיעוד והדרכות** | [docs/13](docs/13-docs-and-guides.md) |
+| **המנטור האישי** — יעדים, סיכום שבועי, שיחה, וואטסאפ | [docs/14](docs/14-personal-mentor.md) |
+| **רכש מדיה** — ארכיון מדיות, הזמנה בסליקה או בפנייה לנציג, עמלת הפלטפורמה | [docs/17](docs/17-media-procurement.md) |
 
 ## מבנה הריפו (Monorepo)
 
@@ -21,6 +24,7 @@ SaaS רב-דיירים (Multi-Tenant) למשרדי תיווך: לידים מכל
 apps/
   api/       NestJS — ה-API וכל מודולי הדומיין; Prisma + מיגרציות עם RLS
   web/       Next.js (React) — PWA בעברית, RTL, נגישה (ת"י 5568 / WCAG 2.2 AA)
+  mobile/    Expo (React Native) — אפליקציה לנייד על אותו API (docs/adr/ADR-007)
   workers/   BullMQ — עיבוד רקע (תמלול, התאמות, שליחות, תזכורות)
 packages/
   shared/    סכמות Zod, חוזי אירועים, RBAC, לוגיקה עסקית — אמת אחת לכל האפליקציות
@@ -44,6 +48,7 @@ psql "postgresql://metavchim:metavchim@localhost:5432/metavchim" \
 pnpm --filter @metavchim/api db:seed      # סוכנויות דמו (demo-a/b@metavchim.local / Demo1234!)
 
 pnpm dev                            # web על :3000, api על :3001
+pnpm --filter @metavchim/mobile start   # האפליקציה לנייד (Expo Go / סימולטור) — ראו apps/mobile/README.md
 ```
 
 ## איכות — מה רץ ב-CI ומה מריצים לפני PR

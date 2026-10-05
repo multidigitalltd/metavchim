@@ -5,6 +5,7 @@ import { Button } from "@metavchim/ui";
 import { apiGet, apiPost, ApiError } from "@/lib/api";
 import { SignaturePad } from "./signature-pad";
 import { Notice } from "../../notice";
+import { OfficeBrand } from "../../public-brand";
 
 /**
  * חתימה על הסכם — דף ציבורי ללקוח, בלי התחברות. הטוקן שבקישור הוא
@@ -18,11 +19,20 @@ interface AgreementView {
   kind: string;
   kindLabel: string;
   officeName: string;
+  logoUrl: string | null;
   body: string;
   status: string;
   signedAt?: string;
   signerName?: string;
   bodyHash: string;
+  /**
+   * קישור **פתוח** — הופק בלי לקוח ובלי נכס, ולכן החותם ממלא גם
+   * ‏את פרטיו ואת הנכס. השרת יודע זאת; מהנוסח אי אפשר להסיק, כי
+   * ‏שורת מילוי נראית אותו דבר בשני המקרים.
+   */
+  openLink: boolean;
+  /** ‏הסכם רגיל שבנוסח שלו שורה לכתובת הלקוח — שוב, רק השרת יודע. */
+  asksAddress: boolean;
 }
 
 const inputStyle = { borderColor: "var(--color-input-border)", background: "var(--color-field)" } as const;
@@ -84,6 +94,28 @@ export default function SignPage({ params }: { params: Promise<{ token: string }
         signerIdNumber: String(form.get("signerIdNumber")).trim(),
         confirmed,
         signatureImage: signature,
+        /*
+         * ‎`open` נשלח **רק** בקישור פתוח.
+         *
+         * ‏בהסכם שהופק על לקוח ונכס מסוימים הפרטים כבר בנוסח מרגע
+         * ‏השליחה, והשרת דוחה בקשה שמנסה לשלוח אותם — היא הייתה
+         * ‏טענה לדרוס את מה שהמתווך כבר קבע.
+         */
+        ...(view?.openLink === true
+          ? {
+              open: {
+                address: String(form.get("address")).trim(),
+                phone: String(form.get("phone")).trim(),
+                dealType: String(form.get("dealType")),
+                propertyText: String(form.get("propertyText")).trim(),
+                priceText: String(form.get("priceText")).trim(),
+              },
+            }
+          : {}),
+        // ‏הסכם רגיל: הכתובת היא הפרט היחיד מלבד הזהות שהחותם משלים
+        ...(view?.openLink !== true && view?.asksAddress === true
+          ? { signerAddress: String(form.get("address")).trim() }
+          : {}),
       });
       setSignedAt(res.signedAt);
       /*
@@ -115,14 +147,45 @@ export default function SignPage({ params }: { params: Promise<{ token: string }
 
   return (
     <div className="mx-auto max-w-2xl py-6">
-      <h1 className="mb-1 text-2xl font-bold">{view.kindLabel}</h1>
-      <p className="mb-6" style={{ color: "var(--color-text-muted)" }}>
-        {view.officeName}
-      </p>
+      {/*
+        ‎**נייר מכתבים, ולא כותרת מסך.**
 
+        זהו מסמך שאדם חותם עליו, ולכן הוא נפתח כמו מסמך: הלוגו והשם
+        של המשרד למעלה, קו דק שמפריד, ואז הנוסח. קודם הוא נפתח
+        בכותרת „הסכם תיווך” ושורה אפורה עם שם המשרד — מה שנראה כמו
+        טופס אינטרנט גנרי, בדיוק במקום שבו אמון הוא כל העניין.
+      */}
+      <header
+        className="mb-5 flex flex-wrap items-center justify-between gap-3 border-b pb-4"
+        style={{ borderColor: "var(--color-border)" }}
+      >
+        <OfficeBrand
+          officeName={view.officeName}
+          logoUrl={view.logoUrl}
+          eyebrow="מסמך לחתימה"
+          size="lg"
+        />
+        <h1 className="m-0" style={{ fontSize: "calc(20 / 16 * 1rem)", fontWeight: 700 }}>
+          {view.kindLabel}
+        </h1>
+      </header>
+
+      {/*
+        ‎`leading-loose`: נוסח משפטי נקרא לאורך, ושורה בצפיפות רגילה
+        היא מה שגורם לאנשים לדלג. הרקע לבן והמסגרת דקה — דף, לא
+        כרטיס.
+
+        אין כאן `maxWidth` משלו. היה, וזה בדיוק מה שנראה שבור:
+        המכתב, נייר המכתבים שמעליו וכרטיס החתימה שמתחתיו קיבלו שלושה
+        רוחבים שונים על אותו מסך. הרוחב נקבע במעטפת אחת, ושלושתם
+        מיושרים לאותו קו.
+      */}
       <article
-        className="mb-6 whitespace-pre-wrap rounded-xl border p-5 leading-relaxed"
-        style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
+        className="mv-doc mb-6 whitespace-pre-wrap rounded-xl border p-6 leading-loose"
+        style={{
+          borderColor: "var(--color-border)",
+          background: "var(--color-surface)",
+        }}
       >
         {view.body}
       </article>
@@ -145,7 +208,9 @@ export default function SignPage({ params }: { params: Promise<{ token: string }
       ) : (
         <form
           onSubmit={onSign}
-          className="rounded-xl border p-5"
+          /* בהדפסה הטופס יורד: דף עם כפתור „אני חותם” נראה כמו הסכם
+             שלא נחתם, וזה בדיוק ההפך ממה שמדפיסים בשבילו */
+          className="mv-no-print rounded-xl border p-5"
           style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
         >
           <h2 className="mb-3 text-lg font-semibold">חתימה</h2>
@@ -184,6 +249,102 @@ export default function SignPage({ params }: { params: Promise<{ token: string }
               style={inputStyle}
             />
           </div>
+
+          {/*
+            ‎**רק בקישור פתוח** — בהסכם שהופק על לקוח מסוים כל אלה
+            כבר בנוסח שלמעלה, והצגתם שוב הייתה מזמינה את החותם
+            לסתור מסמך שהוא עומד לחתום עליו.
+
+            ‏הם חובה, ולא „נחמד אם ימולא”: ארבעה מהם הם פרטי חובה
+            ‏בתקנות המתווכים (פרטי הזמנה בכתב), והחמישי — הטלפון —
+            ‏הוא מה שמזהה את הלקוח מול המאגר, ולכן גם מה שקובע אם
+            ‏ההסכם ייכנס לכרטיס קיים או שייפתח כרטיס חדש.
+          */}
+          {view.openLink ? (
+            <div className="mb-4">
+              <label htmlFor="phone" className="mb-1 block font-medium">
+                טלפון נייד
+              </label>
+              <input
+                id="phone"
+                name="phone"
+                required
+                type="tel"
+                inputMode="tel"
+                minLength={9}
+                autoComplete="tel"
+                dir="ltr"
+                className="mv-ltr w-full rounded-lg border px-3 py-2.5"
+                style={inputStyle}
+              />
+            </div>
+          ) : null}
+
+          {/* ‏גם בהסכם רגיל: לכתובת אין מקור אחר, והחותם ממלא אותה כמו את מספר הזהות */}
+          {view.openLink || view.asksAddress ? (
+            <div className="mb-4">
+              <label htmlFor="address" className="mb-1 block font-medium">
+                כתובת מגורים
+              </label>
+              <input
+                id="address"
+                name="address"
+                required
+                minLength={2}
+                maxLength={200}
+                autoComplete="street-address"
+                className="w-full rounded-lg border px-3 py-2.5"
+                style={inputStyle}
+              />
+            </div>
+          ) : null}
+
+          {view.openLink ? (
+            <>
+              <fieldset className="mb-4 border-0 p-0">
+                <legend className="mb-1 font-medium">סוג העסקה</legend>
+                <div className="flex flex-wrap gap-4">
+                  <label className="flex items-center gap-2">
+                    <input type="radio" name="dealType" value="sale" defaultChecked />
+                    <span>מכר</span>
+                  </label>
+                  <label className="flex items-center gap-2">
+                    <input type="radio" name="dealType" value="rent" />
+                    <span>שכירות</span>
+                  </label>
+                </div>
+              </fieldset>
+
+              <div className="mb-4">
+                <label htmlFor="propertyText" className="mb-1 block font-medium">
+                  הנכס שבו מדובר
+                </label>
+                <input
+                  id="propertyText"
+                  name="propertyText"
+                  required
+                  minLength={4}
+                  placeholder="דירת 4 חדרים, הרצל 12, נתניה"
+                  className="w-full rounded-lg border px-3 py-2.5"
+                  style={inputStyle}
+                />
+              </div>
+
+              <div className="mb-4">
+                <label htmlFor="priceText" className="mb-1 block font-medium">
+                  המחיר המבוקש, בקירוב
+                </label>
+                <input
+                  id="priceText"
+                  name="priceText"
+                  required
+                  placeholder="2,100,000 ₪"
+                  className="w-full rounded-lg border px-3 py-2.5"
+                  style={inputStyle}
+                />
+              </div>
+            </>
+          ) : null}
 
           <div className="mb-4">
             <SignaturePad onChange={setSignature} disabled={submitting} />

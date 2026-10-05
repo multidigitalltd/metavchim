@@ -93,7 +93,13 @@ export default function NotificationsPage() {
                     {formatDate(n.createdAt)}
                   </span>
                 </div>
-                {n.body ? <p style={{ color: "var(--color-text-muted)" }}>{n.body}</p> : null}
+                {/* ‏גוף ההתראה נכתב שורה לכל פריט; בלי `pre-line` הדפדפן
+                    מאחד אותן חזרה לפסקה אחת — בדיוק מה שהמנטור בא למנוע. */}
+                {n.body ? (
+                  <p style={{ color: "var(--color-text-muted)", whiteSpace: "pre-line" }}>
+                    {n.body}
+                  </p>
+                ) : null}
                 {href ? (
                   <Link href={href} className="mt-1 inline-block underline">
                     מעבר לטיפול

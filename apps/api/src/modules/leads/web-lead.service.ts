@@ -3,7 +3,7 @@ import type { Prisma } from "@prisma/client";
 import { ulid } from "ulid";
 import { lockContactPhone } from "../../common/locks";
 import { CryptoService } from "../../core/crypto.service";
-import { PrismaService } from "../../core/prisma.service";
+import { PrismaService, type TenantTx } from "../../core/prisma.service";
 
 /**
  * קליטת ליד מטופס באתר של המשרד (docs/05) — נקודת קצה ציבורית עם מפתח
@@ -20,6 +20,23 @@ export class WebLeadService {
     private readonly crypto: CryptoService,
   ) {}
 
+  /**
+   * ‎**המשרד שמאחורי המפתח — בלי לקלוט דבר.**
+   *
+   * ‏הקורא הציבורי צריך לדעת אם הכתובת מזוהה **לפני** שהוא שופט
+   * ‏את גוף הבקשה, כדי שגוף פסול אצל מפתח מוכר יירשם עם המשרד
+   * ‏שלו ולא ייעלם מהסינון. `null` = הכתובת אינה מזוהה.
+   *
+   * ‏אין כאן אישור קיום החוצה: הקורא מחזיר אותה שגיאה גנרית בשני
+   * ‏המקרים.
+   */
+  async resolveKey(key: string): Promise<{ tenantId: string; sourceLabel: string } | null> {
+    return this.prisma.leadWebhook.findUnique({
+      where: { key },
+      select: { tenantId: true, sourceLabel: true },
+    });
+  }
+
   async ingest(
     key: string,
     input: {
@@ -31,20 +48,25 @@ export class WebLeadService {
       intent?: string;
       propertyId?: string;
     },
-  ): Promise<void> {
+    /**
+     * ‎**המשרד שנפתר — כדי שיומן הוובהוקים יוכל לשייך את השורה.**
+     *
+     * ‏הקליטה ידעה אותו וזרקה אותו; היומן נכתב אצל הקורא, ובלי
+     * ‏להחזירו כל פנייה שנקלטה בהצלחה הייתה נרשמת בלי משרד —
+     * ‏כלומר נופלת בדיוק מהסינון הראשון שנשאל.
+     */
+  ): Promise<{ tenantId: string }> {
     /*
      * המפתח מזהה גם את המשרד וגם את הערוץ: שם המקור שנבחר בהקמת
      * הוובהוק ("אתר", "פייסבוק"...) נכנס כ-source של הליד.
      */
-    const webhook = await this.prisma.leadWebhook.findUnique({
-      where: { key },
-      select: { tenantId: true, sourceLabel: true },
-    });
+    const webhook = await this.resolveKey(key);
     if (!webhook) {
       // מפתח לא מוכר — אותה שגיאה גנרית; לא מאשרים קיום/אי-קיום מפתחות
       throw new NotFoundException("לא נמצא");
     }
     await this.ingestForTenant(webhook.tenantId, input, webhook.sourceLabel);
+    return { tenantId: webhook.tenantId };
   }
 
   /**
@@ -69,85 +91,155 @@ export class WebLeadService {
       propertyId?: string;
     },
     source: string,
-  ): Promise<void> {
-    await this.prisma.$transaction(async (tx) => {
+  ): Promise<{ leadId: string; contactId: string }> {
+    const ids = await this.prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
-
-      const phoneHash = this.crypto.phoneHash(input.phone);
-      /*
-       * האימייל נשמר על הכרטיס כשהוא ידוע — פנייה שהגיעה מתיבת
-       * הדואר מביאה איתה את כתובת השולח, ובלי לשמור אותה ההודעה
-       * **הבאה** מאותה כתובת הייתה נחשבת שוב לשולח לא מוכר.
-       * החתימה (emailHash) היא מה שמאפשר את ההתאמה הזו.
-       */
-      const normalizedEmail = input.email?.trim().toLowerCase();
-      const emailFields =
-        normalizedEmail !== undefined && normalizedEmail !== ""
-          ? {
-              emailEncrypted: this.crypto.encrypt(normalizedEmail),
-              emailHash: this.crypto.emailHash(normalizedEmail),
-            }
-          : {};
-
-      /*
-       * אותה נעילת מספר שנוטלת `findOrCreateByPhone`.
-       *
-       * החיפוש-ואז-יצירה כאן אינו עובר דרכה — הוא משלים גם כתובת
-       * אימייל — ולכן היה מחוץ להסדר. ליד מהאתר שנפגש עם שיחה
-       * נכנסת או עם קישור פתוח מאותו מספר חדש: שניהם אינם מוצאים
-       * כרטיס, שניהם יוצרים, והאינדקס הייחודי מפיל את השני — כלומר
-       * ליד שנבלע (ביקורת Codex).
-       */
-      await lockContactPhone(tx, tenantId, phoneHash);
-      let contact = await tx.contact.findUnique({
-        where: { tenantId_phoneHash: { tenantId, phoneHash } },
-        select: { id: true, emailHash: true },
-      });
-      contact ??= await tx.contact.create({
-        data: {
-          id: ulid(),
-          tenantId,
-          nameEncrypted: this.crypto.encrypt(input.name),
-          phoneEncrypted: this.crypto.encrypt(input.phone),
-          phoneHash,
-          ...emailFields,
-        },
-        select: { id: true, emailHash: true },
-      });
-
-      // כרטיס קיים בלי אימייל מקבל אותו כאן; כרטיס שכבר יש לו אימייל
-      // אינו נדרס — הכתובת שהמתווך הזין ידנית גוברת על זו שהתגלתה
-      if (contact.emailHash === null && Object.keys(emailFields).length > 0) {
-        await tx.contact.updateMany({ where: { id: contact.id, tenantId }, data: emailFields });
-      }
-
-      /*
-       * הנכס מאומת מול המשרד לפני שהוא נשמר.
-       *
-       * הנתיב ציבורי, והמזהה מגיע מגוף הבקשה — כלומר מגורם לא מזוהה.
-       * מזהה של נכס ממשרד אחר היה נשמר בשקט ויוצר בכרטיס הליד קישור
-       * לנכס שאינו קיים בשבילו. הנפילה היא לליד **בלי** נכס ולא
-       * לשגיאה: ליד אמיתי לא אמור ללכת לאיבוד בגלל שדה משני שגוי.
-       */
-      const propertyId =
-        input.propertyId === undefined
-          ? undefined
-          : ((
-              await tx.property.findFirst({
-                where: { id: input.propertyId, tenantId, deletedAt: null },
-                select: { id: true },
-              })
-            )?.id ?? undefined);
-
-      await this.attachOrCreateLead(tx, tenantId, contact.id, {
-        message: input.message,
-        pageUrl: input.pageUrl,
-        source,
-        ...(input.intent !== undefined ? { intent: input.intent } : {}),
-        ...(propertyId !== undefined ? { propertyId } : {}),
-      });
+      return this.ingestIn(tx, tenantId, input, source);
     });
     this.logger.log(`ליד מהאתר נקלט (tenant ${tenantId})`);
+    return ids;
+  }
+
+  /**
+   * ‏אותה קליטה **בתוך טרנזקציה של הקורא** — כשהליד הוא חלק ממעשה
+   * ‏אחד גדול יותר: הרשמה לבית פתוח היא ליד + מקום במשבצת, או כלום.
+   * ‏קליטה בטרנזקציה נפרדת הייתה משאירה ליד והתראה על הרשמה שנכשלה
+   * ‏על המקום האחרון (ביקורת Codex). ההקשר של המשרד כבר על ה-tx.
+   */
+  async ingestIn(
+    tx: TenantTx,
+    tenantId: string,
+    input: {
+      name: string;
+      phone: string;
+      message?: string;
+      pageUrl?: string;
+      email?: string;
+      intent?: string;
+      propertyId?: string;
+    },
+    source: string,
+  ): Promise<{ leadId: string; contactId: string }> {
+    const phoneHash = this.crypto.phoneHash(input.phone);
+    /*
+     * האימייל נשמר על הכרטיס כשהוא ידוע — פנייה שהגיעה מתיבת
+     * הדואר מביאה איתה את כתובת השולח, ובלי לשמור אותה ההודעה
+     * **הבאה** מאותה כתובת הייתה נחשבת שוב לשולח לא מוכר.
+     * החתימה (emailHash) היא מה שמאפשר את ההתאמה הזו.
+     */
+    const normalizedEmail = input.email?.trim().toLowerCase();
+    const emailFields =
+      normalizedEmail !== undefined && normalizedEmail !== ""
+        ? {
+            emailEncrypted: this.crypto.encrypt(normalizedEmail),
+            emailHash: this.crypto.emailHash(normalizedEmail),
+          }
+        : {};
+
+    /*
+     * אותה נעילת מספר שנוטלת `findOrCreateByPhone`.
+     *
+     * החיפוש-ואז-יצירה כאן אינו עובר דרכה — הוא משלים גם כתובת
+     * אימייל — ולכן היה מחוץ להסדר. ליד מהאתר שנפגש עם שיחה
+     * נכנסת או עם קישור פתוח מאותו מספר חדש: שניהם אינם מוצאים
+     * כרטיס, שניהם יוצרים, והאינדקס הייחודי מפיל את השני — כלומר
+     * ליד שנבלע (ביקורת Codex).
+     */
+    await lockContactPhone(tx, tenantId, phoneHash);
+    let contact = await tx.contact.findUnique({
+      where: { tenantId_phoneHash: { tenantId, phoneHash } },
+      select: { id: true, emailHash: true },
+    });
+    contact ??= await tx.contact.create({
+      data: {
+        id: ulid(),
+        tenantId,
+        nameEncrypted: this.crypto.encrypt(input.name),
+        phoneEncrypted: this.crypto.encrypt(input.phone),
+        phoneHash,
+        ...emailFields,
+      },
+      select: { id: true, emailHash: true },
+    });
+
+    // כרטיס קיים בלי אימייל מקבל אותו כאן; כרטיס שכבר יש לו אימייל
+    // אינו נדרס — הכתובת שהמתווך הזין ידנית גוברת על זו שהתגלתה
+    if (contact.emailHash === null && Object.keys(emailFields).length > 0) {
+      await tx.contact.updateMany({ where: { id: contact.id, tenantId }, data: emailFields });
+    }
+
+    /*
+     * הנכס מאומת מול המשרד לפני שהוא נשמר.
+     *
+     * הנתיב ציבורי, והמזהה מגיע מגוף הבקשה — כלומר מגורם לא מזוהה.
+     * מזהה של נכס ממשרד אחר היה נשמר בשקט ויוצר בכרטיס הליד קישור
+     * לנכס שאינו קיים בשבילו. הנפילה היא לליד **בלי** נכס ולא
+     * לשגיאה: ליד אמיתי לא אמור ללכת לאיבוד בגלל שדה משני שגוי.
+     */
+    const propertyId =
+      input.propertyId === undefined
+        ? undefined
+        : ((
+            await tx.property.findFirst({
+              where: { id: input.propertyId, tenantId, deletedAt: null },
+              select: { id: true },
+            })
+          )?.id ?? undefined);
+
+    const { leadId, repeat } = await this.attachOrCreateLead(tx, tenantId, contact.id, {
+      message: input.message,
+      pageUrl: input.pageUrl,
+      source,
+      ...(input.intent !== undefined ? { intent: input.intent } : {}),
+      ...(propertyId !== undefined ? { propertyId } : {}),
+    });
+
+    /*
+     * ‎**הסוכן צריך לדעת שמישהו מילא — ולא לגלות את זה בגלילה.**
+     *
+     * ‏המסלול הזה הוא היחיד שבו **אדם זר** יוזם, והוא היה שקט
+     * ‏לגמרי: הליד נכתב, ואיש לא ידע עד שמישהו פתח את מסך
+     * ‏הלידים. `lead.created` שנפלט כאן קובע **אסקלציית SLA
+     * ‏מושהית** בעוד שעות — כלומר בדיוק ההפך מהתראה מיידית: הוא
+     * ‏מגיע רק אחרי שכבר איחרנו.
+     *
+     * ‏שורת התראה אחת נותנת את שלושת הערוצים שהתבקשו: הפעמון,
+     * ‏הדחיפה לוואטסאפ (הסורק בעובדים מחפש `whatsapp_at = NULL`),
+     * ‏והקישור — שנגזר מ-`entityType`/`entityId` אל `/leads/<id>`
+     * ‏עם בדיקת יכולת. אין כאן ערוץ שני שצריך לזכור לתקן.
+     *
+     * ‎`userId: null` בכוונה: ליד מהטופס נפתח **ללא שיוך**, ולכן
+     * ‏„הסוכן שלו” אינו קיים עדיין. התראה אישית הייתה נשלחת
+     * ‏למי שהמערכת בחרה שרירותית, או לאף אחד.
+     */
+    await tx.notification.create({
+      data: {
+        id: ulid(),
+        tenantId,
+        userId: null,
+        /*
+         * ‎**סוג אחד, ולא שניים לפי חדש/חוזר.**
+         *
+         * ‏הקטגוריה, ההשתקה והאייקון זהים בשני המקרים — ההבדל
+         * ‏הוא בכותרת בלבד. וסוג שנכתב בביטוי מותנה אינו נראה
+         * ‏לשער `verify:notify`, שסורק `type: "..."` מילולי:
+         * ‏הוא היה עובר בשקט ונופל לקטגוריית `system`, כלומר
+         * ‏מגיע למי שכיבה את „לידים”.
+         */
+        type: "lead_form_inquiry",
+        title: repeat ? "📥 פנייה נוספת מטופס" : "🆕 פנייה חדשה מטופס",
+        /*
+         * ‏שם ומקור בלבד. הטלפון אינו נכנס: ההתראה יוצאת גם
+         * ‏לוואטסאפ, והקישור מוביל לכרטיס שבו הוא ממילא מוצג
+         * ‏למי שמורשה לראותו.
+         */
+        body: `${input.name} — ${input.pageUrl ?? source}`.slice(0, 500),
+        entityType: "lead",
+        entityId: leadId,
+      },
+    });
+    /* ‏מי שקלט צריך לפעמים לקשור משהו לליד — סיור בבית פתוח, למשל */
+    return { leadId, contactId: contact.id };
   }
 
   /**
@@ -183,7 +275,7 @@ export class WebLeadService {
       intent?: string;
       propertyId?: string;
     },
-  ): Promise<void> {
+  ): Promise<{ leadId: string; repeat: boolean }> {
     const { source } = input;
     // נעילה פר איש-קשר — שליחה כפולה מהטופס לא יוצרת שני לידים
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`lead-intake:${tenantId}:${contactId}`}, 0))`;
@@ -191,6 +283,21 @@ export class WebLeadService {
     const summaryParts = [input.message?.trim(), input.pageUrl ? `מקור: ${input.pageUrl}` : null]
       .filter(Boolean)
       .join("\n");
+
+    /*
+     * ‎**אותו גוף לשני הענפים** (ביקורת Codex, P2).
+     *
+     * ‏הענף של הליד החדש בנה את השורה מ-`input.message` בלבד,
+     * ‏והענף החוזר מ-`summaryParts`. ההבדל אינו ניסוח: את הנכס
+     * ‏שהלקוח לחץ עליו `LandingService.publicLead` מוסר **רק**
+     * ‏דרך `pageUrl`, ולכן שורה שנבנתה בלי הוא אמרה „נקלט מדף
+     * ‏נחיתה של נכס” בלי לומר איזה — בדיוק על כרטיס הקונה שאליו
+     * ‏נשלחה ההצעה, שם השאלה היחידה היא על מה הוא הגיב.
+     *
+     * ‏שתי נוסחאות לאותו דבר הן ההפרש שנשכח בענף אחד; לכן אחת.
+     */
+    const detail = summaryParts || "ללא הודעה";
+    const eventText = (prefix: string): string => `${prefix}: ${detail}`.slice(0, 1500);
 
     const openLead = await tx.lead.findFirst({
       where: {
@@ -226,16 +333,14 @@ export class WebLeadService {
       }
 
       // ליד פתוח קיים — הפנייה מצטרפת לציר הזמן שלו
+      const repeatText = eventText(
+        source === "landing" ? "פנייה נוספת מדף נחיתה" : `פנייה נוספת (${source})`,
+      );
       await tx.interaction.create({
-        data: {
-          id: ulid(),
-          tenantId,
-          leadId: openLead.id,
-          kind: "note",
-          content: `${source === "landing" ? "פנייה נוספת מדף נחיתה" : `פנייה נוספת (${source})`}: ${summaryParts || "ללא הודעה"}`,
-        },
+        data: { id: ulid(), tenantId, leadId: openLead.id, kind: "note", content: repeatText },
       });
-      return;
+      await this.alsoOnBuyerCards(tx, tenantId, contactId, repeatText);
+      return { leadId: openLead.id, repeat: true };
     }
 
     const previous = await tx.lead.findFirst({
@@ -265,22 +370,56 @@ export class WebLeadService {
         ...(previous ? { requiresHuman: true, requiresHumanReason: "ליד חוזר — פנה בעבר" } : {}),
       },
     });
+    const firstText = eventText(
+      source === "landing" ? "נקלט מדף נחיתה של נכס" : `נקלט מטופס (${source})`,
+    );
     await tx.interaction.create({
-      data: {
-        id: ulid(),
-        tenantId,
-        leadId,
-        kind: "note",
-        content: `${source === "landing" ? "נקלט מדף נחיתה של נכס" : `נקלט מטופס (${source})`}${input.message ? `: ${input.message.slice(0, 1500)}` : ""}`,
-      },
+      data: { id: ulid(), tenantId, leadId, kind: "note", content: firstText },
     });
+    await this.alsoOnBuyerCards(tx, tenantId, contactId, firstText);
     await tx.outboxEvent.create({
       data: {
         id: ulid(),
         tenantId,
         name: "lead.created",
-        payload: { leadId, tenantId, source },
+        /* ‏השדה חובה בסכמת האירוע — בלעדיו הניתוב נכשל בשקט וה-SLA לא נקבע */
+        payload: { leadId, tenantId, source, requiresHuman: previous !== null },
       },
     });
+    return { leadId, repeat: false };
+  }
+
+  /**
+   * ‎**אותו מילוי, גם על כרטיס הקונה של אותו אדם.**
+   *
+   * ‏ציר הזמן בכרטיס הקונה קורא `interaction` לפי `buyerId`,
+   * ‏והמילוי נרשם רק עם `leadId`. התוצאה: לקוח שקיבל הצעת נכס,
+   * ‏נכנס לדף הנחיתה ומילא פרטים — לא הותיר שום סימן בכרטיס שממנו
+   * ‏נשלחה אליו ההצעה. הסוכן פותח את הקונה ורואה כרטיס שלא קרה בו
+   * ‏דבר (בקשת המשתמש).
+   *
+   * ‎**כל הכרטיסים החיים, ולא אחד.** למערכת מותר במפורש שיהיו
+   * ‏לאיש קשר שני כרטיסי קונה — שתי דרישות של אותו אדם, או שארית
+   * ‏של מיזוג — ובחירה שרירותית באחד הייתה מסתירה את המילוי
+   * ‏מהסוכן שעובד על השני.
+   *
+   * ‎`direction: "in"` — הלקוח יזם. זו ההבחנה שמבדילה בציר הזמן
+   * ‏בין „שלחנו לו” לבין „הוא פנה”.
+   */
+  private async alsoOnBuyerCards(
+    tx: Prisma.TransactionClient,
+    tenantId: string,
+    contactId: string,
+    content: string,
+  ): Promise<void> {
+    const cards = await tx.buyer.findMany({
+      where: { tenantId, contactId, deletedAt: null },
+      select: { id: true },
+    });
+    for (const card of cards) {
+      await tx.interaction.create({
+        data: { id: ulid(), tenantId, buyerId: card.id, kind: "note", direction: "in", content },
+      });
+    }
   }
 }

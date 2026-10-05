@@ -1,6 +1,10 @@
 import { Body, Controller, Get, HttpCode, Post } from "@nestjs/common";
 import { z } from "zod";
-import { ANNOUNCEMENTS, type Announcement } from "@metavchim/shared";
+import {
+  ANNOUNCEMENTS,
+  RETIRED_ANNOUNCEMENT_IDS,
+  type Announcement,
+} from "@metavchim/shared";
 import { TenantContext } from "../../common/tenant-context";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { PrismaService } from "../../core/prisma.service";
@@ -12,10 +16,22 @@ import { AnyAuthenticated } from "../../common/auth.decorators";
  * סמן ה"נצפה" פר משתמש. כל משתמש מחובר — אין צורך ב-capability.
  */
 
-const SeenSchema = z
+/**
+ * ‎**כל מזהה שהיה אי-פעם**, ולא רק מה שמוצג היום.
+ *
+ * ‏הרשימה סוגרת קלט חופשי: בלעדיה לקוח היה יכול לכתוב מזהה מומצא
+ * ‏וגבוה ולהשתיק לעצמו כל הכרזה עתידית. אבל היא חייבת לכלול גם את
+ * ‏מה שהוסר, כי טאב שנפתח לפני הגרסה עדיין מחזיק את המזהה הישן —
+ * ‏ודחייה שלו פירושה „הבנתי” שאינו נשמר (ביקורת Codex, P2).
+ */
+export const SEEN_ANNOUNCEMENT_IDS: ReadonlySet<string> = new Set([
+  ...ANNOUNCEMENTS.map((a) => a.id),
+  ...RETIRED_ANNOUNCEMENT_IDS,
+]);
+
+export const SeenSchema = z
   .object({
-    // רק מזהה שקיים ברשימה — קלט חופשי לא נכתב על המשתמש
-    id: z.string().refine((v) => ANNOUNCEMENTS.some((a) => a.id === v), "עדכון לא מוכר"),
+    id: z.string().refine((v) => SEEN_ANNOUNCEMENT_IDS.has(v), "עדכון לא מוכר"),
   })
   .strict();
 

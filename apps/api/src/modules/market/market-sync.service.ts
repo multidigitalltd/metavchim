@@ -1,7 +1,8 @@
-import { Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import { ulid } from "ulid";
 import { loadEnv } from "../../config/env";
 import { PlatformSettingsService } from "../../core/platform-settings.service";
+import { Sweep } from "../../core/sweeps";
 import { PrismaService } from "../../core/prisma.service";
 import { MarketIngest } from "./market-ingest";
 import { MarketPropertyService } from "./market-property.service";
@@ -52,7 +53,7 @@ export interface MarketRunResult {
 }
 
 /**
- * ‎**סבב סנכרון נתוני השוק — כל הארץ, ובלי למחוק דבר** (docs/14).
+ * ‎**סבב סנכרון נתוני השוק — כל הארץ, ובלי למחוק דבר** (docs/18).
  *
  * הסבב רץ ב-API ולא ב-Workers מאותה סיבה כמו רענון ההתאמות: אחרי
  * הקליטה הוא מחשב מחדש את מיקום המחיר של נכסי המשרדים, וזה הקוד של
@@ -67,10 +68,8 @@ export interface MarketRunResult {
  * יתחילו שני סבבים. שורה שנשארה `running` אחרי קריסה פגה אחרי שעתיים.
  */
 @Injectable()
-export class MarketSyncService implements OnModuleInit, OnModuleDestroy {
+export class MarketSyncService {
   private readonly logger = new Logger(MarketSyncService.name);
-  private timer: NodeJS.Timeout | null = null;
-  private kickoff: NodeJS.Timeout | null = null;
   private running = false;
   private lastCatalogAt = 0;
 
@@ -80,18 +79,13 @@ export class MarketSyncService implements OnModuleInit, OnModuleDestroy {
     private readonly properties: MarketPropertyService,
   ) {}
 
-  onModuleInit(): void {
-    this.kickoff = setTimeout(() => {
-      void this.tick("auto");
-      this.timer = setInterval(() => void this.tick("auto"), TICK_MS);
-      this.timer.unref?.();
-    }, FIRST_TICK_DELAY_MS);
-    this.kickoff.unref?.();
-  }
-
-  onModuleDestroy(): void {
-    if (this.kickoff) clearTimeout(this.kickoff);
-    if (this.timer) clearInterval(this.timer);
+  /**
+   * ‏הסבב האוטומטי — `@Sweep` דואג שרק מופע אחד מריץ אותו; החכירה ב-
+   * ‏`market_sync_runs` נשארת, כי גם „סנכרן עכשיו” מתחיל סבב.
+   */
+  @Sweep({ name: "market-sync", everyMs: TICK_MS, firstDelayMs: FIRST_TICK_DELAY_MS })
+  private async autoTick(): Promise<void> {
+    await this.tick("auto");
   }
 
   /** האם הסנכרון פועל — הגדרה מפורשת גוברת; בלעדיה, רק בייצור. */

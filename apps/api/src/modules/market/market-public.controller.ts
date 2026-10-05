@@ -1,8 +1,8 @@
 import { Body, Controller, Get, HttpCode, Param, Post } from "@nestjs/common";
-import { Throttle } from "@nestjs/throttler";
 import { z } from "zod";
 import { PhoneSchema, PropertyTypeSchema, type MarketPublicEstimateDto } from "@metavchim/shared";
 import { Public } from "../../common/auth.decorators";
+import { ThrottleWebhook } from "../../common/webhook-throttle";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { MarketPublicService } from "./market-public.service";
 
@@ -50,25 +50,26 @@ const EstimateSchema = z
   });
 
 /**
- * ‎**הטופס הציבורי „כמה שווה הדירה שלי”** (docs/14 §3, יכולת 4).
+ * ‎**הטופס הציבורי „כמה שווה הדירה שלי”** (docs/18 §3, יכולת 4).
  *
  * ציבורי ומזוהה במפתח הקליטה של המשרד בלבד. מגבלה הדוקה: הנתיב
  * מחשב השוואה (קריאה) **וכותב ליד** כשיש פרטים — אותו נימוק של
- * ‎`public/leads`.
+ * ‎`public/leads`, ולכן גם אותה תקרה: לפי המשרד ולא לפי IP (מבקרים
+ * באתר של משרד אחד באים מכתובות רבות), בנוסף לתקרת ה-IP הכללית.
  */
 @Controller("public/market")
 export class MarketPublicController {
   constructor(private readonly publicMarket: MarketPublicService) {}
 
   @Public()
-  @Throttle({ default: { ttl: 60_000, limit: 30 } })
+  @ThrottleWebhook({ source: "lead", param: "key" }, 30)
   @Get(":key")
   async office(@Param("key", new ZodValidationPipe(KeySchema)) key: string): Promise<{ officeName: string }> {
     return this.publicMarket.office(key);
   }
 
   @Public()
-  @Throttle({ default: { ttl: 60_000, limit: 10 } })
+  @ThrottleWebhook({ source: "lead", param: "key" }, 10)
   @Post(":key/estimate")
   @HttpCode(200)
   async estimate(

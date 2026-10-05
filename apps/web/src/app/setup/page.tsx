@@ -286,6 +286,8 @@ export default function SetupPage() {
 
   return (
     <div className="mx-auto max-w-4xl">
+      {/* הכותרת הסמנטית — הסרגל העליון מציג `<p>` בכוונה (app-shell) */}
+      <h1 className="sr-only">הקמת המשרד</h1>
       {/* כותרת התקדמות — "לוקח בערך 4 דקות" מוריד את הלחץ לדלג על הכול */}
       <div className="mb-5">
         <div className="mb-2 flex flex-wrap items-baseline gap-2">

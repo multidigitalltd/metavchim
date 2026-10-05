@@ -9,8 +9,8 @@ import { AgentUsageService, type AgentUsageReport } from "./agent-usage.service"
 /**
  * דוח השימוש והעלות של הסוכן — לבעל הפלטפורמה בלבד.
  *
- * בקר נפרד מ-`PlatformController` רק בגלל גודלו של האחרון; השערים
- * זהים — `PlatformAdminGuard` מעל התחברות רגילה.
+ * בקר משלו, כמו שאר בקרי `/platform` (משרדים, כסף, הגדרות, מערכת);
+ * השערים זהים — `PlatformAdminGuard` מעל התחברות רגילה.
  */
 
 /**

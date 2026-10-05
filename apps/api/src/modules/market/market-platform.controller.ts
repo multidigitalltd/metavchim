@@ -1,6 +1,7 @@
-import { Controller, Get, HttpCode, Post } from "@nestjs/common";
+import { Controller, Get, HttpCode, Post, UseGuards } from "@nestjs/common";
 import type { MarketPlatformStatusDto } from "@metavchim/shared";
 import { PlatformAdmin } from "../../common/auth.decorators";
+import { PlatformAdminGuard } from "../../common/platform-admin.guard";
 import { PlatformSettingsService } from "../../core/platform-settings.service";
 import { PrismaService } from "../../core/prisma.service";
 import { DEFAULT_MARKET_SOURCE_URL } from "./market-source";
@@ -19,6 +20,7 @@ import { MarketService } from "./market.service";
  * מצרפי בלבד — מספר, לא שורות — ולכן אינן חושפות דבר של משרד.
  */
 @Controller("platform/market")
+@UseGuards(PlatformAdminGuard)
 @PlatformAdmin()
 export class MarketPlatformController {
   constructor(

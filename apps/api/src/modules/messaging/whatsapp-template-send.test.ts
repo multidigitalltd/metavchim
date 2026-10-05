@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { workersSource } from "../../common/workers-source.testkit";
 
 /**
  * ‎**התבנית שנרשמה ידנית ב-Meta, והקוד ששולח אליה.**
@@ -23,7 +24,7 @@ const SEND = read("./whatsapp-send.service.ts");
 const TELEPHONY = read("../telephony/telephony.service.ts");
 const EMAIL = read("../email-inbox/email-inbox.service.ts");
 const VIEWING = read("../calendar/viewing-reminder.service.ts");
-const WORKERS = read("../../../../../apps/workers/src/main.ts");
+const WORKERS = workersSource("whatsapp/config.ts", "jobs/whatsapp-notify.ts");
 
 describe("שליחת תבנית", () => {
   /*
@@ -99,6 +100,24 @@ describe("שליחת תבנית", () => {
       VIEWING,
       "בלי המסלול הישן, תבנית שכבר אושרה מפסיקה לעבוד בשקט",
     ).toContain('whatsappTemplateParams("viewingReminder", [body])');
+  });
+
+  /*
+   * ‎**צורת ההתראה נקבעת מההגדרה, לא מהגרסה.**
+   *
+   * ‏ערך של תבנית אינו יכול להכיל ירידת שורה, ולכן הפירוט משוטח
+   * ‏ל-`·` והתקציר מגיע כשרשרת אחת. שורות אמיתיות דורשות תבנית
+   * ‏אחרת (`notifyLines`) — ושליחת חמישה שמות לתבנית שיש בה שניים
+   * ‏נדחית אצל Meta, כלומר כל ההתראות מחוץ לחלון נעלמות בשקט.
+   * ‏לכן ברירת המחדל היא הישנה, ו-`=== "true"` ולא `!== "false"`.
+   */
+  it("צורת ההתראה נקראת מההגדרה, וברירת המחדל היא הישנה", () => {
+    expect(WORKERS).toContain('stored.get("whatsappNotifyTemplateLines")?.trim() === "true"');
+    expect(WORKERS).toContain('whatsappTemplateParams("notifyLines", templateLineParams(items))');
+    expect(
+      WORKERS,
+      "בלי המסלול הישן, תבנית שכבר אושרה מפסיקה לעבוד בשקט",
+    ).toContain('whatsappTemplateParams("notify", templateParams(items))');
   });
 
   /*

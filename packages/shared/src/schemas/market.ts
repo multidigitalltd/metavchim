@@ -1,4 +1,4 @@
-import { z } from "zod";
+import * as z from "../zod.js";
 import {
   MARKET_NATURE_GROUPS,
   MARKET_ROOM_BUCKETS,
@@ -12,7 +12,7 @@ import {
 } from "../logic/market.js";
 
 /**
- * ‎**חוזי נתוני השוק — מה שה-API מחזיר ומה שהמסכים קוראים** (docs/14).
+ * ‎**חוזי נתוני השוק — מה שה-API מחזיר ומה שהמסכים קוראים** (docs/18).
  *
  * מקום אחד לשני הצדדים: `verify:shapes` משווה את טיפוס ההחזרה של
  * הבקר לטיפוס שהמסך מצהיר עליו, ושניהם מצביעים לכאן.

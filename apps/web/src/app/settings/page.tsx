@@ -2,7 +2,13 @@
 
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import Link from "next/link";
-import { ASSIGNABLE_ROLES, ROLE_CAPABILITIES, ROLE_LABELS, roleLabel } from "@metavchim/shared";
+import {
+  ASSIGNABLE_ROLES,
+  OptionalPhoneInputSchema,
+  ROLE_CAPABILITIES,
+  ROLE_LABELS,
+  roleLabel,
+} from "@metavchim/shared";
 import { Button } from "@metavchim/ui";
 import { apiGet, apiPatch, apiPost, ApiError, apiList } from "@/lib/api";
 import { useScrollAffordance } from "@/lib/use-scroll-affordance";
@@ -14,9 +20,10 @@ import { BillingSection } from "./billing-section";
 import { PayoutPanel } from "./payout-panel";
 import { DeleteAccountSection } from "./delete-account-section";
 import { ExportSection } from "./export-section";
+import { BuyerStatusesSection } from "./buyer-statuses-section";
 import { LeadWebhookSection } from "./lead-webhook-section";
 import { PlanSection } from "./plan-section";
-import { WhatsAppStatusSection } from "./whatsapp-status-section";
+import { WhatsAppBusinessSection } from "./whatsapp-business-section";
 import { WhatsAppSeatPanel } from "./whatsapp-seat-panel";
 import { LockedFeature } from "./locked-feature";
 import { TelephonySection } from "./telephony-section";
@@ -63,6 +70,14 @@ interface AuditRow {
   userName?: string;
   /** הפעולה בוצעה ע"י התמיכה — הכתובת שנכנסה. */
   supportAdmin?: string;
+  /**
+   * העברת כרטיס בין סוכנים — ממי, ולמי.
+   *
+   * חסר = הצד הזה היה „לא משויך”, וזה צד לגיטימי בהעברה: נכס שלא
+   * היה שייך לאיש וקיבל מטפל, או להפך.
+   */
+  agentFrom?: string;
+  agentTo?: string;
   createdAt: string;
 }
 
@@ -90,6 +105,20 @@ const AUDIT_ACTION_LABELS: Record<string, string> = {
   "property.owner_update": "עדכון שיווק לבעל נכס",
   "buyer.create": "יצירת קונה",
   "buyer.update": "עדכון קונה",
+  // ‏„בין סוכנים” ולא „עדכון”: זו העברת אחריות, ולכן היא שורה משלה
+  "property.agent_changed": "העברת נכס בין סוכנים",
+  "buyer.agent_changed": "העברת קונה בין סוכנים",
+  "lead.agent_changed": "העברת ליד בין סוכנים",
+  /*
+   * ‏פעולות שמנהל הפלטפורמה עושה **בשם המשרד**. השורות האלה הן
+   * ‏התמורה לכך שהוא אינו צריך לבקש גישת תמיכה מראש, ולכן הן
+   * ‏צריכות להיקרא בעברית כמו כל שורה אחרת ביומן — לא כקוד.
+   */
+  "integration.platform_connect": "מנהל הפלטפורמה חיבר מרכזייה",
+  "integration.platform_update": "מנהל הפלטפורמה עדכן את חיבור המרכזייה",
+  "integration.platform_recordings_import": "מנהל הפלטפורמה הריץ ייבוא הקלטות",
+  "virtual_number.platform_assign": "מנהל הפלטפורמה שייך מספרים לסוכנים",
+  "virtual_number.platform_delete": "מנהל הפלטפורמה מחק מספר וירטואלי",
   "buyer.interaction_add": "תיעוד אינטראקציה עם קונה",
   "lead.create": "יצירת ליד",
   "lead.status": "עדכון סטטוס ליד",
@@ -97,6 +126,16 @@ const AUDIT_ACTION_LABELS: Record<string, string> = {
   // הרישום הזה הוא הראיה שבקשת המחיקה של לקוח בוצעה — ולכן הוא
   // חייב להיקרא בעברית ביומן, ולא כקוד
   "contact.erase": "מחיקת לקוח מהמערכת",
+  /*
+   * ‎**תיקון פרטי הזיהוי של לקוח — שתי שורות, ולא אחת.**
+   *
+   * שם שהוחלף ומספר שהוחלף הם שתי שאלות שונות לגמרי כשחוזרים
+   * ליומן: „למה הכרטיס נקרא אחרת” מול „למה השיחות הפסיקו להגיע
+   * לכאן”. שתיהן נרשמו בלי הערך עצמו (PII מוצפן), ולכן שם הפעולה
+   * הוא כל מה שיש — ותווית אחת לשתיהן הייתה מוחקת את ההבדל.
+   */
+  "contact.renamed": "תיקון שם לקוח",
+  "contact.phone_changed": "החלפת מספר הטלפון של לקוח",
   // החלטות פלטפורמה נרשמות ביומן של המשרד עצמו: בלעדיהן מודול שנעלם
   // נראה כמו תקלה, ואין למנהל שום דרך לדעת שזו הייתה החלטה
   "platform.blocked_modules": "שינוי חסימת מודולים בידי הפלטפורמה",
@@ -137,8 +176,9 @@ const AUDIT_ACTION_LABELS: Record<string, string> = {
  * במקרקעין, ובלעדיו התבנית מדפיסה מקום ריק.
  */
 interface TenantSettings {
+  /** ‏מספר הלקוח — מה שהמשרד מקריא כשהוא פונה לתמיכה. לקריאה בלבד. */
+  customerNo: number;
   name: string;
-  whatsappNumber?: string;
   plan: string;
   licenseNumber?: string;
   officeAddress?: string;
@@ -149,6 +189,8 @@ interface TenantSettings {
   autoShareProperties: boolean;
   autoShareBuyers: boolean;
   autoEmailOffers: boolean;
+  /** הלוגו של המשרד מוטבע על תמונות נכס חדשות */
+  photoLogoOverlay: boolean;
   /** מקומות לסוכן הוואטסאפ — כמה יש למשרד, וכמה מהם תפוסים */
   whatsappAgentSeats: number;
   whatsappAgentSeatsUsed: number;
@@ -165,6 +207,12 @@ const HASH_TABS: Record<string, string> = {
   automations: "automations",
   whatsapp: "integrations",
   telephony: "integrations",
+  /*
+    המספרים הווירטואליים יושבים בתוך קטע המרכזייה, ולכן העוגן שלהם
+    לא היה כאן — והתראת "המספר שהושכר" נחתה בלשונית הצוות, שבה
+    הכותרת שאליה כיוונה כלל אינה מורכבת (ביקורת Codex).
+  */
+  "virtual-numbers": "integrations",
   "google-calendar": "integrations",
   gmail: "integrations",
   "lead-webhook": "integrations",
@@ -173,6 +221,17 @@ const HASH_TABS: Record<string, string> = {
   data: "data",
   "support-access": "support",
 };
+
+/**
+ * כמה זמן מחכים לעוגן שהלשונית מרכיבה — ובאיזה קצב בודקים.
+ *
+ * ‏שנייה אחת לא הספיקה בפועל: הקטע נכנס ל-DOM סביב 800ms, ואחרי
+ * שהבקשות שלו חוזרות הוא גם זז. ארבע שניות הן תקרה נדיבה שנגמרת
+ * מעצמה — מי שהעוגן שלו נעול במסלול פשוט לא ייגלל, בלי טיימר שממשיך
+ * לרוץ ברקע.
+ */
+const ANCHOR_WAIT_MS = 4000;
+const ANCHOR_POLL_MS = 100;
 
 /** לשוניות ניהול המשרד — הסדר הוא סדר השימוש בפועל. */
 const TABS: [key: string, label: string][] = [
@@ -198,6 +257,75 @@ const TABS: [key: string, label: string][] = [
   ["support", "פניות לתמיכה"],
 ];
 
+/**
+ * ‎**המקום של הסוכן בוואטסאפ — מצב ופעולה בפקד אחד.**
+ *
+ * ## למה התווית אומרת גם מה הלחיצה עושה
+ *
+ * ‏„מחזיק בסוכן” תיאר **מצב**, והלחיצה עליו שחררה את המקום — בלי
+ * ‏ששום דבר אמר זאת. בעל משרד שנחסם בהקצאה קרא „כבו אצל מי
+ * ‏שמחזיק” וחיפש פקד בשם „כבה” שאינו קיים (דיווח מהשטח). עכשיו
+ * ‏התווית נושאת את שניהם: המצב, ואחריו הפעולה בכתב עמום.
+ *
+ * ‎„כלול תמיד” ירד בשעתו מאותה סיבה: בעל המשרד מחזיק במקום
+ * ‏כברירת מחדל ורשאי להעביר אותו, ולכן התווית אומרת מה המצב
+ * ‏**בפועל** ולא מה התפקיד.
+ *
+ * ## ולמה רכיב, ולא שני עותקים
+ *
+ * ‏אותו פקד הופיע פעמיים באותו עמוד — ליד טלפון שניתן לעריכה
+ * ‏וליד טלפון שאינו — בשני עותקים זהים בני 35 שורות. תיקון בתווית
+ * ‏היה נכתב פעמיים, וזה בדיוק המקום שבו שניים נפרדים.
+ *
+ * ‎`editable` הוא `billing.manage` ולא ניהול צוות: זו רכישה,
+ * ‏והשרת אוכף את אותו כלל (ביקורת Codex).
+ */
+function SeatPill({
+  holds,
+  editable,
+  name,
+  onToggle,
+}: {
+  holds: boolean;
+  editable: boolean;
+  /** שם הסוכן — ל-`aria-label`, כי „לשחרור” לבדו אינו אומר של מי */
+  name: string;
+  onToggle: () => void;
+}): React.JSX.Element {
+  const tone = {
+    fontSize: "var(--type-caption)",
+    color: holds ? "var(--color-primary)" : "var(--color-text-muted)",
+    background: holds ? "var(--color-primary-soft)" : "var(--color-hover-soft)",
+  };
+  if (!editable) {
+    return (
+      <span className="mv-pill" style={tone}>
+        {holds ? "מחזיק בסוכן" : "כבוי"}
+      </span>
+    );
+  }
+  return (
+    <button
+      type="button"
+      className="mv-pill"
+      style={{ ...tone, cursor: "pointer", border: "none" }}
+      aria-pressed={holds}
+      aria-label={holds ? `שחרור המקום של ${name}` : `הקצאת הסוכן ל${name}`}
+      title={holds ? "לחיצה משחררת את המקום" : "לחיצה מקצה את הסוכן"}
+      onClick={onToggle}
+    >
+      {holds ? (
+        <>
+          מחזיק בסוכן{" "}
+          <span style={{ color: "var(--color-text-muted)", fontWeight: 400 }}>· לשחרור</span>
+        </>
+      ) : (
+        "הקצה"
+      )}
+    </button>
+  );
+}
+
 export default function SettingsPage() {
   const { user, loading: authLoading } = useRequireAuth();
   const [tab, setTab] = useState("team");
@@ -219,6 +347,14 @@ export default function SettingsPage() {
    * בחנות המודולים ובמסך הלידים, ומאז הפיצול ללשוניות הם היו נוחתים
    * על הלשונית הראשונה — שבה האלמנט שאליו כיוונו כלל אינו מורכב
    * (ביקורת Codex). אחרי בחירת הלשונית גוללים לעוגן עצמו.
+   *
+   * ‎**הגלילה ממתינה לאלמנט, לא לשעון.** חלון קבוע של 120ms חיפש את
+   * העוגן לפני שהיה קיים: תוכן הלשונית מחכה לזהות ואז למסלול ואז
+   * לבקשה של הקטע עצמו, והוא נכנס ל-DOM סביב 800ms. כלומר
+   * ‎`getElementById` החזירה `null`, הגלילה לא קרתה בכלל, והלוחץ
+   * נשאר בראש מסך ארוך אחרי שהלשונית כן התחלפה — כשל שקט, כי
+   * ‎`?.` בולעת בדיוק את המקרה הזה. נמדד בדפדפן על
+   * ‎`/settings#virtual-numbers`, שהעוגן שלו יושב 1212px למטה.
    */
   useEffect(() => {
     const requested = new URLSearchParams(window.location.search).get("tab");
@@ -230,10 +366,43 @@ export default function SettingsPage() {
     const owning = HASH_TABS[anchor];
     if (!owning) return;
     setTab(owning);
-    // הגלילה אחרי שהלשונית הורכבה — לפני כן האלמנט לא קיים
-    window.setTimeout(() => {
-      document.getElementById(anchor)?.scrollIntoView({ block: "start" });
-    }, 120);
+    let lastHeight = -1;
+    const timer = window.setInterval(() => {
+      /*
+       * המשתמש גלל בעצמו בזמן ההמתנה — מכאן זה המסך שלו. גלילה
+       * שמגיעה באיחור למקום אחר גרועה מגלילה שלא קרתה. הבדיקה
+       * אמינה כאן דווקא כי אנחנו עוד לא גללנו: הגלילה שלנו קורית
+       * פעם אחת, בסוף.
+       */
+      if (window.scrollY > 0) {
+        window.clearInterval(timer);
+        return;
+      }
+      const target = document.getElementById(anchor);
+      if (target === null) return;
+      /*
+       * ‎**קיום האלמנט אינו התנאי — גובה שהתייצב הוא.** ‏זו הטעות
+       * השנייה באותו קוד: גם אחרי שהעוגן נכנס ל-DOM המסך עוד
+       * מתמלא, המסמך בגובה מסך אחד, ואין לאן לגלול —
+       * ‎`scrollIntoView` רצה בהצלחה והשאירה את `scrollY` על אפס.
+       * שני מדידות גובה זהות פירושן שהפריסה נחה, ואז גוללים פעם
+       * אחת. גובה ולא מקום האלמנט: סקלר אחד, בלי לגלול שוב ושוב
+       * ולהיאבק במשתמש.
+       */
+      const height = document.documentElement.scrollHeight;
+      if (height !== lastHeight) {
+        lastHeight = height;
+        return;
+      }
+      target.scrollIntoView({ block: "start" });
+      window.clearInterval(timer);
+    }, ANCHOR_POLL_MS);
+    // תקרה: קטע שנעול במסלול או שנכשל בטעינה לא יופיע לעולם
+    const giveUp = window.setTimeout(() => window.clearInterval(timer), ANCHOR_WAIT_MS);
+    return () => {
+      window.clearInterval(timer);
+      window.clearTimeout(giveUp);
+    };
   }, []);
 
   function selectTab(next: string): void {
@@ -279,13 +448,11 @@ export default function SettingsPage() {
   async function saveTenant(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const f = new FormData(event.currentTarget);
-    const whatsapp = String(f.get("whatsappNumber") ?? "").replace(/\D/gu, "");
     try {
       // כל שדה נשלח תמיד, גם ריק: השרת מפרש "" כמחיקה, ובלי זה אי אפשר
       // היה לנקות שדה שמולא בטעות — הערך הריק פשוט לא נשלח ונשאר כשהיה
       await apiPatch("/settings/tenant", {
         name: String(f.get("name")).trim(),
-        whatsappNumber: whatsapp,
         licenseNumber: String(f.get("licenseNumber") ?? "").trim(),
         officeAddress: String(f.get("officeAddress") ?? "").trim(),
         officePhone: String(f.get("officePhone") ?? "").trim(),
@@ -314,6 +481,7 @@ export default function SettingsPage() {
     autoShareProperties?: boolean;
     autoShareBuyers?: boolean;
     autoEmailOffers?: boolean;
+    photoLogoOverlay?: boolean;
   }): Promise<void> {
     await apiPatch("/settings/tenant", patch);
     setTenant((prev) => (prev === null ? prev : { ...prev, ...patch }));
@@ -357,12 +525,14 @@ export default function SettingsPage() {
    * נשמר ביציאה מהשדה, ורק אם באמת השתנה — לא בכל מעבר פוקוס.
    */
   async function savePhone(member: TeamUser, raw: string) {
-    const phone = raw.trim();
-    if (phone === (member.phone ?? "")) return;
-    if (phone !== "" && !/^[\d\-+ ]{9,20}$/u.test(phone)) {
-      setMessage("מספר הטלפון לא נשמר — ספרות בלבד, 9 עד 20 תווים");
+    /* ‏אותו כלל כמו בשרת — והשוואה על הצורה המנורמלת, כמו שהוא נשמר */
+    const parsed = OptionalPhoneInputSchema.safeParse(raw);
+    if (!parsed.success) {
+      setMessage(`מספר הטלפון לא נשמר — ${parsed.error.issues[0]?.message ?? "קלט לא תקין"}`);
       return;
     }
+    const phone = parsed.data ?? "";
+    if (phone === (member.phone ?? "")) return;
     try {
       await apiPatch(`/settings/users/${member.id}`, { phone });
       setMessage(
@@ -408,6 +578,8 @@ export default function SettingsPage() {
 
   return (
     <>
+      {/* הכותרת הסמנטית — הסרגל העליון מציג `<p>` בכוונה (app-shell) */}
+      <h1 className="sr-only">ניהול משרד</h1>
       {message ? (
         <Notice tone="success">{message}</Notice>
       ) : null}
@@ -527,8 +699,20 @@ export default function SettingsPage() {
                     : `מוקצה ל${whatsappHolders.join(", ")}.`}{" "}
                   {tenant.whatsappAgentSeatsUsed} מתוך {tenant.whatsappAgentSeats}{" "}
                   {tenant.whatsappAgentSeats === 1 ? "מקום" : "מקומות"} בשימוש
+                  {/*
+                    ‎**„כבו” ירד: אין פקד בשם הזה.** מי שנחסם חיפש
+                    ‏כפתור „כבה” ולא מצא — הפקד הוא התווית „מחזיק
+                    ‏בסוכן”, ולחיצה עליה משחררת. אותו נוסח בדיוק
+                    ‏נאמר בהודעת החסימה מהשרת (`whatsappSeatsFullText`).
+
+                    ‎**ו„הוסיפו מקום למטה” ירד גם הוא** (ביקורת
+                    ‏Codex): המשפט הזה אינו יודע אם יש מה להוסיף,
+                    ‏ובמסלול בלי מחיר — או בלי סליקה מוגדרת —
+                    ‏הפאנל שמתחתיו אומר בדיוק ההפך. הפאנל מדבר
+                    ‏בעצמו, והשורה הזו אינה צריכה לדבר בשמו.
+                  */}
                   {tenant.whatsappAgentSeatsUsed >= tenant.whatsappAgentSeats
-                    ? " — כדי להקצות לסוכן אחר, כבו קודם אצל מי שמחזיק."
+                    ? " — כדי להקצות לסוכן אחר, לחצו „מחזיק בסוכן” ליד מי שמחזיק."
                     : "."}
                 </p>
               )}
@@ -766,95 +950,24 @@ export default function SettingsPage() {
                                     void savePhone(member, event.target.value)
                                   }
                                 />
-                                {/*
-                                  המתג רק למי שמחזיק billing.manage:
-                                  זו רכישה, לא ניהול צוות — והשרת
-                                  אוכף את אותו כלל (ביקורת Codex).
-                                */}
-                                {seatEditable ? (
-                                  <button
-                                    type="button"
-                                    className="mv-pill"
-                                    style={{
-                                      fontSize: "var(--type-caption)",
-                                      cursor: "pointer",
-                                      border: "none",
-                                      color: member.whatsappAccess
-                                        ? "var(--color-primary)"
-                                        : "var(--color-text-muted)",
-                                      background: member.whatsappAccess
-                                        ? "var(--color-primary-soft)"
-                                        : "var(--color-hover-soft)",
-                                    }}
-                                    aria-pressed={member.whatsappAccess}
-                                    onClick={() => void toggleWhatsapp(member)}
-                                  >
-                                    {member.whatsappAccess ? "מחזיק בסוכן" : "הקצה"}
-                                  </button>
-                                ) : (
-                                  <span
-                                    className="mv-pill"
-                                    style={{
-                                      fontSize: "var(--type-caption)",
-                                      color: member.whatsappAccess
-                                        ? "var(--color-primary)"
-                                        : "var(--color-text-muted)",
-                                      background: member.whatsappAccess
-                                        ? "var(--color-primary-soft)"
-                                        : "var(--color-hover-soft)",
-                                    }}
-                                  >
-                                    {member.whatsappAccess ? "מחזיק בסוכן" : "כבוי"}
-                                  </span>
-                                )}
+                                <SeatPill
+                                  holds={member.whatsappAccess}
+                                  editable={seatEditable}
+                                  name={member.name}
+                                  onToggle={() => void toggleWhatsapp(member)}
+                                />
                               </>
                             ) : (
                               <>
                                 <span className="text-sm" dir="ltr">
                                   {member.phone ?? "—"}
                                 </span>
-                                {/*
-                                  ‎„כלול תמיד” ירד: בעל המשרד מחזיק
-                                  במקום כברירת מחדל ורשאי להעביר
-                                  אותו, ולכן התווית חייבת לומר מה
-                                  המצב **בפועל** ולא מה התפקיד.
-                                */}
-                                {seatEditable ? (
-                                  <button
-                                    type="button"
-                                    className="mv-pill"
-                                    style={{
-                                      fontSize: "var(--type-caption)",
-                                      cursor: "pointer",
-                                      border: "none",
-                                      color: member.whatsappAccess
-                                        ? "var(--color-primary)"
-                                        : "var(--color-text-muted)",
-                                      background: member.whatsappAccess
-                                        ? "var(--color-primary-soft)"
-                                        : "var(--color-hover-soft)",
-                                    }}
-                                    aria-pressed={member.whatsappAccess}
-                                    onClick={() => void toggleWhatsapp(member)}
-                                  >
-                                    {member.whatsappAccess ? "מחזיק בסוכן" : "הקצה"}
-                                  </button>
-                                ) : (
-                                  <span
-                                    className="mv-pill"
-                                    style={{
-                                      fontSize: "var(--type-caption)",
-                                      color: member.whatsappAccess
-                                        ? "var(--color-primary)"
-                                        : "var(--color-text-muted)",
-                                      background: member.whatsappAccess
-                                        ? "var(--color-primary-soft)"
-                                        : "var(--color-hover-soft)",
-                                    }}
-                                  >
-                                    {member.whatsappAccess ? "מחזיק בסוכן" : "כבוי"}
-                                  </span>
-                                )}
+                                <SeatPill
+                                  holds={member.whatsappAccess}
+                                  editable={seatEditable}
+                                  name={member.name}
+                                  onToggle={() => void toggleWhatsapp(member)}
+                                />
                               </>
                             )}
                           </span>
@@ -991,6 +1104,22 @@ export default function SettingsPage() {
                 <form onSubmit={(e) => void saveTenant(e)} className="max-w-md">
                   {/* הלוגו ראשון: הוא הדבר היחיד בטופס שרואים אותו */}
                   <OfficeLogo />
+                  {/*
+                    ‎**מספר הלקוח — לקריאה, לא לעריכה.** הוא מחולק
+                    מרצף במסד; מה שהמשרד צריך ממנו הוא להקריא אותו
+                    כשהתמיכה שואלת, ולכן הוא מוצג ואינו שדה.
+                  */}
+                  {tenant.customerNo > 0 ? (
+                    <p
+                      className="m-0 mb-3.5 text-[length:var(--type-caption)]"
+                      style={{ color: "var(--color-text-muted)" }}
+                    >
+                      מספר לקוח:{" "}
+                      <span dir="ltr" className="font-mono tabular-nums">
+                        {tenant.customerNo}
+                      </span>
+                    </p>
+                  ) : null}
                   <div className="mb-3.5">
                     <label
                       htmlFor="name"
@@ -1004,26 +1133,6 @@ export default function SettingsPage() {
                       defaultValue={tenant.name}
                       required
                       minLength={2}
-                      className="w-full rounded-lg border px-3 py-2.5"
-                      style={inputStyle}
-                    />
-                  </div>
-                  <div className="mb-3.5">
-                    <label
-                      htmlFor="whatsappNumber"
-                      className="mb-1 block text-sm font-semibold"
-                    >
-                      מספר וואטסאפ עסקי{" "}
-                      <span className="font-normal">
-                        (לניתוב הודעות נכנסות)
-                      </span>
-                    </label>
-                    <input
-                      id="whatsappNumber"
-                      name="whatsappNumber"
-                      dir="ltr"
-                      placeholder="972501234567"
-                      defaultValue={tenant.whatsappNumber ?? ""}
                       className="w-full rounded-lg border px-3 py-2.5"
                       style={inputStyle}
                     />
@@ -1139,6 +1248,16 @@ export default function SettingsPage() {
             </section>
           ) : null}
 
+          {/*
+            ‎**קופסה נפרדת מ„פרטי המשרד”.**
+
+            פרטי המשרד הם שדות שממלאים פעם אחת בהקמה. רשימת הסטטוסים
+            היא תהליך העבודה של המשרד, נערכת לאורך זמן, ויש לה שמירה
+            משלה לכל שורה. טופס אחד עם כפתור „שמור” בסופו היה מסתיר
+            את זה שהעריכה כאן כבר נשמרה.
+          */}
+          {tab === "office" ? <BuyerStatusesSection /> : null}
+
           {tab === "integrations" ? (
             <>
               {/*
@@ -1176,15 +1295,25 @@ export default function SettingsPage() {
               </section>
 
               {/*
-            סטטוס הוואטסאפ לבעל המשרד בלבד. השלב הראשון בו ("חיבור
-            השרת ל-Meta") הוא באחריותנו כמפעילי המערכת, ולשאר הצוות
-            הקטע רק מציג ✗ אדומים שאין להם מה לעשות איתם.
-          */}
-              {user?.role === "owner" ? (
-                <div id="whatsapp">
-                  <WhatsAppStatusSection />
-                </div>
-              ) : null}
+                ‎**הקו הוא של הסוכן, ולכן הסעיף פתוח לכל הצוות.**
+                
+                כאן ישב `user?.role === "owner"`, והוא נכתב עבור
+                ‎`WhatsAppStatusSection` — סטטוס משרדי שהשלב הראשון בו
+                היה באחריותנו, ולשאר הצוות הציג ✗ אדומים שאין להם מה
+                לעשות איתם. הסעיף ההוא הוסר (#394), הסינון נשאר, ומי
+                שירש אותו הוא בדיוק הסעיף ההפוך: כל סוכן מחבר את
+                **המספר שבכיס שלו**, והלידים מהלקוחות שכתבו אליו
+                נוחתים אצלו ולא במאגר המשרד.
+                
+                כלומר הסינון הסתיר את הפיצ'ר מכל מי שהוא נבנה בשבילו,
+                והשאיר אותו למי שאולי אין לו קו משלו כלל. השרת מעולם
+                לא חשב אחרת: הנתיב הוא `@AnyAuthenticated` בכוונה
+                מפורשת, ומוגבל לקו של המשתמש עצמו — סוכן אינו זקוק
+                לאישור בעל המשרד כדי לחבר את הטלפון של עצמו.
+              */}
+              <div id="whatsapp" className="flex flex-col gap-4">
+                <WhatsAppBusinessSection />
+              </div>
               <div id="telephony">
                 {canTelephony ? (
                   <>
@@ -1283,6 +1412,7 @@ export default function SettingsPage() {
                     autoShareProperties: tenant.autoShareProperties,
                     autoShareBuyers: tenant.autoShareBuyers,
                     autoEmailOffers: tenant.autoEmailOffers,
+                    photoLogoOverlay: tenant.photoLogoOverlay,
                   }}
                   onSave={saveTenantFlags}
                 />
@@ -1375,6 +1505,14 @@ export default function SettingsPage() {
                       </span>
                       <span style={{ color: "var(--color-text-soft)" }}>
                         {AUDIT_ACTION_LABELS[row.action] ?? row.action}
+                        {/*
+                          ‎**„בין מי לבין מי” — כאן, לא בשורה נפרדת.**
+                          „העברת נכס בין סוכנים” בלי השמות אינו עונה
+                          על השאלה שבגללה האירוע נרשם בנפרד.
+                        */}
+                        {row.agentFrom !== undefined || row.agentTo !== undefined
+                          ? ` · ${row.agentFrom ?? "לא משויך"} ← ${row.agentTo ?? "לא משויך"}`
+                          : ""}
                       </span>
                       <span
                         className="ms-auto"

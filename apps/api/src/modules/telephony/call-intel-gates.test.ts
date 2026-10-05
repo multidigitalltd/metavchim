@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
+import { workersSource } from "../../common/workers-source.testkit";
 
 /**
  * ‎**רשת הביטחון של התמלול — מה שאסור להסיר.**
@@ -26,10 +27,7 @@ import { describe, expect, it } from "vitest";
  */
 
 const API = join(import.meta.dirname, "..", "..");
-const WORKER = readFileSync(
-  join(API, "..", "..", "workers", "src", "main.ts"),
-  "utf8",
-);
+const WORKER = workersSource("jobs/calls.ts");
 const INTEL = readFileSync(
   join(API, "..", "..", "..", "packages", "shared", "src", "logic", "call-intel.ts"),
   "utf8",
@@ -141,8 +139,28 @@ describe("פרטיות", () => {
   /*
    * שם הלקוח מוצפן במנוחה. פענוח שלו כדי לשלוח אותו לספק חיצוני
    * הופך החלטת פרטיות מפורשת על פיה — בשביל רמז.
+   *
+   * ‎**הבדיקה על מסלול השיחה בלבד, ולא על הקובץ כולו.**
+   *
+   * היא נכתבה כ-`WORKER.not.toContain("contactName")`, וזה קרס
+   * ברגע שקוד **אחר** לגמרי באותו קובץ פענח שם לגיטימית — כותרת
+   * משימת SLA שנשלחת למתווך עצמו. שער שנשבר על שימוש תקין מלמד
+   * לעקוף אותו (די בשינוי שם המשתנה), וזו בדיוק הדרך שבה הגנה
+   * הופכת לטקס. הגבול הוא `callIntel` — הפונקציה שבאמת מדברת עם
+   * הספק החיצוני.
    */
+  const INTEL = WORKER.slice(
+    WORKER.indexOf("async function callIntel("),
+    WORKER.indexOf("\n}\n", WORKER.indexOf("async function callIntel(")),
+  );
+
+  it("גבול הבדיקה קיים — אחרת היא בודקת מחרוזת ריקה", () => {
+    expect(INTEL.length).toBeGreaterThan(500);
+  });
+
   it("שם הלקוח אינו נשלח למודל", () => {
-    expect(WORKER).not.toContain("contactName");
+    expect(INTEL).not.toContain("contactName");
+    expect(INTEL).not.toContain("nameEncrypted");
+    expect(INTEL, "פענוח בתוך המסלול שמדבר עם הספק").not.toContain("decrypt");
   });
 });

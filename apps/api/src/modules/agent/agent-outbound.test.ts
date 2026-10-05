@@ -50,6 +50,22 @@ describe("פעולות שיוצאות אל מחוץ למשרד", () => {
     expect(agentAction("send_agreement")?.risk).toBe("outbound");
     expect(agentAction("send_agreement")?.capability).toBe("offers.send");
   });
+
+  /*
+   * ‎**והקישור הפתוח הוא בדיוק ההפך, ומאותו נימוק.**
+   *
+   * ‏אין בו נמען: שום דבר אינו יוצא מהמשרד, המתווך מקבל כתובת
+   * ‏ושולח אותה בעצמו. לו סומן `outbound` הוא היה נגרר לכלל
+   * ‏„בחירה מפורשת של נמען” — ואין במה לבחור, וזו כל הבקשה
+   * ‏שהולידה אותו. היכולת נשארת זהה: מי שרשאי להחתים רשאי להפיק
+   * ‏קישור החתמה.
+   */
+  it("הקישור הפתוח הוא יצירה, לא שליחה — ובאותה יכולת", () => {
+    expect(agentAction("open_signing_link")?.risk).toBe("create");
+    expect(agentAction("open_signing_link")?.capability).toBe("offers.send");
+    expect(agentAction("open_signing_link")?.fields).toEqual([]);
+    expect(requiresExplicitChoice("open_signing_link")).toBe(false);
+  });
 });
 
 /**

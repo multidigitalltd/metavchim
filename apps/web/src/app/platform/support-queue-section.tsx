@@ -23,7 +23,7 @@ import {
   type SupportStatus,
 } from "@metavchim/shared";
 import { API_BASE, ApiError, apiGet, apiPost } from "@/lib/api";
-import { formatDateTime, timeAgo } from "@/lib/format";
+import { formatBytes, formatDateTime, timeAgo } from "@/lib/format";
 import { IconMail } from "../icons";
 import { SearchField } from "../list-controls";
 import { Notice } from "../notice";
@@ -133,12 +133,6 @@ function sendStateNote(state: string | undefined): { text: string; token: string
     return { text: "לא ידוע אם נשלחה — בדקו לפני שליחה חוזרת", token: "--color-danger" };
   }
   return null;
-}
-
-function formatBytes(bytes: number): string {
-  return bytes >= 1024 * 1024
-    ? `${(bytes / (1024 * 1024)).toFixed(1)}MB`
-    : `${Math.max(1, Math.round(bytes / 1024))}KB`;
 }
 
 /**

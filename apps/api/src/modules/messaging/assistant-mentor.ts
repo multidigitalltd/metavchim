@@ -9,7 +9,7 @@
  * „לענות למנטור” (או המילים האלה כלשונן), **ההודעה הבאה היא
  * התשובה** — מצב ממתין כמו „אשר”, עם אותו חותם ואותה צריכה אטומית.
  * אחרי התשובה מגיע החצי השני של WOOP: „ואם זה יקרה שוב?” — שלוש
- * הצעות ללחיצה, או תוכנית במילים של המתווך (docs/13 §9).
+ * הצעות ללחיצה, או תוכנית במילים של המתווך (docs/14 §9).
  */
 
 import { MENTOR_QUICK_COMMANDS, type WhatsAppListRow } from "@metavchim/shared";
@@ -24,6 +24,31 @@ export function isMentorReflectRequest(text: string): boolean {
   );
 }
 
+/**
+ * „הרעיון עזר לי” / „הרעיון לא בשבילי” — כלשונם, כמו שכפתורי הבוקר
+ * שולחים: משוב על רעיון הבוקר (docs/14 §7.2), לא שאלה למנוע ההבנה.
+ */
+export interface MentorIdeaVerdict {
+  verdict: "helped" | "dismissed";
+  /** הרעיון שהכפתור הוצג עליו — „[offers_sent:2]”; חסר בהקלדה חופשית */
+  ideaKey?: string;
+}
+
+const IDEA_PAYLOAD = /^(.*?)\s*\[([a-z_]+:\d{1,2})\]\s*$/u;
+
+export function mentorIdeaVerdict(text: string): MentorIdeaVerdict | null {
+  const payload = IDEA_PAYLOAD.exec(text.trim());
+  const command = payload === null ? text : payload[1]!;
+  const t = normalizeShort(command);
+  const verdict =
+    t === normalizeShort(MENTOR_QUICK_COMMANDS.mentor_idea_helped)
+      ? "helped"
+      : t === normalizeShort(MENTOR_QUICK_COMMANDS.mentor_idea_skip)
+        ? "dismissed"
+        : null;
+  if (verdict === null) return null;
+  return payload === null ? { verdict } : { verdict, ideaKey: payload[2]! };
+}
 const SKIP_WORDS = new Set([
   "דלג",
   "לדלג",

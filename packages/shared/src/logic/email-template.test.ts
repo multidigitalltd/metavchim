@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { escapeHtml, renderEmailHtml, renderEmailText } from "./email-template.js";
+import { escapeHtml, firstNameOf, renderEmailHtml, renderEmailText } from "./email-template.js";
 
 const base = { paragraphs: ["שורה ראשונה", "שורה שנייה"] };
 
@@ -57,6 +57,26 @@ describe("renderEmailHtml", () => {
     expect(html).toContain("048213");
   });
 
+  it("תג מצב וכרטיס פרטים — בשתי הגרסאות, עם בריחה", () => {
+    const content = {
+      badge: { label: "שולם", tone: "success" as const },
+      heading: "ההזמנה התקבלה",
+      paragraphs: ["תודה."],
+      details: [
+        { label: "מדיה", value: "מגזין טאבו" },
+        { label: "מוצר", value: "רבע <עמוד>" },
+      ],
+    };
+    const html = renderEmailHtml(content);
+    expect(html).toContain("שולם");
+    expect(html).toContain("border-radius:999px");
+    expect(html).toContain("רבע &lt;עמוד&gt;");
+    expect(html).toContain("מגזין טאבו");
+    const text = renderEmailText(content);
+    expect(text.startsWith("[שולם]")).toBe(true);
+    expect(text).toContain("מוצר: רבע <עמוד>");
+  });
+
   it("אין תלות ב-CSS חיצוני או בגיליון סגנון", () => {
     const html = renderEmailHtml({ ...base, button: { label: "x", url: "https://a.co" } });
     expect(html).not.toContain("<style");
@@ -92,5 +112,18 @@ describe("renderEmailText", () => {
 
   it("בלי רווחים מיותרים בסוף", () => {
     expect(renderEmailText(base).endsWith("\n")).toBe(false);
+  });
+});
+
+describe("firstNameOf", () => {
+  it("‏המילה הראשונה של השם, בלי רווחים מסביב", () => {
+    expect(firstNameOf("דנה כהן")).toBe("דנה");
+    expect(firstNameOf("  יוסי   לוי ")).toBe("יוסי");
+    expect(firstNameOf("מרים")).toBe("מרים");
+  });
+
+  it("‏שם ריק נשאר ריק — ולא „undefined” בפתיחת המייל", () => {
+    expect(firstNameOf("")).toBe("");
+    expect(firstNameOf("   ")).toBe("");
   });
 });

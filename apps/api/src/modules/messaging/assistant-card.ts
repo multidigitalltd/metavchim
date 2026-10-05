@@ -21,7 +21,7 @@ import {
   FINANCING_LABELS,
   labelOf,
   LEAD_INTENT_LABELS,
-  LEAD_SOURCE_LABELS,
+  leadSourceText,
   LEAD_STATUS_LABELS,
   MATURITY_LABELS,
 } from "@metavchim/shared";
@@ -149,7 +149,15 @@ export function formatCard(data: unknown): string | null {
       ...[
         line("📊 סטטוס", labelOf(LEAD_STATUS_LABELS, c["status"])),
         line("🎯 עניין", labelOf(LEAD_INTENT_LABELS, c["intent"])),
-        line("📍 מקור", labelOf(LEAD_SOURCE_LABELS, c["source"])),
+        line(
+          "📍 מקור",
+          typeof c["source"] === "string"
+            ? leadSourceText(
+                c["source"],
+                typeof c["sourceNote"] === "string" ? c["sourceNote"] : undefined,
+              )
+            : undefined,
+        ),
         line("📝 תקציר", c["summary"]),
         c["requiresHuman"] === true ? "⚠️ מסומן כדורש טיפול אנושי" : null,
       ].filter((l): l is string => l !== null),

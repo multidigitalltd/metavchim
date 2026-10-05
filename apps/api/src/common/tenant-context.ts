@@ -31,6 +31,25 @@ export interface RequestContext {
 
 const storage = new AsyncLocalStorage<RequestContext>();
 
+/**
+ * ‎**ההקשר של המשרד עצמו — לכניסה שאין מאחוריה אדם.**
+ *
+ * ‏טופס ציבורי, וובהוק של ספק דואר, סבב רקע: כולם יודעים על איזה
+ * ‏משרד מדובר — מהשורה שנמצאה, לא מקלט — אבל אין להם משתמש מחובר,
+ * ‏ולכן אין להם הקשר. בלעדיו כל קריאה לשכבת הנתונים שנשענת על
+ * ‏`TenantContext.current()` מתפוצצת באמצע העבודה.
+ *
+ * ‎`userId` ריק במתכוון: „מי עשה” הוא **אף אחד**, וזה מה שנרשם.
+ */
+export function officeContext(tenantId: string, userId = ""): RequestContext {
+  return {
+    tenantId,
+    userId,
+    capabilities: new Set<Capability>(["buyers.view_all"]),
+    billingOnly: false,
+  };
+}
+
 export const TenantContext = {
   run<T>(ctx: RequestContext, fn: () => T): T {
     return storage.run(ctx, fn);
@@ -49,4 +68,25 @@ export const TenantContext = {
     return storage.getStore();
   },
 };
+
+/**
+ * ‎**האדם שמבצע את הפעולה — או `null` כשאין כזה.**
+ *
+ * ‏„מי עשה” ו„איזה דייר” אינן אותה שאלה, ולכן `userId` לבדו אינו
+ * ‏התשובה: `TenantContext.run` נקרא גם עם הקשר משרדי שאין לו אדם
+ * ‏(טופס ציבורי, סבב רקע), ושם `userId` הוא **מחרוזת ריקה** ולא
+ * ‏`null` — כלומר `?? null` אינו תופס אותו, ומחרוזת ריקה נכתבת
+ * ‏למסד כאילו היא מזהה.
+ *
+ * ‏וקוראים שרצים גם בבקשה וגם ברקע צריכים תשובה ולא חריגה, ולכן
+ * ‏`maybeCurrent` ולא `current`.
+ *
+ * ‏הכתיבה היחידה שנשענת על זה היום היא `sent_by_user_id` בטוקן
+ * ‏התשובה, ושם ההבחנה היא בדיוק ההבדל בין „ההודעה יצאה מסוכן” ל-
+ * ‏„ההודעה יצאה מהמערכת”.
+ */
+export function actingUserId(): string | null {
+  const ctx = TenantContext.maybeCurrent();
+  return ctx === undefined || ctx.userId === "" ? null : ctx.userId;
+}
 

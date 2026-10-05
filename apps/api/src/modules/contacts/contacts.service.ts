@@ -1,6 +1,7 @@
-import { Injectable } from "@nestjs/common";
+import { ForbiddenException, Injectable } from "@nestjs/common";
 import { ulid } from "ulid";
 import {
+  contactNameUpgrade,
   isContactRole,
   normalizeNameForMatch,
   orderPeople,
@@ -8,6 +9,11 @@ import {
   type ContactRole,
 } from "@metavchim/shared";
 import { lockContact, lockContactPhone } from "../../common/locks";
+import {
+  canSeeContact,
+  isOrphanContact,
+  type PhoneTypedBy,
+} from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { CryptoService } from "../../core/crypto.service";
 import type { TenantTx } from "../../core/prisma.service";
@@ -18,6 +24,14 @@ export interface ContactDto {
   phone: string;
   /** אופציונלי: כרטיס שנוצר משיחה נכנסת או מטופס לא תמיד כולל אימייל */
   email?: string;
+  /**
+   * ‎**רישום בטאבו משותף (מושאע)** — עובדה משפטית שמשנה את העסקה.
+   *
+   * ‏חובה ולא אופציונלי, ובכוונה: העמודה `NOT NULL DEFAULT false`,
+   * ‏ולכן „לא סומן” הוא ערך ולא היעדר. שדה רשות היה מזמין את
+   * ‏המסכים לקרוא `undefined` כ„לא ידוע” ולהמציא מצב שלישי.
+   */
+  sharedTabu: boolean;
 }
 
 /**
@@ -53,6 +67,107 @@ export class ContactsService {
     return secondary ? { id: secondary.contactId } : null;
   }
 
+  /**
+   * ‎**מיחזור כרטיס קיים דורש היתר — מספר מוקלד אינו מפתח**
+   * ‏(ביקורת Codex, P1 ×2).
+   *
+   * ‏`findOrCreateByPhone` מחפש משרד-רחב, ולכן כל נתיב שמקבל טלפון
+   * ‏מהמשתמש ומצרף את התוצאה לרשומה שלו הוא מפתח לכרטיס מוסתר:
+   * ‏הצירוף עצמו הוא שגורם ל-`canSeeContact` להצליח בקריאות
+   * ‏הבאות, ומשם השם, הטלפון והאימייל חוזרים מפוענחים.
+   *
+   * ‏זה נמצא קודם ב„הוספת אדם קשור” ותוקן שם; אותו חור בדיוק היה
+   * ‏גם בבעל הנכס ובדייר — ולכן הכלל יושב עכשיו במקום אחד, ולא
+   * ‏בעותק שלישי.
+   *
+   * ‎`alsoAllowed` הוא מקור ההיתר **השני**: אדם שכבר מקושר לרשומה
+   * ‏הזו. בלעדיו עדכון של מקושר קיים היה נדחה, כי אדם מקושר אינו
+   * ‏קונה, ליד או בעל נכס.
+   *
+   * ‏הנעילה נלקחת לפני הבדיקה ומוחזקת עד סוף הטרנזקציה, ולכן
+   * ‏`findOrCreateByPhone` שרץ מיד אחריה רואה בדיוק את מה שנבדק.
+   */
+  /**
+   * ‎**מי הקליד את המספר — ההכרעה שכל יוצר כרטיס חייב לענות עליה.**
+   *
+   * ‎`agent` — סוכן מחובר הקליד מספר במסך. מספר שכבר שייך למישהו
+   * ‏אינו מפתח אליו, ולכן המסלול עובר דרך `findOrCreateByPhoneScoped`.
+   *
+   * ‎`office` — המספר הגיע מבעליו: טופס קליטה ציבורי, שיחה נכנסת,
+   * ‏או הרשמה. אין שם סוכן שאפשר לבדוק מולו הרשאה, והמיחזור הוא
+   * ‏בדיוק הדבר הנכון — כרטיס שני לאותו אדם הוא הבאג.
+   */
+  async findOrCreateByPhoneTyped(
+    tx: TenantTx,
+    input: { name: string; phone: string },
+    options: {
+      typedBy: PhoneTypedBy;
+      subject: string;
+      alsoAllowed?: (priorId: string) => boolean | Promise<boolean>;
+    },
+  ): Promise<ContactDto> {
+    /*
+     * ‎**ההכרעה הזו יושבת כאן, ובמקום אחד** (ביקורת Codex, P1).
+     *
+     * ‏היא הייתה שלישייה בתוך `PropertiesService.persist`, וכשהיא
+     * ‏נדרשה גם בקונים וגם בלידים היא הייתה נכתבת שם שוב — שלושה
+     * ‏עותקים של „מי מותר לו למחזר”, שאפשר לתקן אחד מהם ולשכוח את
+     * ‏השניים.
+     */
+    return options.typedBy === "office"
+      ? this.findOrCreateByPhone(tx, input)
+      : this.findOrCreateByPhoneScoped(tx, input, {
+          subject: options.subject,
+          ...(options.alsoAllowed ? { alsoAllowed: options.alsoAllowed } : {}),
+        });
+  }
+
+  async findOrCreateByPhoneScoped(
+    tx: TenantTx,
+    input: { name: string; phone: string },
+    options: {
+      subject: string;
+      alsoAllowed?: (priorId: string) => boolean | Promise<boolean>;
+    },
+  ): Promise<ContactDto> {
+    const tenantId = TenantContext.current().tenantId;
+    await lockContactPhone(tx, tenantId, this.crypto.phoneHash(input.phone));
+    const prior = await this.findByAnyPhone(tx, input.phone);
+    if (prior !== null) {
+      /*
+       * ‎**שלושה מקורות היתר, והשלישי הוא „אין לו בעלים”.**
+       *
+       * ‏שיחה שלא נענתה יוצרת כרטיס איש קשר בלי קונה, בלי ליד
+       * ‏ובלי נכס. `canSeeContact` נשענת על קיומו של כרטיס כזה,
+       * ‏ולכן החזירה `false` **לכל הסוכנים, כולל בעל המשרד** —
+       * ‏והבקשה „תוסיף קונה עם המספר הזה” נדחתה בהודעה שאומרת
+       * ‏שהמספר שייך למישהו אחר, בשעה שהוא שייך לאיש (דיווח
+       * ‏מהשטח). כרטיס יתום הוא פנוי, לא תפוס.
+       *
+       * ‎`isOrphanContact` הוא **הכלל הקיים**, לא ניסוח שני שלו
+       * ‏(ביקורת Codex, P1). הגרסה הראשונה שלי בדקה קונים, לידים
+       * ‏ונכסים בלבד — והחמיצה את `contact_links`. אדם שמקושר
+       * ‏ככרטיס משני על הלקוח של עמית (בן זוג, שותף) היה נקרא
+       * ‏„פנוי”, וסוכן אחר היה פותח עליו קונה ומקבל דרך `peopleFor`
+       * ‏שם, טלפון ודוא״ל שאינם שלו. ארבעה ענפים, במקום אחד.
+       *
+       * ‏הכלל עצמו לא נחלש: השאלה היא אם קיים עוגן כזה **בכלל**,
+       * ‏ולא אם קיים כזה שאני רואה. מספר של קונה של עמית ממשיך
+       * ‏להיחסם בדיוק כמו קודם.
+       */
+      const allowed =
+        (options.alsoAllowed ? await options.alsoAllowed(prior.id) : false) ||
+        (await canSeeContact(tx, tenantId, prior.id)) ||
+        (await isOrphanContact(tx, tenantId, prior.id));
+      if (!allowed) {
+        throw new ForbiddenException(
+          `${options.subject} — המספר הזה משויך ללקוח שאינו נגיש לך, פנו למנהל המשרד`,
+        );
+      }
+    }
+    return this.findOrCreateByPhone(tx, input);
+  }
+
   async findOrCreateByPhone(
     tx: TenantTx,
     input: { name: string; phone: string },
@@ -83,14 +198,40 @@ export class ContactsService {
     const existing = found
       ? await tx.contact.findFirst({
           where: { id: found.id, tenantId },
-          select: { id: true, nameEncrypted: true, phoneEncrypted: true },
+          select: { id: true, nameEncrypted: true, phoneEncrypted: true, sharedTabu: true },
         })
       : null;
     if (existing) {
+      const storedName = this.crypto.decrypt(existing.nameEncrypted);
+      const storedPhone = this.crypto.decrypt(existing.phoneEncrypted);
+      /*
+       * ‎**שם שהוא המספר עצמו אינו שם.**
+       *
+       * ‏שיחה שלא נענתה כותבת `callerName ?? phone`, ולכן כרטיס
+       * ‏שנוצר ממנה נקרא במספר של עצמו. עד כאן הפונקציה החזירה
+       * ‏את הכרטיס הקיים והתעלמה מהשם הנכנס — כך שגם אחרי
+       * ‏שנפתח קונה בשם „דנה”, רשימת השיחות המשיכה להציג את
+       * ‏המספר (דיווח מהשטח).
+       *
+       * ‎`contactNameUpgrade` מחליף **רק** מציין מקום. שם אמיתי
+       * ‏שנשמר קודם הוא ידע של המשרד, ודריסה שקטה שלו היא איבוד
+       * ‏נתונים — ולכן הוא לעולם אינו נדרס.
+       */
+      const upgraded = contactNameUpgrade(storedName, input.name, storedPhone);
+      if (upgraded !== null) {
+        await tx.contact.update({
+          where: { id: existing.id },
+          data: {
+            nameEncrypted: this.crypto.encrypt(upgraded),
+            nameHash: this.crypto.nameHash(normalizeNameForMatch(upgraded)),
+          },
+        });
+      }
       return {
         id: existing.id,
-        name: this.crypto.decrypt(existing.nameEncrypted),
-        phone: this.crypto.decrypt(existing.phoneEncrypted),
+        name: upgraded ?? storedName,
+        phone: storedPhone,
+        sharedTabu: existing.sharedTabu,
       };
     }
 
@@ -107,19 +248,27 @@ export class ContactsService {
         nameHash: this.crypto.nameHash(normalizeNameForMatch(input.name)),
       },
     });
-    return { id, name: input.name, phone: input.phone };
+    /* ‏כרטיס חדש אינו מסומן — הסימון הוא פעולה של המתווך */
+    return { id, name: input.name, phone: input.phone, sharedTabu: false };
   }
 
   async getById(tx: TenantTx, id: string): Promise<ContactDto | null> {
     const row = await tx.contact.findFirst({
       where: { id, tenantId: TenantContext.current().tenantId },
-      select: { id: true, nameEncrypted: true, phoneEncrypted: true, emailEncrypted: true },
+      select: {
+        id: true,
+        nameEncrypted: true,
+        phoneEncrypted: true,
+        emailEncrypted: true,
+        sharedTabu: true,
+      },
     });
     if (!row) return null;
     return {
       id: row.id,
       name: this.crypto.decrypt(row.nameEncrypted),
       phone: this.crypto.decrypt(row.phoneEncrypted),
+      sharedTabu: row.sharedTabu,
       // האימייל אופציונלי — כרטיס שנוצר משיחה או מטופס לא תמיד כולל אותו
       ...(row.emailEncrypted ? { email: this.crypto.decrypt(row.emailEncrypted) } : {}),
     };
@@ -142,7 +291,13 @@ export class ContactsService {
 
     const rows = await tx.contact.findMany({
       where: { id: { in: unique }, tenantId: TenantContext.current().tenantId },
-      select: { id: true, nameEncrypted: true, phoneEncrypted: true, emailEncrypted: true },
+      select: {
+        id: true,
+        nameEncrypted: true,
+        phoneEncrypted: true,
+        emailEncrypted: true,
+        sharedTabu: true,
+      },
     });
     const byId = new Map<string, ContactDto>();
     for (const row of rows) {
@@ -150,6 +305,7 @@ export class ContactsService {
         id: row.id,
         name: this.crypto.decrypt(row.nameEncrypted),
         phone: this.crypto.decrypt(row.phoneEncrypted),
+        sharedTabu: row.sharedTabu,
         ...(row.emailEncrypted ? { email: this.crypto.decrypt(row.emailEncrypted) } : {}),
       });
     }
@@ -278,6 +434,26 @@ export class ContactsService {
     return result.count === 1;
   }
 
+  /**
+   * ‎**„טאבו משותף” על הלקוח** (בקשת בעל המוצר).
+   *
+   * ‏רישום בטאבו משותף (מושאע) הוא עובדה משפטית שמשנה את כל אופן
+   * ‏העסקה: אין חלקה נפרדת, נדרשת הסכמת שותפים, והמימון מסובך.
+   * ‏על הלקוח ולא רק על הנכס, כי לרוב הוא נאמר בשיחה הראשונה —
+   * ‏לפני שיש בכלל כרטיס נכס לרשום עליו.
+   *
+   * ‏הכתיבה מותנית במצב הנוכחי, כמו בהסכמת השיווק: כך היא
+   * ‏אידמפוטנטית, ולחיצה חוזרת אינה מייצרת רשומת ביקורת שנייה.
+   */
+  async setSharedTabu(tx: TenantTx, contactId: string, sharedTabu: boolean): Promise<boolean> {
+    const tenantId = TenantContext.current().tenantId;
+    const result = await tx.contact.updateMany({
+      where: { id: contactId, tenantId, sharedTabu: !sharedTabu },
+      data: { sharedTabu },
+    });
+    return result.count === 1;
+  }
+
   /* ---------- טלפונים נוספים ---------- */
 
   /** כל הטלפונים של אדם: הראשי תחילה, ואחריו הנוספים לפי סדר ההוספה. */
@@ -320,6 +496,13 @@ export class ContactsService {
     input: { phone: string; label: string },
   ): Promise<{ added: boolean; reason?: "taken" }> {
     const tenantId = TenantContext.current().tenantId;
+    /*
+     * אותה נעילה כמו בהחלפת המספר הראשי, ומאותו נימוק: „בדוק ואז
+     * כתוב” בלי נעילה מפיל את הבקשה השנייה על האינדקס הייחודי
+     * במקום להחזיר „תפוס”. הפער היה כאן עוד לפני שהוחלף המספר
+     * הראשי, ושתי הפונקציות חולקות בדיוק את אותו רצף.
+     */
+    await lockContactPhone(tx, tenantId, this.crypto.phoneHash(input.phone));
     const owner = await this.findByAnyPhone(tx, input.phone);
     if (owner) return owner.id === contactId ? { added: false } : { added: false, reason: "taken" };
 
@@ -339,6 +522,76 @@ export class ContactsService {
   async removePhone(tx: TenantTx, contactId: string, phoneId: string): Promise<void> {
     const tenantId = TenantContext.current().tenantId;
     await tx.contactPhone.deleteMany({ where: { id: phoneId, tenantId, contactId } });
+  }
+
+  /**
+   * ‎**החלפת המספר הראשי — התיקון שלא היה לו נתיב בשום מסך.**
+   *
+   * ליד נוצר ממספר שהגיע בשיחה או הוקלד בטופס, והמספר הזה היה סופי:
+   * ‎`ContactPeople` יודע להוסיף מספרים נוספים ולהסיר אותם, אבל
+   * הראשי יושב על `contacts` ומסומן שם במפורש כ„אי אפשר להסירו
+   * לבד”. ספרה שגויה אחת בקליטה נשארה על הכרטיס לתמיד.
+   *
+   * ‎**המספר הישן מוחלף ולא נשמר בצד.** זהו תיקון, לא „מספר נוסף”:
+   * מספר שגוי שנשאר באינדקס ממשיך לתפוס שיחות נכנסות אל הכרטיס
+   * הזה — בדיוק התקלה שהתיקון בא לסגור. מי שרוצה לשמור את הישן
+   * יכול להוסיפו כמספר נוסף, וזה מסלול קיים ומפורש.
+   *
+   * ‎**שני השדות נכתבים יחד**, כמו בשם: `phoneEncrypted` הוא מה
+   * שמוצג ומחייגים אליו, ו-`phoneHash` הוא מה שכל זיהוי נכנס עובד
+   * מולו בלי לפענח. עדכון של אחד בלבד אינו שובר שום טיפוס, והכשל
+   * שקט לגמרי — הכרטיס מציג מספר חדש והשיחות ממשיכות להתאים לישן.
+   */
+  async setPrimaryPhone(
+    tx: TenantTx,
+    contactId: string,
+    phone: string,
+  ): Promise<{ changed: boolean; reason?: "taken" }> {
+    const tenantId = TenantContext.current().tenantId;
+    const row = await tx.contact.findFirst({
+      where: { id: contactId, tenantId },
+      select: { phoneHash: true },
+    });
+    if (!row) return { changed: false };
+
+    const nextHash = this.crypto.phoneHash(phone);
+    // אותו מספר בדיוק אינו שינוי — ואינו אירוע ביומן הביקורת
+    if (row.phoneHash === nextHash) return { changed: false };
+
+    /*
+     * ‎**נעילת המספר לפני החיפוש** — אותו „בדוק ואז כתוב” שמוגן
+     * ב-`findOrCreateByPhone`, ומאותה סיבה בדיוק (ביקורת Codex).
+     *
+     * שתי בקשות מקבילות על אותו מספר פנוי — או פנייה נכנסת שתופסת
+     * אותו בין הבדיקה לכתיבה — עוברות שתיהן את `findByAnyPhone`,
+     * והאינדקס הייחודי מפיל את השנייה. בתוך טרנזקציה זו אינה שגיאה
+     * שאפשר לתפוס ולהחזיר „תפוס”, אלא נפילה של הבקשה כולה: המתווך
+     * מקבל שגיאת מסד במקום ההודעה שאומרת לו מה קרה.
+     */
+    await lockContactPhone(tx, tenantId, nextHash);
+
+    /*
+     * מספר ששייך לאדם אחר נדחה, מאותו נימוק כמו בהוספת מספר: הודעה
+     * או שיחה ממנו לא הייתה יכולה להכריע לאיזה כרטיס היא שייכת.
+     */
+    const owner = await this.findByAnyPhone(tx, phone);
+    if (owner && owner.id !== contactId) return { changed: false, reason: "taken" };
+
+    /*
+     * המספר כבר רשום על הכרטיס הזה כמספר נוסף — הוא **עולה** לראשי
+     * ואינו נשאר גם כאן וגם שם. אותו מספר בשתי הטבלאות היה מופיע
+     * פעמיים במסך ומייצר שורה שאי אפשר להסביר.
+     */
+    await tx.contactPhone.deleteMany({ where: { tenantId, contactId, phoneHash: nextHash } });
+
+    await tx.contact.updateMany({
+      where: { id: contactId, tenantId },
+      data: {
+        phoneEncrypted: this.crypto.encrypt(phone),
+        phoneHash: nextHash,
+      },
+    });
+    return { changed: true };
   }
 
   /* ---------- אנשים נוספים על הכרטיס ---------- */
@@ -431,7 +684,21 @@ export class ContactsService {
     input: { name: string; phone: string; role: ContactRole; email?: string },
   ): Promise<{ ok: boolean; reason?: "self" }> {
     const tenantId = TenantContext.current().tenantId;
-    const person = await this.findOrCreateByPhone(tx, { name: input.name, phone: input.phone });
+    /* ‏מספר שכבר שייך למישהו אינו „אדם חדש” — ראו `findOrCreateByPhoneScoped` */
+    const person = await this.findOrCreateByPhoneScoped(
+      tx,
+      { name: input.name, phone: input.phone },
+      {
+        subject: "הוספת אדם קשור",
+        /* ‏הכרטיס עצמו, ואדם שכבר מקושר אליו */
+        alsoAllowed: async (priorId) =>
+          priorId === contactId ||
+          (await tx.contactLink.findFirst({
+            where: { tenantId, contactId, relatedContactId: priorId },
+            select: { id: true },
+          })) !== null,
+      },
+    );
     if (person.id === contactId) return { ok: false, reason: "self" };
 
     // האימייל נכתב רק כשנמסר: קישור חוזר של אדם קיים בלי שדה אימייל

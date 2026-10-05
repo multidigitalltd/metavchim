@@ -1,6 +1,6 @@
 /**
  * נתוני שוק — **עסקאות אמת מרשות המסים, והכללים שהופכים אותן למספר
- * שמתווך יכול להגן עליו מול בעלים** (docs/14).
+ * שמתווך יכול להגן עליו מול בעלים** (docs/18).
  *
  * ## למה הכללים כאן ולא בשאילתה
  *
@@ -113,8 +113,18 @@ const PROPERTY_TYPE_GROUP = {
   unit: "apartment",
   shared_tabu: "apartment",
   divisible_apartment: "apartment",
+  accessible_apartment: "apartment",
   plot: "land",
   commercial: "commercial",
+  commercial_shop: "commercial",
+  commercial_office: "commercial",
+  commercial_warehouse: "commercial",
+  commercial_industrial: "commercial",
+  commercial_basement: "commercial",
+  commercial_building: "commercial",
+  commercial_logistics: "commercial",
+  commercial_parking: "commercial",
+  commercial_gas_station: "commercial",
   other: "other",
 } as const satisfies Record<PropertyType, MarketNatureGroup>;
 

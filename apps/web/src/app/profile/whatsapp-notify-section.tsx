@@ -32,6 +32,7 @@ const CATEGORY_ORDER: WhatsAppNotifyCategory[] = [
   "tasks",
   "matches",
   "network",
+  "forum",
   "digests",
   "system",
 ];

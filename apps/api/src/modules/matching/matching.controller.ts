@@ -4,14 +4,19 @@ import {
   DISMISS_REASONS,
   IdSchema,
   MAX_DISMISS_NOTE,
+  PARTNER_PAIR_LIMIT,
   type DismissReason,
   type DismissReport,
 } from "@metavchim/shared";
 import { RequireCapability } from "../../common/auth.decorators";
 import { TenantContext } from "../../common/tenant-context";
-import { ZodValidationPipe } from "../../common/zod-validation.pipe";
+import { ZodValidationPipe, IdParam } from "../../common/zod-validation.pipe";
 import { MatchRefreshService } from "./match-refresh.service";
-import { MatchingService, type EnrichedMatchDto } from "./matching.service";
+import {
+  MatchingService,
+  type EnrichedMatchDto,
+  type PartnerPairDto,
+} from "./matching.service";
 
 /*
  * `satisfies` ולא רשימה חופשית: סיבה שאינה בקטלוג תישמר במסד ותיעלם
@@ -35,6 +40,10 @@ const DismissSchema = z
 
 const ReportQuerySchema = z
   .object({ days: z.coerce.number().int().min(1).max(365).default(90) })
+  .strict();
+
+const PartnersQuerySchema = z
+  .object({ limit: z.coerce.number().int().min(1).max(PARTNER_PAIR_LIMIT).default(PARTNER_PAIR_LIMIT) })
   .strict();
 
 const ListQuerySchema = z
@@ -66,7 +75,7 @@ export class MatchingController {
   @RequireCapability("matches.manage")
   @HttpCode(200)
   async dismiss(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
     @Body(new ZodValidationPipe(DismissSchema)) body: z.infer<typeof DismissSchema>,
   ): Promise<{ ok: true }> {
     await this.matching.dismiss(
@@ -114,6 +123,24 @@ export class MatchingController {
    * ההתאמה ומסקנתו היא לשנות אותם, ולכן מי שרשאי לשנות הוא מי
    * שצריך לראות. אין בו נתוני לקוחות — ספירת סיבות בלבד.
    */
+  /**
+   * ‏שידוך שותפים לנכס בטאבו משותף.
+   *
+   * ‎`matches.view` ולא יכולת חדשה: זו אותה שאלה שהמנוע עונה עליה
+   * ‏— „מי מתאים לנכס הזה” — בהרכב של שניים. הסינון לפי בעלות על
+   * ‏הקונים נעשה בשירות, ולכן סוכן ומנהל מקבלים כאן שתי רשימות
+   * ‏שונות מאותו נתיב, בדיוק כמו ברשימת ההתאמות.
+   */
+  @Get("property/:propertyId/partners")
+  @RequireCapability("matches.view")
+  async partners(
+    @Param("propertyId", IdParam) propertyId: string,
+    @Query(new ZodValidationPipe(PartnersQuerySchema))
+    query: z.infer<typeof PartnersQuerySchema>,
+  ): Promise<PartnerPairDto[]> {
+    return this.matching.partnersForProperty(propertyId, query.limit);
+  }
+
   @Get("dismiss-report")
   @RequireCapability("settings.manage")
   async dismissReport(

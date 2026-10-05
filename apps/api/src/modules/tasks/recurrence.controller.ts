@@ -3,7 +3,7 @@ import { z } from "zod";
 import { IdSchema } from "@metavchim/shared";
 import { RequireCapability } from "../../common/auth.decorators";
 import { RequireFeature } from "../../common/feature.guard";
-import { ZodValidationPipe } from "../../common/zod-validation.pipe";
+import { ZodValidationPipe, IdParam } from "../../common/zod-validation.pipe";
 import { RecurrenceService, type RecurrenceDto } from "./recurrence.service";
 
 /**
@@ -66,7 +66,7 @@ export class RecurrenceController {
   @Patch(":id")
   @RequireCapability("settings.manage")
   update(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
     @Body(new ZodValidationPipe(RecurrenceSchema)) body: z.infer<typeof RecurrenceSchema>,
   ): Promise<RecurrenceDto> {
     return this.recurrences.update(id, body);
@@ -81,7 +81,7 @@ export class RecurrenceController {
   @Patch(":id/active")
   @RequireCapability("settings.manage")
   setActive(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
     @Body(new ZodValidationPipe(z.object({ isActive: z.boolean() }).strict()))
     body: { isActive: boolean },
   ): Promise<RecurrenceDto> {
@@ -91,7 +91,7 @@ export class RecurrenceController {
   @Delete(":id")
   @RequireCapability("settings.manage")
   @HttpCode(204)
-  async remove(@Param("id", new ZodValidationPipe(IdSchema)) id: string): Promise<void> {
+  async remove(@Param("id", IdParam) id: string): Promise<void> {
     await this.recurrences.remove(id);
   }
 }

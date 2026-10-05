@@ -13,7 +13,7 @@ import {
 } from "@metavchim/shared";
 import { ApiError, apiDelete, apiGet, apiPatch, apiPost } from "@/lib/api";
 import { CommissionTermsTabs } from "./collaboration/commission-terms-tabs";
-import { IconEye, IconHandshake, IconLock } from "./icons";
+import { IconEye, IconHandshake, IconInfo, IconLock } from "./icons";
 import { Notice } from "./notice";
 
 /**
@@ -240,6 +240,16 @@ export function NetworkShareSection({
   const [error, setError] = useState<string | null>(null);
   /** קיים = הקונה משותף כרגע; משמש כדי לעדכן במקום לפרסם מחדש. */
   const [share, setShare] = useState<ActiveShare | null>(null);
+  /*
+   * ‎**ההסבר מאחורי כפתור, ולא פרוש על הלשונית** (בקשת המשתמש:
+   * ‏„תוריד את כל הטקסטים הקטנים, תעשה כפתור איך זה עובד”).
+   *
+   * ‏כל מה שהיה כאן נכון — מה נחשף, מה זה עולה, למה התיאור חשוב —
+   * ‏אבל שבע פסקאות ב-13px מסביב לכפתור אחד הן מסך שסורקים ולא
+   * ‏קוראים, ומי שרק רצה לפרסם נאלץ לעבור ביניהן. ההסבר לא נמחק:
+   * ‏הוא נפתח בלחיצה, במקום אחד, ובגודל קריא.
+   */
+  const [explain, setExplain] = useState(false);
 
   /*
    * מצב השיתוף נקרא מהשרת ולא מונח מראש. בלי זה רענון של הכרטיס
@@ -289,10 +299,41 @@ export function NetworkShareSection({
    */
   const termsProblem = commissionTermsRejectionReason(terms);
 
+  /**
+   * ‎**מה חוסם פרסום — ערך אחד, ותמיד עם הודעה.**
+   *
+   * ‏הבאג שנסגר: „לוחצים העלה לרשת ולא מגיב כלום”. הכפתור היה
+   * ‏‎`disabled` גם על תיאור קצר מדי — ועל זה, בניגוד לתנאי העמלה,
+   * ‏לא הוצגה שום הודעה. קונה בלי הערות בכרטיס פותח את הטופס עם
+   * ‏שדה תיאור ריק, כלומר הכפתור מת מהרגע הראשון ובלי סיבה שנראית
+   * ‏על המסך. זה בדיוק מה שהפסקה מעל `termsProblem` כבר אמרה על
+   * ‏הצד השני של אותה בדיקה, ולא הוחל כאן.
+   *
+   * ‏שתי הפסילות מתמזגות לערך אחד: הכפתור פעיל תמיד, והלחיצה
+   * ‏אומרת מה חסר ומקפיצה לשדה. כפתור שלא מגיב הוא תקלה; כפתור
+   * ‏שאומר „חסר תיאור” הוא הוראה.
+   */
+  const publishProblem =
+    note.trim().length < MIN_NOTE
+      ? `צריך תיאור באורך ${MIN_NOTE} תווים לפחות — זה מה שמשרד אחר קורא לפני שהוא פונה אליכם`
+      : termsProblem;
+
   /** פרסום חדש, או עדכון כשהקונה כבר משותף — הכפתור אחד לשניהם. */
   async function publish(): Promise<void> {
-    if (termsProblem !== null) {
-      setError(termsProblem);
+    if (publishProblem !== null) {
+      /*
+       * ‎**הפסילה נגזרת מהשדות ואינה נשמרת ב-`error`.**
+       *
+       * ‏העתקה שלה לשם הייתה מציגה אותה פעמיים — היא כבר מוצגת
+       * ‏כאזהרה מתחת לטופס — ובעיקר הייתה נשארת שם אחרי שהמשתמש
+       * ‏תיקן: `publishProblem` מתאפס עם השדה, `error` לא, וטופס
+       * ‏תקין לגמרי היה ממשיך להציג „חסר תיאור” באדום (ביקורת
+       * ‏Codex). `error` שמור לכשל שחזר מהשרת ואינו נגזר משום שדה.
+       *
+       * ‏מה שכן קורה בלחיצה: קפיצה לשדה החסר. אזהרה שמישהו גלל
+       * ‏מעליה אינה תשובה ללחיצה.
+       */
+      if (note.trim().length < MIN_NOTE) document.getElementById("shareNote")?.focus();
       return;
     }
     setBusy(true);
@@ -353,15 +394,17 @@ export function NetworkShareSection({
       aria-labelledby="network-share-heading"
     >
       {/*
-        כותרת עם אייקון בעיגול וגוף קריא, ולא שורה מודגשת מעל שתי
-        פסקאות ב-13px.
+        ‏כותרת עם אייקון בעיגול, ובקצה הכפתור שפותח את ההסבר.
 
-        זה האזור היחיד בכרטיס שמציע למתווך לעשות משהו **חדש** — לפתוח
-        לקוח למשרדים אחרים — וכל השכנוע נמצא בפסקאות. כשהן בגודל של
-        הערת שוליים, מי שמהסס פשוט לא קורא אותן, ואז הכפתור למטה
-        חסר הקשר.
+        ‏קודם ישבו כאן שבע פסקאות ב-13px סביב כפתור אחד — מה נחשף,
+        ‏כמה זה עולה, למה התיאור חשוב. הן נכונות, אבל מי שרק רצה
+        ‏לפרסם נאלץ לעבור ביניהן בכל כניסה, ומי שהיסס לא קרא אותן
+        ‏ממילא בגודל הזה. עכשיו הן במקום אחד, בגודל קריא, ובלחיצה.
+
+        ‎`flex-wrap`: בנייד הכפתור יורד לשורה משלו במקום לדחוס את
+        ‏הכותרת לטור של מילה אחת.
       */}
-      <header className="mv-hero mb-3">
+      <header className="mv-hero mb-3 flex-wrap">
         <span className="mv-hero-icon" aria-hidden="true">
           <IconHandshake s={22} />
         </span>
@@ -379,7 +422,62 @@ export function NetworkShareSection({
             {copy.subtitle}
           </p>
         </div>
+        {/*
+          ‏אותה שפה של „איך עובדת הרשת?” בעמוד השיתופים — כפתור בקצה
+          ‏הכותרת שפותח הסבר במקום, ולא לשונית ולא מסך אחר.
+        */}
+        <button
+          type="button"
+          className="mv-btn-plain ms-auto"
+          style={{ padding: "5px 12px", fontSize: "var(--type-caption)" }}
+          aria-expanded={explain}
+          aria-controls="network-share-explain"
+          onClick={() => setExplain((open) => !open)}
+        >
+          <IconInfo s={14} /> איך זה עובד
+        </button>
       </header>
+
+      {/*
+        ‏ההסבר המלא — נפתח בלחיצה, ומכיל את כל מה שהיה פזור קודם
+        ‏כהערות שוליים סביב הכפתור.
+      */}
+      {explain ? (
+        <div
+          id="network-share-explain"
+          className="mb-4 rounded-xl border p-4"
+          style={{
+            borderColor: "var(--color-primary)",
+            background: "var(--color-primary-soft)",
+          }}
+        >
+          <p className="m-0 mb-2.5 text-[length:var(--type-body-sm)]">
+            {copy.invite} <strong>{copy.privacy}</strong>, ואתם בוחרים את חלוקת
+            העמלה.
+          </p>
+          {/*
+            ‏„כמה זה עולה לי” היא השאלה הראשונה שמתווך שואל לפני שהוא
+            ‏משתף, ובלי תשובה הוא פשוט לא לוחץ. שיתוף פעולה חינם;
+            ‏קרדיטים נוגעים אך ורק לקליטת הפניית לקוח.
+          */}
+          <p className="m-0 mb-3 text-[length:var(--type-body-sm)]">
+            <strong style={{ color: "var(--color-primary)" }}>השיתוף חינם</strong>{" "}
+            — בכל המסלולים ובלי קרדיטים. התשלום היחיד הוא חלוקת העמלה עם המשרד
+            שיסגור איתכם את העסקה.
+          </p>
+          {/*
+            ‏„מה בדיוק יוצא מכאן” — אותה תשובה לפני הפרסום ואחריו,
+            ‏ולכן אותו רכיב בשני המצבים.
+          */}
+          <DisclosurePanel kind={kind} />
+          <p
+            className="m-0 text-[length:var(--type-body-sm)]"
+            style={{ color: "var(--color-text-soft)" }}
+          >
+            {copy.formHint}
+          </p>
+        </div>
+      ) : null}
 
       {stage === "loading" ? (
         <p
@@ -401,18 +499,13 @@ export function NetworkShareSection({
           <p className="m-0 mb-1 font-bold" style={{ fontSize: "var(--type-body)" }}>
             ✓ {copy.sent}
           </p>
-          <p
-            className="m-0 text-[length:var(--type-caption-lg)]"
-            style={{ color: "var(--color-text-muted)" }}
-          >
-            {copy.sentBody}.
-          </p>
+
           {/*
             שתי השורות ולא צ'יפ אחד: זה המקום שבו המשרד בודק מה הוא
             בעצם התחייב, וחלוקה שונה בין הצדדים היא בדיוק מה שצריך
             להיקרא בבירור.
           */}
-          <ul className="m-0 mt-2 list-none p-0 text-[length:var(--type-caption-lg)]">
+          <ul className="m-0 mt-1 list-none p-0 text-[length:var(--type-caption-lg)]">
             {COMMISSION_SIDES.map((option) => (
               <li key={option}>
                 {COMMISSION_SIDE_LABEL[option]}:{" "}
@@ -421,17 +514,13 @@ export function NetworkShareSection({
             ))}
           </ul>
           {/*
-            ואותה רשימה **אחרי** הפרסום. השאלה משתנה מ„מה ייצא” ל„מה
-            יצא”, וזו אותה תשובה בדיוק — ולכן אותו רכיב. מסך שמראה
-            את הפירוט רק לפני הלחיצה מותיר את מי שכבר פרסם בלי דרך
-            לבדוק על מה הוא חתם.
-          */}
-          <div className="mt-3">
-            <DisclosurePanel kind={kind} />
-          </div>
-          {/*
-            עדכון ולא פרסום מחדש: הביקוש הקיים מתעדכן במקום, ולכן
-            ההיסטוריה וההצעות שכבר התקבלו עליו נשמרות
+            ‏„מה יצא מכאן” אחרי הפרסום היא אותה שאלה בדיוק כמו „מה
+            ‏ייצא” לפניו, ולכן אותה תשובה — ועכשיו במקום אחד,
+            ‏ב„איך זה עובד” שבכותרת. מי שכבר פרסם עדיין יכול לבדוק
+            ‏על מה חתם; הוא פשוט אינו נדרש לקרוא את זה שוב בכל כניסה.
+
+            ‏„עדכן” ולא פרסום מחדש: הביקוש הקיים מתעדכן במקום, ולכן
+            ‏ההיסטוריה וההצעות שכבר התקבלו עליו נשמרות.
           */}
           {share?.canManage === false ? (
             /*
@@ -443,8 +532,7 @@ export function NetworkShareSection({
               className="m-0 mt-3 text-[length:var(--type-caption)]"
               style={{ color: "var(--color-text-muted)" }}
             >
-              את תנאי השיתוף קובע מי שפרסם אותם — הם התחייבות כלפי המשרד
-              שיסגור את העסקה. לשינוי, פנו אליו או למנהל המשרד.
+              את התנאים משנה מי שפרסם אותם, או מנהל המשרד.
             </p>
           ) : (
             <div className="mt-3 flex flex-wrap gap-2">
@@ -473,40 +561,19 @@ export function NetworkShareSection({
           ) : null}
         </div>
       ) : stage === "invite" ? (
-        <>
-          <p className="mv-explain m-0 mb-2.5">
-            {copy.invite} <strong>{copy.privacy}</strong>, ואתם בוחרים את חלוקת
-            העמלה.
-          </p>
-          {/*
-            הרשימה **לפני** ההחלטה. זה הרגע שבו השאלה „מה יוצא מכאן”
-            נשאלת, ומשפט בתוך פסקה אינו עונה עליה.
-          */}
-          <DisclosurePanel kind={kind} />
-          {/*
-            "כמה זה עולה לי" היא השאלה הראשונה שמתווך שואל לפני שהוא
-            משתף, ובלי תשובה הוא פשוט לא לוחץ. שיתוף פעולה חינם;
-            קרדיטים נוגעים אך ורק לקליטת הפניית לקוח.
-          */}
-          <p className="mv-explain m-0 mb-4">
-            <strong style={{ color: "var(--color-primary)" }}>
-              השיתוף חינם
-            </strong>{" "}
-            — בכל המסלולים ובלי קרדיטים. התשלום היחיד הוא חלוקת העמלה עם המשרד
-            שיסגור איתכם את העסקה.
-          </p>
-          <button
-            type="button"
-            className="mv-btn-action"
-            onClick={() => setStage("form")}
-          >
-            <IconHandshake s={14} /> {copy.cta}
-          </button>
-        </>
+        /*
+          ‏הזמנה = כפתור אחד. כל ההסבר עבר ל„איך זה עובד” שבכותרת,
+          ‏ומי שכבר יודע מה הוא עושה מגיע לפעולה בלחיצה אחת.
+        */
+        <button
+          type="button"
+          className="mv-btn-action"
+          onClick={() => setStage("form")}
+        >
+          <IconHandshake s={14} /> {copy.cta}
+        </button>
       ) : (
         <>
-          <p className="mv-explain m-0 mb-4">{copy.formHint}</p>
-
           <div className="mb-4">
             <CommissionTermsTabs value={terms} onChange={setTerms} disabled={busy} />
           </div>
@@ -518,17 +585,6 @@ export function NetworkShareSection({
             >
               {copy.noteLabel}
             </label>
-            {/*
-              הסבר קצר מתחת לתווית, ולא רק כוכבית. „חובה” בלי „למה”
-              נקרא כמו מכשול; המשפט הזה הופך אותו לשיקול.
-            */}
-            <p
-              className="m-0 mb-1 text-sm"
-              style={{ color: "var(--color-text-muted)" }}
-            >
-              שורה אחת במילים שלכם. זה מה שמבדיל מודעה שנענית ממודעה
-              שנשארת בפיד.
-            </p>
             <textarea
               id="shareNote"
               value={note}
@@ -542,11 +598,20 @@ export function NetworkShareSection({
                 background: "var(--color-bg)",
               }}
             />
+            {/*
+              ‎**האזהרה הזו נשארת גלויה, וזו הכרעה מודעת.**
+
+              ‏כל שאר ההסברים עברו ל„איך זה עובד” כי הם עונים על
+              ‏„מה זה” — אותם קוראים פעם אחת. זו אינה הסבר אלא
+              ‏הוראה על השדה שמקלידים בו **עכשיו**, והטקסט הזה יוצא
+              ‏למשרדים אחרים. הסתרתה מאחורי כפתור פירושה שמישהו
+              ‏יקליד טלפון של לקוח לתוך מודעה ציבורית.
+            */}
             <p
-              className="m-0 mt-1 text-sm"
+              className="m-0 mt-1 text-[length:var(--type-caption)]"
               style={{ color: "var(--color-text-muted)" }}
             >
-              אל תכתבו כאן שם, טלפון או כתובת מדויקת — הטקסט מוצג למשרדים אחרים.
+              בלי שם, טלפון או כתובת מדויקת — הטקסט מוצג למשרדים אחרים.
             </p>
           </div>
 
@@ -555,8 +620,8 @@ export function NetworkShareSection({
             כשהתנאים אינם שלמים, וכשהצד החסר הוא הלשונית שאינה פתוחה
             לא היה על המסך דבר שמסביר למה — כפתור מת בלי סיבה.
           */}
-          {termsProblem !== null ? (
-            <Notice tone="warning">{termsProblem}</Notice>
+          {publishProblem !== null ? (
+            <Notice tone="warning" id="share-problem">{publishProblem}</Notice>
           ) : null}
           {error ? (
             <Notice tone="danger">{error}</Notice>
@@ -571,9 +636,9 @@ export function NetworkShareSection({
             <button
               type="button"
               className="mv-btn-action"
-              disabled={
-                busy || note.trim().length < MIN_NOTE || termsProblem !== null
-              }
+              /* ‏רק „שולח…” חוסם. כל פסילה אחרת נאמרת בלחיצה — ראו publishProblem */
+              disabled={busy}
+              aria-describedby={publishProblem === null ? undefined : "share-problem"}
               onClick={() => void publish()}
             >
               {busy ? "שולח…" : share ? "שמור עדכון" : copy.cta}

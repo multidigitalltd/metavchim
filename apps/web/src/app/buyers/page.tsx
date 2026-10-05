@@ -1,12 +1,17 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { bulkContactErasureDisclosure, labelOf } from "@metavchim/shared";
+import {
+  bulkContactErasureDisclosure,
+  labelOf,
+  SHARED_TABU_STANCE_LABELS,
+} from "@metavchim/shared";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button } from "@metavchim/ui";
 import { apiGet, apiList, apiPost } from "@/lib/api";
-import { formatPrice, MATURITY_LABELS } from "@/lib/format";
+import { formatPrice, lastActivityText, MATURITY_LABELS } from "@/lib/format";
+import { MATURITY_ORDER, maturityTone } from "@/lib/maturity";
 import { can, useRequireAuth } from "@/lib/use-auth";
 import { useFeature } from "@/lib/use-features";
 import { IconMic, IconPlus, IconSheet } from "../icons";
@@ -20,7 +25,10 @@ import {
   hasActiveFilters,
   type ListFilterValues,
 } from "../list-filters";
+import { AgentTag } from "../agent-tag";
 import { Notice } from "../notice";
+import { useOfficeStatuses } from "../use-office-statuses";
+import { NeighborhoodFilter } from "./neighborhood-filter";
 import { OpenIntakePanel } from "./open-intake-panel";
 
 /**
@@ -40,20 +48,14 @@ interface BuyerRow {
     roomsMax?: number;
   };
   maturity: string;
+  /** הסוכן שהכרטיס שלו. חסר = לא משויך. */
+  agentName?: string;
+  /** מזהה סטטוס המשרד — התווית נפתרת מול הרשימה שנטענת בנפרד. */
+  officeStatus?: string;
   source: string;
   offersReceived?: number;
   lastActivityAt?: string;
 }
-
-const MATURITY_ORDER = ["very_hot", "hot", "interested", "not_ripe"];
-
-/* גלולות הבשלות — הפלטה המדויקת מקובץ העיצוב (mat()) */
-const MATURITY_PILL: Record<string, { fg: string; bg: string }> = {
-  very_hot: { fg: "var(--color-danger)", bg: "var(--color-danger-soft)" },
-  hot: { fg: "var(--domain-amber-fg)", bg: "var(--domain-amber-bg)" },
-  interested: { fg: "var(--color-success)", bg: "var(--color-success-soft)" },
-  not_ripe: { fg: "var(--chip-neutral-fg)", bg: "var(--chip-neutral-bg)" },
-};
 
 function budgetText(b: BuyerRow): string {
   // תקציב הוא נתון שמתברר; "לא צוין" הוא מידע, "0 ₪" הוא שקר
@@ -71,18 +73,8 @@ function wantsText(b: BuyerRow): string {
   return [rooms, b.requirements.cities.slice(0, 2).join(", ")].filter(Boolean).join(" · ") || "—";
 }
 
-function lastActivityText(iso?: string): string {
-  if (!iso) return "—";
-  const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000);
-  if (days === 0) return "היום";
-  if (days === 1) return "אתמול";
-  if (days < 30) return `לפני ${days} ימים`;
-  const months = Math.floor(days / 30);
-  return months === 1 ? "לפני חודש" : `לפני ${months} חודשים`;
-}
-
 function MaturityPill({ maturity }: { maturity: string }) {
-  const colors = MATURITY_PILL[maturity] ?? MATURITY_PILL["not_ripe"]!;
+  const colors = maturityTone(maturity);
   return (
     <span className="mv-pill" style={{ color: colors.fg, background: colors.bg }}>
       {labelOf(MATURITY_LABELS, maturity) ?? maturity}
@@ -91,6 +83,39 @@ function MaturityPill({ maturity }: { maturity: string }) {
 }
 
 const GRID = "1.6fr 0.9fr 1.1fr 1.4fr 0.9fr 0.9fr";
+
+/**
+ * ‎**כתובת אחת לשליפת הרשימה** (ביקורת Codex, P2).
+ *
+ * ‏השאילתה נבנתה בשני מקומות — הטעינה הראשונית והרענון שאחרי
+ * ‏מחיקה מרובה — ולכן המסנן החדש נוסף לאחת ולא לשנייה: אחרי
+ * ‏מחיקה הרשימה התרעננה **בלי** סינון העמדה, בזמן שהבורר על המסך
+ * ‏עדיין הראה אותה. המסך הציג קונים שסותרים את מה שנבחר בו.
+ *
+ * ‏פונקציה ברמת המודול ולא בתוך הרכיב: כך אין תלות ב-hook, ואין
+ * ‏דרך שנייה לבנות את הכתובת.
+ */
+function buyersListUrl(
+  filters: ListFilterValues,
+  maturity: string,
+  officeStatus: string,
+  sharedTabu: string,
+  neighborhood: string,
+): string {
+  const scope =
+    (maturity === "" ? "" : `&maturity=${encodeURIComponent(maturity)}`) +
+    (officeStatus === "" ? "" : `&officeStatus=${encodeURIComponent(officeStatus)}`) +
+    (sharedTabu === "" ? "" : `&sharedTabu=${encodeURIComponent(sharedTabu)}`) +
+    /*
+     * ‏השכונה מסננת בשרת ולא על מה שנטען, מאותה סיבה
+     * ‏של הבשלות והסטטוס: במשרד עם יותר מ-100 קונים, מי
+     * ‏שמחפש בשכונה ונמצא מחוץ לעמוד היה מדווח כ„לא קיים”.
+     */
+    (neighborhood.trim() === ""
+      ? ""
+      : `&neighborhood=${encodeURIComponent(neighborhood.trim())}`);
+  return `/buyers?limit=100${scope}${filtersToQuery({ ...filters, q: "" })}`;
+}
 
 export default function BuyersPage() {
   const { user, loading: authLoading } = useRequireAuth();
@@ -102,7 +127,32 @@ export default function BuyersPage() {
   const [error, setError] = useState<string | null>(null);
   const [filters, setFilters] = useState<ListFilterValues>(EMPTY_FILTERS);
   const [maturity, setMaturity] = useState("");
+  /*
+   * ‎**סטטוס המשרד מצטלב עם הבשלות ואינו מתחרה בה.**
+   *
+   * כל סטטוס נושא דרגה, ולכן „חם” + „בסבב סיורים” הוא חיתוך תקין
+   * ולעולם לא סתירה שמחזירה רשימה ריקה בלי הסבר. הבשלות היא הסינון
+   * הגס, והסטטוס הוא המדויק.
+   */
+  const [officeStatus, setOfficeStatus] = useState("");
+  const { statuses: officeStatuses } = useOfficeStatuses();
   const [offersFilter, setOffersFilter] = useState("");
+  /*
+   * ‏עמדת הטאבו — בשרת, כמו הבשלות וסטטוס המשרד.
+   *
+   * ‏„מי אישר טאבו משותף” היא השאלה שפותחת עסקה על נכס במושאע, וגם
+   * ‏זו שבונה שותפות; היא צריכה לענות על כל המאגר ולא על מה שנטען.
+   */
+  const [sharedTabu, setSharedTabu] = useState("");
+  /*
+   * ‎**השכונה — טקסט חופשי עם הצעות, ולא רשימה נפתחת.**
+   *
+   * ‏שמות שכונות אינם רשומים בשום מרשם ואין רשימה סגורה
+   * ‏לפתוח. השרת מתאים על המפתח המקופל — ולכן גם על
+   * ‏שמות הנעיצות של הקונים על המפה, שהן אותה אמירה
+   * ‏בדיוק כמו שכונה שהוקלדה.
+   */
+  const [neighborhood, setNeighborhood] = useState("");
   /** קונה (sale) או שוכר (rent) — הלשונית היא "קונים · שוכרים" */
   const [dealType, setDealType] = useState("");
   /**
@@ -114,10 +164,27 @@ export default function BuyersPage() {
    */
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
-  const [bulkNote, setBulkNote] = useState<string | null>(null);
+  /*
+   * ‎**תוצאת פעולה מרוכזת — ותמיד מעל הרשימה, לא במקומה.**
+   *
+   * ‏`error` ברמת המסך מחליף את כל התוכן ב-`Notice` (ראו הרינדור
+   * ‏למטה), ולכן הוא הודעה על **כשל טעינה** בלבד. הודעה כמו „הסימון
+   * ‏יצא מהסינון” שנשלחת דרכו מסתירה את הבורר ואת „נקה סינון” —
+   * ‏כלומר בדיוק את מה שהיא מבקשת מהמשתמש לעשות (ביקורת Codex).
+   *
+   * ‏הגוון נשמר עם הטקסט: אזהרה אינה ירוקה.
+   */
+  const [bulkNote, setBulkNote] = useState<
+    { tone: "success" | "warning"; text: string } | null
+  >(null);
 
   // קישורי הפילוח מהדשבורד: /buyers?maturity=hot וכדומה
-  useFilterFromUrl({ maturity: setMaturity, dealType: setDealType });
+  useFilterFromUrl({
+    maturity: setMaturity,
+    dealType: setDealType,
+    officeStatus: setOfficeStatus,
+    neighborhood: setNeighborhood,
+  });
 
   /*
    * טווחי התקציב והחדרים נשלחים לשרת; החיפוש הטקסטואלי נשאר בדפדפן.
@@ -127,19 +194,50 @@ export default function BuyersPage() {
    * שמתווך מחפש הכי הרבה — "איפה הכרטיס של כהן". החיפוש לפי שם על
    * פני כל המאגר קיים בחיפוש הגלובלי, שמשתמש ב-name_hash.
    */
+  /*
+   * ‎**הבשלות והסטטוס נשלחים לשרת** (ביקורת Codex).
+   *
+   * שניהם סוננו על 100 השורות שחזרו, ולכן במשרד עם יותר מ-100 קונים
+   * מי שנושא את הסטטוס המבוקש ונמצא מחוץ לעמוד **דווח כלא קיים** —
+   * לא רשימה חלקית, אלא „אין כאלה”. שני הבוררים כבר נתמכים
+   * ב-`ListQuerySchema`, ולכן זה חיווט של מה שכבר קיים.
+   *
+   * ‎**גם הבשלות ולא רק החדש שבהם:** שני בוררים זהים במראה שאחד
+   * מהם מסנן במסד והשני על העמוד הם בדיוק המקום שבו התיקון הבא
+   * מפספס את מה שנשאר.
+   */
   useEffect(() => {
     if (authLoading) return;
     setItems(null);
-    apiGet<{ items: BuyerRow[] }>(`/buyers?limit=100${filtersToQuery({ ...filters, q: "" })}`)
-      .then((res) =>
+    /*
+     * ‎**תשובה של סינון שכבר הוחלף אינה נכתבת** (ביקורת Codex).
+     *
+     * ‏כל שינוי סינון מתחיל בקשה, ועל רשת משתנה הראשונה עלולה
+     * ‏לחזור אחרונה ולדרוס את החדשה — רשימה של שכונה
+     * ‏אחת מתחת לבורר שמציג אחרת. השדה החדש הוא הראשון
+     * ‏שניתן להקליד בו, ולכן המרוץ הזה נגיש בו בפועל.
+     */
+    let live = true;
+    apiGet<{ items: BuyerRow[] }>(
+      buyersListUrl(filters, maturity, officeStatus, sharedTabu, neighborhood),
+    )
+      .then((res) => {
+        if (!live) return;
+        /* ‏הצלחה מנקה שגיאה קודמת — אחרת המסך נתקע על 400 ישן */
+        setError(null);
         setItems(
           [...apiList(res.items, "items")].sort(
             (a, b) => MATURITY_ORDER.indexOf(a.maturity) - MATURITY_ORDER.indexOf(b.maturity),
           ),
-        ),
-      )
-      .catch(() => setError("טעינת הקונים נכשלה"));
-  }, [authLoading, filters]);
+        );
+      })
+      .catch(() => {
+        if (live) setError("טעינת הקונים נכשלה");
+      });
+    return () => {
+      live = false;
+    };
+  }, [authLoading, filters, maturity, officeStatus, sharedTabu, neighborhood]);
 
   function toggle(id: string): void {
     setSelected((was) => {
@@ -150,19 +248,41 @@ export default function BuyersPage() {
     });
   }
 
+  /*
+   * ‎**כולל מה שהוסר משימוש.** סטטוס שהמשרד הסתיר עדיין רשום על
+   * כרטיסים, ובלעדיו הם קבוצה שרואים ואי אפשר לבודד.
+   *
+   * ‎**ולא „רק מה שמופיע בשורות שנטענו”:** הרשימה סוננה בשרת לפי
+   * הבורר הזה עצמו, ולכן גזירה ממנה הייתה מעגלית — ברגע שנבחר
+   * סטטוס אחד, כל השאר היו נעלמים מהתפריט. תקרת הרשימה היא 20,
+   * והצגת כולה זולה.
+   */
+  const statusFilterOptions = useMemo<[string, string][]>(
+    () =>
+      officeStatuses.map((entry) => [
+        entry.id,
+        entry.archived ? `${entry.label} (הוסר)` : entry.label,
+      ]),
+    [officeStatuses],
+  );
+
   const visible = useMemo(
     () =>
       (items ?? []).filter(
         (b) =>
           textMatches(filters.q, b.contact.name, b.contact.phone, ...b.requirements.cities) &&
-          (!maturity || b.maturity === maturity) &&
+          /*
+           * הבשלות והסטטוס כבר סוננו במסד (ראו האפקט למעלה) ואינם
+           * חוזרים כאן. סוג העסקה נשאר מקומי — הוא יושב בתוך
+           * `requirements` ואינו פרמטר של הרשימה.
+           */
           (!dealType || (b.requirements.dealType ?? "sale") === dealType) &&
           // "מי לא קיבל כלום" הוא הסינון שמייצר עבודה בפועל
           (offersFilter === "" ||
             (offersFilter === "none" && (b.offersReceived ?? 0) === 0) ||
             (offersFilter === "some" && (b.offersReceived ?? 0) > 0)),
       ),
-    [items, filters.q, maturity, offersFilter, dealType],
+    [items, filters.q, offersFilter, dealType],
   );
 
   /*
@@ -194,7 +314,14 @@ export default function BuyersPage() {
    */
   async function removeSelected(permanent: boolean): Promise<void> {
     const ids = selectedVisible.map((b) => b.id);
-    if (ids.length === 0) return;
+    /* ‏אותה יציאה שקטה בדיוק, ראו `shareSelected`. */
+    if (ids.length === 0) {
+      setBulkNote({
+        tone: "warning",
+        text: "הקונים שסומנו אינם ברשימה המסוננת — נקו את הסינון או בחרו מחדש",
+      });
+      return;
+    }
     /*
      * ‎**הגילוי לפני האישור — גם במחיקה המרוכזת.**
      *
@@ -236,11 +363,13 @@ export default function BuyersPage() {
         ids,
         permanent,
       });
-      setBulkNote(
-        res.skipped === 0
-          ? `${res.removed} כרטיסים ${permanent ? "נמחקו" : "הועברו לארכיון"}`
-          : `${res.removed} ${permanent ? "נמחקו" : "הועברו לארכיון"}, ${res.skipped} דולגו — כרטיס של סוכן אחר, או כזה שכבר נמחק`,
-      );
+      setBulkNote({
+        tone: res.skipped === 0 ? "success" : "warning",
+        text:
+          res.skipped === 0
+            ? `${res.removed} כרטיסים ${permanent ? "נמחקו" : "הועברו לארכיון"}`
+            : `${res.removed} ${permanent ? "נמחקו" : "הועברו לארכיון"}, ${res.skipped} דולגו — כרטיס של סוכן אחר, או כזה שכבר נמחק`,
+      });
       setSelected(new Set());
     } catch {
       setError("המחיקה נכשלה — נסו שוב");
@@ -258,8 +387,9 @@ export default function BuyersPage() {
      */
     setItems(null);
     try {
+      /* ‏אותה כתובת בדיוק שהטעינה הראשונית בנתה — ראו `buyersListUrl` */
       const fresh = await apiGet<{ items: BuyerRow[] }>(
-        `/buyers?limit=100${filtersToQuery({ ...filters, q: "" })}`,
+        buyersListUrl(filters, maturity, officeStatus, sharedTabu, neighborhood),
       );
       setItems(
         [...apiList(fresh.items, "items")].sort(
@@ -283,7 +413,18 @@ export default function BuyersPage() {
    */
   async function shareSelected(): Promise<void> {
     const ids = selectedVisible.map((b) => b.id);
-    if (ids.length === 0) return;
+    /*
+     * ‏יציאה שקטה הייתה כפתור שלא מגיב: מי שסימן קונים ואז שינה
+     * ‏סינון נשאר עם בחירה שאינה ברשימה, ולחיצה על „העלה לרשת”
+     * ‏לא עשתה דבר ולא אמרה דבר.
+     */
+    if (ids.length === 0) {
+      setBulkNote({
+        tone: "warning",
+        text: "הקונים שסומנו אינם ברשימה המסוננת — נקו את הסינון או בחרו מחדש",
+      });
+      return;
+    }
     if (!window.confirm(`לפרסם ${ids.length} קונים לרשת השיתופים? יפורסמו בלי שם ובלי טלפון, בחלוקת עמלה 50/50.`)) return;
 
     setBulkBusy(true);
@@ -296,11 +437,13 @@ export default function BuyersPage() {
       );
       const failed = res.results.filter((r) => !r.ok);
       const reasons = [...new Set(failed.map((r) => r.error ?? "השיתוף נכשל"))];
-      setBulkNote(
-        failed.length === 0
-          ? `${res.results.length} קונים פורסמו לרשת`
-          : `${res.results.length - failed.length} פורסמו, ${failed.length} לא — ${reasons.join(" · ")}`,
-      );
+      setBulkNote({
+        tone: failed.length === 0 ? "success" : "warning",
+        text:
+          failed.length === 0
+            ? `${res.results.length} קונים פורסמו לרשת`
+            : `${res.results.length - failed.length} פורסמו, ${failed.length} לא — ${reasons.join(" · ")}`,
+      });
       setSelected(new Set());
     } catch {
       setError("הפרסום לרשת נכשל — נסו שוב");
@@ -311,13 +454,25 @@ export default function BuyersPage() {
 
   return (
     <>
+      {/* הכותרת הסמנטית — הסרגל העליון מציג `<p>` בכוונה (app-shell) */}
+      <h1 className="sr-only">קונים · שוכרים</h1>
       {/* מקרא הבשלות + פעולות — כמו בעיצוב */}
       <div className="mb-[18px] flex flex-wrap items-center gap-3">
         <div className="text-sm" style={{ color: "var(--color-text-muted)" }}>
           דירוג בשלות: <b style={{ color: "var(--color-danger)" }}>חם מאוד</b> ·{" "}
           <b style={{ color: "#8a6414" }}>חם</b> ·{" "}
           <b style={{ color: "var(--color-primary)" }}>מתעניין</b> ·{" "}
-          <b style={{ color: "var(--color-text-muted)" }}>לא בשל</b>
+          <b style={{ color: "var(--color-text-muted)" }}>לא בשל</b> ·{" "}
+          <b
+            style={{
+              color: maturityTone("not_relevant").fg,
+              background: maturityTone("not_relevant").bg,
+              borderRadius: 99,
+              paddingInline: 7,
+            }}
+          >
+            לא רלוונטי
+          </b>
         </div>
         <div className="ms-auto flex flex-wrap items-center gap-2.5">
           {/* כפתור שמוביל לפיצ'ר שאינו במסלול נחסם בשרת ממילא —
@@ -349,7 +504,19 @@ export default function BuyersPage() {
         <Notice tone="danger">{error}</Notice>
       ) : items === null ? (
         <p aria-live="polite">טוען קונים…</p>
-      ) : items.length === 0 && !hasActiveFilters(filters) ? (
+      ) : /*
+         * ‎**„עדיין אין קונים” הוא רק כשאין סינון שמרוקן את `items`**
+         * ‏(ביקורת Codex, P2).
+         *
+         * ‏בשלות, הצעות וסוג עסקה מצמצמים את `visible` בלבד. עמדת
+         * ‏הטאבו המשותף מסננת **בשרת**, ולכן משרד בלי קונה אחד
+         * ‏בעמדה שנבחרה קיבל את מסך הפתיחה — בלי הבורר ובלי „נקה
+         * ‏סינון”, כלומר בלי דרך לחזור חוץ מרענון.
+         */
+      items.length === 0 &&
+        !hasActiveFilters(filters) &&
+        sharedTabu === "" &&
+        neighborhood.trim() === "" ? (
         <div
           className="rounded-xl border p-8 text-center"
           style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
@@ -380,13 +547,20 @@ export default function BuyersPage() {
             total={items.length}
             noun="קונים"
             active={
-              hasActiveFilters(filters) || maturity !== "" || offersFilter !== "" || dealType !== ""
+              hasActiveFilters(filters) ||
+              maturity !== "" ||
+              offersFilter !== "" ||
+              dealType !== "" ||
+              sharedTabu !== "" ||
+              neighborhood.trim() !== ""
             }
             onClear={() => {
               setFilters(EMPTY_FILTERS);
               setMaturity("");
               setOffersFilter("");
+              setSharedTabu("");
               setDealType("");
+              setNeighborhood("");
             }}
           >
             <FilterSelect
@@ -406,6 +580,28 @@ export default function BuyersPage() {
               allLabel="כל רמות הבשלות"
               options={Object.entries(MATURITY_LABELS)}
             />
+            {/*
+              מוצג רק כשיש מה לבחור: משרד שלא הגדיר סטטוסים היה מקבל
+              בורר ריק שנראה כמו תקלה.
+            */}
+            {statusFilterOptions.length > 0 ? (
+              <FilterSelect
+                label="סינון לפי סטטוס המשרד"
+                value={officeStatus}
+                onChange={setOfficeStatus}
+                allLabel="כל הסטטוסים"
+                options={statusFilterOptions}
+              />
+            ) : null}
+            {/*
+              ‎**השכונה יושבת לצד הבוררים האחרים ולא בחיפוש.**
+
+              החיפוש החופשי רץ על מה שנטען ומחפש בשם, בטלפון
+              ובערים; זה סינון במסד, על שדה אחד ומדויק. שניהם
+              באותה שורה היו שני שדות טקסט שנראים זהה ועושים דברים
+              שונים.
+            */}
+            <NeighborhoodFilter value={neighborhood} onChange={setNeighborhood} />
             <FilterSelect
               label="סינון לפי הצעות שקיבל"
               value={offersFilter}
@@ -414,6 +610,21 @@ export default function BuyersPage() {
               options={[
                 ["none", "לא קיבלו אף הצעה"],
                 ["some", "קיבלו הצעות"],
+              ]}
+            />
+            {/*
+              ‏„טרם נשאל” אינו אפשרות בסינון בכוונה: הוא אינו עמדה
+              ‏אלא היעדרה, ומי שמחפש אותו מחפש בעצם „את מי עוד לא
+              ‏שאלתי” — שאלה אחרת, שמקומה במונה השלמות של הכרטיס.
+            */}
+            <FilterSelect
+              label="סינון לפי טאבו משותף"
+              value={sharedTabu}
+              onChange={setSharedTabu}
+              allLabel="כל העמדות"
+              options={[
+                ["accepts", SHARED_TABU_STANCE_LABELS.accepts],
+                ["refuses", SHARED_TABU_STANCE_LABELS.refuses],
               ]}
             />
           </FilterBar>
@@ -430,7 +641,9 @@ export default function BuyersPage() {
                   setFilters(EMPTY_FILTERS);
                   setMaturity("");
                   setOffersFilter("");
+                  setSharedTabu("");
                   setDealType("");
+                  setNeighborhood("");
                 }}
               >
                 נקה סינון
@@ -447,7 +660,21 @@ export default function BuyersPage() {
                   className="mv-list-card mb-3 flex flex-wrap items-center gap-2 px-4 py-3"
                   role="status"
                 >
-                  <strong className="text-[length:var(--type-body-sm)]">{selectedVisible.length} נבחרו</strong>
+                  {/*
+                    ‎**הסרגל אומר מה קורה כשהבחירה יצאה מהסינון.**
+
+                    ‏הבחירה נשמרת לפי מזהה, והפעולות עובדות על
+                    ‏`selectedVisible` — כלומר רק על מי שנמצא ברשימה
+                    ‏המסוננת כרגע. מי שסימן קונים ואז שינה סינון קיבל
+                    ‏„0 נבחרו” וכפתור שלא עושה דבר: הפעולה יצאה מיד
+                    ‏כי אין למי. עכשיו הסרגל אומר זאת, ובטל בחירה
+                    ‏נשאר הדרך החוצה.
+                  */}
+                  <strong className="text-[length:var(--type-body-sm)]">
+                    {selectedVisible.length === 0
+                      ? `${selected.size} נבחרו — ואף אחד מהם אינו בסינון הנוכחי`
+                      : `${selectedVisible.length} נבחרו`}
+                  </strong>
                   <button
                     type="button"
                     className="mv-btn-plain"
@@ -491,7 +718,7 @@ export default function BuyersPage() {
                 </div>
               ) : null}
 
-              {bulkNote ? <Notice tone="success">{bulkNote}</Notice> : null}
+              {bulkNote ? <Notice tone={bulkNote.tone}>{bulkNote.text}</Notice> : null}
 
               {/* מובייל: כרטיסים במקום טבלה בת 6 עמודות (docs/06 §1.5) */}
               <ul className="flex flex-col gap-3 sm:hidden">
@@ -540,19 +767,29 @@ export default function BuyersPage() {
 
               {/* שולחני: טבלת ה-grid מהעיצוב */}
               <div className="mv-list-card hidden sm:block">
-                <div className="mv-list-head" style={{ gridTemplateColumns: GRID }}>
-                  <span className="flex items-center gap-2">
-                    {maySelect ? (
-                      <input
-                        type="checkbox"
-                        checked={allVisibleSelected}
-                        onChange={toggleAll}
-                        aria-label="בחר את כל הקונים המוצגים"
-                        title="בחר הכל"
-                      />
-                    ) : null}
-                    שם
-                  </span>
+                {/*
+                  ‎**הכותרת מוזחת ברוחב עמודת הסימון, ו„בחר הכל” יושבת
+                  בתוכה.**
+
+                  קודם התיבה ישבה בתוך תא „שם”, והפס כולו התחיל בקצה
+                  הכרטיס — כלומר קווי הרשת של הכותרת ושל השורות לא
+                  נפגשו, וההפרש גדל מעמודה לעמודה. אותה תקלה בדיוק
+                  דווחה בעמוד הנכסים.
+                */}
+                <div
+                  className={`mv-list-head${maySelect ? " mv-list-head--select" : ""}`}
+                  style={{ gridTemplateColumns: GRID }}
+                >
+                  {maySelect ? (
+                    <input
+                      type="checkbox"
+                      checked={allVisibleSelected}
+                      onChange={toggleAll}
+                      aria-label="בחר את כל הקונים המוצגים"
+                      title="בחר הכל"
+                    />
+                  ) : null}
+                  <span>שם</span>
                   <span>בשלות</span>
                   <span>תקציב</span>
                   <span>מחפש</span>
@@ -584,8 +821,11 @@ export default function BuyersPage() {
                         onClick={() => router.push(`/buyers/${b.id}`)}
                       >
                       <span className="truncate text-[length:var(--type-body)] font-bold">{b.contact.name}</span>
-                      <span>
+                      <span className="flex flex-wrap items-center gap-1.5">
                         <MaturityPill maturity={b.maturity} />
+                        <AgentTag
+                          {...(b.agentName === undefined ? {} : { name: b.agentName })}
+                        />
                       </span>
                       <span className="text-sm font-bold">{budgetText(b)}</span>
                       <span className="truncate text-[length:var(--type-caption-lg)]" style={{ color: "var(--color-text-soft)" }}>
@@ -613,16 +853,12 @@ export default function BuyersPage() {
               </div>
             </>
           )}
-          <CapNote
-            show={
-              (hasActiveFilters(filters) ||
-                maturity !== "" ||
-                offersFilter !== "" ||
-                dealType !== "") &&
-              items.length === 100
-            }
-            noun="קונים"
-          />
+          {/*
+            התקרה חלה **אחרי** הבשלות והסטטוס, שסוננו במסד. היא ראויה
+            לציון גם בלי סינון מקומי: מי שבחר „חם” ורואה 100 שורות
+            צריך לדעת שיש עוד.
+          */}
+          <CapNote show={items.length === 100} noun="קונים" />
         </>
       )}
     </>

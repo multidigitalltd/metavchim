@@ -31,7 +31,7 @@ import {
 } from "@metavchim/shared";
 import { TenantContext } from "../../common/tenant-context";
 import { loadEnv } from "../../config/env";
-import { EmailRejectedError, EmailService } from "../../core/email.service";
+import { EmailService, emailSendOutcome } from "../../core/email.service";
 import { EmailDomainProviderService } from "../../core/email-domain-provider.service";
 import { PlatformAdminNotifierService } from "../../core/platform-admin-notifier.service";
 import { PlatformSettingsService } from "../../core/platform-settings.service";
@@ -154,10 +154,12 @@ export class SupportInboxService {
     const body = inboundBody(payload, BODY_MAX);
     const incoming = payload.Attachments.slice(0, EMAIL_ATTACHMENT_MAX_COUNT)
       .map((attachment) => {
-        const kind = emailAttachmentKind(attachment.ContentType);
-        if (kind === null || attachment.Content === "") return null;
+        if (attachment.Content === "") return null;
         const content = Buffer.from(attachment.Content, "base64");
         if (content.length === 0 || content.length > EMAIL_ATTACHMENT_MAX_BYTES) return null;
+        // התוכן נמסר לבדיקת Magic Bytes — הצהרה כוזבת יורדת ל"קובץ"
+        const kind = emailAttachmentKind(attachment.ContentType, content);
+        if (kind === null) return null;
         return {
           kind,
           content,
@@ -887,7 +889,7 @@ export class SupportInboxService {
     if (rejection !== null) throw new BadRequestException(rejection);
 
     const attachments = files.map((file) => {
-      const kind = emailAttachmentKind(file.mimetype);
+      const kind = emailAttachmentKind(file.mimetype, file.buffer);
       if (kind === null) throw new BadRequestException(`סוג קובץ שאינו נתמך: ${file.originalname}`);
       return {
         name: safeAttachmentName(file.originalname),
@@ -952,6 +954,8 @@ export class SupportInboxService {
           paragraphs: body.trim() === "" ? ["מצורף:"] : body.trim().split("\n").filter(Boolean),
         },
         {
+          /* ‏שורת ההודעה נכתבה לפני השליחה — היא זהות השליחה הזו */
+          idempotency: { key: `supportreply:${messageId}`, purpose: "support" },
           required: true,
           /*
            * **התשובה יוצאת מכתובת התמיכה עצמה.**
@@ -977,18 +981,17 @@ export class SupportInboxService {
       );
     } catch (error: unknown) {
       /*
-       * **„נכשלה” רק כשידוע שלא יצאה** — אותה הבחנה כמו בתיבת
-       * המשרד. דחייה של הספק היא ודאות; פסק זמן ו-5xx אינם, וייתכן
-       * שהפונה כן קיבל. סימון הכול כ„נכשל” מזמין שליחה חוזרת.
+       * ‎**„נכשלה” רק כשידוע שלא יצאה** — אותה הבחנה כמו בתיבת
+       * ‏המשרד, ומאותה פונקציה בדיוק.
        */
-      const certainlyNotSent = error instanceof EmailRejectedError;
+      const outcome = emailSendOutcome(error);
       await this.prisma.supportMessage
         .update({
           where: { id: messageId },
-          data: { sendState: certainlyNotSent ? "failed" : "unknown" },
+          data: { sendState: outcome },
         })
         .catch(() => this.logger.error(`סימון מצב תשובת תמיכה נכשל: ${messageId}`));
-      if (certainlyNotSent) throw error;
+      if (outcome === "failed") throw error;
       // בתוצאה עמומה הקבצים נשמרים בכל זאת — ייתכן שהפונה קיבל אותם
       state = "unknown";
       this.logger.warn(`תשובת תמיכה הסתיימה בתוצאה עמומה: ${messageId} — ${String(error)}`);

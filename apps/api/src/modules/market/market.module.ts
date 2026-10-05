@@ -10,7 +10,7 @@ import { MarketController } from "./market.controller";
 import { MarketService } from "./market.service";
 
 /**
- * נתוני שוק — עסקאות מיסוי מקרקעין של כל הארץ (docs/14).
+ * נתוני שוק — עסקאות מיסוי מקרקעין של כל הארץ (docs/18).
  *
  * ‎`MarketService` ו-`MarketPropertyService` מיוצאים: המנטור, הסוכן
  * והטופס הציבורי קוראים מהם, ואינם פותחים עותק משלהם של השאילתות.

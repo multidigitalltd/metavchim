@@ -18,7 +18,3 @@ export const QUEUES = {
 } as const;
 
 export type QueueName = (typeof QUEUES)[keyof typeof QUEUES];
-
-/** Job ייחודי-לישות: שינויים מרובים ברצף מתמזגים לחישוב אחד (Debounce). */
-export const jobIdForEntity = (queue: QueueName, entityId: string): string =>
-  `${queue}:${entityId}`;

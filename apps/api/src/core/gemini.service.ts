@@ -70,6 +70,19 @@ export interface GeminiUsage {
   cachedTokens: number;
 }
 
+/**
+ * ‎**תמונה שנשלחת למודל יחד עם ההוראה.**
+ *
+ * ‏`data` הוא Base64 ללא הקידומת `data:`; `mimeType` הוא מה
+ * ‏שהמקור מסר. שניהם נכנסים ל-`inlineData` של Gemini כפי שהם —
+ * ‏אין כאן המרה, כי כל המרה היא עוד מקום שאפשר לאבד בו את
+ * ‏האיכות שבזכותה בכלל אפשר לקרוא שלט מצולם.
+ */
+export interface GeminiImage {
+  mimeType: string;
+  data: string;
+}
+
 @Injectable()
 export class GeminiService {
   private readonly logger = new Logger(GeminiService.name);
@@ -182,7 +195,7 @@ export class GeminiService {
   async generateStructured(
     prompt: string,
     responseSchema: Record<string, unknown>,
-    options: { maxOutputTokens?: number; timeoutMs?: number } = {},
+    options: { maxOutputTokens?: number; timeoutMs?: number; image?: GeminiImage } = {},
   ): Promise<unknown | null> {
     return (await this.generateStructuredDetailed(prompt, responseSchema, options)).value;
   }
@@ -251,13 +264,19 @@ export class GeminiService {
   async generateStructuredDetailed(
     prompt: string,
     responseSchema: Record<string, unknown>,
-    options: { maxOutputTokens?: number; timeoutMs?: number } = {},
+    options: { maxOutputTokens?: number; timeoutMs?: number; image?: GeminiImage } = {},
   ): Promise<{ value: unknown | null; model: string; latencyMs: number; usage?: GeminiUsage }> {
     const started = Date.now();
     const result = await this.callDetailed(prompt, {
       responseSchema,
       maxOutputTokens: options.maxOutputTokens ?? 4_096,
-      timeoutMs: options.timeoutMs ?? 12_000,
+      /*
+       * ‏קריאה עם תמונה איטית מהותית מקריאת טקסט — הקידוד לבדו
+       * ‏גדול בסדר גודל. פסק זמן של שתים-עשרה שניות היה חותך
+       * ‏חילוץ תקין באמצע.
+       */
+      timeoutMs: options.timeoutMs ?? (options.image === undefined ? 12_000 : 30_000),
+      ...(options.image === undefined ? {} : { image: options.image }),
     });
     return {
       value: result.value,
@@ -273,6 +292,7 @@ export class GeminiService {
       responseSchema?: Record<string, unknown>;
       maxOutputTokens?: number;
       timeoutMs?: number;
+      image?: GeminiImage;
     },
   ): Promise<unknown | null> {
     return (await this.callDetailed(prompt, options)).value;
@@ -327,6 +347,7 @@ export class GeminiService {
       responseSchema?: Record<string, unknown>;
       maxOutputTokens?: number;
       timeoutMs?: number;
+      image?: GeminiImage;
     },
   ): Promise<{ value: unknown | null; error?: string; model?: string; usage?: GeminiUsage }> {
     const key = await this.apiKey();
@@ -384,6 +405,7 @@ export class GeminiService {
       responseSchema?: Record<string, unknown>;
       maxOutputTokens?: number;
       timeoutMs?: number;
+      image?: GeminiImage;
     },
   ): Promise<{
     value: unknown | null;
@@ -433,6 +455,7 @@ export class GeminiService {
       responseSchema?: Record<string, unknown>;
       maxOutputTokens?: number;
       timeoutMs?: number;
+      image?: GeminiImage;
     },
   ): Promise<{
     value: unknown | null;
@@ -471,6 +494,7 @@ export class GeminiService {
       responseSchema?: Record<string, unknown>;
       maxOutputTokens?: number;
       timeoutMs?: number;
+      image?: GeminiImage;
     },
     withThinkingCap: boolean,
   ): Promise<{
@@ -494,7 +518,21 @@ export class GeminiService {
           method: "POST",
           headers: { "content-type": "application/json", "x-goog-api-key": key },
           body: JSON.stringify({
-            contents: [{ parts: [{ text: prompt }] }],
+            contents: [
+              {
+                /*
+                 * ‎**התמונה לפני הטקסט.** זו ההמלצה של Google
+                 * ‏לקריאת מסמך או שלט: ההוראה שאחרי התמונה נקראת
+                 * ‏כמתייחסת אליה, ולא להפך.
+                 */
+                parts: [
+                  ...(options.image === undefined
+                    ? []
+                    : [{ inlineData: { mimeType: options.image.mimeType, data: options.image.data } }]),
+                  { text: prompt },
+                ],
+              },
+            ],
             generationConfig: {
               responseMimeType: "application/json",
               ...(options.responseSchema === undefined

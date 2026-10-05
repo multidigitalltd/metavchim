@@ -2,8 +2,6 @@ import {
   Injectable,
   Logger,
   NotFoundException,
-  type OnModuleDestroy,
-  type OnModuleInit,
 } from "@nestjs/common";
 import { ulid } from "ulid";
 import {
@@ -18,6 +16,7 @@ import { LinetService } from "../../core/linet.service";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { VatService } from "../../core/vat.service";
 import { PrismaService } from "../../core/prisma.service";
+import { Sweep } from "../../core/sweeps";
 
 /**
  * חשבונית מס קבלה על כל תשלום שנגבה.
@@ -60,12 +59,8 @@ const SWEEP_INTERVAL_MS = 5 * 60 * 1000;
 const FIRST_SWEEP_DELAY_MS = 2 * 60 * 1000;
 
 @Injectable()
-export class InvoiceService implements OnModuleInit, OnModuleDestroy {
+export class InvoiceService {
   private readonly logger = new Logger(InvoiceService.name);
-  private timer: NodeJS.Timeout | null = null;
-  private kickoff: NodeJS.Timeout | null = null;
-  /** סבב שעוד רץ — שני סבבים במקביל היו נלחמים על אותן שורות. */
-  private running = false;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -74,23 +69,8 @@ export class InvoiceService implements OnModuleInit, OnModuleDestroy {
     private readonly vat: VatService,
   ) {}
 
-  onModuleInit(): void {
-    this.kickoff = setTimeout(() => {
-      void this.tick();
-      this.timer = setInterval(() => void this.tick(), SWEEP_INTERVAL_MS);
-    }, FIRST_SWEEP_DELAY_MS);
-    // אחרת התהליך לא יוצא בבדיקות ובסקריפטים קצרים
-    this.kickoff.unref?.();
-  }
-
-  onModuleDestroy(): void {
-    if (this.kickoff) clearTimeout(this.kickoff);
-    if (this.timer) clearInterval(this.timer);
-  }
-
+  @Sweep({ name: "invoice", everyMs: SWEEP_INTERVAL_MS, firstDelayMs: FIRST_SWEEP_DELAY_MS })
   private async tick(): Promise<void> {
-    if (this.running) return;
-    this.running = true;
     try {
       const result = await this.issueDue();
       if (result.issued > 0 || result.failed > 0) {
@@ -98,8 +78,6 @@ export class InvoiceService implements OnModuleInit, OnModuleDestroy {
       }
     } catch (error) {
       this.logger.error(`סבב החשבוניות נכשל: ${String(error)}`);
-    } finally {
-      this.running = false;
     }
   }
 
@@ -167,6 +145,7 @@ export class InvoiceService implements OnModuleInit, OnModuleDestroy {
     planCode: string | null;
     billingCycle: string | null;
     creditsPurchased: number | null;
+    mediaOrderId: string | null;
   }): Promise<string> {
     const purpose: InvoicePurpose =
       payment.purpose === "credits"
@@ -175,7 +154,26 @@ export class InvoiceService implements OnModuleInit, OnModuleDestroy {
           ? "number_rental"
           : payment.purpose === "whatsapp_seat"
             ? "whatsapp_seat"
-            : "subscription";
+            : payment.purpose === "media_order"
+              ? "media_order"
+              : "subscription";
+    /*
+     * שם המדיה והמוצר מצולמים על ההזמנה — המסמך נוקב במה שנקנה,
+     * לא ב„פרסום” סתמי. ההזמנה נקראת לפי המזהה שעל שורת התשלום.
+     */
+    let mediaProduct: string | undefined;
+    if (purpose === "media_order" && payment.mediaOrderId !== null) {
+      const order = await this.prisma.mediaOrder.findUnique({
+        where: { id: payment.mediaOrderId },
+        select: { outletName: true, productName: true, quantity: true },
+      });
+      if (order !== null) {
+        mediaProduct =
+          order.quantity > 1
+            ? `${order.outletName} — ${order.productName} ×${order.quantity}`
+            : `${order.outletName} — ${order.productName}`;
+      }
+    }
     let planLabel: string | undefined;
     if (purpose === "subscription" && payment.planCode) {
       const plan = (await this.plans.all()).find((item) => item.code === payment.planCode);
@@ -186,6 +184,7 @@ export class InvoiceService implements OnModuleInit, OnModuleDestroy {
       planLabel,
       billingCycle: payment.billingCycle === "yearly" ? "yearly" : "monthly",
       credits: payment.creditsPurchased ?? undefined,
+      mediaProduct,
     }).slice(0, 200);
   }
 

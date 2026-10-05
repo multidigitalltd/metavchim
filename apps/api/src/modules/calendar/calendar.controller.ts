@@ -13,10 +13,14 @@ import {
 } from "@nestjs/common";
 import { FileInterceptor } from "@nestjs/platform-express";
 import { z } from "zod";
-import { IdSchema } from "@metavchim/shared";
+import { IdSchema,
+  VIEWING_CONDITION_FEEDBACK,
+  VIEWING_FIT_FEEDBACK,
+  VIEWING_PRICE_FEEDBACK,
+} from "@metavchim/shared";
 import { RequireCapability } from "../../common/auth.decorators";
 import { RequireFeature } from "../../common/feature.guard";
-import { ZodValidationPipe } from "../../common/zod-validation.pipe";
+import { ZodValidationPipe, IdParam } from "../../common/zod-validation.pipe";
 import { CalendarService, type AppointmentDto } from "./calendar.service";
 
 /** אותה תקרה כמו בהקלטת שיחה — 40MB. */
@@ -42,6 +46,10 @@ const UpdateSchema = z
     outcome: z.enum(["liked", "not_fit", "negotiating", "needs_other"]).nullable().optional(),
     notes: z.string().max(2000).nullable().optional(),
     title: z.string().max(200).nullable().optional(),
+    /** משוב מהביקור למוכר — שלוש רשימות סגורות; `null` מוחק (docs/03) */
+    feedbackPrice: z.enum(VIEWING_PRICE_FEEDBACK).nullable().optional(),
+    feedbackCondition: z.enum(VIEWING_CONDITION_FEEDBACK).nullable().optional(),
+    feedbackFit: z.enum(VIEWING_FIT_FEEDBACK).nullable().optional(),
   })
   .strict();
 
@@ -92,7 +100,7 @@ export class CalendarController {
   /** פגישה בודדת — מסך העריכה נטען ממנה. */
   @Get(":id")
   @RequireCapability("calendar.manage")
-  async getOne(@Param("id", new ZodValidationPipe(IdSchema)) id: string): Promise<AppointmentDto> {
+  async getOne(@Param("id", IdParam) id: string): Promise<AppointmentDto> {
     return this.calendar.getById(id);
   }
 
@@ -103,7 +111,7 @@ export class CalendarController {
   @RequireCapability("calendar.manage")
   @HttpCode(200)
   async reschedule(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
     @Body(new ZodValidationPipe(RescheduleSchema)) body: z.infer<typeof RescheduleSchema>,
   ): Promise<AppointmentDto> {
     return this.calendar.reschedule(id, body);
@@ -119,7 +127,7 @@ export class CalendarController {
   @HttpCode(200)
   @UseInterceptors(FileInterceptor("file", { limits: { fileSize: MAX_RECORDING_BYTES, files: 1 } }))
   async attachRecording(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
     @UploadedFile() file: Express.Multer.File | undefined,
   ): Promise<{ callId: string; status: string }> {
     if (!file) throw new BadRequestException("לא צורף קובץ");
@@ -129,7 +137,7 @@ export class CalendarController {
   @Patch(":id")
   @RequireCapability("calendar.manage")
   async update(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
     @Body(new ZodValidationPipe(UpdateSchema)) body: z.infer<typeof UpdateSchema>,
   ): Promise<AppointmentDto> {
     return this.calendar.update(id, body);

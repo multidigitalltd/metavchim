@@ -1,8 +1,6 @@
-import { z } from "zod";
+import * as z from "../zod.js";
 import { OFFER_STATUSES } from "../logic/offer-status.js";
-import { IdSchema } from "./common.js";
 
-export const OfferChannelSchema = z.enum(["link", "whatsapp", "sms", "email"]);
 
 /**
  * תצוגת הנכס כפי שנשלחה לקונה — Snapshot שנשמר בהצעה עצמה:
@@ -35,17 +33,3 @@ export type OfferPresentation = z.infer<typeof OfferPresentationSchema>;
  */
 export const OfferStatusSchema = z.enum(OFFER_STATUSES);
 
-export const OfferSchema = z.object({
-  id: IdSchema,
-  tenantId: IdSchema,
-  matchId: IdSchema,
-  channel: OfferChannelSchema,
-  /** הנוסח שנשלח בפועל — נשמר כראיה גם אם התבנית השתנתה מאז. */
-  sentText: z.string().max(2000).optional(),
-  status: OfferStatusSchema,
-  openCount: z.number().int().nonnegative().default(0),
-  sentAt: z.coerce.date().optional(),
-  firstOpenedAt: z.coerce.date().optional(),
-  createdAt: z.coerce.date(),
-});
-export type Offer = z.infer<typeof OfferSchema>;

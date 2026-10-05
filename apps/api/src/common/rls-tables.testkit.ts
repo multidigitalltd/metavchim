@@ -21,6 +21,37 @@ import { join } from "node:path";
 const TABLE = String.raw`"?(\w+)"?`;
 
 /**
+ * ‎**שינויי שם, לפי סדר המיגרציות.**
+ *
+ * ‏הגזירות כאן קוראות `CREATE TABLE`, והשם שנוצר אינו בהכרח השם
+ * ‏שקיים היום: `telephony_webhook_hits` שונה ל-`webhook_hits`. בלי
+ * ‏המיפוי הזה הגזירה מחזירה שם שאינו קיים עוד — הוא אינו נמצא
+ * ‏ב-`accessorsByTable`, **נופל בשקט**, והטבלה יוצאת מכל שמירה
+ * ‏(ביקורת Codex).
+ *
+ * ‏זו בדיוק התקלה שהתיעוד של הקובץ הזה כבר מזהיר מפניה: „שתיהן היו
+ * ‏ירוקות על טבלאות שלא נבדקו כלל”.
+ */
+function renames(sql: string): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const match of sql.matchAll(
+    new RegExp(String.raw`ALTER TABLE\s+(?:IF EXISTS\s+)?${TABLE}\s+RENAME TO\s+${TABLE}`, "gu"),
+  )) {
+    const from = match[1]!;
+    const to = match[2]!;
+    // ‏שרשרת: a→b ואז b→c פירושה a→c
+    for (const [key, value] of map) if (value === from) map.set(key, to);
+    map.set(from, to);
+  }
+  return map;
+}
+
+/** ‏השם שהטבלה נושאת **היום**, אחרי כל שינויי השם. */
+function currentName(table: string, sql: string): string {
+  return renames(sql).get(table) ?? table;
+}
+
+/**
  * כל ה-SQL של המיגרציות, **בסדר כרונולוגי**.
  *
  * ‎`readdirSync` אינו מבטיח סדר: הוא מחזיר את מה שמערכת הקבצים
@@ -52,21 +83,33 @@ export function rlsTables(prismaDir: string): Set<string> {
   const sql = migrationSql(prismaDir);
   const enabled = new Set<string>();
 
+  /*
+   * ‎**כל שם עובר דרך `currentName`** — כאן ובכל גזירה אחרת.
+   *
+   * ‏ב-PostgreSQL ה-RLS דבק ב**טבלה**, לא בשם: `mentor_goals` קיבלה
+   * ‏פוליסה ואז שונתה ל-`mentor_goals_legacy`, והפוליסה עברה איתה.
+   * ‏גזירה שמחזירה את השם הישן מייצרת סתירה בין שתי רשימות שמושוות
+   * ‏זו לזו — `tenantScopedOutsideRls` בודקת `rls.has(table)` — ואז
+   * ‏טבלה שיש עליה RLS מסווגת כאילו אין. זה בדיוק מה שקרה כשתיקנתי
+   * ‏צד אחד של ההשוואה בלבד.
+   */
   // הצורה המפורשת: ALTER TABLE x ENABLE ROW LEVEL SECURITY
   for (const match of sql.matchAll(
     new RegExp(String.raw`ALTER TABLE\s+${TABLE}\s+ENABLE ROW LEVEL SECURITY`, "gu"),
   )) {
-    enabled.add(match[1]!);
+    enabled.add(currentName(match[1]!, sql));
   }
   // הצורה בלולאה: FOREACH t IN ARRAY ARRAY[ 'a', 'b', … ]
   for (const block of sql.matchAll(/FOREACH\s+\w+\s+IN ARRAY ARRAY\[([^\]]+)\]/gu)) {
-    for (const name of block[1]!.matchAll(/'(\w+)'/gu)) enabled.add(name[1]!);
+    for (const name of block[1]!.matchAll(/'(\w+)'/gu)) {
+      enabled.add(currentName(name[1]!, sql));
+    }
   }
   // מה שבוטל במפורש אינו תחת RLS (outbox_events)
   for (const match of sql.matchAll(
     new RegExp(String.raw`ALTER TABLE\s+${TABLE}\s+DISABLE ROW LEVEL SECURITY`, "gu"),
   )) {
-    enabled.delete(match[1]!);
+    enabled.delete(currentName(match[1]!, sql));
   }
   return enabled;
 }
@@ -88,6 +131,35 @@ export function rlsTables(prismaDir: string): Set<string> {
  * ‏`ON DELETE RESTRICT` (‏`users`, `properties`) אינו נספר: הן
  * חייבות להימחק במפורש, וכך הן אכן נמחקות.
  */
+/**
+ * ‏ההצהרה על `tenant_id` בתוך גוף `CREATE TABLE` — בשתי הצורות.
+ *
+ * ‎**עמודה** — `"tenant_id" CHAR(26) NOT NULL REFERENCES "tenants"…`
+ * ‏— הכול בשורה אחת, וזו הצורה הנפוצה.
+ *
+ * ‎**אילוץ בעל שם** — `CONSTRAINT … FOREIGN KEY ("tenant_id")` ואז
+ * ‏`REFERENCES "tenants"(…) ON DELETE CASCADE` בשורה הבאה.
+ *
+ * ‏הגרסה הקודמת חיפשה **שורה אחת** שיש בה גם `tenant_id` וגם
+ * ‏`REFERENCES tenants`, ולכן הצורה השנייה נעלמה ממנה לגמרי: הטבלה
+ * ‏לא נכנסה לרשימת ה-CASCADE, והבדיקה דרשה עבורה מחיקה מפורשת
+ * ‏שאינה עושה דבר. זו אותה משפחת כשל שההערה על שמות מצוטטים
+ * ‏מתארת — הגזירה טקסטואלית, ולכן **עיצוב הקוד** יכול לעוור אותה.
+ *
+ * ‏מחזיר את קטע ההצהרה שנמצא, או `null` כשאין `tenant_id` בטבלה.
+ */
+function tenantForeignKey(body: string): string | null {
+  const named =
+    /CONSTRAINT[\s\S]{0,120}?FOREIGN KEY\s*\(\s*"?tenant_id"?\s*\)[\s\S]{0,200}?REFERENCES\s+"?tenants"?[^,\n]*(?:\n[^,\n)]*)?/u.exec(
+      body,
+    );
+  if (named !== null) return named[0];
+  const column = body
+    .split("\n")
+    .find((line) => /"?tenant_id"?/u.test(line) && /REFERENCES\s+"?tenants"?/u.test(line));
+  return column ?? null;
+}
+
 export function cascadingFromTenants(prismaDir: string): Set<string> {
   const sql = migrationSql(prismaDir);
   /** טבלה ⟵ האם ההצהרה **האחרונה** עליה היא CASCADE. */
@@ -117,10 +189,22 @@ export function cascadingFromTenants(prismaDir: string): Set<string> {
     const created = match[2];
     const body = match[3];
     if (created === undefined || body === undefined) continue;
-    const column = body
-      .split("\n")
-      .find((line) => /"?tenant_id"?/u.test(line) && /REFERENCES\s+"?tenants"?/u.test(line));
-    if (column !== undefined) verdict.set(created, /ON DELETE CASCADE/u.test(column));
+    /*
+     * ‎**ההצהרה נקראת כטווח, ולא כשורה.**
+     *
+     * הגרסה הקודמת חיפשה **שורה אחת** שיש בה גם `tenant_id` וגם
+     * `REFERENCES tenants`. אילוץ בעל שם נכתב על פני שתי שורות —
+     * `CONSTRAINT … FOREIGN KEY ("tenant_id")` ואז `REFERENCES
+     * "tenants"(…) ON DELETE CASCADE` — ואז אף שורה אינה מכילה את
+     * שניהם. הטבלה נעדרה מרשימת ה-CASCADE, והבדיקה דרשה עבורה
+     * מחיקה מפורשת שאינה עושה דבר.
+     *
+     * זו אותה משפחת כשל שהערה למעלה מתארת על שמות מצוטטים: הגזירה
+     * טקסטואלית, ולכן **עיצוב הקוד** יכול לעוור אותה. טווח סוגר את
+     * הפער בלי להישען על כך שמישהו יזכור לכתוב את האילוץ בשורה אחת.
+     */
+    const declared = tenantForeignKey(body);
+    if (declared !== null) verdict.set(created, /ON DELETE CASCADE/u.test(declared));
   }
 
   return new Set([...verdict].filter(([, cascades]) => cascades).map(([table]) => table));
@@ -147,7 +231,7 @@ export function tenantScopedOutsideRls(prismaDir: string): Set<string> {
   for (const match of sql.matchAll(
     new RegExp(String.raw`CREATE TABLE\s+(?:IF NOT EXISTS\s+)?${TABLE}\s*\(([\s\S]*?)\n\);`, "gu"),
   )) {
-    const table = match[1]!;
+    const table = currentName(match[1]!, sql);
     if (rls.has(table)) continue;
     if (/^\s*"?tenant_id"?\s/mu.test(match[2]!)) found.add(table);
   }

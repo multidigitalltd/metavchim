@@ -1,10 +1,9 @@
 import { Body, Controller, Get, HttpCode, Param, Post } from "@nestjs/common";
 import { z } from "zod";
-import { IdSchema } from "@metavchim/shared";
 import { RequireCapability } from "../../common/auth.decorators";
 import { RequireFeature } from "../../common/feature.guard";
 import { TenantContext } from "../../common/tenant-context";
-import { ZodValidationPipe } from "../../common/zod-validation.pipe";
+import { ZodValidationPipe, IdParam } from "../../common/zod-validation.pipe";
 import { NumberRentalService, type RentalRow } from "./number-rental.service";
 
 /**
@@ -61,7 +60,7 @@ export class NumberRentalController {
   @HttpCode(200)
   @RequireCapability("billing.manage")
   async cancel(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
   ): Promise<{ ok: true }> {
     await this.rentals.cancel(TenantContext.current().tenantId, id);
     return { ok: true };

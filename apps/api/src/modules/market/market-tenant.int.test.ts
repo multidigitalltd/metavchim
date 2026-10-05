@@ -94,9 +94,9 @@ beforeAll(async () => {
   await cleanup();
   await owner.$executeRaw`
     INSERT INTO tenants (id, name, created_at, updated_at) VALUES (${TENANT}, 'משרד גשר השוק', now(), now())`;
-  const [{ next }] = await owner.$queryRaw<{ next: number }[]>`
+  const [row] = await owner.$queryRaw<{ next: number }[]>`
     SELECT COALESCE(max(id), 0) + 1 AS next FROM market_settlements`;
-  settlementId = Number(next);
+  settlementId = Number(row?.next ?? 1);
   await owner.$executeRaw`
     INSERT INTO market_settlements (id, name, source_deals, status, synced_through)
     VALUES (${settlementId}, ${CITY}, 6, 'ok', now())`;

@@ -8,27 +8,43 @@ import {
 import { Prisma } from "@prisma/client";
 import { ulid } from "ulid";
 import {
+  dailyEmailIdempotencyKey,
+
   BuyerRequirementsSchema,
   DEFAULT_COMMISSION_SPLIT,
+  NOT_RELEVANT_MATURITY,
   commissionSplitRejectionReason,
   commissionTermsColumns,
   commissionTermsFromRow,
   commissionTermsRejectionReason,
   headlineCommissionSplit,
+  isSharedTabuProperty,
+  sharedTabuFit,
+  buyerSharedTabuStance,
+  SHARED_TABU_REFUSED_NOTE,
   uniformTerms,
   type CommissionTerms,
   scoreMatch,
   summarizeReach,
   type PropertyFields,
   type ReachSummary,
+  networkSafeTitle,
+  NETWORK_MATCH_MIN_SCORE,
+  buyerCardIsVisibleWith,
+  type Capability,
+  listingLabel,
+  listingMatchCopy,
+  listingMatchDedupeKey,
+  LISTING_MATCH_NOTIFICATION_TYPE,
+  MAX_FOLLOWS_PER_USER,
 } from "@metavchim/shared";
-import { ownershipFilter } from "../../common/ownership";
+import { officeCapabilities, ownershipFilter } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { loadEnv } from "../../config/env";
 import { AuditService } from "../../core/audit.service";
 import { EmailService } from "../../core/email.service";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
-import { StorageService } from "../../core/storage.service";
+import { StorageService, type StoredObject } from "../../core/storage.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import { ContactsService } from "../contacts/contacts.service";
 import { collabRecipient, sendCollabMail } from "./collab-mail";
@@ -37,6 +53,8 @@ import { assertNetworkQuota } from "./network-quota";
 import { notifyProposerDeclined } from "./decline-notify";
 import { listingPhotoPath } from "./network-media";
 import { officeBadges, type OfficeBadge } from "./office-names";
+/** ‏עמוד סריקה בסבב המעקבים — אותו גודל כמו בכיוון הביקושים. */
+const FOLLOW_SWEEP_PAGE = 200;
 import {
   networkPrice,
   networkRooms,
@@ -97,6 +115,11 @@ export interface SharedListingDto {
   city?: string;
   neighborhood?: string;
   propertyType?: string;
+  /**
+   * ‏מצב הרישום — נוסע עם המודעה, ולכן המשרד המקבל רואה אותו
+   * ‏(ביקורת Codex, P1). ראו `snapshot`.
+   */
+  sharedTabu: boolean;
   dealType?: string;
   rooms?: number;
   areaSqm?: number;
@@ -151,6 +174,13 @@ export interface SharedListingDto {
   }[];
   /** כבר הבעתי עניין בשם קונה כלשהו — אין להציע פעמיים. */
   interestSent?: boolean;
+  /**
+   * ‏האם **המשתמש הזה** עוקב אחרי הנכס.
+   *
+   * ‏של המשתמש ולא של המשרד: המעקב אישי, כי הקונה שיתאים הוא
+   * ‏הקונה שלו. ראו `ListingFollow`.
+   */
+  following?: boolean;
 }
 
 type PropertyRow = Prisma.PropertyGetPayload<object>;
@@ -205,6 +235,18 @@ export class ListingsService {
       city: property.city,
       neighborhood: property.neighborhood,
       propertyType: property.propertyType,
+      /*
+       * ‎**הרישום המשותף נוסע איתו** (ביקורת Codex, P1).
+       *
+       * ‏עד שהתכונה הפכה לדגל היא נשאה את עצמה דרך `propertyType`,
+       * ‏ולכן הגיעה לצד השני. נכס עם סוג רגיל שסומן בתיבה איבד
+       * ‏אותה בפרסום: הוא הומלץ לקונה שסירב למושאע, והמשרד המקבל
+       * ‏לא ראה את מצב הרישום כלל.
+       *
+       * ‎`isSharedTabuProperty` ולא השדה הגולמי — אותה גזירה שכל
+       * ‏שאר המסלולים קוראים לה.
+       */
+      sharedTabu: isSharedTabuProperty(property),
       dealType: property.dealType,
       rooms: property.rooms,
       areaSqm: property.areaSqm,
@@ -215,7 +257,13 @@ export class ListingsService {
       entryType: property.entryType,
       entryDate: property.entryDate,
       features,
-      title: property.marketingTitle,
+      /* נגזרת ולא `marketingTitle` — ראו `networkSafeTitle` */
+      title: networkSafeTitle({
+        propertyType: property.propertyType ?? undefined,
+        rooms: property.rooms === null ? undefined : Number(property.rooms),
+        neighborhood: property.neighborhood ?? undefined,
+        city: property.city ?? undefined,
+      }),
       latitude: roundCoord(property.latitude),
       longitude: roundCoord(property.longitude),
     };
@@ -570,7 +618,7 @@ export class ListingsService {
         where: { tenantId, originPropertyId: propertyId, status: "active" },
       }),
     );
-    return row === null ? null : await this.toDto(row, tenantId);
+    return row === null ? null : this.toDto(row, tenantId);
   }
 
   /**
@@ -586,11 +634,7 @@ export class ListingsService {
   async photo(
     id: string,
     index: number,
-  ): Promise<{
-    body: NodeJS.ReadableStream;
-    contentType?: string;
-    contentLength?: number;
-  }> {
+  ): Promise<StoredObject> {
     const tenantId = TenantContext.current().tenantId;
     const row = await this.prisma.withNetworkRead((tx) =>
       tx.sharedListing.findFirst({
@@ -657,7 +701,7 @@ export class ListingsService {
       tx.sharedListing.findFirst({ where: { id } }),
     );
     if (!row) throw new NotFoundException("פרסום לא נמצא");
-    return await this.toDto(row, tenantId);
+    return this.toDto(row, tenantId);
   }
 
   private toDto(
@@ -677,6 +721,8 @@ export class ListingsService {
       ...(row.city === null ? {} : { city: row.city }),
       ...(row.neighborhood === null ? {} : { neighborhood: row.neighborhood }),
       ...(row.propertyType === null ? {} : { propertyType: row.propertyType }),
+      /* ‏מה שנשמר בפרסום — ראו `snapshot` */
+      sharedTabu: row.sharedTabu,
       ...(row.dealType === null ? {} : { dealType: row.dealType }),
       ...(row.rooms === null ? {} : { rooms: Number(row.rooms) }),
       ...(row.areaSqm === null ? {} : { areaSqm: row.areaSqm }),
@@ -690,7 +736,26 @@ export class ListingsService {
       ...(row.entryDate === null ? {} : { entryDate: row.entryDate }),
       features: row.features,
       photos,
-      ...(row.title === null ? {} : { title: row.title }),
+      /*
+       * ‎**הכותרת נגזרת בקריאה, ולא נלקחת מהשורה.**
+       *
+       * ‏`snapshot()` שומר כותרת נגזרת — אבל רק לפרסום חדש. כל
+       * ‎`SharedListing` שנוצר לפני התיקון עדיין נושא בעמודה את
+       * ‎`marketingTitle` המקורי, כלומר את הכתובת שהמתווך כתב
+       * בטקסט חופשי, וזה מה שמשרד אחר היה רואה עד שהנכס היה
+       * מתעדכן במקרה (ביקורת Codex). גזירה כאן אינה דורשת
+       * מיגרציה ואינה יכולה לפספס שורה.
+       *
+       * ‎**גם לבעלים.** אחרת אותו משרד רואה בפרסום ישן כותרת
+       * אחת ובחדש אחרת — וזו בדיוק האסימטריה שהסתירה את הדליפה:
+       * מי שפרסם לא ראה מה הרשת רואה.
+       */
+      title: networkSafeTitle({
+        propertyType: row.propertyType ?? undefined,
+        rooms: row.rooms === null ? undefined : Number(row.rooms),
+        neighborhood: row.neighborhood ?? undefined,
+        city: row.city ?? undefined,
+      }),
       ...(row.notes === null ? {} : { notes: row.notes }),
       commissionSplit: row.commissionSplit,
       terms: commissionTermsFromRow(row),
@@ -720,6 +785,11 @@ export class ListingsService {
       ...(row.city === null ? {} : { city: row.city }),
       ...(row.neighborhood === null ? {} : { neighborhood: row.neighborhood }),
       ...(row.propertyType === null ? {} : { propertyType: row.propertyType }),
+      /*
+       * ‏וגם בשחזור לניקוד: בלעדיו `scoreMatch` ממליץ על המודעה
+       * ‏לקונה שסירב למושאע, כי הנכס נראה כרגיל. ראו `snapshot`.
+       */
+      sharedTabu: row.sharedTabu,
       ...(row.dealType === null ? {} : { dealType: row.dealType }),
       ...(row.rooms === null ? {} : { rooms: Number(row.rooms) }),
       ...(row.areaSqm === null ? {} : { areaSqm: row.areaSqm }),
@@ -760,11 +830,50 @@ export class ListingsService {
    * ולא כלל שני שאפשר לשכוח לעדכן.
    */
   private ownBuyersWhere(tenantId: string): Prisma.BuyerWhereInput {
+    /*
+     * ‎**מי שמודול הקונים חסום אצלו אינו מקבל אף קונה — גם לא את
+     * ‏אלה שמשויכים אליו.**
+     *
+     * ‏`ownershipFilter` הגולמי מייצר `{ ownerUserId: <אני> }` כשאין
+     * ‏`buyers.view_all`, ו**אינו בודק כלל** את `buyers.view_own`.
+     * ‏שתי היכולות ניתנות לשלילה בנפרד, ולכן משתמש שנשללה ממנו
+     * ‏הראייה בקונים אך נשארה לו `collaboration.offer` עדיין קיבל
+     * ‏את הקונים המשויכים אליו — ובנתיב שמקבל מזהה קונה בכתובת זה
+     * ‏השם המפוענח והדרישות הפרטיות של אותו כרטיס (ביקורת Codex, P1).
+     *
+     * ‏זו בדיוק הנפילה ש-`leadOwnershipFilter` כבר תוקנה בגללה, ושם
+     * ‏ההערה אומרת אותו דבר במילים אחרות: „`view_own` הוא הסף:
+     * ‏בלעדיו נדרשת קבוצה שלא תתאים לשום שורה, ולא אובייקט ריק —
+     * ‏ריק פירושו „בלי סינון”, כלומר ההפך הגמור.”
+     *
+     * ‏קבוצה ריקה ולא זריקה, כדי ששני הקוראים יתנהגו נכון בלי כלל
+     * ‏שני: הפיד ממשיך לעבוד ופשוט אינו מציג `myMatches`, והנתיב
+     * ‏שמחפש קונה לפי מזהה אינו מוצא אותו וחוזר „קונה לא נמצא”.
+     */
+    const ctx = TenantContext.current();
+    if (
+      !ctx.capabilities.has("buyers.view_all") &&
+      !ctx.capabilities.has("buyers.view_own")
+    ) {
+      return { id: { in: [] } };
+    }
     return {
       tenantId,
       deletedAt: null,
       ...ownershipFilter("buyers.view_all", "ownerUserId"),
     };
+  }
+
+  /**
+   * ‏הקונים שלי **שבעבודה** — ‏`ownBuyersWhere` בלי „לא רלוונטי”.
+   *
+   * ‏הפיד („התאמות שלי”) וההצעה לפרסם מדברים על קונה שבעבודה; קונה
+   * ‏שהמשרד סימן שאינו רלוונטי אינו התאמה לנכס של משרד אחר (ביקורת
+   * ‏Codex, P1). ‏`ownBuyersWhere` עצמו נשאר תנאי נראוּת בלבד: נתיב שמקבל
+   * ‏מזהה קונה צריך למצוא אותו, ולהחליט בעצמו מה לעשות בו.
+   */
+  private inPlayBuyersWhere(tenantId: string): Prisma.BuyerWhereInput {
+    return { ...this.ownBuyersWhere(tenantId), maturity: { not: NOT_RELEVANT_MATURITY } };
   }
 
   /**
@@ -855,7 +964,7 @@ export class ListingsService {
     const { buyers, names, alreadySent } = await this.prisma.withTenant(
       async (tx) => {
         const rows = await tx.buyer.findMany({
-          where: this.ownBuyersWhere(tenantId),
+          where: this.inPlayBuyersWhere(tenantId),
           take: 200,
         });
         const sent = await tx.coopInterest.findMany({
@@ -881,10 +990,18 @@ export class ListingsService {
       },
     );
 
-    const offices = await officeBadges(
-      this.prisma,
-      visible.map((row) => row.tenantId),
-    );
+    const [offices, followed] = await Promise.all([
+      officeBadges(
+        this.prisma,
+        visible.map((row) => row.tenantId),
+      ),
+      /*
+       * ‏אחרי מה **המשתמש הזה** עוקב. שאילתה אחת לכל הפיד, כמו
+       * ‎`alreadySent` שמעליה: קריאה לכל כרטיס הייתה מאה שאילתות
+       * ‏על מסך אחד — ה-N+1 שכבר תוקן פעמיים במודול הזה.
+       */
+      this.followedListingIds(visible.map((row) => row.id)),
+    ]);
 
     /*
      * `Promise.all` ולא לולאה סדרתית: התאמת הקונים שלי היא החישוב
@@ -893,16 +1010,443 @@ export class ListingsService {
      */
     return await Promise.all(
       visible.map(async (row) => {
-        const dto = await this.toDto(row, tenantId, offices.get(row.tenantId));
+        const dto = this.toDto(row, tenantId, offices.get(row.tenantId));
         if (dto.mine) return dto;
         const matches = this.matchOwnBuyers(buyers, names, row);
         return {
           ...dto,
           ...(matches.length > 0 ? { myMatches: matches } : {}),
           interestSent: alreadySent.has(row.id),
+          following: followed.has(row.id),
         };
       }),
     );
+  }
+
+  /**
+   * ‎**נכסים מהרשת שמתאימים לקונה אחד — הצד החסר בלשונית ההתאמות.**
+   *
+   * ‏כרטיס הקונה הראה עד כה שני דברים: התאמות מהמאגר הפנימי, והצעות
+   * ‏ש**משרד אחר שלח** על הקונה הזה. שניהם תלויים במישהו אחר שיפעל —
+   * ‏ובינתיים מאות נכסים שמתאימים לקונה יושבים ברשת ואיש אינו רואה
+   * ‏אותם מהמקום שבו שואלים „מה יש בשביל הקונה הזה” (בקשת המשתמש).
+   *
+   * ‏זו בדיוק המראה של `networkMatchesForProperty`: אותו מנוע, אותו
+   * ‏סף, אותה תקרה של עשר תוצאות. ההבדל היחיד הוא איזה צד מגיע מהרשת
+   * ‏ואיזה מהמאגר שלי.
+   *
+   * ‎**אינה מותנית בפרסום הקונה לרשת.** הפיד הוא קטלוג פתוח לכל מי
+   * ‏שרשאי להציע בו, ולראות מה יש בו אינו חושף דבר על הקונה שלי —
+   * ‏שום בקשה אינה יוצאת החוצה עד שהסוכן לוחץ „מעוניין”. הצגת „אין
+   * ‏כלום” למי שלא פרסם הייתה מסתירה בדיוק את מה שהיה משכנע אותו
+   * ‏לפרסם.
+   *
+   * ‎`ownBuyersWhere` ולא `tenantId` בלבד: סוכן עם `buyers.view_own`
+   * ‏אינו רואה קונה של עמית בשום מסך, ואין סיבה שנתיב שמקבל מזהה
+   * ‏בכתובת יהיה החריג.
+   */
+  async matchesForBuyer(buyerId: string): Promise<SharedListingDto[]> {
+    const tenantId = TenantContext.current().tenantId;
+    const buyer = await this.prisma.withTenant((tx) =>
+      tx.buyer.findFirst({
+        where: { id: buyerId, ...this.ownBuyersWhere(tenantId) },
+      }),
+    );
+    if (!buyer) throw new NotFoundException("קונה לא נמצא");
+    /* ‏„לא רלוונטי” — הכרטיס נפתח, אבל אין לו התאמות ברשת */
+    if (buyer.maturity === NOT_RELEVANT_MATURITY) return [];
+
+    /*
+     * ‎`tenantId: { not: tenantId }` — הנכסים שלי כבר יושבים בעמודה
+     * ‏הפנימית של אותו כרטיס, ולהראות אותם פעמיים זו ספירה כפולה של
+     * ‏אותו נכס. אותו סינון בדיוק שבכיוון ההפוך.
+     */
+    const listings = await this.prisma.withNetworkRead((tx) =>
+      tx.sharedListing.findMany({
+        where: { status: "active", tenantId: { not: tenantId } },
+        orderBy: { createdAt: "desc" },
+        take: 100,
+      }),
+    );
+    if (listings.length === 0) return [];
+
+    /*
+     * ‏בלי משקלי המשרד, כמו בכל ניקוד שחוצה את גבול הדייר: משקלים
+     * ‏מקומיים הופכים „82%” למספר שאין לו משמעות משותפת.
+     */
+    const requirements = BuyerRequirementsSchema.parse(buyer.requirements);
+    const scored = listings
+      .map((row) => ({
+        row,
+        result: scoreMatch(this.listingToFields(row), requirements),
+      }))
+      .filter(
+        ({ result }) =>
+          !result.excluded && result.score >= NETWORK_MATCH_MIN_SCORE,
+      )
+      .sort((a, b) => b.result.score - a.result.score)
+      .slice(0, 10);
+    if (scored.length === 0) return [];
+
+    const buyerName =
+      (await this.prisma.withTenant((tx) =>
+        this.contacts.getByIds(tx, [buyer.contactId]),
+      )).get(buyer.contactId)?.name ?? "קונה";
+
+    /*
+     * ‏שאילתה אחת לכל הרשימה ולא אחת לשורה — אותו N+1 שכבר תוקן
+     * ‏שלוש פעמים במודול הזה.
+     */
+    const ids = scored.map(({ row }) => row.id);
+    const [offices, followed, sent] = await Promise.all([
+      officeBadges(
+        this.prisma,
+        scored.map(({ row }) => row.tenantId),
+      ),
+      this.followedListingIds(ids),
+      /*
+       * ‎**מצומצם לקונה הזה, ולא לכל קוני המשרד.** המפתח הייחודי הוא
+       * ‏`(listingId, buyerId)`, כלומר אפשר להציע את הנכס הזה לקונה
+       * ‏אחר גם אחרי שהוצע לזה. תשובה ברמת המשרד הייתה מכבה כפתור
+       * ‏שהשרת דווקא היה מקבל.
+       */
+      this.prisma.withTenant((tx) =>
+        tx.coopInterest.findMany({
+          where: { fromTenantId: tenantId, buyerId, listingId: { in: ids } },
+          select: { listingId: true },
+        }),
+      ),
+    ]);
+    const alreadySent = new Set(sent.map((row) => row.listingId));
+
+    return scored.map(({ row, result }) => ({
+      ...this.toDto(row, tenantId, offices.get(row.tenantId)),
+      /*
+       * ‏רשומה אחת, והיא הקונה שנשאל עליו. אותו שדה שהפיד משתמש בו,
+       * ‏כדי שהמסך יציג ניקוד והסבר באותה דרך בשני המקומות.
+       */
+      myMatches: [
+        {
+          buyerId,
+          name: buyerName,
+          score: result.score,
+          explanation: result.explanation,
+        },
+      ],
+      interestSent: alreadySent.has(row.id),
+      following: followed.has(row.id),
+    }));
+  }
+
+  /* ======================================================================
+   * ‏מעקב אחרי נכס שפורסם לרשת — **הכיוון השני של `DemandFollow`**
+   *
+   * ‏אותו דגם בדיוק, ובכוונה: אותה בדיקת קיום דרך `withNetworkRead`,
+   * ‏אותה חסימה של מעקב אחרי מה ששלי, אותו גבול לכל משתמש, ואותה
+   * ‎`createMany({ skipDuplicates })` במקום בדיקה-ואז-כתיבה.
+   * ‏הסטייה היחידה היא מה שהשורה מצביעה עליו.
+   * ====================================================================== */
+
+  /** ‏מתוך הנכסים שעל המסך — אחרי אילו המשתמש הזה עוקב. */
+  private async followedListingIds(listingIds: string[]): Promise<Set<string>> {
+    if (listingIds.length === 0) return new Set();
+    const ctx = TenantContext.current();
+    return this.prisma.withTenant(async (tx) => {
+      const rows = await tx.listingFollow.findMany({
+        where: {
+          tenantId: ctx.tenantId,
+          userId: ctx.userId,
+          listingId: { in: listingIds },
+        },
+        select: { listingId: true },
+      });
+      return new Set(rows.map((row) => row.listingId));
+    });
+  }
+
+  /**
+   * ‎**התחלת מעקב אחרי נכס ברשת.**
+   *
+   * ‏הנכס נבדק דרך `withNetworkRead` ולא נלקח כנתון מהמסך: מזהה של
+   * ‏פרסום סגור, או של שורה שאינה פרסום כלל, היה נכנס לטבלה ומייצר
+   * ‏מעקב שלעולם לא יופעל — כלומר משתמש שממתין להתראה שלא תגיע.
+   *
+   * ‏מעקב אחרי נכס **שלי** נחסם: ההתראה אומרת „נכנס קונה שמתאים
+   * ‏לנכס הזה”, ועל הנכסים שלי המערכת כבר עושה בדיוק את זה דרך
+   * ‏ההתאמות הפנימיות.
+   */
+  async followListing(listingId: string): Promise<{ following: true }> {
+    const ctx = TenantContext.current();
+    const listing = await this.prisma.withNetworkRead((tx) =>
+      tx.sharedListing.findFirst({
+        where: { id: listingId, status: "active" },
+        select: { id: true, tenantId: true },
+      }),
+    );
+    if (listing === null) throw new NotFoundException("הפרסום לא נמצא");
+    if (listing.tenantId === ctx.tenantId) {
+      throw new BadRequestException(
+        "זה נכס שלכם — ההתאמות אליו כבר מוצגות בכרטיס הנכס",
+      );
+    }
+
+    await this.prisma.withTenant(async (tx) => {
+      const existing = await tx.listingFollow.count({
+        where: { tenantId: ctx.tenantId, userId: ctx.userId },
+      });
+      if (existing >= MAX_FOLLOWS_PER_USER) {
+        throw new BadRequestException(
+          `אפשר לעקוב אחרי ${MAX_FOLLOWS_PER_USER} נכסים. הפסיקו לעקוב אחרי אחד כדי להוסיף חדש.`,
+        );
+      }
+      /*
+       * ‎`createMany` עם `skipDuplicates` ולא בדיקה-ואז-כתיבה:
+       * ‏לחיצה כפולה על כפתור היא שתי בקשות מקבילות, והאילוץ
+       * ‏הייחודי הוא מה שמכריע ביניהן.
+       */
+      await tx.listingFollow.createMany({
+        data: [{ id: ulid(), tenantId: ctx.tenantId, userId: ctx.userId, listingId }],
+        skipDuplicates: true,
+      });
+    });
+    return { following: true };
+  }
+
+  /** ‏הפסקת מעקב. מזהה שאינו שלי פשוט אינו מוחק דבר. */
+  async unfollowListing(listingId: string): Promise<{ following: false }> {
+    const ctx = TenantContext.current();
+    await this.prisma.withTenant((tx) =>
+      tx.listingFollow.deleteMany({
+        where: { tenantId: ctx.tenantId, userId: ctx.userId, listingId },
+      }),
+    );
+    return { following: false };
+  }
+
+  /**
+   * ‎**סבב המעקבים של משרד אחד — „נכנס קונה שמתאים לנכס שעקבת אחריו”.**
+   *
+   * ## ‏למה כאן ולא ב-Worker
+   *
+   * ‏אותו נימוק בדיוק כמו בכיוון הביקושים, ואפילו חד יותר: הסבב
+   * ‏מריץ את `matchOwnBuyers` **עצמה** — הפונקציה שמציירת את
+   * ‏הכרטיס בפיד. ‏`apps/workers` אינה יכולה לייבא מ-`apps/api`,
+   * ‏ולכן סבב שם היה מחייב עותק שני של „מה נחשב התאמה”: אותו סף,
+   * ‏אותו סינון, אותו מיפוי שדות. שני מקורות אמת שנפרדים בשקט
+   * ‏פירושם מתווך שרואה בכרטיס „92% התאמה” לצד התראה שלא הגיעה.
+   *
+   * ## ‏ומה הוא **אינו** חושף
+   *
+   * ‏ההתראה נשלחת למשתמש שעקב, ונושאת את **הקונה שלו** ואת הנכס
+   * ‏כפי שהפיד כבר מציג לו אותו. אין כאן פרט של המשרד המפרסם שלא
+   * ‏היה גלוי קודם, ואין פרט של המשרד העוקב שיוצא החוצה.
+   */
+  async sweepFollowsForTenant(tenantId: string): Promise<number> {
+    let created = 0;
+    let cursor: string | undefined;
+    for (;;) {
+      const follows = await this.prisma.withExplicitTenant(tenantId, (tx) =>
+        tx.listingFollow.findMany({
+          where: { tenantId, ...(cursor === undefined ? {} : { id: { gt: cursor } }) },
+          orderBy: { id: "asc" },
+          take: FOLLOW_SWEEP_PAGE,
+        }),
+      );
+      if (follows.length === 0) break;
+      cursor = follows[follows.length - 1]!.id;
+      created += await this.sweepFollowPage(tenantId, follows);
+      if (follows.length < FOLLOW_SWEEP_PAGE) break;
+    }
+    return created;
+  }
+
+  /**
+   * ‏עמוד אחד של מעקבים מול **כל** הקונים הפעילים של המשרד.
+   *
+   * ‏הקונים נסרקים גם הם בעמודים ולא ב-`take` יחיד: חלון קבוע
+   * ‏פירושו שקונה שנכנס אחרי החלון לא יפעיל התראה **לעולם**, כי
+   * ‏כל ריצה שעתית חוזרת בדיוק על אותו חלון — ומעקב הוא בדיוק
+   * ‏ההבטחה ההפוכה. זו ביקורת P1 שכבר התקבלה בכיוון הביקושים,
+   * ‏ואין סיבה לחזור עליה כאן.
+   */
+  private async sweepFollowPage(
+    tenantId: string,
+    follows: { id: string; userId: string; listingId: string }[],
+  ): Promise<number> {
+    /* ‏הנכסים עצמם — קריאה חוצת-משרדים, כמו הפיד */
+    const listings = await this.prisma.withNetworkRead((tx) =>
+      tx.sharedListing.findMany({
+        where: { id: { in: follows.map((f) => f.listingId) }, status: "active" },
+      }),
+    );
+    const byId = new Map(listings.map((row) => [row.id, row]));
+
+    /*
+     * ‎**ניקוי לפני חישוב.** מעקב אחרי פרסום שנסגר או נמחק אינו
+     * ‏יכול להתממש לעולם, והוא ממשיך להיספר בגבול המעקבים של
+     * ‏המשתמש. זה גם המקום היחיד שרואה את שני הצדדים.
+     */
+    const stale = follows.filter((f) => !byId.has(f.listingId)).map((f) => f.id);
+    if (stale.length > 0) {
+      await this.prisma.withExplicitTenant(tenantId, (tx) =>
+        tx.listingFollow.deleteMany({ where: { tenantId, id: { in: stale } } }),
+      );
+    }
+
+    const live = follows.filter((f) => byId.has(f.listingId));
+    if (live.length === 0) return 0;
+
+    /*
+     * ‎**היכולות בפועל של כל עוקב בדף — ולא הנחה על התפקיד.**
+     *
+     * ‏„מותר לי לראות את הקונה הזה” הוא תפקיד, ועליו חריגי המנהל,
+     * ‏ועליהם חסימת המודולים. `officeCapabilities` היא בדיוק
+     * ‏הצירוף הזה, ובשאילתה אחת לכל העוקבים שבדף.
+     */
+    const caps = await this.prisma.withExplicitTenant(tenantId, (tx) =>
+      officeCapabilities(tx, tenantId, [...new Set(live.map((f) => f.userId))]),
+    );
+
+    let created = 0;
+    let cursor: string | undefined;
+    for (;;) {
+      const page = await this.prisma.withExplicitTenant(tenantId, async (tx) => {
+        const buyers = await tx.buyer.findMany({
+          /*
+           * ‎`deletedAt: null` — אותו תנאי בדיוק שהפיד מסנן בו
+           * ‏(`ownBuyersWhere`), פחות `ownershipFilter` שאין לו
+           * ‏הקשר בקשה כאן. הבעלות נאכפת לכל עוקב בנפרד ב-
+           * ‎`notifyMatches`, כי עמוד אחד משרת את כל העוקבים.
+           */
+          where: {
+            tenantId,
+            deletedAt: null,
+            /* ‏„לא רלוונטי” — נכס חדש ברשת אינו סיבה להתריע עליו */
+            maturity: { not: NOT_RELEVANT_MATURITY },
+            ...(cursor === undefined ? {} : { id: { gt: cursor } }),
+          },
+          orderBy: { id: "asc" },
+          take: FOLLOW_SWEEP_PAGE,
+        });
+        return {
+          buyers,
+          names: await this.contacts.getByIds(
+            tx,
+            buyers.map((b) => b.contactId),
+          ),
+        };
+      });
+      if (page.buyers.length === 0) break;
+      cursor = page.buyers[page.buyers.length - 1]!.id;
+      created += await this.notifyMatches(
+        tenantId,
+        live,
+        byId,
+        page.buyers,
+        page.names,
+        caps,
+      );
+      if (page.buyers.length < FOLLOW_SWEEP_PAGE) break;
+    }
+    return created;
+  }
+
+  /**
+   * ‏ההתראות על עמוד קונים אחד.
+   *
+   * ‏הכתיבה לכל עמוד ולא בסוף: `dedupeKey` הוא שמונע כפילות, ולכן
+   * ‏אין סיבה לצבור הכול בזיכרון לפני שכותבים.
+   */
+  private async notifyMatches(
+    tenantId: string,
+    live: { id: string; userId: string; listingId: string }[],
+    byId: Map<string, Prisma.SharedListingGetPayload<object>>,
+    buyers: Prisma.BuyerGetPayload<object>[],
+    names: ReadonlyMap<string, { name: string }>,
+    /** ‏היכולות בפועל של כל עוקב — ראו `sweepFollowPage` */
+    caps: ReadonlyMap<string, ReadonlySet<Capability>>,
+  ): Promise<number> {
+    const rows: {
+      id: string;
+      tenantId: string;
+      userId: string;
+      type: string;
+      dedupeKey: string;
+      title: string;
+      body: string;
+      entityType: string;
+      entityId: string;
+    }[] = [];
+    for (const follow of live) {
+      const listing = byId.get(follow.listingId);
+      if (listing === undefined) continue;
+      /*
+       * ‎**אותו כלל נראות שהפיד מפעיל — ולא קירוב שלו.**
+       *
+       * ‏הסבב טוען את כל קוני המשרד, כי עמוד אחד משרת את כל
+       * ‏העוקבים שבדף, ולכן הסינון נעשה כאן לכל עוקב בנפרד.
+       *
+       * ‎`buyerCardIsVisibleWith` ולא השוואת בעלות ידנית: הכתיבה
+       * ‏הראשונה כאן הייתה `ownerUserId === null || === userId`,
+       * ‏והיא שגתה **בשני הכיוונים** (ביקורת Codex). מנהל עם
+       * ‎`buyers.view_all` רואה בכרטיס התאמה לקונה של עמית ולא
+       * ‏היה מקבל עליה התראה — בדיוק ההבטחה שהמעקב נותן; ומנגד,
+       * ‏קונה בלי בעלים אינו שייך לאיש, ו-`view_own` לבדה אינה
+       * ‏מספיקה כדי לראות אותו. זו אותה פונקציה שהצנזורה בקריאה
+       * ‏משתמשת בה, ולכן שתיהן אינן יכולות לחלוק.
+       */
+      const follower = caps.get(follow.userId) ?? new Set<Capability>();
+      const mine = buyers.filter((buyer) =>
+        buyerCardIsVisibleWith(follower, follow.userId, buyer.ownerUserId),
+      );
+      for (const match of this.matchOwnBuyers(mine, names, listing)) {
+        const copy = listingMatchCopy({
+          listingLabel: listingLabel({
+            city: listing.city,
+            /*
+             * ‎`Decimal` מ-Prisma הופך למספר כאן ולא בפונקציה:
+             * ‏החבילה המשותפת אינה יודעת מה זה `Decimal`, וזה
+             * ‏בדיוק הגבול שמאפשר לאותה פונקציה לשמש גם את הדפדפן.
+             */
+            rooms: listing.rooms === null ? null : Number(listing.rooms),
+            propertyType: listing.propertyType,
+            dealType: listing.dealType,
+          }),
+          buyerName: match.name,
+          score: match.score,
+        });
+        rows.push({
+          id: ulid(),
+          tenantId,
+          userId: follow.userId,
+          type: LISTING_MATCH_NOTIFICATION_TYPE,
+          dedupeKey: listingMatchDedupeKey(follow.id, match.buyerId),
+          title: copy.title,
+          body: copy.body,
+          /*
+           * ‎**העוגן הוא הקונה, כי הגוף נושא את שמו.**
+           *
+           * ‏שורת התראה נכתבת פעם אחת ונקראת לנצח, והצנזורה
+           * ‏בקריאה (`notificationAnchor`) מכירה רק
+           * ‎`contact | lead | buyer | call`. עיגון על המודעה היה
+           * ‏משאיר את השם חשוף גם אחרי שהכרטיס הועבר לעמית, נמחק,
+           * ‏או שההרשאה נשללה — כלומר מחוץ לצנזורה לגמרי
+           * ‏(ביקורת Codex).
+           *
+           * ‏זה ההבדל מהכיוון השני: שם הגוף נושא **נכס**, ונכס אינו
+           * ‏כרטיס לקוח — ולכן `coop_demand` הוא עוגן תקין שם.
+           */
+          entityType: "buyer",
+          entityId: match.buyerId,
+        });
+      }
+    }
+    if (rows.length === 0) return 0;
+
+    const written = await this.prisma.withExplicitTenant(tenantId, (tx) =>
+      tx.notification.createMany({ data: rows, skipDuplicates: true }),
+    );
+    return written.count;
   }
 
   /** שלוש ההתאמות הטובות ביותר מבין הקונים שלי, מעל סף שווה-הצגה. */
@@ -977,6 +1521,9 @@ export class ListingsService {
         where: { id: buyerId, ...this.ownBuyersWhere(ctx.tenantId) },
       });
       if (!buyer) throw new NotFoundException("קונה לא נמצא");
+      if (buyer.maturity === NOT_RELEVANT_MATURITY) {
+        throw new BadRequestException("קונה שסומן „לא רלוונטי” אינו נשלח למשרדים אחרים");
+      }
 
       /*
        * פנייה כפולה נחסמת כאן ולא רק במפתח הייחודי שבמסד.
@@ -995,6 +1542,26 @@ export class ListingsService {
         throw new BadRequestException("כבר פניתם על הנכס הזה עבור הקונה הזה");
 
       const requirements = BuyerRequirementsSchema.parse(buyer.requirements);
+      /*
+       * ‎**הסירוב נאכף גם בכתיבה, לא רק בהתאמה** (ביקורת Codex, P1).
+       *
+       * ‏`matchOwnBuyers` מכבד את העמדה, ולכן קונה שסימן „מסרב”
+       * ‏אינו מופיע בהתאמות לנכס בטאבו משותף. אבל „להציע קונה
+       * ‏אחר” בעמוד שיתופי הפעולה הוא בורר שמונה את **כל** הקונים,
+       * ‏והנתיב הזה קיבל `buyerId` וכתב פנייה בלי לשאול. המשרד
+       * ‏המפרסם קיבל מועמד שכבר סירב לצורת הרישום הזו — ולא היה לו
+       * ‏איך לדעת, כי כרטיס הפנייה אינו נושא את העמדה.
+       *
+       * ‏אותה פונקציה בדיוק שההתאמה נשענת עליה, ועל אותם שני
+       * ‏קלטים: `listing.sharedTabu` נכתב בפרסום דרך
+       * ‎`isSharedTabuProperty`, והעמדה נגזרת ב-`buyerSharedTabuStance`
+       * ‏— שנופלת גם לסוג המבנה הישן, ולכן קונה מדור קודם נקרא נכון.
+       */
+      if (
+        sharedTabuFit(listing.sharedTabu, buyerSharedTabuStance(requirements)).excluded
+      ) {
+        throw new BadRequestException(SHARED_TABU_REFUSED_NOTE);
+      }
       const featureLevels = Object.entries(requirements.features);
       /* בדיוק אותם שדות שהביקוש חושף — ולא יותר */
       const presentation = {
@@ -1181,6 +1748,10 @@ export class ListingsService {
       ]);
       const office = badges.get(tenantId)?.name ?? "משרד תיווך";
       const accepted = response === "interested";
+      const idempotency = {
+        key: dailyEmailIdempotencyKey("interestresp", interestId, new Date()),
+        purpose: "collab",
+      };
       await sendCollabMail(this.email, to, {
         subject: accepted
           ? "הקונה שהצעתם אושר — נפתח חדר עסקה"
@@ -1202,7 +1773,7 @@ export class ListingsService {
           label: accepted ? "לחדר העסקה" : "לרשת שיתופי הפעולה",
           url: `${loadEnv().WEB_ORIGIN}/collaboration?tab=${accepted ? "deals" : "listings"}`,
         },
-      });
+      }, idempotency);
     } catch (error: unknown) {
       this.logger.warn(
         `מייל על תגובה לפנייה (${interestId}) לא נשלח: ${String(error)}`,
@@ -1244,6 +1815,10 @@ export class ListingsService {
         officeBadges(this.prisma, [ctx.tenantId]),
       ]);
       const which = listing?.title ?? listing?.city ?? "אחד הנכסים שפרסמתם";
+      const idempotency = {
+        key: dailyEmailIdempotencyKey("newinterest", interestId, new Date()),
+        purpose: "collab",
+      };
       await sendCollabMail(this.email, to, {
         subject: "מחכה לכם קונה על נכס שפרסמתם ברשת",
         heading: "הגיעה פנייה עם קונה",
@@ -1256,7 +1831,7 @@ export class ListingsService {
           label: "לפנייה במסך",
           url: `${loadEnv().WEB_ORIGIN}/collaboration?tab=incoming`,
         },
-      });
+      }, idempotency);
     } catch (error: unknown) {
       this.logger.warn(
         `מייל על פנייה חדשה (${interestId}) לא נשלח: ${String(error)}`,
@@ -1392,7 +1967,7 @@ export class ListingsService {
           take: 200,
         }),
         await tx.buyer.findMany({
-          where: this.ownBuyersWhere(tenantId),
+          where: this.inPlayBuyersWhere(tenantId),
           take: 200,
         }),
         await tx.sharedListing.findMany({
@@ -1455,9 +2030,6 @@ export class ListingsService {
   }
 }
 
-/** אותו סף כמו בכיוון השני — ראו `REACH_MIN_SCORE`. */
-const NETWORK_MATCH_MIN_SCORE = 70;
-
 /**
  * ביקוש → דרישות, לצורך ניקוד הנכסים שלי מולו.
  *
@@ -1473,6 +2045,14 @@ function demandToRequirements(
     neighborhoods: demand.neighborhoods,
     dealType: demand.dealType,
     propertyTypes: demand.propertyTypes,
+    /*
+     * ‏העמדה שנשמרה בפרסום, ובעיקר `refuses` (ביקורת Codex, P1):
+     * ‏בלעדיה `sharedTabuFit` קורא „טרם נשאל”, וההתאמה מותרת על
+     * ‏סירוב מפורש. ראו `CollaborationService.demandSnapshot`.
+     */
+    ...(demand.sharedTabuStance === null
+      ? {}
+      : { sharedTabu: demand.sharedTabuStance }),
     ...(demand.areaSqmMin === null ? {} : { areaSqmMin: demand.areaSqmMin }),
     ...(demand.budgetMinAgorot === null
       ? {}

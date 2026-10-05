@@ -5,6 +5,7 @@ import {
   INTAKE_TTL_DAYS,
   intakeExpiryFrom,
   intakeInactiveReason,
+  intakeInviteEmail,
   intakeInviteMessage,
   intakeOpenRejectionReason,
   INTAKE_NAME_MAX,
@@ -230,6 +231,67 @@ describe("intakeInviteMessage", () => {
     const text = intakeInviteMessage({ officeName: "נדל״ן ירוק", url: "https://x/y" });
     expect(text).not.toContain("מה שאתם מחפשים");
     expect(text).toContain("מחפשים נכס או שיש לכם נכס");
+  });
+});
+
+describe("intakeInviteEmail", () => {
+  it("הקישור הוא כפתור, ואינו כתובת ערומה בגוף", () => {
+    /*
+     * ‏זה ההבדל היחיד שמצדיק בונה נפרד מהודעת הוואטסאפ. כתובת
+     * ערומה באמצע פסקה מדורגת כחשודה אצל מסנני דואר, והנמען צריך
+     * משהו ללחוץ עליו — לא מחרוזת להעתיק.
+     */
+    const mail = intakeInviteEmail({ officeName: "נדל״ן ירוק", url: "https://x/f/abc" });
+    expect(mail.button).toEqual({ label: "למילוי הטופס", url: "https://x/f/abc" });
+    expect(mail.paragraphs.join("\n")).not.toContain("https://x/f/abc");
+  });
+
+  it("שם הלקוח הופך לפנייה, והיעדרו אינו מייצר „שלום ,”", () => {
+    const named = intakeInviteEmail({
+      officeName: "נדל״ן ירוק",
+      clientName: " דנה ",
+      url: "https://x/y",
+    });
+    expect(named.greeting).toBe("שלום דנה,");
+    expect(intakeInviteEmail({ officeName: "נדל״ן ירוק", url: "https://x/y" }).greeting)
+      .toBeUndefined();
+    /* שם שכולו רווחים אינו שם — אחרת הפנייה יוצאת „שלום ,” */
+    expect(
+      intakeInviteEmail({ officeName: "נדל״ן ירוק", clientName: "   ", url: "https://x/y" })
+        .greeting,
+    ).toBeUndefined();
+  });
+
+  it("שם הסוכן נכנס לפתיחה, ובלעדיו אין „undefined”", () => {
+    const withAgent = intakeInviteEmail({
+      officeName: "נדל״ן ירוק",
+      agentName: "יוסי",
+      url: "https://x/y",
+    });
+    expect(withAgent.paragraphs[0]).toBe("שלום, כאן יוסי מנדל״ן ירוק.");
+    const without = intakeInviteEmail({ officeName: "נדל״ן ירוק", url: "https://x/y" });
+    expect(without.paragraphs.join(" ")).not.toContain("undefined");
+  });
+
+  it("אינה מניחה שהנמען קונה — כמו הודעת הוואטסאפ", () => {
+    /*
+     * ‏אותה דרישה בדיוק, ולכן אותה בדיקה: שני הבונים יכולים לסטות
+     * זה מזה, ורק מי שנבדק לא יסטה.
+     */
+    const mail = intakeInviteEmail({ officeName: "נדל״ן ירוק", url: "https://x/y" });
+    const body = mail.paragraphs.join(" ");
+    expect(body).not.toContain("מה שאתם מחפשים");
+    expect(body).toContain("מחפשים נכס או שיש לכם נכס");
+  });
+
+  it("הערת השוליים אינה אומרת „אין צורך להשיב”", () => {
+    /*
+     * ‏המייל יוצא עם כתובת תשובה אמיתית, ולקוח שקיבל בקשה למלא
+     * טופס הוא בדיוק מי שעשוי לרצות לשאול עליה קודם.
+     */
+    const mail = intakeInviteEmail({ officeName: "נדל״ן ירוק", url: "https://x/y" });
+    expect(mail.footnote).not.toContain("אין צורך להשיב");
+    expect(mail.footnote).toContain("נדל״ן ירוק");
   });
 });
 

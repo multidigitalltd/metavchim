@@ -14,6 +14,15 @@ export interface AuthUser {
   mustChangePassword: boolean;
   /** שם המשרד — מגיע עם ה-Session, מוצג בפרופיל ובסרגל הצד */
   tenantName?: string;
+  /** האם למשרד יש לוגו — הסרגל מבקש את הקובץ רק אם כן */
+  tenantHasLogo?: boolean;
+  /**
+   * ‏האם „המשרד שלנו” פתוח לסוכנים ולא להנהלה בלבד.
+   *
+   * ‏נוסע עם ה-Session כמו `tenantHasLogo` כדי שהכפתור בראש המסך
+   * ‏לא יבהבה בכל מעבר בין מסכים. חסר = סגור, כמו בשרת.
+   */
+  officeBoardOpen?: boolean;
   isPlatformAdmin?: boolean;
   /**
    * היכולות בפועל של המשתמש — מה שהשרת יאשר, כולל חריגים אישיים.

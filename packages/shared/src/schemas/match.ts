@@ -1,7 +1,5 @@
-import { z } from "zod";
-import { IdSchema } from "./common.js";
+import * as z from "../zod.js";
 
-export const MatchStatusSchema = z.enum(["suggested", "dismissed", "offered"]);
 
 /**
  * פירוט הניקוד לכל קריטריון — הבסיס להסבר ההתאמה למתווך.
@@ -31,6 +29,16 @@ export const MATCH_CRITERIA = [
   "features_must",
   "features_nice",
   "entry_date",
+  /*
+   * ‎**`floor` חזר, ועכשיו עם כל מה שהיה חסר לו.**
+   *
+   * הוא היה כאן פעם — בסכמה בלבד, בלי משקל, בלי תווית ובלי שום קוד
+   * שמייצר אותו — והוסר בדיוק מהסיבה הזו. הפעם הוא מגיע יחד עם
+   * ‎`floorPreference` בדרישות הקונה, עם משקל, עם תווית ועם ענף
+   * ניקוד. הטיפוסים אוכפים את השלושה: קריטריון בלי משקל או בלי
+   * תווית אינו עובר קומפילציה.
+   */
+  "floor",
 ] as const;
 
 export type MatchCriterion = (typeof MATCH_CRITERIA)[number];
@@ -57,18 +65,6 @@ export const ScoreComponentSchema = z.object({
 });
 export type ScoreComponent = z.infer<typeof ScoreComponentSchema>;
 
-export const MatchSchema = z.object({
-  id: IdSchema,
-  tenantId: IdSchema,
-  propertyId: IdSchema,
-  buyerId: IdSchema,
-  score: z.number().int().min(0).max(100),
-  breakdown: z.array(ScoreComponentSchema),
-  explanation: z.string().max(1000),
-  status: MatchStatusSchema,
-  computedAt: z.coerce.date(),
-});
-export type Match = z.infer<typeof MatchSchema>;
 
 /** ספים מוסכמים לתצוגה — מתועדים באפיון (94% מומלץ / 81% ייתכן / 63% דורש בדיקה). */
 export const MATCH_THRESHOLDS = {
@@ -76,3 +72,21 @@ export const MATCH_THRESHOLDS = {
   possible: 70,
   review: 50,
 } as const;
+
+/**
+ * ‎**הסף שמעליו התאמה נחשבת שווה-הצגה ברשת השיתופים.**
+ *
+ * ‏הוא יושב כאן ולא בשירות, ולא בשניים מהם: עד עכשיו המספר היה
+ * כתוב פעמיים ב-`apps/api` — פעם בצד הביקושים ופעם בצד הנכסים —
+ * ועכשיו יש לו קורא שלישי שאינו יכול לייבא מהם כלל (הסורק
+ * ב-`apps/workers`). שלושה עותקים של אותו סף הם שלוש דעות על מה
+ * „מתאים”, והמשתמש רואה את שתיהן זו לצד זו: כרטיס שאומר „מתאים”
+ * והתראה שלא הגיעה.
+ *
+ * ‎**מדוע דווקא כאן ולא כערך של `MATCH_THRESHOLDS`.** הוא שווה
+ * במקרה ל-`possible`, אבל אינו אותו דבר: הספים שמעליו הם שפת
+ * התצוגה הפנימית של המשרד, וזה הרף שמעליו מוצע משהו למשרד **אחר**.
+ * קשירה ביניהם הייתה אומרת ששינוי בתצוגה הפנימית משנה מה נשלח
+ * החוצה, וזו הכרעה שאיש לא התכוון אליה.
+ */
+export const NETWORK_MATCH_MIN_SCORE = 70;

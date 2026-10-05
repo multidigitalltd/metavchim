@@ -12,6 +12,7 @@ import {
 } from "@metavchim/shared";
 import { ApiError, apiDelete, apiGet, apiPatch, apiPost } from "@/lib/api";
 import { ContactErasure } from "./contact-erasure";
+import { IconUser } from "./icons";
 import { LoadError } from "./load-error";
 import { Notice } from "./notice";
 
@@ -183,16 +184,13 @@ export function ContactPeople({
   const primary = data.people.find((p) => p.role === null);
 
   return (
-    <section
-      className="mv-list-card px-5 py-[17px]"
-      aria-labelledby="people-heading"
-    >
-      <div className="mb-3 flex flex-wrap items-center gap-2">
-        <h2
-          id="people-heading"
-          className="m-0"
-          style={{ fontSize: "calc(16.5 / 16 * 1rem)", fontWeight: 800 }}
-        >
+    <section className="mv-card mv-card--pad" aria-labelledby="people-heading">
+      <div className="mv-card-head">
+        {/* אריח מגוון לצד הכותרת — אותה שפה בכל כרטיסי המסך */}
+        <span className="mv-tile mv-tile--44 mv-domain-violet" aria-hidden="true">
+          <IconUser s={20} />
+        </span>
+        <h2 id="people-heading" className="mv-card-head__title">
           אנשי קשר וטלפונים
         </h2>
         {canEdit ? (

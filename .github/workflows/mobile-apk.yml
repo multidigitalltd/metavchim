@@ -1,0 +1,157 @@
+# ‏APK לבדיקות ידניות — בלחיצה, בלי חשבון Expo.
+#
+# ‏`expo prebuild` מייצר את פרויקט האנדרואיד מ-app.json, ו-Gradle בונה
+# ‏APK חתום במפתח הדיבאג של התבנית — מתקין על כל מכשיר עם „מקורות לא
+# ‏ידועים”, ואינו מתאים לחנות (שם החתימה מגיעה מ-EAS). כתובת השרת
+# ‏נצרבת מהקלט, ואפשר לשנות אותה גם באפליקציה („הגדרות מתקדמות”
+# ‏במסך ההתחברות).
+#
+# ‏פוש נייטיב דורש מזהה פרויקט EAS ב-app.json; בלעדיו האפליקציה
+# ‏מדווחת „לא זמין בסביבה הזו” וכל השאר עובד.
+#
+# ‏**רץ גם על כל מיזוג ל-main שנוגע באפליקציה או בחבילה המשותפת**,
+# ‏ומעלה את הקובץ ל-Release מתגלגל בשם `mobile-latest` — כך שהקובץ
+# ‏העדכני תמיד באותה כתובת, בלי לחפש ריצה בלשונית Actions. השרת
+# ‏מתעדכן בנפרד (כפתור „עדכן גרסה” ב-/platform), והנתונים אינם
+# ‏תלויים בזה בכלל: האפליקציה קוראת את אותו מסד דרך אותו API.
+name: Mobile APK
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - apps/mobile/**
+      - packages/shared/**
+      - pnpm-lock.yaml
+      - .github/workflows/mobile-apk.yml
+  workflow_dispatch:
+    inputs:
+      api_url:
+        description: "כתובת ה-API שתיצרב (למשל https://app.metavchim.co.il)"
+        required: true
+        default: "https://app.metavchim.co.il"
+
+# ‏הבידוד בין ריצות יושב על המשרות ולא על ה-workflow (ראו למטה): הבנייה
+# ‏ניתנת לביטול בידי ריצה חדשה, הפרסום — לא.
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    # ‏ריצת push חדשה מבטלת בנייה קודמת: הקומיט האחרון הוא מה שרוצים
+    # ‏ב-Release, וריצה תקועה לא חוסמת את הבאה עד התקרה. ריצה ידנית
+    # ‏(כתובת API אחרת) יושבת בקבוצה משלה — היא לא מבטלת בנייה של main
+    # ‏ואינה מתבטלת בגללה (ביקורת Codex).
+    concurrency:
+      group: ${{ github.event_name == 'push' && 'mobile-apk' || 'mobile-apk-manual' }}
+      cancel-in-progress: ${{ github.event_name == 'push' }}
+    # ‏ה-C++ של React Native (worklets, reanimated) נבנה לכל ארכיטקטורה
+    # ‏מחדש — ולכן ארכיטקטורה אחת ומטמון Gradle. עם זיכרון מספיק (למטה)
+    # ‏הבנייה כולה היא כ-15–25 דקות; התקרה משאירה מרווח ולא יותר.
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      # ‏מטמון ל-`~/.gradle` ולתוצרי הבנייה — הריצה השנייה קצרה בהרבה
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: ${{ github.event_name != 'push' }}
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # ‏Metro טוען את dist/ של החבילה המשותפת — כמו ב-web
+      - name: Build shared package
+        run: pnpm --filter @metavchim/shared build
+
+      - name: Generate the Android project
+        working-directory: apps/mobile
+        run: npx expo prebuild --platform android --no-install
+
+      # ‏התבנית של Expo נותנת ל-Gradle ‎2GB heap ו-512MB metaspace. ב-R8 של
+      # ‏האפליקציה הזו (Kotlin של כל מודולי Expo + Hermes) ה-metaspace נגמר:
+      # ‏`minifyReleaseWithR8 FAILED` עם `OutOfMemoryError: Metaspace` אחרי
+      # ‏12 דקות, ואז ה-JVM נתקע בלולאת OOM עד התקרה — שלוש ריצות רצופות
+      # ‏„נחתכו” כך, בלי שהלוג הראשי אמר למה. ל-runner יש ‎16GB.
+      - name: Give Gradle enough memory
+        working-directory: apps/mobile/android
+        run: |
+          sed -i 's|^org.gradle.jvmargs=.*|org.gradle.jvmargs=-Xmx6g -XX:MaxMetaspaceSize=1536m -XX:+HeapDumpOnOutOfMemoryError|' gradle.properties
+          grep '^org.gradle.jvmargs' gradle.properties
+
+      # ‏arm64 בלבד — כל טלפון אנדרואיד מהשנים האחרונות; armv7 היה מכפיל
+      # ‏את זמן הקומפילציה של ה-C++ (וזה מה שחצה את התקרה בריצה הראשונה).
+      # ‏בלי x86 של אמולטורים. APK אוניברסלי לבדיקות היה 110MB; כך ~22MB.
+      - name: Build release APK
+        working-directory: apps/mobile/android
+        # ‏כישלון ב-Gradle חייב לעצור את הצעד, לא להשאיר JVM תקוע עד תקרת המשרה
+        timeout-minutes: 45
+        env:
+          # ‏בריצה אוטומטית (push) אין קלט — הייצור
+          EXPO_PUBLIC_API_URL: ${{ inputs.api_url || 'https://app.metavchim.co.il' }}
+          # ‏מוצג במסך „עוד” — כדי לדעת איזה קומיט מותקן על המכשיר
+          EXPO_PUBLIC_BUILD_SHA: ${{ github.sha }}
+          # ‏APK לבדיקות — „הגדרות מתקדמות” להחלפת שרת קיימות; בבניית החנות (EAS production) לא
+          EXPO_PUBLIC_ALLOW_API_OVERRIDE: "1"
+        # ‏R8, כיווץ משאבים ואריזת ספריות נייטיב דחוסה — 22MB במקום 110MB.
+        run: >-
+          ./gradlew assembleRelease --no-daemon
+          -PreactNativeArchitectures=arm64-v8a
+          -Pandroid.enableMinifyInReleaseBuilds=true
+          -Pandroid.enableShrinkResourcesInReleaseBuilds=true
+          -Pexpo.useLegacyPackaging=true
+
+      - name: Name the file by commit
+        run: cp apps/mobile/android/app/build/outputs/apk/release/app-release.apk "metavchim-${GITHUB_SHA::7}.apk"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: metavchim-${{ github.sha }}
+          path: metavchim-*.apk
+          if-no-files-found: error
+          retention-days: 14
+
+  # ‏הפרסום במשרה נפרדת שאינה מתבטלת: `gh release delete` ואז `create`
+  # ‏אינם אטומיים, וביטול באמצע היה משאיר את `mobile-latest` מחוק עד
+  # ‏שריצה הבאה מצליחה — אם היא מצליחה (ביקורת Codex). קבוצה משלה,
+  # ‏בלי ביטול; ריצות ממתינות זו לזו.
+  publish:
+    if: github.event_name == 'push'
+    needs: apk
+    runs-on: ubuntu-latest
+    concurrency:
+      group: mobile-apk-publish
+      cancel-in-progress: false
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: metavchim-${{ github.sha }}
+
+      # ‏הקובץ העדכני תמיד כאן: Releases ⟵ mobile-latest. התג זז לקומיט
+      # ‏הזה, והקובץ הקודם מוחלף — לא נערמים.
+      - name: Publish as the rolling mobile-latest release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release delete mobile-latest --cleanup-tag --yes --repo "$GITHUB_REPOSITORY" || true
+          gh release create mobile-latest metavchim-*.apk \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --prerelease \
+            --title "אפליקציה לנייד — APK עדכני (${GITHUB_SHA::7})" \
+            --notes "נבנה אוטומטית מ-main בקומיט ${GITHUB_SHA}. מתקינים ישירות על אנדרואיד (חתום במפתח דיבאג; לא לחנות). כתובת השרת הצרובה: https://app.metavchim.co.il — ניתנת לשינוי ב„הגדרות מתקדמות” במסך ההתחברות."

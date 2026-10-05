@@ -146,7 +146,12 @@ describe("רשימת הטבלאות שתחת RLS", () => {
   });
 });
 
-describe("אין גישה ישירה מ-prisma לטבלה שתחת RLS", () => {
+/*
+ * ‏‎`timeout`‎ מפורש: הבדיקה מנתחת את כל קוד המקור (AST של TypeScript), ובהרצה
+ * ‏מקבילה מלאה מקומית (typecheck + lint + test יחד) היא חרגה מ-5 השניות של
+ * ‏ברירת המחדל ונכשלה בלי שום הפרה. ב-CI השלבים רצים בזה אחר זה.
+ */
+describe("אין גישה ישירה מ-prisma לטבלה שתחת RLS", { timeout: 30_000 }, () => {
   it("ב-API", () => {
     const found = sourceFiles(API_SRC).flatMap((file) => violationsIn(file, GUARDED, TABLES));
     const report = found

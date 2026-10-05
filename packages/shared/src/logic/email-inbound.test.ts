@@ -90,6 +90,46 @@ describe("emailAttachmentKind", () => {
     expect(emailAttachmentKind("Image/JPEG; charset=utf-8")).toBe("image");
     expect(emailAttachmentKind(" text/plain ; boundary=x")).toBe("file");
   });
+
+  it("Magic Bytes: תוכן שתואם את ההצהרה נשאר בסוגו", () => {
+    const png = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00]);
+    const jpeg = Uint8Array.from([0xff, 0xd8, 0xff, 0xe0]);
+    const webp = Uint8Array.from([...Buffer.from("RIFF"), 0, 0, 0, 0, ...Buffer.from("WEBP")]);
+    const gif = Uint8Array.from(Buffer.from("GIF89a"));
+    const mp4 = Uint8Array.from([0, 0, 0, 0x18, ...Buffer.from("ftypisom")]);
+    const webm = Uint8Array.from([0x1a, 0x45, 0xdf, 0xa3]);
+    expect(emailAttachmentKind("image/png", png)).toBe("image");
+    expect(emailAttachmentKind("image/jpeg", jpeg)).toBe("image");
+    expect(emailAttachmentKind("image/webp", webp)).toBe("image");
+    expect(emailAttachmentKind("image/gif", gif)).toBe("image");
+    expect(emailAttachmentKind("video/mp4", mp4)).toBe("video");
+    expect(emailAttachmentKind("video/quicktime", mp4)).toBe("video");
+    expect(emailAttachmentKind("video/webm", webm)).toBe("video");
+  });
+
+  it("Magic Bytes: ‏MOV ישן בלי ftyp — האטום הראשון יכול להיות moov/mdat/wide", () => {
+    for (const atom of ["moov", "mdat", "wide", "free"]) {
+      const mov = Uint8Array.from([0, 0, 0, 0x08, ...Buffer.from(atom)]);
+      expect(emailAttachmentKind("video/quicktime", mov)).toBe("video");
+      // ‏MP4 עדיין דורש ftyp — ההרחבה היא ל-QuickTime בלבד
+      expect(emailAttachmentKind("video/mp4", mov)).toBe("file");
+    }
+  });
+
+  it("Magic Bytes: הצהרת תמונה/וידאו על תוכן אחר יורדת ל-file (הורדה בלבד)", () => {
+    const html = Uint8Array.from(Buffer.from("<html><script>alert(1)</script>"));
+    expect(emailAttachmentKind("image/png", html)).toBe("file");
+    expect(emailAttachmentKind("video/mp4", html)).toBe("file");
+    // תוכן קצר מהחתימה — גם הוא אינו תמונה
+    expect(emailAttachmentKind("image/png", Uint8Array.from([0x89]))).toBe("file");
+  });
+
+  it("Magic Bytes: מסמכים אינם נבדקים — מוגשים כהורדה ממילא", () => {
+    const html = Uint8Array.from(Buffer.from("<html>"));
+    expect(emailAttachmentKind("application/pdf", html)).toBe("file");
+    // סוג מחוץ לרשימה נדחה גם עם תוכן תקין
+    expect(emailAttachmentKind("text/html", html)).toBeNull();
+  });
 });
 
 describe("safeAttachmentName", () => {

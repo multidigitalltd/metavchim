@@ -27,6 +27,25 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO metavchim
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO metavchim_app;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public
   GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO metavchim_app;
+/*
+ * ‎**וגם לרצפים — השורה שנשכחה כאן והייתה מאז בסקריפט של הייצור.**
+ *
+ * ‏שתי שורות ה-GRANT שמעל חלות על מה שקיים **ברגע ההרצה**, ושורת
+ * ‏ברירת המחדל כיסתה טבלאות בלבד. לכן טבלה חדשה ממיגרציה עתידית
+ * ‏עבדה מעצמה, ורצף חדש — לא: תפקיד האפליקציה קיבל
+ * ‎`permission denied for sequence`‎ ברגע שעמודה עם
+ * ‎`DEFAULT nextval(...)`‎ נכתבה.
+ *
+ * ‏זה אינו תרחיש תיאורטי: ‎`tenant_customer_no_seq`‎ נוצר במיגרציה
+ * ‏ובלי השורה הזו כל יצירת משרד — הרשמה עצמית וגם פתיחה ממסך
+ * ‏הפלטפורמה — נפלה על מסד שכבר הוקצה (ביקורת Codex).
+ *
+ * ‎`infra/postgres/init-app-role.sh` — שמצהיר על עצמו כמקבילה של
+ * ‏הקובץ הזה — כבר החזיק את השורה. ההפרש בין השניים הוא הבאג
+ * ‏עצמו, ולכן ‎`verify:iac`‎ נועל אותם זה לזה מעכשיו.
+ */
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
+  GRANT USAGE, SELECT ON SEQUENCES TO metavchim_app;
 
 -- ============================================================
 -- הטבלאות ה-Append-Only — **כאן, ולא רק במיגרציות שיצרו אותן.**

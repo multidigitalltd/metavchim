@@ -16,10 +16,10 @@ import {
 import type { Response } from "express";
 import { FileInterceptor } from "@nestjs/platform-express";
 import { z } from "zod";
-import { IdSchema } from "@metavchim/shared";
+import { CALL_BULK_LIMIT, IdSchema, type CallBulkResult } from "@metavchim/shared";
 import { RequireCapability } from "../../common/auth.decorators";
 import { RequireFeature } from "../../common/feature.guard";
-import { ZodValidationPipe } from "../../common/zod-validation.pipe";
+import { ZodValidationPipe, IdParam } from "../../common/zod-validation.pipe";
 import { CallsService, type CallDto } from "./calls.service";
 
 /*
@@ -72,6 +72,19 @@ const ListQuerySchema = z
   })
   .strict();
 
+/**
+ * ‎**הרשימה של פעולה מרוכזת.**
+ *
+ * ‏התקרה נגזרת מהמסך ולא מספר עגול: `GET /calls` מחזיר עד 200,
+ * ‏ולכן אי אפשר לסמן יותר מזה. `CALL_BULK_LIMIT` הוא אותו מספר
+ * ‏שהמסך אוכף לפני השליחה — כלל אחד, לא שניים שיסטו.
+ */
+const BulkIdsSchema = z
+  .object({ ids: z.array(IdSchema).min(1).max(CALL_BULK_LIMIT) })
+  .strict();
+
+const BulkAssignSchema = BulkIdsSchema.extend({ agentUserId: IdSchema }).strict();
+
 /** שיחה של חצי שעה ב-webm שוקלת בערך 15MB; 40 נותן מרווח נוח. */
 const MAX_RECORDING_BYTES = 40 * 1024 * 1024;
 
@@ -115,7 +128,7 @@ export class CallsController {
   @HttpCode(200)
   @UseInterceptors(FileInterceptor("file", { limits: { fileSize: MAX_RECORDING_BYTES, files: 1 } }))
   async attachRecording(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
     @UploadedFile() file: Express.Multer.File | undefined,
   ): Promise<{ status: string }> {
     if (!file) throw new BadRequestException("לא צורף קובץ");
@@ -131,7 +144,7 @@ export class CallsController {
   @RequireFeature("transcription")
   @HttpCode(200)
   async retryTranscription(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
   ): Promise<{ status: string }> {
     return this.calls.retryTranscription(id);
   }
@@ -149,7 +162,7 @@ export class CallsController {
   @Get(":id/recording")
   @RequireCapability("leads.view_own", "buyers.view_own")
   async recording(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
     @Res({ passthrough: true }) res: Response,
   ): Promise<StreamableFile> {
     const audio = await this.calls.recording(id);
@@ -171,15 +184,79 @@ export class CallsController {
   @RequireCapability("leads.view_own", "buyers.view_own")
   @HttpCode(200)
   async retryRecording(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
   ): Promise<{ queued: boolean }> {
     return this.calls.retryRecording(id);
+  }
+
+  /**
+   * ‎**ליד לשיחה — הדלת להמרה ללקוח.**
+   *
+   * ‏ההמרה עצמה (קונה, מוכר, שוכר, משכיר) כבר קיימת ונשענת על
+   * ‏ליד. שיחה שלא נענתה ממספר לא מוכר אין לה אחד, ולכן לא הייתה
+   * ‏שום דרך להמיר אותה — בדיוק המקרה שממנו מתחיל לקוח חדש.
+   *
+   * ‎`leads.edit` ולא `leads.create`: אותה הרשאה שכבר שומרת על
+   * ‏מחיקת השיחה, ופתיחת ליד מתוכה היא פעולה על אותה שורה.
+   */
+  @Post(":id/lead")
+  @RequireCapability("leads.edit")
+  @HttpCode(200)
+  async ensureLead(
+    @Param("id", IdParam) id: string,
+  ): Promise<{ leadId: string; created: boolean }> {
+    return this.calls.ensureLead(id);
+  }
+
+  /**
+   * ‎**מחיקה מרוכזת.**
+   *
+   * ‎`POST` ולא `DELETE`: הרשימה נשלחת בגוף, וגוף ב-`DELETE` אינו
+   * ‏מובטח בכל שרת מתווך. אותה צורה בדיוק של `/properties/bulk-delete`
+   * ‏ו-`/recruitment/bulk-delete`.
+   *
+   * ‎**וכאן המחיקה קשה, לא ארכיון** — בשונה משתי הרשימות ההן.
+   * ‏זו הסיבה שהאישור במסך אומר „לצמיתות” במפורש.
+   */
+  @Post("bulk-delete")
+  @RequireCapability("leads.edit")
+  @HttpCode(200)
+  async bulkDelete(
+    @Body(new ZodValidationPipe(BulkIdsSchema)) body: z.infer<typeof BulkIdsSchema>,
+  ): Promise<CallBulkResult> {
+    return this.calls.removeMany(body.ids);
+  }
+
+  /** פתיחת ליד לכמה שיחות — הצעד הראשון של „המר ללקוח”, בבת אחת. */
+  @Post("bulk-lead")
+  @RequireCapability("leads.edit")
+  @HttpCode(200)
+  async bulkLead(
+    @Body(new ZodValidationPipe(BulkIdsSchema)) body: z.infer<typeof BulkIdsSchema>,
+  ): Promise<CallBulkResult> {
+    return this.calls.ensureLeadMany(body.ids);
+  }
+
+  /**
+   * ‎**שיוך כמה שיחות לנציג — הליד שמאחוריהן עובר.**
+   *
+   * ‎`leads.edit` כאן ו-`tasks.assign` בשירות: הראשון הוא הרשות
+   * ‏לגעת בליד בכלל, והשני הוא ההכרעה שהעברה בין סוכנים היא פעולת
+   * ‏מנהל. שניהם נדרשים, ואף אחד מהם אינו מספיק לבדו.
+   */
+  @Post("bulk-assign")
+  @RequireCapability("leads.edit")
+  @HttpCode(200)
+  async bulkAssign(
+    @Body(new ZodValidationPipe(BulkAssignSchema)) body: z.infer<typeof BulkAssignSchema>,
+  ): Promise<CallBulkResult> {
+    return this.calls.assignMany(body.ids, body.agentUserId);
   }
 
   @Delete(":id")
   @RequireCapability("leads.edit")
   @HttpCode(200)
-  async remove(@Param("id", new ZodValidationPipe(IdSchema)) id: string): Promise<{ ok: true }> {
+  async remove(@Param("id", IdParam) id: string): Promise<{ ok: true }> {
     await this.calls.remove(id);
     return { ok: true };
   }

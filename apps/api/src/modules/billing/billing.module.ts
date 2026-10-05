@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common";
 import { CardcomService } from "../../core/cardcom.service";
 import { LinetService } from "../../core/linet.service";
+import { MediaModule } from "../media/media.module";
 import { BillingController } from "./billing.controller";
 import { BillingService } from "./billing.service";
 import { CardcomWebhookController } from "./cardcom-webhook.controller";
@@ -16,6 +17,8 @@ import { WhatsappSeatService } from "./whatsapp-seat.service";
 
 /** מנוי בתשלום וסליקת קארדקום — ראו billing.service.ts. */
 @Module({
+  // רכש מדיה — הוובהוק מסמן הזמנה כשולמה ושולח אותה לנציג (ראו media.module.ts)
+  imports: [MediaModule],
   controllers: [
     BillingController,
     CardcomWebhookController,

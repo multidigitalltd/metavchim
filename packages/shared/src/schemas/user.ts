@@ -1,5 +1,4 @@
-import { z } from "zod";
-import { IdSchema, PhoneSchema } from "./common.js";
+import * as z from "../zod.js";
 
 /**
  * תפקידי המשתמשים במשרד, מהסמכות הרחבה לצרה.
@@ -58,14 +57,3 @@ export function roleLabel(role: string): string {
 export const AssignableRoleSchema = UserRoleSchema.exclude(["owner"]);
 export const ASSIGNABLE_ROLES: readonly UserRole[] = AssignableRoleSchema.options;
 
-export const UserSchema = z.object({
-  id: IdSchema,
-  tenantId: IdSchema,
-  name: z.string().min(2).max(120),
-  email: z.string().email(),
-  phone: PhoneSchema.optional(),
-  role: UserRoleSchema,
-  isActive: z.boolean().default(true),
-  createdAt: z.coerce.date(),
-});
-export type User = z.infer<typeof UserSchema>;

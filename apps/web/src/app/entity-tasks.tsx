@@ -1,9 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Button } from "@metavchim/ui";
 import { api, apiGet, apiPost, ApiError, apiList } from "@/lib/api";
-import { IconCheck, IconClock, IconUser } from "./icons";
+import { IconCalendar, IconCheck, IconClock, IconPlus, IconUser } from "./icons";
 import { LoadError } from "./load-error";
 import { Notice } from "./notice";
 import {
@@ -12,6 +11,7 @@ import {
   quickDueOptions,
   resolveJerusalemLocalInput,
   suggestedPropertyTasks,
+  type TaskEntityType,
 } from "@metavchim/shared";
 
 /**
@@ -66,7 +66,7 @@ export function EntityTasks({
   entityId,
   suggestFrom,
 }: {
-  entityType: "lead" | "buyer" | "property";
+  entityType: TaskEntityType;
   entityId: string;
   /**
    * שדות המוכנות שחסרים בכרטיס — המקור ל„משימות מוצעות” (SPEC-4c §6).
@@ -93,6 +93,16 @@ export function EntityTasks({
    */
   const [list, setList] = useState<ListState>({ kind: "loading" });
   const [title, setTitle] = useState("");
+  /*
+    ‎**„מועד” הוא כפתור עד שנוגעים בו.**
+
+    ‏`datetime-local` ריק מצייר „mm/dd/yyyy, --:--” — מחרוזת באנגלית
+    ובסדר הפוך לעברית, שתופסת שליש משורת המשימה ואינה אומרת למה היא
+    שם. רוב המשימות נכתבות עם צ'יפ מועד או בלי מועד כלל, ולכן השדה
+    המלא נפתח רק למי שביקש אותו.
+  */
+  const [dueOpen, setDueOpen] = useState(false);
+  const dueRef = useRef<HTMLInputElement>(null);
   /**
    * ‎**המועד ומקורו כמצב אחד — ולא שני משתנים שצריך לזכור לעדכן יחד.**
    *
@@ -227,6 +237,8 @@ export function EntityTasks({
       });
       setTitle("");
       setDue({ value: "", source: null });
+      /* השורה חוזרת לצורתה הנקייה — „מועד” ככפתור, לא שדה ריק */
+      setDueOpen(false);
       await load();
     } catch (err: unknown) {
       setError(err instanceof ApiError ? err.message : "הוספת המשימה נכשלה");
@@ -332,13 +344,24 @@ export function EntityTasks({
 
   return (
     <section
-      className="mb-6 rounded-xl border p-4"
-      style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
+      className="mv-card mv-card--pad"
       aria-labelledby={`tasks-${entityId}`}
     >
-      <h2 id={`tasks-${entityId}`} className="mb-3 text-lg font-semibold">
-        <IconCheck s={16} /> משימות {list.kind === "ready" ? `(${open.length})` : ""}
-      </h2>
+      {/*
+        אריח מגוון ומונה בגלולה — אותה שפה שבה נספרות כל שאר הקבוצות
+        במערכת, במקום מספר בסוגריים בתוך הכותרת.
+      */}
+      <div className="mv-card-head">
+        <span className="mv-tile mv-tile--44 mv-domain-green" aria-hidden="true">
+          <IconCheck s={20} />
+        </span>
+        <h2 id={`tasks-${entityId}`} className="mv-card-head__title">
+          משימות
+        </h2>
+        {list.kind === "ready" && open.length > 0 ? (
+          <span className="mv-pill mv-domain-green">{open.length} פתוחות</span>
+        ) : null}
+      </div>
 
       {error ? (
         <Notice tone="danger">{error}</Notice>
@@ -410,42 +433,6 @@ export function EntityTasks({
         </ul>
       )}
 
-      <form onSubmit={onCreate} className="flex flex-wrap items-end gap-2">
-        <div className="flex-1" style={{ minWidth: "180px" }}>
-          <label htmlFor={`nt-${entityId}`} className="mb-1 block text-sm font-medium">
-            משימה חדשה
-          </label>
-          <input
-            id={`nt-${entityId}`}
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            maxLength={200}
-            placeholder="למשל: לחזור אליו מחר בבוקר"
-            className="w-full rounded-lg border px-3 py-2.5"
-            style={{ borderColor: "var(--color-input-border)", background: "var(--color-bg)" }}
-          />
-        </div>
-        <div>
-          <label htmlFor={`nd-${entityId}`} className="mb-1 block text-sm font-medium">
-            מועד
-          </label>
-          <input
-            id={`nd-${entityId}`}
-            type="datetime-local"
-            value={dueAt}
-            onChange={(e) => {
-              /* הקלדה ידנית — המועד אינו של הצ'יפ עוד */
-              setDue({ value: e.target.value, source: null });
-            }}
-            className="rounded-lg border px-3 py-2.5"
-            style={{ borderColor: "var(--color-input-border)", background: "var(--color-bg)" }}
-          />
-        </div>
-        <Button type="submit" disabled={busy || title.trim() === ""}>
-          הוסף
-        </Button>
-      </form>
-
       {/*
         ‎**„מועד מהיר” — SPEC-4c §6.**
 
@@ -458,10 +445,11 @@ export function EntityTasks({
         „עוד 24 שעות” בליל מעבר שעון. מועד שכבר חלף אינו מוצע.
       */}
       {quickDue.length > 0 ? (
-        <div className="mt-2 flex flex-wrap items-center gap-1.5">
-          <span className="text-sm" style={{ color: "var(--color-text-muted)" }}>
-            מועד מהיר
-          </span>
+        <div
+          className="mb-2.5 flex flex-wrap items-center gap-1.5"
+          role="group"
+          aria-label="מועד מהיר"
+        >
           {quickDue.map((option) => (
             <button
               key={option.key}
@@ -475,6 +463,86 @@ export function EntityTasks({
           ))}
         </div>
       ) : null}
+
+      <form onSubmit={onCreate} className="flex flex-wrap items-end gap-2">
+        {/*
+          ‎**התוויות נסתרות ולא הוסרו.**
+
+          שורה אחת נקייה היא מה שמזמין להקליד; שתי תוויות מעל שני
+          שדות הופכות שורת משימה לטופס. אבל תווית היא גם מה שקורא
+          מסך מקריא, ולכן היא נשארת — `mv-visually-hidden` ולא מחיקה.
+        */}
+        <div className="flex-1" style={{ minWidth: "180px" }}>
+          <label htmlFor={`nt-${entityId}`} className="mv-visually-hidden">
+            משימה חדשה
+          </label>
+          <input
+            id={`nt-${entityId}`}
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            maxLength={200}
+            placeholder="משימה חדשה — למשל: לחזור אליו מחר בבוקר"
+            className="w-full rounded-xl border px-3.5"
+            style={{
+              borderColor: "var(--color-input-border)",
+              background: "var(--color-field)",
+              minHeight: 42,
+            }}
+          />
+        </div>
+        {/*
+          ‎**„מועד” כתוב, ולא שדה תאריך חשוף.**
+
+          ‎`datetime-local` ריק מציג „mm/dd/yyyy, --:--” — מחרוזת
+          שאינה אומרת למה היא כאן, ובעברית היא גם בסדר הפוך. התווית
+          לצד האייקון אומרת מה השדה, והשדה עצמו נשאר נייטיב: בורר
+          התאריך של הדפדפן טוב מכל אחד שנכתוב.
+        */}
+        {dueAt === "" && !dueOpen ? (
+          <button
+            type="button"
+            className="mv-net-act"
+            onClick={() => {
+              setDueOpen(true);
+              /*
+                ‏פריים אחד — השדה נכנס ל-DOM רק ברינדור הבא, ופתיחת
+                הבורר על אלמנט שטרם קיים אינה עושה דבר. `showPicker`
+                אינו קיים בכל דפדפן, ולכן פוקוס כנפילה אחורה.
+              */
+              requestAnimationFrame(() => {
+                const field = dueRef.current;
+                if (field === null) return;
+                if (typeof field.showPicker === "function") field.showPicker();
+                else field.focus();
+              });
+            }}
+          >
+            <IconCalendar s={15} /> מועד
+          </button>
+        ) : (
+          <label className="mv-datefield" htmlFor={`nd-${entityId}`}>
+            <IconCalendar s={15} />
+            <span className="mv-visually-hidden">מועד</span>
+            <input
+              id={`nd-${entityId}`}
+              ref={dueRef}
+              type="datetime-local"
+              value={dueAt}
+              onChange={(e) => {
+                /* הקלדה ידנית — המועד אינו של הצ'יפ עוד */
+                setDue({ value: e.target.value, source: null });
+              }}
+            />
+          </label>
+        )}
+        <button
+          type="submit"
+          className="mv-net-act mv-net-act--go"
+          disabled={busy || title.trim() === ""}
+        >
+          <IconPlus s={15} /> הוסף
+        </button>
+      </form>
 
       {/*
         ‎**„משימות מוצעות לנכס הזה” — SPEC-4c §6.**

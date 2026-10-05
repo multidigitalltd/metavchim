@@ -3,7 +3,12 @@
 import { useEffect, useId, useState } from "react";
 import { Button } from "@metavchim/ui";
 import { ApiError, apiPost } from "@/lib/api";
-import { agentResultRefs, agentTurnRefs, type AgentHistoryRef } from "@metavchim/shared";
+import {
+  agentAction,
+  agentResultRefs,
+  agentTurnRefs,
+  type AgentHistoryRef,
+} from "@metavchim/shared";
 import { IconCheck, IconInfo, IconPin, IconX } from "../icons";
 import { Notice } from "../notice";
 
@@ -232,6 +237,19 @@ export function ProposalCard({
        */
       const messages = [primary.message];
       /*
+       * ‎**הקישור אינו נזרק כשיש צעדי המשך.**
+       *
+       * הענף בלי צעדים מעביר את `primary` כפי שהוא; הענף הזה בנה
+       * אובייקט חדש מ-`message` ו-`href` בלבד, ולכן כל `link` —
+       * של הראשית או של צעד — נעלם. „תפתח משימה ותן לי קישור ללקוח
+       * חדש” היה יוצר רשומת קליטה ומשמיד את הכתובת שלה: קישור יתום
+       * שאיש לא יקבל, וניסיון נוסף שיוצר רשומה נוספת (ביקורת Codex).
+       *
+       * הראשון קובע, והראשית ראשונה: `link` הוא שדה יחיד בחוזה, ומי
+       * שהמתווך ביקש במפורש הוא הפעולה שאישר.
+       */
+      let link: string | undefined = primary.link;
+      /*
        * מהמאוחר לקדום: „תוסיף קונה דנה ותזכיר לי להתקשר אליה” ואז
        * „תסגור אותה” מתכוון למשימה, לא לקונה. `agentTurnRefs` שומרת
        * על הסדר, ו-`matchHistoryRef` בוחרת את הראשון.
@@ -247,6 +265,7 @@ export function ProposalCard({
             params: stepParams,
           });
           messages.push(done.message);
+          link ??= done.link;
           // רק צעד שהצליח — הפניה לרשומה שלא נוצרה היא שיוך לכלום
           acted.unshift(done.ref);
         } catch (err: unknown) {
@@ -264,6 +283,12 @@ export function ProposalCard({
               : `${messages.join(" · ")} · ${failure}`,
           // בכישלון חלקי לא מנווטים — ניווט היה מסתיר את ההודעה
           ...(failure === null && primary.href !== undefined ? { href: primary.href } : {}),
+          /*
+           * הקישור מוצג **גם** בכישלון חלקי, שלא כמו הניווט: הוא
+           * התוצר של צעד שהצליח, וניווט מסתיר את ההודעה בזמן
+           * שקישור מצטרף אליה.
+           */
+          ...(link === undefined ? {} : { link }),
         },
         sent,
         agentTurnRefs(acted, shown),
@@ -324,7 +349,7 @@ export function ProposalCard({
             <div key={field.key} className="mv-proposal-row">
               <dt className="mv-proposal-label">{field.label}</dt>
               <dd className="mv-proposal-value">
-                {isEditable(field) ? (
+                {isEditable(proposal.actionId, field) ? (
                   <input
                     className="mv-field"
                     value={String(edits[field.key] ?? field.display)}
@@ -478,7 +503,7 @@ export function ProposalCard({
  * הם ניתנים לתיקון במסך הכרטיס עצמו, אחרי היצירה, שם יש להם פקד
  * אמיתי.
  */
-function isEditable(field: ProposalField): boolean {
+function isEditable(actionId: string, field: ProposalField): boolean {
   /*
    * מזהה רשומה שנפתר מהמאגר (buyerId, cardId…) מוצג ואינו נערך:
    * עריכה של הטקסט המוצג הייתה שולחת את **השם** במקום המזהה,
@@ -486,6 +511,18 @@ function isEditable(field: ProposalField): boolean {
    * הבחירה נעשה בניסוח מחדש („תקנו אותי”), לא בהקלדה על מזהה.
    */
   if (field.key.endsWith("Id")) return false;
+  /*
+   * ‎**ושדה רשימה סגורה — מאותו נימוק בדיוק.**
+   *
+   * ‏התיבה נפתחת על ה**תווית** („מכירה”), ומה שיוצא ממנה הוא
+   * ‏המחרוזת הזו — בעוד שהשרת מצפה למפתח (`sale`). כלומר הפקד
+   * ‏הזה מעולם לא עבד: כל עריכה שלו שלחה ערך שאינו בקטלוג. עד
+   * ‏עכשיו זה נכשל במורד הזרם בהודעה שלא אמרה למה; מאז שהערכים
+   * ‏נאכפים בנקודת הצוואר הוא נדחה מיד — ולכן עדיף שלא יוצג
+   * ‏כלל. תיקון ערך כזה נעשה בניסוח מחדש, כמו במזהה.
+   */
+  const spec = agentAction(actionId)?.fields.find((f) => f.key === field.key);
+  if (spec?.type === "enum" || spec?.type === "enumList") return false;
   return typeof field.value === "string" || typeof field.value === "number";
 }
 

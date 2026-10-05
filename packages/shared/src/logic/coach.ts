@@ -15,8 +15,15 @@ export interface CoachSignals {
   propertiesWithUnsentMatches: { propertyId: string; title: string; matchCount: number }[];
   /** הצעות שנפתחו 3+ פעמים ולא הביעו עניין — הקונה מתלבט */
   hesitatingOffers: { offerId: string; propertyTitle: string; openCount: number }[];
-  /** לידים "דורש טיפול אנושי" שממתינים */
-  urgentLeads: { leadId: string; contactName: string }[];
+  /**
+   * לידים "דורש טיפול אנושי" שממתינים.
+   *
+   * ‎`contactName` ו-`contactPhone` הם **השם והטלפון האמיתיים**, ולא
+   * „לקוח”. ההנחה שהייתה כאן — „ה-UI מקשר לליד, אין צורך לפענח PII”
+   * — נכונה למסך ושגויה לחלוטין בוואטסאפ, שם הטקסט הוא כל ההודעה
+   * ואין לאן ללחוץ. „ליד ממתין מאתמול” אינו משפט שאפשר לפעול לפיו.
+   */
+  urgentLeads: { leadId: string; contactName: string; contactPhone?: string | undefined }[];
   /** נכסים לא-מושלמים שחוסמים התאמות */
   incompleteProperties: { propertyId: string; title: string; missingCount: number }[];
   /** פגישות סיור שהסתיימו בלי סיכום תוצאה */
@@ -30,7 +37,12 @@ export interface CoachSignals {
    * להתחיל, לא לקבל רשימת שיפורים.
    */
   /** לידים שלא נגעו בהם מעל ה-SLA של המשרד — השעות בפועל, לכל ליד */
-  staleLeads: { leadId: string; contactName: string; hoursWaiting: number }[];
+  staleLeads: {
+    leadId: string;
+    contactName: string;
+    contactPhone?: string | undefined;
+    hoursWaiting: number;
+  }[];
   /** פגישות של היום שטרם התקיימו */
   todayAppointments: { appointmentId: string; title: string; startsAt: Date }[];
   /** משימות פתוחות שתאריך היעד שלהן עבר */
@@ -58,6 +70,17 @@ function describeWait(hours: number): string {
   return days === 1 ? "מאתמול" : `${days} ימים`;
 }
 
+/**
+ * הטלפון בגוף ההמלצה — כשהוא ידוע.
+ *
+ * ‏„לחזור לדני” בלי המספר הוא עדיין הוראה לפתוח מסך. במסך זה
+ * מיותר, כי הכרטיס במרחק לחיצה; בוואטסאפ זה ההבדל בין הודעה
+ * שאפשר לפעול לפיה לבין תזכורת להיכנס למערכת.
+ */
+function withPhone(body: string, phone: string | undefined): string {
+  return phone === undefined || phone === "" ? body : `${body} להתקשר: ${phone}`;
+}
+
 export function buildRecommendations(signals: CoachSignals): CoachRecommendation[] {
   const recs: CoachRecommendation[] = [];
 
@@ -72,7 +95,10 @@ export function buildRecommendations(signals: CoachSignals): CoachRecommendation
       priority: 110,
       type: "stale_lead",
       title: `${lead.contactName} ממתין ${describeWait(lead.hoursWaiting)}`,
-      body: "ליד שלא נענה מתקרר מהר, ובדרך כלל פונה למשרד הבא. זו השיחה הראשונה להיום.",
+      body: withPhone(
+        "ליד שלא נענה מתקרר מהר, ובדרך כלל פונה למשרד הבא. זו השיחה הראשונה להיום.",
+        lead.contactPhone,
+      ),
       entityType: "lead",
       entityId: lead.leadId,
     });
@@ -115,7 +141,10 @@ export function buildRecommendations(signals: CoachSignals): CoachRecommendation
       priority: 100,
       type: "urgent_lead",
       title: `לחזור ל${lead.contactName} — דורש טיפול אנושי`,
-      body: "הפנייה סומנה כרגישה. לידים חמים מתקררים מהר — כדאי לחזור עכשיו.",
+      body: withPhone(
+        "הפנייה סומנה כרגישה. לידים חמים מתקררים מהר — כדאי לחזור עכשיו.",
+        lead.contactPhone,
+      ),
       entityType: "lead",
       entityId: lead.leadId,
     });

@@ -2,29 +2,56 @@ import { Injectable, Logger } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { ulid } from "ulid";
 import {
+  firstNameOf,
   agentAction,
   AGENT_DEGRADED_REASON,
   agentHistorySummary,
   agentReplySegments,
+  externalLinkLabel,
   agentResultRefs,
   proposalRunsImmediately,
   agentTurnRefs,
   type AgentHistoryRef,
   agentResultText,
-  applyBlockedModules,
-  resolveCapabilities,
+  effectiveCapabilities,
+  normalizeIsraeliPhone,
   roleLabel,
   decodeButtonId,
   historyRefs,
+  lastOffer,
   AGENT_HISTORY_KEPT,
   AGENT_ID_KEYS,
   type WhatsAppButton,
+  isEmojiOnlyMessage,
+  emojiSentiment,
+  emojiOnlyReply,
   type WhatsAppListRow,
   type AgentHistoryTurn,
   type AgentProposal,
   type Capability,
   MENTOR_INTENTION_MAX,
   MENTOR_QUICK_COMMANDS,
+  isPracticeEndMessage,
+  practiceChatFeedback,
+  practiceChatTurn,
+  PRACTICE_CHAT_ABANDONED,
+  PRACTICE_MAX_AGENT_TURNS,
+  PRACTICE_TEXT_MAX,
+  callConvertInfo,
+  callConvertKindFromText,
+  callConvertParams,
+  type CallConvertSeed,
+  FORUM_QUICK_COMMANDS,
+  ForumReplyInputSchema,
+  parseAnonymousPrefix,
+  parseForumCommand,
+  parseViewingFeedbackCommand,
+  VIEWING_CONDITION_FEEDBACK,
+  VIEWING_CONDITION_LABELS,
+  VIEWING_FIT_FEEDBACK,
+  VIEWING_FIT_LABELS,
+  viewingFeedbackCommand,
+  type ViewingFeedbackField,
 } from "@metavchim/shared";
 import { TenantContext, type RequestContext } from "../../common/tenant-context";
 import { loadEnv } from "../../config/env";
@@ -33,6 +60,7 @@ import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PlatformSettingsService } from "../../core/platform-settings.service";
 import { PrismaService } from "../../core/prisma.service";
 import { advancePendingRow, takePendingRow } from "./whatsapp-pending";
+import { WhatsappImportService } from "./whatsapp-import.service";
 import { tenantPeriodEnded, tenantSuspended } from "../auth/auth.service";
 import { AgentExecuteService, type ExecuteResult } from "../agent/execute.service";
 import { AgentInterpretService } from "../agent/interpret.service";
@@ -44,10 +72,26 @@ import {
   wantsSpokenReply,
   isConfirmMessage,
   isHelpMessage,
+  parseSnoozeRequest,
+  snoozeReply,
+  normalizeShort,
+  propertyPhotoPhrase,
 } from "./assistant-lang";
 import {
   agentWelcomeExamples,
+  IMPORT_KIND_LABELS,
+  IMPORT_KIND_QUESTION,
+  importKindFromText,
+  importPreviewText,
+  sheetFormat,
+  UNSUPPORTED_SHEET_TEXT,
+  WHATSAPP_IMPORT_KINDS,
+  type WhatsappImportKind,
   looksLikeWhatsappLinkCode,
+  RENEW_BUTTON_TITLE,
+  renewalBlockedText,
+  renewalLinkText,
+  subscriptionEndedText,
   WHATSAPP_AGENT_DENIAL_TEXT,
   whatsappAgentDenial,
 } from "@metavchim/shared";
@@ -67,7 +111,6 @@ import {
   choiceVariant,
   CMD_TEXT_MAX,
   confirmButtons,
-  SNOOZE_LABEL,
   SNOOZE_MINUTES,
   WA_AUDIO_SOURCE_MAX_BYTES,
   type AgentReply,
@@ -77,6 +120,7 @@ import { formatCallbacks } from "./assistant-callbacks";
 import { summarizeData } from "./assistant-results";
 import {
   isMentorReflectRequest,
+  mentorIdeaVerdict,
   isSkipMessage,
   MENTOR_PLAN_MIN,
   mentorPlanPrompt,
@@ -84,8 +128,24 @@ import {
   mentorPlanSkipped,
   mentorReflectionPrompt,
 } from "./assistant-mentor";
+import {
+  forumNoThreadReply,
+  forumReplyPosted,
+  forumReplyPrompt,
+  forumUnfollowed,
+} from "./assistant-forum";
+import { ForumService } from "../forum/forum.service";
+import { ViewingFeedbackService } from "../calendar/viewing-feedback.service";
 import { MentorService } from "../mentor/mentor.service";
+import {
+  MentorPracticeService,
+  type MentorPracticeDto,
+} from "../mentor/mentor-practice.service";
 import { prospectReplyText } from "./prospect-reply";
+import { CallsService } from "../calls/calls.service";
+import { BillingService } from "../billing/billing.service";
+import { PropertyPhotoService } from "../properties/property-photo.service";
+import { RecruitmentAdService } from "../recruitment/recruitment-ad.service";
 import { WhatsAppSendService } from "./whatsapp-send.service";
 import { WhatsAppLinkService } from "./whatsapp-link.service";
 
@@ -147,7 +207,7 @@ const NEEDS_LINK = "needs-link";
  * שמחזיק עכשיו במספר שהוחלף.
  */
 function needsLinkText(webOrigin: string): string {
-  const link = `${webOrigin.replace(/\/+$/u, "")}/profile#whatsapp-link`;
+  const link = `${webOrigin}/profile#whatsapp-link`;
   return [
     "המכשיר הזה אינו מחובר לחשבון, ולכן אני לא יכולה לעבוד ממנו.",
     "",
@@ -172,10 +232,26 @@ export interface AssistantInbound {
   type: string;
   text?: string;
   mediaId?: string;
+  /**
+   * ‏שם הקובץ וסוגו, כשההודעה היא קובץ.
+   *
+   * ‏שניהם, ולא אחד: וואטסאפ שולח `application/octet-stream` על
+   * ‎.xlsx‎ תקין שהועבר בין אפליקציות, והסיומת היא מה שמכריע אז.
+   */
+  fileName?: string;
+  fileMime?: string;
   /** מזהה הכפתור שנלחץ — מה ששלחנו בו, ולכן נושא את הפעולה */
   buttonId?: string;
   /** כותרת הכפתור כפי שהמתווך ראה אותה — ליומן ולזיכרון השיחה */
   buttonTitle?: string;
+  /**
+   * האימוג'י של תגובה על הודעה שלנו. מחרוזת ריקה = התגובה הוסרה.
+   *
+   * ‏קיים רק כש-`type === "reaction"`, ובדיוק לשם כך: תגובה אינה
+   * ‏בקשה, ובלי השדה הזה היא נפלה למשפט „אני יודע לטפל כרגע
+   * ‏בטקסט…”.
+   */
+  reactionEmoji?: string;
 }
 
 interface PendingState {
@@ -186,7 +262,21 @@ interface PendingState {
    * זו הבחירה היחידה כאן שאינה על **רשומה** אלא על **כוונה**, ולכן
    * היא אינה נצרכת אטומית: לחיצה חוזרת רק מפרשת מחדש, לא מבצעת.
    */
-  awaiting: "confirm" | "choice" | "suggest" | "mentor_reflection" | "mentor_plan";
+  awaiting:
+    | "confirm"
+    | "choice"
+    | "suggest"
+    | "mentor_reflection"
+    | "mentor_plan"
+    | "mentor_practice"
+    /** ‏„המר ללקוח” נשאלה — ההודעה הבאה היא קונה/שוכר/מוכר/משכיר */
+    | "call_convert"
+    /** ‏קובץ הגיע ולא נאמר מה יש בו — ההודעה הבאה היא הסוג */
+    | "import_kind"
+    /** ‏הקובץ נקרא והתצוגה המקדימה הוצגה — נשאר „אשר” */
+    | "import_confirm"
+    /** ‏„להשיב בפורום” — ההודעה הבאה היא התגובה (docs/16) */
+    | "forum_reply";
   /**
    * חותם ההצעה — נכנס למזהי הכפתורים שלה.
    *
@@ -211,7 +301,48 @@ interface PendingState {
    * ואחריה התוכנית („mentor_plan”, עם ההצעות לפי הסדר שהוצג).
    * ‎`proposal` כאן הוא תווית בלבד: אין מה לבצע דרך המנוע.
    */
-  mentor?: { reviewId: string; plans?: string[] };
+  mentor?: {
+    reviewId?: string;
+    plans?: string[];
+    /** ‏התרגול הפתוח — ההודעה הבאה היא תור בו, ולא בקשה חדשה */
+    practiceId?: string;
+    /** ‏שם הדמות, כדי שכל תור ידבר בשמה בלי שליפה נוספת */
+    counterpart?: string;
+  };
+  /**
+   * ‏השיחה שנשאלה עליה — ומי בה.
+   *
+   * ‎`subject` נשמר ולא נגזר שוב: התשובה מגיעה בהודעה הבאה, ושליפה
+   * ‏חוזרת הייתה יכולה למצוא שיחה אחרת („האחרונה” זזה בינתיים)
+   * ‏ולפתוח כרטיס על מי שלא נשאל עליו.
+   */
+  callConvert?: {
+    callId: string;
+    subject: string;
+    /** ‏מה שהשיחה ידעה — נכנס לכרטיס שנפתח על התשובה */
+    seed: CallConvertSeed;
+  };
+  /**
+   * ‎**קובץ ייבוא שממתין לאישור.**
+   *
+   * ‏השורות נשמרות כאן ולא נקראות שוב באישור, וזו הכרעה: הורדה
+   * ‏שנייה יכולה להיכשל **אחרי** שהמתווך כבר אמר „כן”, ואז הוא
+   * ‏קיבל „לא הצלחתי” על פעולה שאישר. מה שנספר בתצוגה המקדימה
+   * ‏הוא בדיוק מה שייכתב.
+   *
+   * ‏התקרה היא 500 שורות — אותה תקרה של הנתיב — ולכן זה נשאר
+   * ‏עשרות קילובייטים בשורה אחת, שנמחקת ברגע האישור או הביטול.
+   */
+  importFile?: {
+    fileName: string;
+    kind?: WhatsappImportKind;
+    rows?: Record<string, unknown>[];
+    unmapped?: string[];
+    mediaId: string;
+    fileMime: string;
+  };
+  /** „להשיב בפורום” — השרשור שההודעה הבאה עונה עליו (docs/16). */
+  forum?: { threadId: string; title: string };
 }
 
 interface ChatState {
@@ -279,6 +410,44 @@ export class WhatsAppAssistantService {
     private readonly gemini: GeminiService,
     private readonly agentPrefs: AgentPrefsService,
     private readonly mentor: MentorService,
+    private readonly practice: MentorPracticeService,
+    /*
+     * ‎`CallsService` — פתיחת הליד מהשיחה, בדיוק כמו המסך.
+     *
+     * ‏המסך עושה שני צעדים: `POST /calls/:id/lead` ואז ההמרה.
+     * ‏אותם שניים, באותו סדר ובאותם שירותים — ולא מסלול המרה שני
+     * ‏שאפשר לתקן אחד מהם ולשכוח את השני.
+     */
+    private readonly calls: CallsService,
+    /*
+     * ‎`BillingService` — חידוש המנוי מהשיחה, אותו `startCheckout`
+     * ‏שמסך החיוב קורא לו. לא מסלול תשלום שני: קופון, מחיר מוסכם,
+     * ‏מע"מ וסגירת דף קודם יושבים שם, ומסלול מקביל היה מפספס אחד
+     * ‏מהם בשקט.
+     */
+    private readonly billing: BillingService,
+    /*
+     * ‎`RecruitmentAdService` — שלט „למכירה” מצולם הופך לנכס
+     * ‏לגיוס. הוא כותב דרך `RecruitmentService.create`, אותו
+     * ‏מסלול של הטופס, ולא בעצמו.
+     */
+    private readonly ads: RecruitmentAdService,
+    /*
+     * ‎`PropertyPhotoService` — תמונה עם כיתוב „תוסיף לנכס…”
+     * ‏מצורפת לנכס קיים. היא מעלה דרך `MediaService.upload`,
+     * ‏אותו מסלול של המסך, ומוצאת את הנכס באותו חיפוש שהסוכן
+     * ‏משתמש בו — כלומר באותו היקף ראייה.
+     */
+    private readonly photos: PropertyPhotoService,
+    /*
+     * ‎`WhatsappImportService` — קובץ אקסל שנשלח בצ'אט. הכתיבה
+     * ‏עצמה היא `ImportWriteService`, **אותו שירות שהבקר מפעיל**:
+     * ‏מסלול שני היה מדלג על איחוד לידים לפי טלפון, על
+     * ‎`typedBy: "agent"`, ועל הורדת שדה פסול במקום השורה.
+     */
+    private readonly imports: WhatsappImportService,
+    private readonly forum: ForumService,
+    private readonly viewingFeedback: ViewingFeedbackService,
   ) {}
 
   /**
@@ -298,6 +467,22 @@ export class WhatsAppAssistantService {
   }
 
   private async handleInner(msg: AssistantInbound): Promise<void> {
+    /*
+     * ‎**תגובת אימוג'י נבלעת — גם לפני הזיהוי.**
+     *
+     * ‏מי שהגיב 👍 על סיכום הבוקר לא ביקש דבר, ולכן אין למה לענות.
+     * ‏מה שקרה בפועל הוא שההודעה נפלה עד סוף `extractText` וקיבלה
+     * ‏„אני יודע לטפל כרגע בטקסט, בהודעות קוליות, בתמונות ובקבצי
+     * ‏אקסל” — הסבר על מגבלות המערכת כתשובה ל„תודה” (דיווח מהשטח).
+     *
+     * ‎**לפני הזיהוי** ולא אחריו: תגובה ממספר שאינו מקושר הייתה
+     * ‏מפעילה את מסלול המתעניין ומחזירה מענה שיווקי על אגודל.
+     * ‏שתיקה נכונה בשני המקרים, ולכן היא אחת.
+     */
+    if (msg.type === "reaction") {
+      void this.sender.markRead(msg.externalId);
+      return;
+    }
     /*
      * **קוד קישור נבדק לפני הכול — גם לפני הזיהוי.**
      *
@@ -364,11 +549,7 @@ export class WhatsAppAssistantService {
       return;
     }
     if (tenantPeriodEnded({ ...user.tenant, planIsFree: await this.plans.isFreeCode(user.tenant.plan) })) {
-      await this.sender.sendText(
-        msg.fromWaId,
-        "תקופת המנוי של המשרד הסתיימה — חדשו אותה במסך ניהול המשרד, ואחזור לעבוד מיד.",
-        { replyTo: msg.externalId },
-      );
+      await this.handleExpiredOffice(msg, user);
       return;
     }
     /*
@@ -389,7 +570,7 @@ export class WhatsAppAssistantService {
        * יודע שמשהו חסום ואינו יודע איפה לטפל בזה, וזה בדיוק המקום
        * שבו הוא מפסיק לנסות.
        */
-      const link = `${loadEnv().WEB_ORIGIN.replace(/\/+$/u, "")}/profile#whatsapp-link`;
+      const link = `${loadEnv().WEB_ORIGIN}/profile#whatsapp-link`;
       await this.sender.sendText(
         msg.fromWaId,
         `${WHATSAPP_AGENT_DENIAL_TEXT[denial]}\n\nלבדיקה ולהפעלה: ${link}`,
@@ -430,16 +611,34 @@ export class WhatsAppAssistantService {
     /*
      * לחיצה על כפתור מתורגמת למילה שהשיחה כבר יודעת לפרש, כדי שלא
      * יהיה מסלול ביצוע שני שצריך לזכור את אותם כללי אטומיות.
-     * „שקט לשעתיים” הוא היחיד שאינו פקודת שיחה ולכן מטופל כאן.
+     * ההשתקה היא היחידה שאינה פקודת שיחה ולכן מטופלת כאן — עכשיו
+     * משני המקורות: כפתור ישן שעדיין בהיסטוריה של מישהו, ומשפט.
      */
     const button = msg.buttonId === undefined ? null : decodeButtonId(msg.buttonId);
-    if (button?.action === "snooze") {
-      await this.snoozeNotifications(user.tenantId, user.id);
-      await this.sender.sendText(
-        msg.fromWaId,
-        `🔕 ${SNOOZE_LABEL}. לא אפריע עד אז — ואם תצטרכו משהו קודם, פשוט כתבו לי.`,
-        { replyTo: msg.externalId },
-      );
+    /*
+     * ‎**ההשתקה נבדקת לפני „עזרה” ולפני המנוע.**
+     *
+     * ‏„שקט” אינה פעולה בקטלוג, ולכן המנוע היה עונה עליה „לא
+     * הבנתי” — או גרוע מכך, מנחש פעולה. היא גם חייבת לקדום לכל
+     * שאר הפענוח: מי שמבקש שקט מבקש שהמשפט הזה **לא** יפתח שיחה.
+     */
+    const snooze =
+      button?.action === "snooze"
+        ? { minutes: SNOOZE_MINUTES, clamped: false }
+        : msg.type === "text"
+          ? parseSnoozeRequest(msg.text ?? "", new Date())
+          : null;
+    if (snooze !== null) {
+      await this.snoozeNotifications(user.tenantId, user.id, snooze.minutes);
+      await this.sender.sendText(msg.fromWaId, snoozeReply(snooze, new Date()), {
+        replyTo: msg.externalId,
+      });
+      /*
+       * ‎**גם מסלול שאינו מוסיף תור נשמר** — כדי שההצעה התלויה
+       * תפוג. ראו `withoutOffer`: „שקט לשעתיים” הוא הודעה שטופלה,
+       * ולכן „כן” אחריה כבר אינו על ההצעה שקדמה לה.
+       */
+      await this.saveChat(user.tenantId, user.id, chat);
       return;
     }
 
@@ -449,10 +648,12 @@ export class WhatsAppAssistantService {
         msg.fromWaId,
         helpMenu(
           allowed.map((action) => action.id),
-          firstName(user.name),
+          firstNameOf(user.name),
         ),
         { replyTo: msg.externalId },
       );
+      // „עזרה” טופלה — ההצעה שקדמה לה פגה (ראו `withoutOffer`)
+      await this.saveChat(user.tenantId, user.id, chat);
       return;
     }
 
@@ -466,13 +667,59 @@ export class WhatsAppAssistantService {
         STALE_PROPOSAL_TEXT,
         { replyTo: msg.externalId },
       );
+      await this.saveChat(user.tenantId, user.id, chat);
       return;
     }
 
-    const asText = button === null ? null : buttonAsText(button.action, button.arg);
-    const spoken = asText === null ? await this.extractText(msg) : { text: asText };
+    /*
+     * ‎**קובץ — מסלול משלו, לפני מנוע ההבנה.**
+     *
+     * ‏אין כאן משפט לפרש: יש קובץ, ושאלה אחת („מה יש בו?”) שאחריה
+     * ‏תצוגה מקדימה ו„אשר”. שליחתו למנוע הייתה מייצרת פעולה על
+     * ‏שם הקובץ.
+     */
+    if (msg.type === "document" && button === null) {
+      const reply = await TenantContext.run(context, () =>
+        this.documentArrived(user, chat, msg),
+      );
+      await this.saveChat(user.tenantId, user.id, chat);
+      await this.deliver(msg, reply);
+      return;
+    }
+
+    /*
+     * ‎**„לתמלל שוב” מריץ מחדש את אותה הקלטה — לא משפט למנוע.**
+     *
+     * ‏הכפתור נושא את מזהה המדיה, וההודעה נכתבת מחדש כהודעה קולית
+     * ‏עם אותו מזהה. כך אין מסלול תמלול שני שצריך לזכור את אותם
+     * ‏כללים (אישור קבלה, הודעת ביניים, ניסיון חוזר): המסלול
+     * ‏היחיד פשוט רץ שוב.
+     */
+    if (button !== null && button.action === "retry" && (button.arg ?? "") === "") {
+      /* כפתור בלי מזהה מדיה אינו יכול לתמלל דבר — וזו אינה תקלה להסתיר. */
+      await this.saveChat(user.tenantId, user.id, chat);
+      await this.deliver(msg, {
+        text: "ההקלטה כבר אינה זמינה אצלי — שלחו אותה שוב או כתבו לי את הבקשה.",
+      });
+      return;
+    }
+    const source: AssistantInbound =
+      button !== null && button.action === "retry"
+        ? { ...msg, type: "audio", mediaId: button.arg ?? "", text: undefined }
+        : msg;
+    const asText =
+      button === null || button.action === "retry"
+        ? null
+        : buttonAsText(button.action, button.arg);
+    const spoken =
+      asText === null ? await this.extractText(source, context) : { text: asText };
     if ("reply" in spoken && spoken.reply !== undefined) {
-      await this.sender.sendText(msg.fromWaId, spoken.reply, { replyTo: msg.externalId });
+      await this.saveChat(user.tenantId, user.id, chat);
+      await this.deliver(msg, {
+        text: spoken.reply,
+        ...(spoken.buttonBody === undefined ? {} : { buttonBody: spoken.buttonBody }),
+        ...(spoken.buttons && spoken.buttons.length > 0 ? { buttons: spoken.buttons } : {}),
+      });
       return;
     }
     const text = spoken.text ?? "";
@@ -646,6 +893,208 @@ export class WhatsAppAssistantService {
   }
 
   /**
+   * ‎**תרגול פתוח — ההודעה הבאה היא תור בו.**
+   *
+   * ‏אותו מנגנון כמו הרפלקציה: מצב ממתין עם חותם, שנצרך אטומית בכל
+   * ‏תור ונוצר מחדש כל עוד התרגול נמשך. בלעדיו „המחיר גבוה מדי”
+   * ‏היה נשלח למנוע ההבנה, שיחפש בו פעולה ולא ימצא.
+   */
+  private startPractice(
+    chat: ChatState,
+    practiceId: string,
+    counterpart: string,
+  ): void {
+    const token = ulid();
+    chat.pending = {
+      transcript: "",
+      proposal: WhatsAppAssistantService.mentorPlaceholder("תרגול שיחה"),
+      awaiting: "mentor_practice",
+      extraParams: {},
+      token,
+      mentor: { practiceId, counterpart },
+    };
+    chat.keepStoredPending = false;
+  }
+
+  /**
+   * ‎**התשובה על „מה הצד השני?” — וכאן נכתב הכרטיס.**
+   *
+   * ## ‏שני צעדים, בדיוק כמו במסך
+   *
+   * ‏המסך פותח ליד מהשיחה (`POST /calls/:id/lead`) ורק אז מריץ את
+   * ‏ההמרה. אותם שניים ובאותו סדר: `ensureLead` הוא אותו שירות
+   * ‏שהבקר קורא לו, וההמרה עצמה עוברת ב-`execute` — כלומר בשער
+   * ‏היכולת של **הסוג שנבחר** (`buyers.edit` לקונה ולשוכר,
+   * ‏`properties.create` למוכר ולמשכיר), ולא ביכולת שבה נשאלה
+   * ‏השאלה. מסלול המרה שני היה מייצר שתי המרות שאפשר לתקן אחת
+   * ‏מהן ולשכוח את השנייה.
+   *
+   * ## ‏ומה שאינו סוג
+   *
+   * ‏אינו „לא הבנתי” ואינו לולאה: המתווך פשוט עבר לבקשה אחרת.
+   * ‏המצב נסגר, שום דבר לא נכתב, והמשפט נשלח למנוע כרגיל — אותה
+   * ‏התנהגות בדיוק של „אולי התכוונת” כשלא נענה במספר. „ביטול”
+   * ‏עצמו נצרך למעלה, ב-`isCancelMessage` המשותף.
+   */
+  private async callConvertTurn(
+    user: IdentifiedUser,
+    chat: ChatState,
+    pending: PendingState,
+    text: string,
+    speaker: { name: string; roleLabel: string },
+  ): Promise<AgentReply> {
+    const target = pending.callConvert;
+    const kind = callConvertKindFromText(text, normalizeShort);
+    if (kind === null || target === undefined) {
+      chat.pending = null;
+      chat.keepStoredPending = false;
+      return this.propose(chat, text, null, speaker);
+    }
+    /*
+     * ‏צריכה אטומית לפני הכתיבה: שתי „קונה” שמגיעות במקביל היו
+     * ‏פותחות שני כרטיסים — או נופלות על „כבר קיים קונה פעיל”
+     * ‏אחרי שהראשונה הצליחה.
+     */
+    const took = await this.takePending(user.tenantId, user.id, pending.token);
+    this.consumed(chat, took);
+    if (!took) return { text: STALE_PROPOSAL_TEXT, speak: STALE_PROPOSAL_TEXT };
+
+    const info = callConvertInfo(kind);
+    let leadId: string;
+    try {
+      leadId = (await this.calls.ensureLead(target.callId)).leadId;
+    } catch (error) {
+      // ‏גם הכישלון מדובר: שתיקה אחרי „קונה” נראית כמו הצלחה
+      const failure = `„${target.subject}” — פתיחת הליד לא בוצעה: ${errorMessage(error)}`;
+      return { text: `⚠️ ${failure}`, speak: failure };
+    }
+
+    const actionId =
+      info.target === "buyer" ? "convert_lead" : "create_property_from_lead";
+    const action = agentAction(actionId)!;
+    return this.runProposal(chat, {
+      transcript: pending.transcript,
+      proposal: {
+        actionId,
+        title: action.title,
+        risk: action.risk,
+        summary: `${target.subject} — ${info.label}`,
+        fields: [],
+        missing: [],
+        warnings: [],
+        degraded: [],
+        fallback: false,
+      },
+      awaiting: "confirm",
+      /*
+       * ‏הפרמטרים נכנסים כאן ולא כשדות של ההצעה: `paramsOf` ממזג
+       * ‏אותם ואז מצמצם לפי הקטלוג, ולכן `dealType` (שדה מוצהר של
+       * ‏שתי הפעולות) ו-`leadId` (מפתח זהות) עוברים — ושום דבר
+       * ‏אחר לא.
+       */
+      /*
+       * ‏הפרמטרים נכנסים כאן ולא כשדות של ההצעה: `paramsOf` ממזג
+       * ‏אותם ואז מצמצם לפי הקטלוג, ולכן רק מה שהפעולה מצהירה עליו
+       * ‏עובר — ושום דבר אחר לא.
+       *
+       * ‎`callConvertParams` הוא מה שהשיחה כבר ידעה, בשמות של הסוג
+       * ‏שנבחר: הכרטיס נפתח עם עיר, חדרים, תקציב וכתובת כמו במסך,
+       * ‏ולא ריק על שיחה שהכול נאמר בה (ביקורת Codex, P2).
+       */
+      extraParams: {
+        ...callConvertParams(target.seed, info.target),
+        leadId,
+        dealType: info.dealType,
+      },
+      token: ulid(),
+    });
+  }
+
+  /**
+   * ‏תור בתרגול: „סיום” מביא את המשוב, וכל השאר הוא מה שהמתווך אמר
+   * ‏לדמות. הדמות עונה, והמצב הממתין נוצר מחדש — עד שהתרגול נסגר.
+   */
+  private async practiceTurn(
+    user: IdentifiedUser,
+    chat: ChatState,
+    pending: PendingState,
+    text: string,
+  ): Promise<AgentReply> {
+    const practiceId = pending.mentor?.practiceId;
+    const took = await this.takePending(user.tenantId, user.id, pending.token);
+    this.consumed(chat, took);
+    if (!took || practiceId === undefined) {
+      return { text: STALE_PROPOSAL_TEXT, speak: STALE_PROPOSAL_TEXT };
+    }
+    /* ‏המצב נוצר מחדש בכל יציאה שאינה סוף התרגול — עם חותם חדש */
+    const again = (): void => {
+      chat.pending = { ...pending, token: ulid() };
+      chat.keepStoredPending = false;
+    };
+
+    if (isPracticeEndMessage(text, normalizeShort)) {
+      return this.practiceFeedback(practiceId, again);
+    }
+    const said = text.trim();
+    if (said.length < MENTOR_PLAN_MIN) {
+      again();
+      const retry = "לא קלטתי — מה הייתם עונים לו? או „סיום” למשוב.";
+      return { text: retry, speak: retry };
+    }
+    let turn: Awaited<ReturnType<MentorPracticeService["reply"]>>;
+    try {
+      turn = await this.practice.reply(practiceId, said.slice(0, PRACTICE_TEXT_MAX));
+    } catch (error) {
+      again();
+      const failure = `התרגול נתקע: ${errorMessage(error)}. אפשר לנסות שוב או „סיום”.`;
+      return { text: `⚠️ ${failure}`, speak: failure };
+    }
+    /*
+     * ‏הדמות סיימה — אין עוד תורים, ולכן המשוב מגיע מיד ולא ממתין
+     * ‏ל„סיום” שהמתווך לא ידע שהוא צריך לשלוח.
+     */
+    if (turn.closing) return this.practiceFeedback(practiceId, again);
+
+    const reply = practiceChatTurn(
+      pending.mentor?.counterpart ?? "הלקוח",
+      turn.turn.text,
+      PRACTICE_MAX_AGENT_TURNS - turn.agentTurns,
+    );
+    this.startPractice(chat, practiceId, pending.mentor?.counterpart ?? "הלקוח");
+    return { text: reply, speak: reply };
+  }
+
+  /**
+   * ‏סוף התרגול — המשוב, ואז אין מצב ממתין.
+   *
+   * ‎**וכשהמשוב לא נוצר, התרגול נשאר פתוח.** `finish` נכשל גם
+   * ‏דטרמיניסטית: „סיום” לפני שנאמרה מילה אחת מוחזר כשגיאה („עוד
+   * ‏לא אמרת כלום”). המצב הממתין כבר נצרך בשלב הזה, ובלי השחזור
+   * ‏ההודעה הבאה הייתה נקראת כבקשה חדשה — כלומר התרגול היה נעלם
+   * ‏בדיוק בגלל שהמתווך שלח את המילה שהמסך הציע לו (ביקורת Codex).
+   *
+   * ‎`restore` הוא אותו שחזור שמסלול התור משתמש בו, ולא עותק שלו.
+   */
+  private async practiceFeedback(
+    practiceId: string,
+    restore: () => void,
+  ): Promise<AgentReply> {
+    let done: MentorPracticeDto;
+    try {
+      done = await this.practice.finish(practiceId);
+    } catch (error) {
+      restore();
+      const failure = `המשוב לא נוצר: ${errorMessage(error)}`;
+      return { text: `⚠️ ${failure}`, speak: failure };
+    }
+    const text =
+      done.feedback === null
+        ? PRACTICE_CHAT_ABANDONED
+        : practiceChatFeedback(done.scenarioLabel, done.feedback);
+    return { text, speak: text };
+  }
+
+  /**
    * ההודעה שאחרי „לענות למנטור” היא התשובה; זו שאחרי „ואם זה יקרה
    * שוב?” היא התוכנית. שתיהן נצרכות אטומית עם החותם — כמו „אשר”.
    */
@@ -715,14 +1164,147 @@ export class WhatsAppAssistantService {
     return mentorPlanSaved(plan);
   }
 
+
+  /* ==================== המשוב אחרי הסיור (docs/03) ==================== */
+
+  /**
+   * תשובה אחת מכפתור ⟵ נכתבת, והשאלה הבאה חוזרת עם הכפתורים שלה.
+   * בלי מצב שיחה: הכפתור נושא את הסיור, השדה והתשובה, ולכן לחיצה
+   * על הודעה של אתמול כותבת על הסיור של אתמול.
+   */
+  private async viewingFeedbackReply(command: {
+    appointmentId: string;
+    field: ViewingFeedbackField;
+    value: string;
+  }): Promise<AgentReply> {
+    const result = await this.viewingFeedback.record(command.appointmentId, command.field, command.value);
+    if (result === null) {
+      const text = "לא מצאתי את הסיור הזה — אולי ההודעה ישנה. אפשר לרשום את המשוב מכרטיס הנכס, בלשונית „בעל הנכס”.";
+      return { text, speak: text };
+    }
+    const cmd = (field: ViewingFeedbackField, value: string): string =>
+      viewingFeedbackCommand(command.appointmentId, field, value);
+    if (result.next === "condition") {
+      const body = `נרשם. ומה אמר הקונה על מצב הנכס ב„${result.label}”?`;
+      return {
+        text: `${body}\n\nלהשיב: המצב טוב / דורש שיפוץ.`,
+        buttonBody: body,
+        speak: body,
+        buttons: VIEWING_CONDITION_FEEDBACK.map((value) => ({ action: "cmd", arg: cmd("condition", value), title: VIEWING_CONDITION_LABELS[value] })),
+      };
+    }
+    if (result.next === "fit") {
+      const body = `ואיך הנכס התאים לו?`;
+      return {
+        text: `${body}\n\nלהשיב: מתאים לו / המיקום לא מתאים / הגודל לא מתאים / התכנון לא מתאים.`,
+        buttonBody: body,
+        speak: body,
+        list: { label: "בחירה", rows: VIEWING_FIT_FEEDBACK.map((value) => ({ action: "cmd", arg: cmd("fit", value), title: VIEWING_FIT_LABELS[value] })) },
+      };
+    }
+    const text = `תודה — המשוב על „${result.label}” נרשם. הוא ייכנס ל„מה אמרו הקונים” בדוח למוכר, בלי שמות.`;
+    return { text, speak: text };
+  }
+
+  /* ==================== הפורום בשיחה (docs/16) ==================== */
+
+  /** תווית להצעה הממתינה — אין כאן פעולה למנוע, רק מצב שיחה. */
+  private static forumPlaceholder(title: string): AgentProposal {
+    return {
+      actionId: "forum_reply",
+      title,
+      risk: "create",
+      summary: title,
+      fields: [],
+      missing: [],
+      warnings: [],
+      degraded: [],
+      fallback: false,
+    };
+  }
+
+  /** השרשור שהכפתור נשא — או, בלי מזהה, זה של ההתראה האחרונה מהפורום. */
+  private async forumTarget(threadId: string | null): Promise<{ id: string; title: string } | null> {
+    return threadId === null ? this.forum.lastNotifiedThread() : this.forum.threadTitle(threadId);
+  }
+
+  /**
+   * „להשיב בפורום” — על השרשור שההודעה דיברה עליו. ההודעה הבאה היא
+   * התגובה; „אנונימי:” בתחילתה — בעילום שם.
+   */
+  private async forumReplyStart(user: IdentifiedUser, chat: ChatState, threadId: string | null): Promise<AgentReply> {
+    const thread = await this.forumTarget(threadId);
+    if (thread === null) return forumNoThreadReply();
+    if (chat.pending !== null) {
+      const took = await this.takePending(user.tenantId, user.id, chat.pending.token);
+      this.consumed(chat, took);
+    }
+    chat.pending = {
+      transcript: FORUM_QUICK_COMMANDS.forum_reply,
+      proposal: WhatsAppAssistantService.forumPlaceholder("תגובה בפורום"),
+      awaiting: "forum_reply",
+      extraParams: {},
+      token: ulid(),
+      forum: { threadId: thread.id, title: thread.title },
+    };
+    chat.keepStoredPending = false;
+    return forumReplyPrompt(thread.title);
+  }
+
+  /** „להפסיק לעקוב” — מהשרשור שההודעה דיברה עליו. */
+  private async forumUnfollow(threadId: string | null): Promise<AgentReply> {
+    const thread = await this.forumTarget(threadId);
+    if (thread === null) return forumNoThreadReply();
+    await this.forum.follow(thread.id, false);
+    return forumUnfollowed(thread.title);
+  }
+
+  /** ההודעה שאחרי „להשיב בפורום” היא התגובה — נצרכת אטומית עם החותם. */
+  private async forumFollowUp(
+    user: IdentifiedUser,
+    chat: ChatState,
+    pending: PendingState,
+    text: string,
+  ): Promise<AgentReply> {
+    const target = pending.forum;
+    const took = await this.takePending(user.tenantId, user.id, pending.token);
+    this.consumed(chat, took);
+    if (!took || target === undefined) return { text: STALE_PROPOSAL_TEXT, speak: STALE_PROPOSAL_TEXT };
+    const { anonymous, text: body } = parseAnonymousPrefix(text);
+    const parsed = ForumReplyInputSchema.safeParse({ body, anonymous });
+    if (!parsed.success) {
+      const retry = "לא קלטתי תגובה — כתבו אותה שוב, או „בטל”.";
+      chat.pending = { ...pending, token: ulid() };
+      chat.keepStoredPending = false;
+      return { text: retry, speak: retry };
+    }
+    try {
+      await this.forum.reply(target.threadId, parsed.data);
+    } catch (error) {
+      chat.pending = { ...pending, token: ulid() };
+      chat.keepStoredPending = false;
+      const failure = `התגובה לא פורסמה: ${errorMessage(error)}. אפשר לשלוח אותה שוב, או „בטל”.`;
+      return { text: `⚠️ ${failure}`, speak: failure };
+    }
+    return forumReplyPosted(target.threadId, anonymous, loadEnv().WEB_ORIGIN);
+  }
+
   private consumed(chat: ChatState, took: PendingState | null): void {
     chat.pending = null;
     if (took === null) chat.keepStoredPending = true;
   }
 
   /** השתקה רגעית של העדכונים היזומים — הסורק מדלג עליה. */
-  private async snoozeNotifications(tenantId: string, userId: string): Promise<void> {
-    const until = new Date(Date.now() + SNOOZE_MINUTES * 60 * 1000);
+  /**
+   * ‎`minutes === 0` הוא **ביטול** ההשתקה ולא השתקה באפס דקות:
+   * חותמת בעבר פירושה „אין שקט”, וזה בדיוק מה שהסבב בודק.
+   */
+  private async snoozeNotifications(
+    tenantId: string,
+    userId: string,
+    minutes: number,
+  ): Promise<void> {
+    const until = new Date(Date.now() + minutes * 60 * 1000);
     await this.prisma.withExplicitTenant(tenantId, (tx) =>
       tx.whatsAppChat.upsert({
         where: { tenantId_userId: { tenantId, userId } },
@@ -926,7 +1508,77 @@ export class WhatsAppAssistantService {
     return user as IdentifiedUser | null;
   }
 
-  /** היכולות נבנות בדיוק כמו ב-resolveSession — חריגים ואז חסימות. */
+  /**
+   * ‎**העוזר רץ כמשתמש שהפעיל אותו — לא כישות משלו.**
+   *
+   * ‏זו כל ההפרדה: אין לעוזר תפקיד, אין לו קבוצת יכולות משלו, ואין
+   * ‏לו מסלול נתונים משלו. הקבוצה הזו היא בדיוק זו שהכניסה למערכת
+   * ‏בונה, דרך אותה פונקציה — ולכן סוכן שאינו רואה נתון במסך אינו
+   * ‏רואה אותו גם דרך העוזר. „נבנות בדיוק כמו ב-resolveSession”
+   * ‏הייתה הערה, וכעת זו אותה שורה.
+   */
+  /**
+   * ‎**משרד שתקופתו נגמרה — ודרך לצאת מזה, כאן.**
+   *
+   * ## ‏מה היה
+   *
+   * ‏„חדשו אותה במסך ניהול המשרד”. זו הפניה ולא פתרון: היא מניחה
+   * ‏שהקורא יודע איזה מסך, שהוא ליד מחשב, ושהוא יזכור. אצל לקוח
+   * ‏שעובד **רק** מוואטסאפ זה מבוי סתום גמור — והוא הלקוח שהכי
+   * ‏קל לאבד, כי המערכת בדיוק הפסיקה לעבוד בשבילו.
+   *
+   * ## ‏למה כפתור ולא קישור בהודעה
+   *
+   * ‎`startCheckout` **מבטל כל תשלום ממתין של המשרד** — זה נכון
+   * ‏ובמכוון (דף תשלום ישן נושא מחיר ישן). לכן קישור חי שנוצר על
+   * ‏כל הודעה נכנסת היה הורג דף תשלום שבעל המשרד פתח בדפדפן
+   * ‏באותו רגע, ומייצר שורת תשלום מבוטלת לכל „היי”.
+   *
+   * ‏לחיצה על כפתור היא בקשה מפורשת אחת, ולכן דף תשלום אחד.
+   * ‎`claimMessage` סוגר את הצד השני: שליחה חוזרת של Meta על אותה
+   * ‏לחיצה אינה פותחת דף שני.
+   *
+   * ## ‏מה **לא** נפתח כאן
+   *
+   * ‏שום פעולת עבודה. המנוע כלל אינו רץ במסלול הזה, בדיוק כמו
+   * ‏ש-`billingOnly` בדשבורד מחזיר 402 על כל נתיב שאינו חיוב.
+   * ‏מה שנפתח הוא הדרך לשלם — ותו לא.
+   */
+  private async handleExpiredOffice(msg: AssistantInbound, user: IdentifiedUser): Promise<void> {
+    const { capabilities } = await this.buildContext(user);
+    const mayPay = capabilities.has("billing.manage");
+    const pressedRenew =
+      msg.buttonId !== undefined && decodeButtonId(msg.buttonId)?.action === "renew";
+
+    if (!pressedRenew || !mayPay) {
+      const body = subscriptionEndedText({ mayPay });
+      /*
+       * ‎`sendButtons` מחזיר `false` כשהיא אינה יכולה לשלוח (גוף
+       * ארוך מדי, אין אישורי קו) — ואז ההודעה **חייבת** לרדת
+       * לטקסט, אחרת המשרד שתקופתו נגמרה לא מקבל דבר בכלל.
+       */
+      const withButton =
+        mayPay &&
+        (await this.sender.sendButtons(msg.fromWaId, body, [
+          { action: "renew", title: RENEW_BUTTON_TITLE },
+        ]));
+      if (!withButton) {
+        await this.sender.sendText(msg.fromWaId, body, { replyTo: msg.externalId });
+      }
+      return;
+    }
+
+    // בקשה מפורשת אחת ⇒ דף תשלום אחד. שליחה חוזרת של Meta נעצרת כאן
+    if ((await this.claimMessage(user.tenantId, user.id, msg.externalId)) === null) return;
+    void this.sender.markRead(msg.externalId, true);
+
+    const link = await this.billing.renewalLink({ tenantId: user.tenantId, userId: user.id });
+    await this.sender.sendText(
+      msg.fromWaId,
+      link.ok ? renewalLinkText(link) : renewalBlockedText(link.reason),
+    );
+  }
+
   private async buildContext(user: IdentifiedUser): Promise<RequestContext> {
     const overrides = await this.prisma.withExplicitTenant(user.tenantId, (tx) =>
       tx.userCapability.findMany({
@@ -934,17 +1586,9 @@ export class WhatsAppAssistantService {
         select: { capability: true, effect: true, expiresAt: true },
       }),
     );
-    const capabilities = applyBlockedModules(
-      resolveCapabilities(
-        user.role,
-        overrides.map((o) => ({
-          capability: o.capability as Capability,
-          effect: o.effect === "grant" ? ("grant" as const) : ("deny" as const),
-          expiresAt: o.expiresAt,
-        })),
-        new Date(),
-      ),
-      user.tenant.blockedModules,
+    const capabilities = effectiveCapabilities(
+      { role: user.role, overrides, blockedModules: user.tenant.blockedModules },
+      new Date(),
     );
     return { tenantId: user.tenantId, userId: user.id, capabilities, billingOnly: false };
   }
@@ -953,13 +1597,369 @@ export class WhatsAppAssistantService {
   /*  תוכן ההודעה                                                        */
   /* ------------------------------------------------------------------ */
 
+  /**
+   * ‎**תמונה — ושתי משמעויות שהכיתוב מכריע ביניהן.**
+   *
+   * ‏שלט „למכירה” ברחוב הוא נכס לגיוס חדש; תמונה של סלון עם
+   * ‏„תוסיף לנכס בהרצל 12” היא תמונה לנכס שכבר במלאי. ההכרעה
+   * ‏היא על מה שהמתווך **כתב** ולא על מה שהמודל **רואה**: מודל
+   * ‏טועה על שלט שצולם בתוך דירה ועל מודעה שצולמה ממסך, ובשני
+   * ‏הכיוונים הטעות שקטה — שורת גיוס מיותרת, או תמונה שנכנסה
+   * ‏לכרטיס הלא נכון.
+   *
+   * ‏בלי כיתוב זו מודעה: זה הרוב, וזה מה שהמתווך עושה ברחוב.
+   */
+  private async fromImage(msg: AssistantInbound, context: RequestContext): Promise<string> {
+    const phrase = propertyPhotoPhrase(msg.text ?? "");
+    if (phrase === null) return this.adFromImage(msg, context);
+    return this.photoToProperty(msg, context, phrase);
+  }
+
+  /**
+   * ‎**תמונה לנכס קיים.**
+   *
+   * ‏שתי התאמות אינן בקשה שאפשר לבצע: „תוסיף לנכס בהרצל”
+   * ‏כששני נכסים ברחוב הרצל הוא משפט שהמתווך צריך להשלים.
+   * ‏בחירה בשמו הייתה מכניסה תמונה לכרטיס של דירה אחרת, והוא
+   * ‏יגלה זאת רק כשקונה ישאל למה התמונות אינן מתאימות.
+   *
+   * ‎**כשל אינו זורק**, מאותה סיבה של `adFromImage`: „משהו
+   * ‏השתבש אצלי” על תמונה שצולמה בדירה הוא הרגע שבו מתווך
+   * ‏מפסיק לנסות את היכולת.
+   */
+  private async photoToProperty(
+    msg: AssistantInbound,
+    context: RequestContext,
+    phrase: string,
+  ): Promise<string> {
+    if (phrase === "") return "לאיזה נכס לצרף את התמונה? כתבו את הכתובת בכיתוב.";
+    if (msg.mediaId === undefined) return "לא הצלחתי לקרוא את התמונה — נסו לשלוח אותה שוב.";
+    const media = await this.sender.downloadMedia(msg.mediaId);
+    if (media === null) return "לא הצלחתי להוריד את התמונה — נסו לשלוח אותה שוב.";
+    try {
+      const result = await TenantContext.run(context, () =>
+        this.photos.attach({ phrase, image: media }),
+      );
+      if (result.outcome === "attached") return `התמונה נוספה ל${result.label}.`;
+      if (result.outcome === "none") return `לא מצאתי נכס שמתאים ל„${phrase}”.`;
+      return `מצאתי כמה נכסים שמתאימים ל„${phrase}”:\n${result.labels
+        .map((label) => `• ${label}`)
+        .join("\n")}\nשלחו את התמונה שוב עם כתובת מדויקת יותר.`;
+    } catch (error) {
+      this.logger.error(`צירוף תמונה לנכס נכשל: ${String(error)}`);
+      return "לא הצלחתי לצרף את התמונה כרגע — נסו שוב בעוד רגע.";
+    }
+  }
+
+  /**
+   * ‎**תמונה של מודעה ⟵ נכס לגיוס.**
+   *
+   * ‏המתווך רואה שלט „למכירה” ברחוב, מצלם, ושולח. עד עכשיו הוא
+   * ‏קיבל „עוד לא נתמך, בקרוב” — כלומר המערכת ראתה בדיוק את הרגע
+   * ‏שבו נכס לגיוס נולד, ולא עשתה איתו דבר.
+   *
+   * ‏רץ בתוך `TenantContext` כי הכתיבה עוברת ב-`RecruitmentService`
+   * ‏— אותו מסלול של הטופס, עם אותה בדיקת דייר ואותו `createdBy`.
+   *
+   * ‎**כשל אינו זורק.** תמונה שהמודל לא קרא, מודל שאינו מוגדר,
+   * ‏מדיה שלא ירדה — כולם חוזרים כמשפט. הודעת „משהו השתבש אצלי”
+   * ‏על שלט מצולם היא בדיוק הרגע שבו מתווך מפסיק לנסות את
+   * ‏היכולת הזו.
+   */
+  private async adFromImage(msg: AssistantInbound, context: RequestContext): Promise<string> {
+    if (msg.mediaId === undefined) return "לא הצלחתי לקרוא את התמונה — נסו לשלוח אותה שוב.";
+    const media = await this.sender.downloadMedia(msg.mediaId);
+    if (media === null) return "לא הצלחתי להוריד את התמונה — נסו לשלוח אותה שוב.";
+    try {
+      const created = await TenantContext.run(context, () => this.ads.fromImage(media));
+      return created === null ? RecruitmentAdService.unreadable : created.summary;
+    } catch (error) {
+      this.logger.error(`קריאת מודעה מצולמת נכשלה: ${String(error)}`);
+      return "לא הצלחתי לקרוא את המודעה כרגע — נסו שוב בעוד רגע, או כתבו לי את הפרטים.";
+    }
+  }
+
+  /* ------------------------------------------------------------------ */
+  /*  קובץ ייבוא — שלושה צעדים, ואף כתיבה לפני האחרון                    */
+  /* ------------------------------------------------------------------ */
+
+  /**
+   * ‎**קובץ הגיע.**
+   *
+   * ‏אם הכיתוב אמר מה יש בו — קוראים מיד ומציגים תצוגה מקדימה.
+   * ‏אם לא — שואלים, כי ניחוש שגוי פותח מאה כרטיסי קונה מקובץ של
+   * ‏לידים, וזו טעות שמנקים ביד שורה-שורה.
+   */
+  private async documentArrived(
+    user: IdentifiedUser,
+    chat: ChatState,
+    msg: AssistantInbound,
+  ): Promise<AgentReply> {
+    /*
+     * ‎**קודם כול — ההצעה הקודמת פגה.**
+     *
+     * ‏קובץ שנכנס הוא בקשה חדשה, גם כשלא נוכל לקרוא אותו. כשהצריכה
+     * ‏ישבה אחרי הבדיקות, מתווך ששלח PDF על „לפתוח כרטיס קונה
+     * ‏לרונית? אשר/בטל” קיבל „אני קוראת ‎.xlsx‎ בלבד”, הבין שהשיחה
+     * ‏עברה לקובץ — ו„אשר” שלו כעבור דקה פתח את הכרטיס הישן
+     * ‏(ביקורת Codex). הצריכה אינה תלויה בתקינות הקובץ.
+     */
+    if (chat.pending !== null) {
+      const took = await this.takePending(user.tenantId, user.id, chat.pending.token);
+      this.consumed(chat, took);
+    }
+
+    if (msg.mediaId === undefined) {
+      const text = "לא הצלחתי לקרוא את הקובץ — נסו לשלוח אותו שוב.";
+      return { text, speak: text };
+    }
+    const fileName = msg.fileName ?? "";
+    const fileMime = msg.fileMime ?? "";
+    if (sheetFormat(fileMime, fileName) === "unsupported") {
+      return { text: UNSUPPORTED_SHEET_TEXT, speak: UNSUPPORTED_SHEET_TEXT };
+    }
+
+    const kind = importKindFromText(msg.text ?? "");
+    const base = {
+      fileName: fileName === "" ? "הקובץ" : fileName,
+      mediaId: msg.mediaId,
+      fileMime,
+    };
+    if (kind === null) {
+      const token = ulid();
+      chat.pending = {
+        transcript: "",
+        proposal: WhatsAppAssistantService.mentorPlaceholder("ייבוא קובץ"),
+        awaiting: "import_kind",
+        extraParams: {},
+        token,
+        importFile: base,
+      };
+      chat.keepStoredPending = false;
+      const lines = [
+        `קיבלתי את „${base.fileName}”. ${IMPORT_KIND_QUESTION}`,
+        "",
+        ...WHATSAPP_IMPORT_KINDS.map((k, i) => `${i + 1}. ${IMPORT_KIND_LABELS[k]}`),
+      ];
+      return {
+        text: lines.join("\n"),
+        speak: IMPORT_KIND_QUESTION,
+        buttonBody: `קיבלתי את „${base.fileName}”. ${IMPORT_KIND_QUESTION}`,
+        buttons: WHATSAPP_IMPORT_KINDS.map((k, i) => ({
+          action: "pick" as const,
+          arg: String(i + 1),
+          title: IMPORT_KIND_LABELS[k],
+          token,
+        })),
+      };
+    }
+    return this.importPreview(user, chat, base, kind);
+  }
+
+  /**
+   * ‏התשובה לשאלה „מה יש בקובץ?” — מספר או מילה.
+   *
+   * ‏מה שאינו אחד מהם אינו „לא הבנתי”: המתווך עבר לבקשה אחרת.
+   * ‏המצב נסגר, שום דבר לא נכתב, והמשפט ממשיך למנוע — אותה
+   * ‏התנהגות בדיוק של „אולי התכוונת”.
+   */
+  private async importKindAnswer(
+    user: IdentifiedUser,
+    chat: ChatState,
+    pending: PendingState,
+    text: string,
+  ): Promise<AgentReply> {
+    const file = pending.importFile;
+    const index = Number.parseInt(text.trim(), 10);
+    const picked =
+      Number.isInteger(index) && index >= 1 && index <= WHATSAPP_IMPORT_KINDS.length
+        ? (WHATSAPP_IMPORT_KINDS[index - 1] ?? null)
+        : importKindFromText(text);
+    if (file === undefined || picked === null) {
+      const took = await this.takePending(user.tenantId, user.id, pending.token);
+      this.consumed(chat, took);
+      const answer = "בסדר, עזבתי את הקובץ. שלחו אותו שוב כשתרצו לייבא.";
+      return { text: answer, speak: answer };
+    }
+    const took = await this.takePending(user.tenantId, user.id, pending.token);
+    this.consumed(chat, took);
+    return this.importPreview(user, chat, file, picked);
+  }
+
+  /**
+   * ‎**קריאה וספירה — ואף שורה אינה נכתבת כאן.**
+   *
+   * ‏היכולת נבדקת לפני הקריאה ולא אחריה: „קראתי 400 שורות” ואז
+   * ‏„אין לך הרשאה” הוא בזבוז של דקה ושל אמון.
+   */
+  private async importPreview(
+    user: IdentifiedUser,
+    chat: ChatState,
+    file: { fileName: string; mediaId: string; fileMime: string },
+    kind: WhatsappImportKind,
+  ): Promise<AgentReply> {
+    /*
+     * ‎`TenantContext.current()` ולא `user`: היכולות אינן על
+     * ‏הרשומה שנטענה אלא על ההקשר, וזה **אותו** מקור שהבקרים
+     * ‏נבדקים מולו. שכפול הרשימה לרשומה היה מקום שני שיכול
+     * ‏להתיישן מול הרשאה שנשללה זה עתה.
+     *
+     * ‏ומה שנבדק כאן הוא **אותו** `blockedReason` שהכתיבה בודקת —
+     * ‏יכולת ופיצ'ר גם יחד. שתי רשימות כללים היו מסכימות ביום
+     * ‏שנכתבו, וזו בדיוק הדרך שבה שער הפיצ'ר נשכח כאן מלכתחילה.
+     */
+    const blocked = await this.imports.blockedReason(TenantContext.current(), kind);
+    if (blocked !== null) return { text: blocked, speak: blocked };
+    const read = await this.imports.read(file.mediaId, file.fileName, file.fileMime, kind);
+    if ("error" in read) return { text: read.error, speak: read.error };
+    if (read.rows.length === 0) {
+      const empty = `לא מצאתי שורות ב„${file.fileName}”. ודאו שיש שורת כותרות ושורה אחת לפחות מתחתיה.`;
+      return { text: empty, speak: empty };
+    }
+
+    const token = ulid();
+    chat.pending = {
+      transcript: "",
+      proposal: WhatsAppAssistantService.mentorPlaceholder(
+        `ייבוא ${IMPORT_KIND_LABELS[kind]}`,
+      ),
+      awaiting: "import_confirm",
+      extraParams: {},
+      token,
+      importFile: { ...file, kind, rows: read.rows, unmapped: read.unmapped },
+    };
+    chat.keepStoredPending = false;
+    const preview = importPreviewText({
+      kind,
+      rows: read.rows.length,
+      total: read.total,
+      unmapped: read.unmapped,
+      filename: file.fileName,
+    });
+    return {
+      text: preview,
+      /* ‏הקול אומר את אותו דבר שהטקסט אומר, כולל החיתוך */
+      speak:
+        read.total > read.rows.length
+          ? `בקובץ ${read.total} שורות, ואייבא ${read.rows.length}. לייבא?`
+          : `קראתי ${read.rows.length} שורות. לייבא?`,
+      buttons: confirmButtons(token),
+    };
+  }
+
+  /** ‏„אשר” — וכאן, ורק כאן, נכתבות השורות. */
+  private async importConfirm(
+    user: IdentifiedUser,
+    chat: ChatState,
+    pending: PendingState,
+  ): Promise<AgentReply> {
+    const file = pending.importFile;
+    const took = await this.takePending(user.tenantId, user.id, pending.token);
+    this.consumed(chat, took);
+    if (!took) {
+      return { text: STALE_PROPOSAL_TEXT, speak: "ההצעה כבר אינה ממתינה." };
+    }
+    if (file?.kind === undefined || file.rows === undefined) {
+      const lost = "איבדתי את הקובץ — שלחו אותו שוב.";
+      return { text: lost, speak: lost };
+    }
+    const { text } = await this.imports.write_(
+      TenantContext.current(),
+      file.kind,
+      file.rows,
+    );
+    return { text, speak: text };
+  }
+
   /** טקסט מוכן לפירוש, או תשובה מוכנה כשאין מה לפרש. */
+  /**
+   * ‏תמלול עם ניסיון שני. ‎`null` = שני הניסיונות נכשלו.
+   *
+   * ‏הבחנה בין `null` ל-`""` היא ההבדל בין „המנוע נפל” לבין
+   * ‏„ההקלטה שקטה”, ושתי התשובות למתווך שונות לגמרי.
+   */
+  private async transcribeWithRetry(buffer: Buffer): Promise<string | null> {
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        const { text } = await this.transcription.transcribe(buffer, "voice-note.ogg");
+        return text.trim();
+      } catch (error) {
+        this.logger.warn(`תמלול הודעה קולית נכשל (ניסיון ${attempt + 1}): ${String(error)}`);
+      }
+    }
+    return null;
+  }
+
+  /**
+   * ‎**מה מקבל מתווך שהתמלול שלו נכשל — ולמה לא „נסו שוב”.**
+   *
+   * ‏„נסו שוב או כתבו את הבקשה” היה מבוי סתום: ההקלטה כבר נשלחה,
+   * ‏והמשפט מבקש מהמתווך להקליט אותה מחדש או לוותר עליה. מה שהוא
+   * ‏באמת צריך הוא **שהמערכת תנסה שוב על אותה הקלטה** — היא עדיין
+   * ‏שמורה אצל Meta, ואין שום סיבה שהוא ידבר פעמיים (דיווח מהשטח).
+   *
+   * ‏הכפתור נושא את מזהה המדיה, ולכן לחיצה מריצה בדיוק את המסלול
+   * ‏שנכשל. מזהה שפג — Meta מוחקת מדיה אחרי כמה ימים — מקבל
+   * ‏„לא הצלחתי להוריד את ההקלטה”, שזו התשובה הנכונה אז.
+   *
+   * ‎**ושני נוסחים, לא אחד** (ביקורת Codex). ‏`deliver` שולח את
+   * ‏`text` כשההודעה האינטראקטיבית נדחית — וכשאין כפתור, אין שום
+   * ‏דרך לבקש תמלול חוזר. נוסח אחד שאומר „אפשר לנסות שוב” היה
+   * ‏מבטיח בדיוק את מה שאינו שם, כלומר מחזיר את המבוי הסתום
+   * ‏שהשינוי בא להסיר — רק בניסוח נעים יותר.
+   *
+   * ‏לכן `text` מציע את מה שתמיד אפשר (לשלוח שוב, או לכתוב),
+   * ‏ו-`buttonBody` מדבר על הכפתור רק כשהוא באמת נשלח.
+   */
+  private transcribeFailed(mediaId: string): {
+    reply: string;
+    buttonBody: string;
+    buttons: WhatsAppButton[];
+  } {
+    return {
+      reply: "התמלול נכשל — שלחו לי את ההקלטה שוב, או כתבו לי את הבקשה ואטפל בה.",
+      buttonBody:
+        "התמלול נכשל, וההקלטה שלך שמורה אצלי — אפשר לנסות לתמלל אותה שוב, או לכתוב לי את הבקשה.",
+      buttons: [{ action: "retry", arg: mediaId, title: "🔁 לתמלל שוב" }],
+    };
+  }
+
   private async extractText(
     msg: AssistantInbound,
-  ): Promise<{ text?: string; transcribed?: boolean; reply?: string }> {
+    /*
+     * ‎**ההקשר נכנס במפורש, ולא נקרא מ-`TenantContext.current()`.**
+     *
+     * ‏הפונקציה הזו רצה **מחוץ** להקשר הדייר — היא קודמת ל-
+     * ‎`TenantContext.run` שעוטף את השיחה — ורוב מה שהיא עושה
+     * ‏(טקסט, תמלול) אינו נוגע במסד. תמונה של מודעה כן: היא
+     * ‏פותחת שורת גיוס. קריאה ל-`current()` כאן הייתה נכשלת,
+     * ‏והנחה שהיא תעבוד היא בדיוק סוג הבאג שמתגלה רק בשטח.
+     */
+    context: RequestContext,
+  ): Promise<{
+    text?: string;
+    transcribed?: boolean;
+    reply?: string;
+    /** גוף לגרסת הכפתורים — ראו `transcribeFailed` */
+    buttonBody?: string;
+    buttons?: WhatsAppButton[];
+  }> {
     if (msg.type === "text") {
       const text = (msg.text ?? "").trim();
       if (text === "") return { reply: "קיבלתי הודעה ריקה — כתבו לי מה לעשות." };
+      /*
+       * ‎**אימוג'י שהוקלד נענה כאן, ולא במנוע ההבנה.**
+       *
+       * ‏אין פעולה בקטלוג שמתאימה ל-👍, ולכן המנוע החזיר עליו
+       * ‏„לא הבנתי, אולי התכוונת…” ורשימת הצעות — תשובה ארוכה
+       * ‏ומבלבלת למי שפשוט אישר שקרא. משפט קצר של אדם הוא הנכון.
+       *
+       * ‎**רק כשההודעה כולה אימוג'י.** „👍 תשלח לו את הנכס” הוא
+       * ‏בקשה לכל דבר, והיא ממשיכה למנוע כרגיל.
+       */
+      if (isEmojiOnlyMessage(text)) {
+        return { reply: emojiOnlyReply(emojiSentiment(text)) };
+      }
       return { text };
     }
     if (msg.type === "audio") {
@@ -992,24 +1992,32 @@ export class WhatsAppAssistantService {
         });
       }, SLOW_TRANSCRIBE_NOTICE_MS);
       try {
-        const { text } = await this.transcription.transcribe(media.buffer, "voice-note.ogg");
-        if (text.trim() === "") {
+        /*
+         * ‎**ניסיון שני לפני שמכריזים על כישלון.**
+         *
+         * ‏רוב הכשלים כאן חולפים — המנוע עמוס, בקשה שנפלה על זמן
+         * ‏קצוב. ניסיון אחד בלבד הפך תקלה של שנייה להודעה „התמלול
+         * ‏נכשל”, כלומר לבקשה מהמתווך להקליט מחדש דבר שהוא כבר
+         * ‏אמר. שניים הם המחיר של המתנה קצרה; שלושה כבר גורמים
+         * ‏ל-Meta לשלוח את ההודעה שוב.
+         */
+        const text = await this.transcribeWithRetry(media.buffer);
+        if (text === null) return this.transcribeFailed(msg.mediaId);
+        if (text === "") {
           return { reply: "לא הצלחתי לשמוע מילים בהקלטה — נסו שוב או כתבו." };
         }
-        return { text: text.trim(), transcribed: true };
-      } catch {
-        return { reply: "התמלול נכשל — נסו שוב או כתבו את הבקשה." };
+        return { text, transcribed: true };
       } finally {
         clearTimeout(notice);
       }
     }
-    if (msg.type === "image") {
-      return {
-        reply:
-          "קיבלתי תמונה — צירוף תמונות לנכס דרך וואטסאפ עוד לא נתמך, בקרוב. בינתיים אפשר לכתוב או להקליט לי בקשות.",
-      };
-    }
-    return { reply: "אני יודע לטפל כרגע בטקסט ובהודעות קוליות." };
+    if (msg.type === "image") return { reply: await this.fromImage(msg, context) };
+    /*
+     * ‏„קובץ” אינו מגיע לכאן — הוא מנותב לפני מנוע ההבנה — אבל
+     * ‏הוא כן נאמר: מי שקיבל את המשפט הזה על סרטון צריך לדעת
+     * ‏שקובץ אקסל **כן** עובד.
+     */
+    return { reply: "אני יודע לטפל כרגע בטקסט, בהודעות קוליות, בתמונות ובקבצי אקסל." };
   }
 
   /* ------------------------------------------------------------------ */
@@ -1025,7 +2033,7 @@ export class WhatsAppAssistantService {
     /** תחילית לתשובה על הודעה קולית — שהמתווך יראה מה נשמע. */
     const heard = transcribed ? `שמעתי: „${text}”\n\n` : "";
     // מי מדבר — נכנס לפרומפט כדי שהתשובה תהיה שלו ולא כללית
-    const speaker = { name: firstName(user.name), roleLabel: roleLabel(user.role) };
+    const speaker = { name: firstNameOf(user.name), roleLabel: roleLabel(user.role) };
 
     /*
      * „לענות למנטור” — כלשונו (כפתור ההתראה או הקלדה): פותח את
@@ -1034,6 +2042,34 @@ export class WhatsAppAssistantService {
      */
     if (isMentorReflectRequest(text)) {
       return withHeard(await this.mentorReflectStart(user, chat), heard);
+    }
+    // „הרעיון עזר לי” / „לא בשבילי” — משוב על רעיון הבוקר, אותה זכאות
+    const verdict = mentorIdeaVerdict(text);
+    if (verdict !== null) {
+      if (!(await this.plans.tenantHasFeature(user.tenantId, MENTOR_FEATURE))) {
+        const denied = "המנטור האישי אינו כלול במסלול של המשרד — אפשר לשדרג במסך החיוב.";
+        return withHeard({ text: denied, speak: denied }, heard);
+      }
+      const reply = await this.mentor.ideaFeedbackFromChat(
+        verdict.verdict,
+        verdict.ideaKey,
+      );
+      return withHeard({ text: reply, speak: reply }, heard);
+    }
+    // „משוב סיור: המחיר גבוה [מזהה:price:high]” — מכפתורי „איך היה?” (docs/03)
+    const feedbackCommand = parseViewingFeedbackCommand(text);
+    if (feedbackCommand !== null) {
+      return withHeard(await this.viewingFeedbackReply(feedbackCommand), heard);
+    }
+    // „להשיב בפורום [מזהה]” / „להפסיק לעקוב [מזהה]” — מכפתורי ההתראה (docs/16)
+    const forumCommand = parseForumCommand(text);
+    if (forumCommand !== null) {
+      return withHeard(
+        forumCommand.command === "forum_reply"
+          ? await this.forumReplyStart(user, chat, forumCommand.threadId)
+          : await this.forumUnfollow(forumCommand.threadId),
+        heard,
+      );
     }
 
     const pending = chat.pending;
@@ -1044,8 +2080,23 @@ export class WhatsAppAssistantService {
         const answer = took ? "בוטל. מה הלאה?" : "אין פעולה ממתינה לביטול.";
         return { text: took ? `❌ ${answer}` : answer, speak: answer };
       }
+      if (pending.awaiting === "mentor_practice") {
+        return withHeard(await this.practiceTurn(user, chat, pending, text), heard);
+      }
+      if (pending.awaiting === "call_convert") {
+        return withHeard(await this.callConvertTurn(user, chat, pending, text, speaker), heard);
+      }
+      if (pending.awaiting === "import_kind") {
+        return withHeard(await this.importKindAnswer(user, chat, pending, text), heard);
+      }
+      if (pending.awaiting === "import_confirm" && isConfirmMessage(text)) {
+        return withHeard(await this.importConfirm(user, chat, pending), heard);
+      }
       if (pending.awaiting === "mentor_reflection" || pending.awaiting === "mentor_plan") {
         return withHeard(await this.mentorFollowUp(user, chat, pending, text), heard);
+      }
+      if (pending.awaiting === "forum_reply") {
+        return withHeard(await this.forumFollowUp(user, chat, pending, text), heard);
       }
       /*
        * ‎**„אולי התכוונת” — בחירת כוונה, לא בחירת רשומה.**
@@ -1149,6 +2200,28 @@ export class WhatsAppAssistantService {
        * חדרים". ההצעה הקודמת נשלחת כהקשר תיקון, בדיוק כמו במסך.
        */
       return withHeard(await this.propose(chat, text, pending, speaker), heard);
+    }
+
+    /*
+     * ‎**„כן” על מה שהסוכן הרגע הציע.**
+     *
+     * הסוכן מסיים תשובה בהצעת המשך („רוצה שנעבור על המשימות?”),
+     * המתווך עונה „כן” — ובלי הענף הזה המילה מגיעה למנוע תלושה
+     * לגמרי, כי ההצעה נוסחה בתשובה ולא נשמרה בשום מקום. מה שחזר
+     * בפועל היה „במה אוכל לעזור?”, כלומר הסוכן שאל את מה שהוא
+     * עצמו הרגע הציע (דיווח מהשטח).
+     *
+     * ‎**המשפט מוזרם כאילו הוקלד**, בדיוק כמו לחיצה על כפתור
+     * ההמשך — אותו מסלול, אותו אישור לפעולה שכותבת. „כן” אינו
+     * עוקף כלום; הוא רק אומר *על מה* מדובר.
+     *
+     * רק כשאין הצעה ממתינה (`pending` נבדק למעלה) ורק על ההצעה
+     * ‎**האחרונה**: „כן” אחרי שיחה שלמה על משהו אחר אינו חוזר
+     * להצעה משבוע שעבר.
+     */
+    const offered = isConfirmMessage(text) ? lastOffer(chat.history) : null;
+    if (offered !== null) {
+      return withHeard(await this.propose(chat, offered, null, speaker), heard);
     }
 
     return withHeard(await this.propose(chat, text, null, speaker), heard);
@@ -1385,6 +2458,42 @@ export class WhatsAppAssistantService {
      * שהסוכן רק הסביר משהו. סימן אחד בתחילת השורה עונה על זה.
      * לשאילתות אין סימן — שם התוצאה עצמה היא התשובה.
      */
+    /*
+     * ‎**התרגול פותח מצב ממתין** — ההודעות שאחריו הן תורים בו, ולא
+     * ‏בקשות חדשות. „אני מבין אותך, אבל המחיר הזה גבוה” הוא משפט
+     * ‏שמנוע ההבנה יחפש בו פעולה ולא ימצא, בדיוק כמו „מה עצר?”.
+     *
+     * ‏המזהה נוסע ב-`data` כשורת סמן, ונשלף מכאן כדי שהמסך והבוט
+     * ‏יעבדו על אותו תרגול. הסמן מוסר מהתשובה — הוא מנגנון, לא
+     * ‏תוכן שהמתווך צריך לראות.
+     */
+    if (primary.practice !== undefined) {
+      this.startPractice(
+        chat,
+        primary.practice.id,
+        primary.practice.counterpart,
+      );
+    }
+    /*
+     * ‎**„המר ללקוח” שאלה — ההודעה הבאה היא התשובה.**
+     *
+     * ‏אותה מכניקה של התרגול: „מוכר” לבדו הוא משפט שמנוע ההבנה
+     * ‏היה מחפש בו פעולה ולא מוצא. הכתיבה עצמה תתרחש שם, דרך
+     * ‏‎`execute` של פעולת ההמרה — כלומר עוברת בשער היכולת של הסוג
+     * ‏שנבחר (`buyers.edit` או `properties.create`), ולא ביכולת
+     * ‏שבה נשאלה השאלה.
+     */
+    if (primary.callConvert !== undefined) {
+      chat.pending = {
+        transcript: state.transcript,
+        proposal: state.proposal,
+        awaiting: "call_convert",
+        extraParams: {},
+        token: ulid(),
+        callConvert: primary.callConvert,
+      };
+      chat.keepStoredPending = false;
+    }
     const done = state.proposal.risk === "read" ? "" : "✅ ";
     /*
      * ‎**ההרכב והסדר מגיעים מהתוכנית המשותפת** — `agentReplySegments`
@@ -1414,6 +2523,13 @@ export class WhatsAppAssistantService {
 
     const lines: string[] = [];
     let steps: { text: string; label: string }[] = [];
+    /**
+     * ‎**המשפט שהסוכן הציע** — מה ש„כן” בתור הבא יפעיל.
+     *
+     * נלכד כאן ולא מנוסח מחדש: זה בדיוק אותו משפט שהכפתור נושא,
+     * ולכן „כן” והלחיצה מריצים את אותו הדבר בדיוק.
+     */
+    let offer: string | undefined;
     const renderSegment = (segment: (typeof segments)[number]): void => {
       switch (segment.kind) {
         case "headline":
@@ -1440,7 +2556,15 @@ export class WhatsAppAssistantService {
            * בגבעתיים” בלי הסייג נשמע כמו עובדה על המשרד, בזמן
            * שהתשובה מסוננת לבעלות.
            */
-          const scope = scopeNote(state.proposal.actionId);
+          /*
+           * ‏האם זה חיפוש לפי טלפון — אותה בדיקה שמנתבת את החיפוש
+           * ‏עצמו, ולא ניחוש שני שיכול לסטות ממנה.
+           */
+          const searchTerm = state.proposal.fields.find((field) => field.key === "query");
+          const byPhone =
+            typeof searchTerm?.value === "string" &&
+            normalizeIsraeliPhone(searchTerm.value) !== undefined;
+          const scope = scopeNote(state.proposal.actionId, byPhone);
           if (scope !== "") lines.push(scope);
           break;
         }
@@ -1449,7 +2573,8 @@ export class WhatsAppAssistantService {
           break;
         // קישור חיצוני (wa.me) — מוצג ואינו נשמר: יכול לשאת טלפון
         case "external-link":
-          lines.push(`👈 ${segment.url}`);
+          // ‏התווית נגזרת מהכתובת, כמו במסך — לא „וואטסאפ” על כל קישור
+          lines.push(`👈 ${segment.label}: ${segment.url}`);
           break;
         /*
          * ‎**צעדי ההמשך — כפתורים שקשורים לתוכן, וגם טקסט.** כל צעד
@@ -1460,6 +2585,8 @@ export class WhatsAppAssistantService {
          */
         case "steps":
           steps = segment.steps.filter((step) => step.text.length <= CMD_TEXT_MAX);
+          // מה ש„כן” יפעיל בתור הבא — הראשון, שהוא גם הכפתור הראשון
+          if (steps[0] !== undefined) offer = steps[0].text;
           if (steps.length > 0) {
             lines.push(
               steps.length === 1
@@ -1470,6 +2597,7 @@ export class WhatsAppAssistantService {
           break;
         // רשת הביטחון המנוסחת — התוכנית פולטת אותה רק בהיעדר צעדים
         case "suggestion":
+          offer = segment.text;
           lines.push(`👉 אפשר להמשיך: „${segment.text}”`);
           break;
       }
@@ -1500,6 +2628,21 @@ export class WhatsAppAssistantService {
           "whatsapp",
         );
         lines.push(`· ${result.message}`);
+        /*
+         * ‎**גם הקישור של צעד ההמשך, לא רק ההודעה שלו.**
+         *
+         * הזנב מרונדר מ-`primary` בלבד, ולכן `result.link` נזרק —
+         * ‏„תפתח משימה ותן לי קישור ללקוח חדש” היה יוצר רשומת קליטה
+         * ומשמיד את הכתובת שלה. הרינדור הוא אותו `renderSegment`
+         * שהזנב משתמש בו, כדי שהתווית והצורה יהיו זהות.
+         */
+        if (result.link !== undefined) {
+          renderSegment({
+            kind: "external-link",
+            url: result.link,
+            label: externalLinkLabel(result.link),
+          });
+        }
         // רק צעד שהצליח — הפניה לרשומה שלא נוצרה היא שיוך לכלום
         acted.unshift(result.ref);
       } catch (error) {
@@ -1578,6 +2721,7 @@ export class WhatsAppAssistantService {
        * שנפתח, הקונה שנוצר — שאינה רשימה ולכן לא הותירה עקבה.
        */
       ...(refs.length === 0 ? {} : { refs }),
+      ...(offer === undefined ? {} : { offer }),
     };
     /*
      * שתי הרשימות: `history` היא מה שנשלח לפרומפט ולכן נחתכת
@@ -1748,7 +2892,20 @@ export class WhatsAppAssistantService {
         where: { tenantId_userId: { tenantId, userId } },
         select: { history: true },
       });
+      /*
+       * ‎**ההצעה שורדת עד ההודעה הבאה — ולא רגע אחד יותר.**
+       *
+       * תור שנוסף נושא הצעה משלו (או שאין לו), ולכן הישנה נמחקת
+       * ממילא. הבעיה היא הודעה ש**אינה** מוסיפה תור: „תודה”, „עזרה”,
+       * „שקט לשעתיים”. בלי המחיקה כאן ההצעה נשארה תלויה, ו„כן”
+       * שנאמר אחריה היה מריץ הצעה שכבר אינה על המסך — בדיוק
+       * ההפתעה שהיא נועדה למנוע (ביקורת Codex).
+       *
+       * המחיקה על מה שנקרא **עכשיו** מתחת לנעילה, ולא על צילום ישן:
+       * סורק ההתראות כותב לאותה עמודה במקביל.
+       */
       const merged = mergeTurns(parseTurns(row?.history), chat.added);
+      const history = chat.added.length > 0 ? merged : withoutOffer(merged);
       const data = {
         // Prisma דורש את הסמן המפורש ל-null בעמודת JSON — לא null גולמי
         ...(chat.keepStoredPending === true
@@ -1759,7 +2916,7 @@ export class WhatsAppAssistantService {
                   ? Prisma.JsonNull
                   : (chat.pending as unknown as Prisma.InputJsonValue),
             }),
-        history: turnsAsJson(merged),
+        history: turnsAsJson(history),
       };
       await tx.whatsAppChat.upsert({
         where: { tenantId_userId: { tenantId, userId } },
@@ -1768,6 +2925,19 @@ export class WhatsAppAssistantService {
       });
     });
   }
+}
+
+/**
+ * אותם תורות, בלי ההצעה על האחרון.
+ *
+ * מחזירה את המערך כמות שהוא כשאין מה למחוק — כדי שהכתיבה השכיחה
+ * ביותר (אין הצעה ממילא) לא תיצור עותק בכל הודעה.
+ */
+function withoutOffer(turns: readonly AgentHistoryTurn[]): AgentHistoryTurn[] {
+  const last = turns.at(-1);
+  if (last?.offer === undefined) return [...turns];
+  const { offer: _dropped, ...rest } = last;
+  return [...turns.slice(0, -1), rest];
 }
 
 /**
@@ -1786,7 +2956,19 @@ const SCOPE_CAPABILITIES: Record<string, readonly Capability[]> = {
    * ממי שהמודול חסום אצלו (`seesAllContacts`). בלי היכולת השלישית
    * כאן הסייג היה נעלם דווקא כשחלק מההיסטוריה אכן הוסתר.
    */
-  show_calls: ["buyers.view_all", "leads.view_all", "properties.view"],
+  show_calls: [
+    "buyers.view_all",
+    "leads.view_all",
+    "properties.view",
+    /*
+     * ‏הרביעית נוספה עם ההפרדה לפי סוכן על הנכסים. ההערה שמעל כבר
+     * ‏אמרה למה השלישית כאן — „הסייג היה נעלם דווקא כשחלק
+     * ‏מההיסטוריה אכן הוסתר” — וזה חל מילה במילה גם עליה: סוכן שאין
+     * ‏לו את כל הנכסים מקבל יומן שיחות מסונן, ובלי השורה הזו ההודעה
+     * ‏הייתה מציגה אותו כמשרדי (ביקורת Codex).
+     */
+    "properties.view_all",
+  ],
   /*
    * „למי לחזור” שואבת משלושה מקורות — שיחות, לידים ומשימות —
    * ולכן דורשת את איחוד היכולות שלהם.
@@ -1804,6 +2986,8 @@ const SCOPE_CAPABILITIES: Record<string, readonly Capability[]> = {
     "buyers.view_all",
     "leads.view_all",
     "properties.view",
+    // ‏מאותו נימוק בדיוק כמו ב-`show_calls`: „למי לחזור” שואב משיחות
+    "properties.view_all",
     "tasks.view_all",
     "calendar.manage",
   ],
@@ -1815,7 +2999,7 @@ const SEARCH_SCOPED_GROUPS: readonly { capability: Capability; label: string }[]
   { capability: "leads.view_all", label: "לידים" },
 ];
 
-function scopeNote(actionId: string): string {
+function scopeNote(actionId: string, byPhone = false): string {
   const capabilities = TenantContext.current().capabilities;
 
   /*
@@ -1823,14 +3007,38 @@ function scopeNote(actionId: string): string {
    * הנכסים הם של המשרד ומוצגים במלואם. סייג גורף היה אומר על תוצאת
    * נכסים מלאה שהיא חלקית (ביקורת Codex) — ולכן הוא מונה בשם את
    * הקבוצות המצומצמות, ומזכיר את הנכסים רק למי שרואה אותם.
+   *
+   * ‎**„נכסים — מכל המשרד” חדל להיות נכון תמיד.** חיפוש לפי טלפון
+   * ‏מגיע ללקוח, ולקוח שהוא בעל נכס של עמית מוסתר ממי שאין לו
+   * ‏`properties.view_all` — כלומר התוצאה מצומצמת דווקא במסלול
+   * ‏שהמשפט הבטיח עליו „הכול”. ובמשרד שבו לסוכן יש `view_all` על
+   * ‏קונים ולידים, `restricted` ריק והסייג לא הופיע כלל: אפס
+   * ‏תוצאות נקרא כעובדה על המשרד (ביקורת Codex).
+   *
+   * ‏הסייג על בעלי הנכסים מוצג **רק בחיפוש לפי טלפון**, לפי אותה
+   * ‏בדיקה עצמה שמנתבת את החיפוש (`normalizeIsraeliPhone`). חיפוש
+   * ‏לפי כתובת אינו מסונן כך, וסייג עליו היה מהסוג שנפסל כאן קודם:
+   * ‏נכון על ההרשאה, שקרי על התוצאה.
    */
   if (actionId === "search") {
     const restricted = SEARCH_SCOPED_GROUPS.filter(
       (group) => !capabilities.has(group.capability),
     ).map((group) => group.label);
-    if (restricted.length === 0) return "";
-    const properties = capabilities.has("properties.view") ? "; נכסים — מכל המשרד" : "";
-    return `_(${restricted.join(" ו")} — מהרשומות שמשויכות אליך בלבד${properties})_`;
+    const ownersHidden =
+      byPhone && capabilities.has("properties.view") && !capabilities.has("properties.view_all");
+    if (restricted.length === 0 && !ownersHidden) return "";
+    const parts: string[] = [];
+    if (restricted.length > 0) {
+      parts.push(`${restricted.join(" ו")} — מהרשומות שמשויכות אליך בלבד`);
+    }
+    if (capabilities.has("properties.view")) {
+      parts.push(
+        ownersHidden
+          ? "נכסים — מכל המשרד, אך בעלי נכסים שאינם שלך אינם מופיעים בחיפוש לפי טלפון"
+          : "נכסים — מכל המשרד",
+      );
+    }
+    return `_(${parts.join("; ")})_`;
   }
 
   const required = SCOPE_CAPABILITIES[actionId];
@@ -1853,11 +3061,6 @@ function withHeard(reply: AgentReply, heard: string): AgentReply {
   };
 }
 
-/** „דוד כהן” ⇒ „דוד” — פנייה בשם פרטי, כמו שמדברים בוואטסאפ. */
-function firstName(name: string): string {
-  return name.trim().split(/\s+/u)[0] ?? name;
-}
-
 /**
  * ההכרות הראשונה. שלוש שורות ושלוש דוגמאות — לא מדריך.
  *
@@ -1868,7 +3071,7 @@ function welcomeText(name: string, allowedIds: readonly string[]): string {
   /** עד שלוש דוגמאות — הכרות, לא קטלוג. */
   const examples = agentWelcomeExamples(allowedIds, 3);
   return [
-    `היי ${firstName(name)} 👋`,
+    `היי ${firstNameOf(name)} 👋`,
     "אני העוזרת האישית שלך במתווכים — כאן בוואטסאפ, בלי להיכנס למערכת.",
     "",
     ...(examples.length > 0

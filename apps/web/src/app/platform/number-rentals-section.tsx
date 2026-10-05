@@ -26,6 +26,8 @@ interface RentalRow {
   status: string;
   currentPeriodEnd: string | null;
   provisioned: boolean;
+  /** `purchased` מהמלאי של 015, או `platform` — חיוב שנפתח משולחן החיבורים. */
+  origin: string;
   providerError: string | null;
   createdAt: string;
 }
@@ -53,9 +55,13 @@ export function NumberRentalsSection(): React.JSX.Element {
   useEffect(load, []);
 
   async function release(rental: RentalRow): Promise<void> {
+    const consequence =
+      rental.origin === "platform"
+        ? "החיוב החודשי ייפסק. המספר של המשרד הוא, והניתוב שלו נשאר. אין החזר כספי אוטומטי."
+        : "המספר יימחק מחשבון 015 של הפלטפורמה ושורת הניתוב של המשרד תכובה. אין החזר כספי אוטומטי.";
     if (
       !window.confirm(
-        `לשחרר עכשיו את המספר ${rental.numberDisplay} של "${rental.tenantName}"?\n\nהמספר יימחק מחשבון 015 של הפלטפורמה ושורת הניתוב של המשרד תכובה. אין החזר כספי אוטומטי.`,
+        `לשחרר עכשיו את המספר ${rental.numberDisplay} של "${rental.tenantName}"?\n\n${consequence}`,
       )
     ) {
       return;
@@ -79,10 +85,11 @@ export function NumberRentalsSection(): React.JSX.Element {
   return (
     <section className="mv-list-card mb-8 px-5 py-[17px]" aria-labelledby="number-rentals-heading">
       <h2 id="number-rentals-heading" className="m-0 mb-1" style={{ fontSize: "calc(16.5 / 16 * 1rem)", fontWeight: 800 }}>
-        השכרות מספרים (015)
+        השכרות וחיובי מספרים
       </h2>
       <p className="m-0 mb-3 text-[length:var(--type-caption-lg)]" style={{ color: "var(--color-text-muted)" }}>
-        הרכישה והתפיסה אוטומטיות; הניתוב אצל 015 ידני. שורה אדומה = דרושה פעולה.
+        השכרה מ-015: הרכישה והתפיסה אוטומטיות, הניתוב אצל 015 ידני. חיוב מהפלטפורמה: מספר
+        של המשרד שנגבה עליו שירות חודשי. שורה אדומה = דרושה פעולה.
       </p>
 
       {error ? <Notice tone="danger">{error}</Notice> : null}
@@ -92,9 +99,24 @@ export function NumberRentalsSection(): React.JSX.Element {
       ) : (
         <ul className="m-0 flex list-none flex-col gap-2 p-0">
           {(rentals ?? []).map((rental) => {
+            const platformCharge = rental.origin === "platform";
+            /*
+             * חיוב מהפלטפורמה שהסתיים: המספר עדיין מנותב ואיש לא
+             * משלם — שורה שדורשת החלטה, לא היסטוריה. ביטול **לפני**
+             * סוף התקופה ששולמה אינו כזה: המשרד שילם על החודש הזה,
+             * ושורה אדומה הייתה שולחת לכבות שירות ששולם (ביקורת Codex).
+             */
+            const periodOver =
+              rental.currentPeriodEnd === null || new Date(rental.currentPeriodEnd) <= new Date();
+            const unpaidRouting =
+              platformCharge &&
+              (rental.status === "released" || (rental.status === "cancelled" && periodOver));
+            const cancelledStillPaid =
+              platformCharge && rental.status === "cancelled" && !periodOver;
             const needsAttention =
               rental.status === "past_due" ||
-              (rental.status === "active" && !rental.provisioned) ||
+              (rental.status === "active" && !rental.provisioned && !platformCharge) ||
+              unpaidRouting ||
               rental.providerError !== null;
             return (
               <li
@@ -102,17 +124,24 @@ export function NumberRentalsSection(): React.JSX.Element {
                 className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border p-2.5 text-[length:var(--type-caption-lg)]"
                 style={{
                   borderColor: needsAttention ? "var(--color-danger)" : "var(--color-border)",
-                  opacity: rental.status === "released" ? 0.55 : 1,
+                  opacity: rental.status === "released" && !unpaidRouting ? 0.55 : 1,
                 }}
               >
                 <b className="mv-ltr">{rental.numberDisplay}</b>
                 <span>{rental.tenantName}</span>
+                <span style={{ color: "var(--color-text-muted)" }}>
+                  {platformCharge ? "חיוב מהפלטפורמה" : "השכרה מ-015"}
+                </span>
                 <span>
                   {formatNumber(rental.monthlyAgorot / 100)} ₪ לחודש לפני מע&quot;מ
                 </span>
                 <span style={needsAttention ? { color: "var(--color-danger)", fontWeight: 700 } : undefined}>
                   {STATUS_LABELS[rental.status] ?? rental.status}
-                  {rental.status === "active" && !rental.provisioned ? " · שולם אך לא נתפס!" : ""}
+                  {rental.status === "active" && !rental.provisioned && !platformCharge
+                    ? " · שולם אך לא נתפס!"
+                    : ""}
+                  {unpaidRouting ? " · המספר עדיין מנותב בלי תשלום — לטפל" : ""}
+                  {cancelledStillPaid ? " · שולם עד סוף התקופה; אחריה לטפל בניתוב" : ""}
                 </span>
                 {rental.currentPeriodEnd ? (
                   <span style={{ color: "var(--color-text-muted)" }}>

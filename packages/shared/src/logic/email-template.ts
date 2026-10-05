@@ -1,3 +1,5 @@
+import { PRODUCT_NAME } from "./email-domain.js";
+
 /**
  * תבנית האימייל של המערכת — עברית, מימין לשמאל, ורספונסיבית.
  *
@@ -33,9 +35,38 @@ const BRAND = {
 const FONT_STACK =
   "'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans Hebrew', sans-serif";
 
+/** ‏צבעי התגים — רקע וטקסט לכל טון, כולם מעל 4.5:1. */
+const BADGE_COLORS: Record<EmailBadgeTone, { bg: string; fg: string }> = {
+  info: { bg: "#e5fcea", fg: "#0C6E34" },
+  success: { bg: "#e5fcea", fg: "#0C6E34" },
+  warning: { bg: "#fff1e0", fg: "#8f4200" },
+  danger: { bg: "#fdecea", fg: "#b0512c" },
+  neutral: { bg: "#eef1ed", fg: "#4a544c" },
+};
+
 export interface EmailButton {
   label: string;
   url: string;
+}
+
+/** ‏טון התג — הצבע שאומר „מה קרה” לפני שקוראים את הכותרת. */
+export type EmailBadgeTone = "info" | "success" | "warning" | "danger" | "neutral";
+
+/**
+ * ‏תג מצב מעל הכותרת: „שולם”, „ממתין לתשלום”, „הגיליון נסגר מחר”.
+ *
+ * ‏מייל של שלב בתהליך נקרא קודם כול בסריקה — מה המצב עכשיו — ורק
+ * ‏אחר כך בפירוט. התג הוא מה שנקרא בסריקה.
+ */
+export interface EmailBadge {
+  label: string;
+  tone?: EmailBadgeTone;
+}
+
+/** ‏שורה בכרטיס הפרטים: „מוצר — רבע עמוד”. */
+export interface EmailDetail {
+  label: string;
+  value: string;
 }
 
 export interface EmailContent {
@@ -56,6 +87,19 @@ export interface EmailContent {
    * מוצגת קטנה ומעומעמת, מתחת לקו.
    */
   footnote?: string;
+  /**
+   * ‏תג מצב מעל הכותרת. ראו `EmailBadge`.
+   */
+  badge?: EmailBadge;
+  /**
+   * ‏כרטיס פרטים — שורות „תווית / ערך” בתוך מסגרת, אחרי הפסקאות.
+   *
+   * ‏הזמנה, תשלום, פנייה — כולם נושאים אותם עשרה פרטים, ופסקה
+   * ‏שמונה אותם ברצף היא פסקה שאיש אינו קורא. טבלה קטנה נקראת
+   * ‏גם בטלפון וגם ב-Outlook, ואותה הצורה חוזרת בכל מייל של אותו
+   * ‏תהליך.
+   */
+  details?: readonly EmailDetail[];
   /**
    * ערך בולט שצריך להיקרא ולהיות מועתק — קוד אימות.
    * מוצג גדול, במרווח אותיות, ולא כקישור.
@@ -88,6 +132,16 @@ export interface EmailQuote {
  * כלומר קלט של אדם. שם שמכיל `<` היה שובר את המבנה, ותוכן ממוקד
  * יותר היה יכול להזריק קישור לגוף ההודעה.
  */
+/**
+ * ‏השם הפרטי מתוך שם מלא — ל„שלום דנה,” בפתיחת מייל.
+ *
+ * ‏היה עותק פרטי בכל סבב מייל; שני עותקים של אותה שורה נפרדים ביום
+ * ‏שמישהו מתקן אחד מהם (שם עם רווח מוביל, שם ריק).
+ */
+export function firstNameOf(name: string): string {
+  return name.trim().split(/\s+/u)[0] ?? "";
+}
+
 export function escapeHtml(value: string): string {
   return value
     .replace(/&/gu, "&amp;")
@@ -110,8 +164,13 @@ function safeUrl(url: string): string | null {
 /** הגוף כטקסט — נגזר מאותו תוכן, לא נכתב בנפרד. */
 export function renderEmailText(content: EmailContent): string {
   const lines: string[] = [];
+  if (content.badge) lines.push(`[${content.badge.label}]`, "");
   if (content.greeting) lines.push(content.greeting, "");
   for (const paragraph of content.paragraphs) lines.push(paragraph, "");
+  if (content.details && content.details.length > 0) {
+    for (const item of content.details) lines.push(`${item.label}: ${item.value}`);
+    lines.push("");
+  }
   if (content.code) lines.push(content.code, "");
   if (content.links) {
     for (const link of content.links) lines.push(`${link.label}: ${link.url}`);
@@ -141,9 +200,17 @@ export function renderEmailText(content: EmailContent): string {
  * הוא מה שהופך אותו לרספונסיבי בנייד — הטבלה מצטמצמת ולא נחתכת.
  * ‏`max-width` לבדו אינו נתמך בכל לקוח, ולכן שניהם.
  */
-export function renderEmailHtml(content: EmailContent, productName = "מתווכים"): string {
+export function renderEmailHtml(content: EmailContent, productName = PRODUCT_NAME): string {
   const parts: string[] = [];
 
+  if (content.badge) {
+    const colors = BADGE_COLORS[content.badge.tone ?? "info"];
+    parts.push(
+      `<p style="margin:0 0 12px;"><span style="display:inline-block;padding:4px 12px;border-radius:999px;` +
+        `font-size:14px;font-weight:700;letter-spacing:0.2px;background:${colors.bg};color:${colors.fg};">` +
+        `${escapeHtml(content.badge.label)}</span></p>`,
+    );
+  }
   if (content.heading) {
     parts.push(
       `<h1 style="margin:0 0 16px;font-size:20px;line-height:1.4;font-weight:700;color:${BRAND.text};">${escapeHtml(content.heading)}</h1>`,
@@ -157,6 +224,30 @@ export function renderEmailHtml(content: EmailContent, productName = "מתווכ
   for (const paragraph of content.paragraphs) {
     parts.push(
       `<p style="margin:0 0 12px;font-size:16px;line-height:1.6;color:${BRAND.text};">${escapeHtml(paragraph)}</p>`,
+    );
+  }
+  if (content.details && content.details.length > 0) {
+    /*
+     * ‏טבלה ולא רשימת הגדרות: `<dl>` מקבל שוליים שונים בכל לקוח,
+     * ‏ו-`<table>` עם ריפוד בתאים נראה אותו דבר בכולם. התווית
+     * ‏ברוחב קבוע ומעומעמת; הערך בטקסט מלא. `white-space:nowrap`
+     * ‏על התווית — אחרת „איש קשר במשרד” נשבר לשתי שורות ליד ערך ארוך.
+     */
+    const rows = content.details
+      .map(
+        (item) =>
+          `<tr>` +
+          `<td style="padding:7px 0 7px 14px;font-size:14px;color:${BRAND.muted};white-space:nowrap;vertical-align:top;border-top:1px solid ${BRAND.border};">${escapeHtml(item.label)}</td>` +
+          `<td style="padding:7px 0;font-size:15px;font-weight:600;color:${BRAND.text};vertical-align:top;border-top:1px solid ${BRAND.border};width:100%;">${escapeHtml(item.value)}</td>` +
+          `</tr>`,
+      )
+      .join("");
+    parts.push(
+      `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" ` +
+        `style="margin:6px 0 18px;padding:4px 14px 8px;background:${BRAND.background};border:1px solid ${BRAND.border};border-radius:10px;border-collapse:separate;">` +
+        `<tr><td style="padding:0;">` +
+        `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;">${rows}</table>` +
+        `</td></tr></table>`,
     );
   }
   if (content.code) {

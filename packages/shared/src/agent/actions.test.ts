@@ -35,7 +35,13 @@ describe("קטלוג הפעולות — שלמות מבנית", () => {
    */
   it("לכל פעולה יש יכולת קיימת", () => {
     for (const action of AGENT_ACTIONS) {
-      expect(CAPABILITIES, `${action.id}`).toContain(action.capability);
+      /*
+       * ‎`null` = פעולה על הרשומה של הקורא עצמו, שאין יכולת
+       * ‏שמתארת אותה. היא נבדקת בנפרד — ראו „פעולה בלי שער”.
+       */
+      if (action.capability !== null) {
+        expect(CAPABILITIES, `${action.id}`).toContain(action.capability);
+      }
       for (const alt of action.capabilityAlts ?? []) {
         expect(CAPABILITIES, `${action.id}`).toContain(alt);
         // חלופה שהיא אותה יכולת אינה חלופה — סימן להעתקה
@@ -65,7 +71,9 @@ describe("קטלוג הפעולות — שלמות מבנית", () => {
       }
       expect(mayUseAction(action, new Set()), action.id).toBe(false);
     }
-    for (const action of AGENT_ACTIONS.filter((a) => (a.capabilityAlts ?? []).length === 0)) {
+    for (const action of AGENT_ACTIONS.filter(
+      (a) => (a.capabilityAlts ?? []).length === 0 && a.capability !== null,
+    )) {
       expect(mayUseAction(action, new Set()), action.id).toBe(false);
     }
   });
@@ -75,10 +83,39 @@ describe("קטלוג הפעולות — שלמות מבנית", () => {
    * הרסניות. הצעה מתמלול שגוי יכולה במקרה הגרוע לבקש רשומה מיותרת,
    * ולא למחוק רשומה שאי אפשר להחזיר.
    */
+  /**
+   * ‎**פעולה בלי שער — ומה מחזיק אותה.**
+   *
+   * ‎`capability: null` פירושו „כל משתמש מחובר”, וזה נכון **רק**
+   * ‏כשהפעולה נוגעת ברשומה של הקורא עצמו. אין יכולת שמתארת
+   * ‏„מותר לך לראות את עצמך”, ובחירה ביכולת אקראית שכולם מחזיקים
+   * ‏בה הייתה משקרת על מה שנבדק בפועל.
+   *
+   * ‏הסכנה היא ההרחבה הבאה: פעולה שמקבלת `userId` בפרמטרים
+   * ‏ומסומנת `null` היא נתיב לקריאת הפרופיל של כל אחד. לכן
+   * ‏הבדיקה כאן על **השדות**: פעולה בלי שער אינה מצהירה על שום
+   * ‏שדה שמזהה מישהו — המזהה מגיע מההקשר בלבד.
+   */
+  it("פעולה בלי שער אינה מקבלת מזהה של מישהו", () => {
+    const open = AGENT_ACTIONS.filter((a) => a.capability === null);
+    expect(open.length, "אין פעולות בלי שער — הבדיקה ריקה").toBeGreaterThan(0);
+    for (const action of open) {
+      expect(mayUseAction(action, new Set()), `${action.id} נחסם`).toBe(true);
+      for (const field of action.fields) {
+        expect(
+          /^(user|member|agent|owner|contact|buyer|lead)?Id$|Phrase$|^userId$/u.test(field.key),
+          `${action.id}.${field.key} — שדה מזהה בפעולה בלי שער`,
+        ).toBe(false);
+      }
+      /* ‏וגם לא דרך `resolved`, שהוא המסלול השני לפרמטרים */
+      expect(action.resolved ?? [], `${action.id} פותרת ישות בלי שער`).toEqual([]);
+    }
+  });
+
   it("אין פעולה הרסנית בקטלוג", () => {
     for (const action of AGENT_ACTIONS) {
       expect(action.id).not.toMatch(/delete|remove|cancel|purge|archive/u);
-      expect(action.capability).not.toMatch(/\.delete$/u);
+      expect(action.capability ?? "").not.toMatch(/\.delete$/u);
     }
   });
 
@@ -371,5 +408,102 @@ describe("הפרומפט", () => {
   it("מרכאות בתמלול אינן שוברות את המבנה", () => {
     const prompt = buildInterpretPrompt('הדירה ב"הרב שך"', context);
     expect(prompt).toContain("הדירה ב'הרב שך'");
+  });
+});
+
+/*
+ * ‎**שתי פעולות הטופס — ההבדל ביניהן הוא כל הסיפור.**
+ *
+ * ‎`send_intake_form` הולכת ללקוח שיש לו כרטיס, ולכן הנמען נבחר
+ * במפורש (`alwaysChoose` בשירות הפתרון). `open_intake_link` נועדה
+ * למי שאין לו כרטיס בכלל, ולכן אין לה נמען לבחור.
+ *
+ * הפיצול לשתי פעולות ולא לשדה אופציונלי אחד הוא בדיוק מה שהבדיקה
+ * הזו נועלת. `cardId` אופציונלי היה הופך „תשלח לדני טופס”, כשאין
+ * דני במאגר, מ**עצירה ושאלה** ל**קישור פתוח בשקט** — כלומר את
+ * ההפרדה בין „שגיתי בשם” לבין „זה לקוח חדש”. שדה כרטיס שיתווסף
+ * כאן מאוחר יותר, מתוך כוונה טובה, מחזיר את הבלבול הזה.
+ */
+describe("קישור פתוח מול טופס לכרטיס", () => {
+  const open = agentAction("open_intake_link");
+  const carded = agentAction("send_intake_form");
+
+  it("שתיהן קיימות בקטלוג", () => {
+    expect(open).toBeDefined();
+    expect(carded).toBeDefined();
+  });
+
+  it("לקישור הפתוח אין שדה כרטיס — אין למי לשלוח, וזו הנקודה", () => {
+    expect(open!.fields).toEqual([]);
+  });
+
+  it("לטופס לכרטיס יש שדה כרטיס", () => {
+    expect(carded!.fields.map((field) => field.key)).toContain("buyerPhrase");
+  });
+
+  /*
+   * ‎`POST /intake/open` דורש `buyers.edit` לבדה, כי הקישור מייצר
+   * כרטיס קונה. הצהרה על `leads.edit` כחלופה הייתה מבטיחה למשתמש
+   * פעולה שהשירות ידחה — הבטחה שנשברת אחרי האישור.
+   */
+  it("הקישור הפתוח דורש buyers.edit בלבד, כמו המסלול שהוא קורא לו", () => {
+    expect(open!.capability).toBe("buyers.edit");
+    expect(open!.capabilityAlts).toBeUndefined();
+  });
+
+  it("יצירת קישור אינה יוצאת מהמשרד ולכן אינה outbound", () => {
+    expect(open!.risk).toBe("create");
+    expect(carded!.risk).toBe("outbound");
+  });
+
+  /*
+   * שתיהן מדברות על „טופס”, והמודל בוחר ביניהן לפי `when` בלבד.
+   * כל אחת מפנה במפורש לשנייה, כדי שהתיאור יאמר לא רק מה הפעולה
+   * עושה אלא גם מתי היא **אינה** הנכונה.
+   */
+  it("כל תיאור מפנה לפעולה השנייה", () => {
+    expect(open!.when).toContain("טופס פרטים ללקוח");
+    expect(carded!.when).toContain("מילוי-עצמי");
+  });
+});
+
+/**
+ * ‎**„בין סוכנים ניתן להעביר לידים בלבד” — בקטלוג.**
+ *
+ * ‏שתי הפעולות נראות דומות ואינן: `assign_task` מעבירה משימה והיא
+ * ‏פעולת מנהל; `transfer_lead` מוסרת ליד, וזה החריג היחיד שסוכן
+ * ‏רגיל יכול לעשות. היכולת שכתובה בקטלוג היא מה שקובע מה הבוט
+ * ‏מציע — ואם היא תתיישר עם `assign_task`, החריג נעלם בשקט.
+ */
+describe("שיוך ומסירה בקטלוג", () => {
+  const byId = (id: string) => AGENT_ACTIONS.find((action) => action.id === id);
+
+  it("מסירת ליד היא `leads.edit` — ולא הרשאת מנהל", () => {
+    expect(byId("transfer_lead")?.capability).toBe("leads.edit");
+  });
+
+  it("והעברת משימה נשארת פעולת מנהל", () => {
+    expect(byId("assign_task")?.capability).toBe("tasks.assign");
+  });
+
+  /*
+   * ‎**„תשייך משימה לדנה” במשפט אחד.** בלי השדה הזה הבקשה דורשת
+   * ‏שתי פניות — ליצור על עצמך ואז להעביר — וזה נקרא בשיחה כאילו
+   * ‏היא לא הובנה.
+   */
+  it("יצירת משימה מקבלת „על מי” — רשות", () => {
+    const keys = byId("create_task")?.fields.map((field) => field.key) ?? [];
+    expect(keys).toContain("assigneePhrase");
+    expect(keys).toContain("title");
+  });
+
+  /*
+   * ‏שתי הפעולות נוקבות באותו דבר — סוכן במשרד — ולכן באותו מפתח.
+   * ‏מפתח שני היה נותן למודל שני תיאורים לאותה שאלה.
+   */
+  it("שתיהן נוקבות בסוכן באותו מפתח", () => {
+    for (const id of ["assign_task", "transfer_lead", "create_task"]) {
+      expect(byId(id)?.fields.some((field) => field.key === "assigneePhrase")).toBe(true);
+    }
   });
 });

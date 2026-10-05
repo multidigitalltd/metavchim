@@ -43,13 +43,81 @@ describe("notificationUrl", () => {
     expect(notificationUrl(note({ entityType: "offer", entityId: null }))).toBe("/offers");
   });
 
-  it("נופל לדשבורד כשאין ישות", () => {
-    expect(notificationUrl(note({ entityType: null, entityId: null }))).toBe("/");
+  /* ‏סיכום יומי — אין לו מסך נושא, ומסך ההתראות מציג את גופו במלואו */
+  it("נופל לדשבורד כשאין ישות ואין מסך לנושא", () => {
+    expect(notificationUrl(note({ type: "daily_brief", entityType: null, entityId: null }))).toBe("/");
   });
 
   // לחיצה על התראה שנוחתת על 404 גרועה מהתראה שלא נשלחה
   it("נופל לדשבורד גם על ישות שאינה מוכרת", () => {
-    expect(notificationUrl(note({ entityType: "widget", entityId: "abc" }))).toBe("/");
+    expect(notificationUrl(note({ type: "daily_brief", entityType: "widget", entityId: "abc" }))).toBe("/");
+  });
+
+  /*
+   * ‏„שיחה נכנסת” מלקוח מוכר נכתבת על איש הקשר, שאין לו עמוד — והכפתור
+   * ‏„צפייה במערכת” נחת על מסך ההתראות במקום על השיחות (בקשת המשתמש).
+   */
+  it("שיחה נכנסת על איש קשר נוחתת על השיחות", () => {
+    expect(notificationUrl(note({ type: "incoming_call", entityType: "contact", entityId: "c1" }))).toBe("/calls");
+    expect(notificationUrl(note({ type: "call_missed", entityType: null, entityId: null }))).toBe("/calls");
+  });
+
+  it("בלי ישות שיש לה מסך — המסך של הנושא", () => {
+    expect(notificationUrl(note({ type: "lead_sla", entityType: null, entityId: null }))).toBe("/leads");
+    expect(notificationUrl(note({ type: "matches_refreshed", entityType: null, entityId: null }))).toBe("/matches");
+    expect(notificationUrl(note({ type: "coop_offer_declined", entityType: null, entityId: null }))).toBe("/collaboration");
+    expect(notificationUrl(note({ type: "email_reply", entityType: "contact", entityId: "c1" }))).toBe("/inbox");
+  });
+
+  /* ‏הקטגוריה היא העדפת השתקה, לא המסך — ההודעות האלה מדברות על מסך אחר */
+  it("סוג שהמסך שלו אינו רשימת הקטגוריה נוחת על המסך שלו", () => {
+    expect(
+      notificationUrl(note({ type: "payout_decision", entityType: "payout_request", entityId: "p1" })),
+    ).toBe("/settings?tab=billing");
+    expect(notificationUrl(note({ type: "match_weights_calibrated", entityType: null, entityId: null }))).toBe(
+      "/settings#match-weights",
+    );
+  });
+
+  /* ‏ישות עם מסך עדיין קובעת — הנושא הוא רק מה שבא במקום כשאין */
+  it("ישות עם מסך גוברת על הנושא", () => {
+    expect(notificationUrl(note({ type: "incoming_call", entityType: "lead", entityId: "l1" }))).toBe("/leads/l1");
+    expect(notificationUrl(note({ type: "email_reply", entityType: "buyer", entityId: "b1" }))).toBe("/buyers/b1");
+  });
+
+  /*
+   * ‏הבקשה שהולידה את השורה: המתווך שהציע קיבל „נפתח חדר עסקה”
+   * בלי לדעת איפה החדר. `"/"` הוא בדיוק מה ש-`formatNotifyMessage`
+   * מדלגת עליו, ולכן חוסר בטבלה נראה כהודעה בלי קישור — ולא ככשל.
+   */
+  it("מקשר ישירות לחדר העסקה", () => {
+    expect(notificationUrl(note({ entityType: "coop_deal", entityId: "d1" }))).toBe(
+      "/collaboration/deals/d1",
+    );
+  });
+
+  it("חדר עסקה בלי מזהה נוחת בלשונית העסקאות", () => {
+    expect(notificationUrl(note({ entityType: "coop_deal", entityId: null }))).toBe(
+      "/collaboration?tab=deals",
+    );
+  });
+
+  /*
+   * שלוש הישויות שייצרו 404: לכל אחת יש מסך רשימה בלבד, ומזהה
+   * שנדבק אליו הפיל את הלחיצה על נתיב שאינו קיים.
+   */
+  it("הצעה נוחתת ברשימה גם כשיש מזהה — אין מסך להצעה בודדת", () => {
+    expect(notificationUrl(note({ entityType: "offer", entityId: "o1" }))).toBe("/offers");
+  });
+
+  it("התאמה נוחתת ברשימה גם כשיש מזהה", () => {
+    expect(notificationUrl(note({ entityType: "match", entityId: "m1" }))).toBe("/matches");
+  });
+
+  it("הצעת שיתוף נוחתת בלשונית „הצעות שקיבלתי”", () => {
+    expect(notificationUrl(note({ entityType: "coop_offer", entityId: "c1" }))).toBe(
+      "/collaboration?tab=incoming",
+    );
   });
 });
 

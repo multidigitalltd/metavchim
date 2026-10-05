@@ -65,6 +65,9 @@ interface Fakes {
 /** השירות מעל תלויות מזויפות — בלי מסד, בלי סולק, בלי 015. */
 function service(fakes: Fakes = {}): {
   svc: NumberRentalService;
+  charged: number[];
+  payments: number[];
+  rates: (number | undefined)[];
   sentEmails: { to: string; subject: string }[];
   updates: Record<string, unknown>[];
   paymentBatchUpdates: Record<string, unknown>[];

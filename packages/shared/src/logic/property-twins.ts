@@ -90,10 +90,36 @@ export function twinNoteRejectionReason(note: string): string | null {
  * מוצגים לו ואינו יכול להסיר.
  */
 export function twinLimitRejectionReason(current: number): string | null {
-  if (current >= MAX_TWINS_PER_PROPERTY) {
+  return twinBatchRejectionReason(current, 1);
+}
+
+/**
+ * ‎**אותה תקרה, כשמסמנים כמה בבת אחת.**
+ *
+ * ‏הבורר מאפשר לבחור כמה נכסים בסימון אחד (בקשת המשתמש), ולכן
+ * ‏השאלה אינה עוד „האם יש מקום לאחד” אלא „האם יש מקום לכולם”.
+ * ‏שליחה ואז כישלון על השלישי מתוך חמישה משאירה חצי עבודה — שניים
+ * ‏נשמרו, שלושה לא, והמתווך צריך להבין מה קרה. עדיף לומר לפני.
+ *
+ * ‎**וזו אותה פונקציה ולא שנייה לצידה.** התקרה נבדקת גם בשרת
+ * ‏(`PropertyTwinsService`), וכלל שני בצד הלקוח היה נפרד ממנה
+ * ‏בשקט ביום שהמספר משתנה — בדיוק סוג הכפילות שהמסמך הזה נבנה
+ * ‏למנוע. „אחד” הוא מקרה פרטי, ולא ההפך.
+ *
+ * ‎`adding <= 0` מחזיר `null`: „לא נבחר דבר” אינו חריגה מהתקרה,
+ * ‏וההודעה עליו היא של הבורר ולא של הכלל הזה.
+ */
+export function twinBatchRejectionReason(
+  current: number,
+  adding: number,
+): string | null {
+  if (adding <= 0) return null;
+  if (current + adding <= MAX_TWINS_PER_PROPERTY) return null;
+  const room = Math.max(0, MAX_TWINS_PER_PROPERTY - current);
+  if (room === 0) {
     return `אפשר לסמן עד ${MAX_TWINS_PER_PROPERTY} נכסים תואמים לנכס. הסירו אחד כדי להוסיף אחר.`;
   }
-  return null;
+  return `אפשר לסמן עוד ${room} ${room === 1 ? "נכס" : "נכסים"} בלבד — התקרה היא ${MAX_TWINS_PER_PROPERTY} לנכס. בחרתם ${adding}.`;
 }
 
 /** השדות שמהם נבנית שורת הכותרת של נכס. כולם רשות — נכס בקליטה חלקי. */

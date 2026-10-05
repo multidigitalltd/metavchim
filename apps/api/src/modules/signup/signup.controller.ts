@@ -7,17 +7,23 @@ import {
   formatPlanPrice,
   planPriceLabel,
   PRICE_TERMS_NOTE,
+  SignupInputSchema,
   yearlySavingPercent,
+  PlanCodeSchema,
   type PlanFeature,
+  type SignupInput,
 } from "@metavchim/shared";
 import { Public } from "../../common/auth.decorators";
-import { loadEnv } from "../../config/env";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { AuthService } from "../auth/auth.service";
-import { SESSION_COOKIE } from "../auth/auth.controller";
+import { setSessionCookie } from "../../common/session-token";
 import { SignupService } from "./signup.service";
 import { CouponService } from "./coupon.service";
-import { SignupVerificationService } from "./signup-verification.service";
+import {
+  MAX_TENANTS_PER_SOURCE,
+  SignupVerificationService,
+  TENANT_SOURCE_WINDOW_SECONDS,
+} from "./signup-verification.service";
 
 /**
  * הרשמה עצמית — הנתיב הציבורי היחיד שיוצר דייר חדש.
@@ -31,28 +37,8 @@ import { SignupVerificationService } from "./signup-verification.service";
  * שהקוד חזר. מי שמילא כתובת שאינה שלו אינו מגיע לשלב השני.
  */
 
-const SignupSchema = z
-  .object({
-    agencyName: z.string().trim().min(2).max(120),
-    ownerName: z.string().trim().min(2).max(120),
-    email: z.string().email().max(254),
-    phone: z.union([z.string().regex(/^[\d\-+ ]{9,20}$/u), z.literal("")]).optional(),
-    /*
-     * אותו מינימום של החלפת סיסמה (10) ולא זה של ההתחברות (8).
-     * הסיסמה הראשונה של בעל משרד היא המפתח לכל נתוני הלקוחות שלו,
-     * ואין סיבה שדרישת הסף בפתיחת חשבון תהיה נמוכה מזו של החלפה.
-     */
-    password: z.string().min(10).max(200),
-    plan: z.string().min(2).max(20),
-    /** קוד קופון — לא חובה. הנרמול והבדיקה בשרת. */
-    coupon: z.string().max(40).optional(),
-    /** אישור מפורש לתנאים — נדרש לפני יצירת החשבון. */
-    acceptTerms: z.literal(true),
-  })
-  .strict();
-
 const CouponCheckSchema = z
-  .object({ code: z.string().min(1).max(40), plan: z.string().min(2).max(20) })
+  .object({ code: z.string().min(1).max(40), plan: PlanCodeSchema })
   .strict();
 
 /**
@@ -165,11 +151,17 @@ export class SignupController {
    * הקליד, ולכן אין כאן חשיפה של דבר.
    */
   @Public()
-  @Throttle({ default: { limit: 3, ttl: 3_600_000 } })
+  /*
+   * ‎**התקרה משותפת עם הנתיב השני שפותח דייר** — הכניסה עם Google.
+   * ‏המונים נפרדים, המספר אחד; ראו `MAX_TENANTS_PER_SOURCE`.
+   */
+  @Throttle({
+    default: { limit: MAX_TENANTS_PER_SOURCE, ttl: TENANT_SOURCE_WINDOW_SECONDS * 1_000 },
+  })
   @Post()
   @HttpCode(200)
   async register(
-    @Body(new ZodValidationPipe(SignupSchema)) body: z.infer<typeof SignupSchema>,
+    @Body(new ZodValidationPipe(SignupInputSchema)) body: SignupInput,
   ): Promise<{ token: string; email: string }> {
     return this.signup.prepare(body);
   }
@@ -221,13 +213,7 @@ export class SignupController {
       ip: req.ip,
       userAgent: req.headers["user-agent"],
     });
-    res.cookie(SESSION_COOKIE, token, {
-      httpOnly: true,
-      secure: loadEnv().COOKIE_SECURE,
-      sameSite: "lax",
-      expires: expiresAt,
-      path: "/",
-    });
+    setSessionCookie(res, token, expiresAt);
     return {
       // null = מסלול חינמי, בלי תפוגה
       trialEndsAt: trialEndsAt?.toISOString() ?? null,

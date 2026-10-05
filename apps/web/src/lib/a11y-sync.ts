@@ -157,7 +157,9 @@ export async function resyncA11yForUser(): Promise<A11yPrefs | null> {
  * מחובר, והשרת עונה 401. הכישלון נבלע בכוונה: ההתאמה כבר הוחלה
  * ונשמרה במכשיר, וזה כל מה שמבקר לא-מחובר יכול לצפות לו.
  */
-export function persistA11yToServer(next: A11yPrefs): void {
+export function persistA11yToServer(next: A11yPrefs): Promise<void> {
   localEdits += 1;
-  apiPatch("/auth/profile", { preferences: { a11y: next } }).catch(() => undefined);
+  return apiPatch("/auth/profile", { preferences: { a11y: next } })
+    .then(() => undefined)
+    .catch(() => undefined);
 }

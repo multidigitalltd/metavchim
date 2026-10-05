@@ -67,10 +67,14 @@ export class OriginGuard implements CanActivate {
    * ה-Origin כפי שהדפדפן הצהיר עליו — מ-`Origin`, ואם אין, מתוך
    * `Referer`. שניהם נכתבים ע"י הדפדפן ואינם ניתנים לזיוף מדף זר,
    * וזה כל מה שנדרש כאן.
+   *
+   * `Origin: null` (iframe ב-sandbox, דף `data:`, חלק משרשורי הפניה)
+   * הוא הצהרה על מקור זר — לא היעדר דפדפן — ולכן חוזר כמות שהוא
+   * ונכשל מול המקור המורשה, במקום ליפול ל-Referer ולעבור.
    */
   private declaredOrigin(request: Request): string | null {
     const origin = request.headers.origin;
-    if (typeof origin === "string" && origin !== "" && origin !== "null") return origin;
+    if (typeof origin === "string" && origin !== "") return origin;
 
     const referer = request.headers.referer;
     if (typeof referer === "string" && referer !== "") {

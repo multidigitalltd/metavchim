@@ -1,4 +1,4 @@
-import { z } from "zod";
+import * as z from "../zod.js";
 import { IdSchema } from "../schemas/common.js";
 import type { DomainEventName, DomainEventPayload } from "../events.js";
 import { formatIsraeliNumber } from "./israel-time.js";
@@ -16,6 +16,19 @@ function shekels(agorot: number): string {
  * ה-Dispatcher (ב-API) בונה את התוכן; ה-Worker רק כותב את השורה —
  * כך הניסוחים חיים במקום אחד, טהור ובדוק.
  */
+
+/**
+ * ‎**הכותרת והגוף של התראה אחת — הצורה, בלי הנמען ובלי הסוג.**
+ *
+ * ‏זה מה שפונקציית ניסוח מחזירה: `goalReachedCopy`, `feedbackCopy`,
+ * ‎`demandMatchCopy`. הן חיות כל אחת בקובץ התכונה שלה, כי הניסוח
+ * הוא של התכונה — אבל הצורה משותפת, וכשכל אחת הכריזה עליה בעצמה
+ * שתי הצהרות זהות התנגשו בייצוא של החבילה.
+ */
+export interface NotificationCopy {
+  title: string;
+  body: string;
+}
 
 export const NotificationJobSchema = z.object({
   tenantId: IdSchema,

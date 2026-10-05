@@ -4,6 +4,30 @@
  */
 export const CAPABILITIES = [
   "properties.view",
+  /**
+   * ‎**הלקוחות שמאחורי הנכסים — של כל המשרד, או רק של הנכסים שלי.**
+   *
+   * ‏מקבילה מדויקת ל-`buyers.view_all` מול `buyers.view_own`, ונוספה
+   * ‏כדי שההחלטה תהיה **של מנהל המשרד** ולא שלנו: יש משרדים שכל
+   * ‏הנכסים בהם משותפים, ויש משרדים שבהם נכס שייך לסוכן שגייס אותו
+   * ‏ואסור שעמית ידבר עם הבעלים מאחורי גבו.
+   *
+   * ## ‎**מה היא מכסה, ומה לא — במדויק**
+   *
+   * ‏היא נקראת בשני מקומות בלבד, ושניהם על **לקוחות**:
+   * ‎`visibleContactIds` ו-`assertContactAccess`. לכן היא קובעת מי
+   * ‏רואה את בעל הנכס והדייר — ומשם את הדואר, השיחות, ההסכמים
+   * ‏והחיפוש שלהם.
+   *
+   * ‏היא **אינה** מסתירה את הנכס עצמו מרשימת הנכסים: `properties.view`
+   * ‏נשאר שער המודול, והרשימה נשארת משרדית. ההפרדה כאן היא על
+   * ‏האנשים, שם יושבת הפגיעה — לא על הכתובת.
+   *
+   * ‏כל תפקיד שיש לו היום `properties.view` מקבל גם אותה, ולכן
+   * ‏ברירת המחדל זהה לחלוטין למה שהיה: מנהל שרוצה הפרדה חוסם אותה
+   * ‏לסוכן במסך ההרשאות.
+   */
+  "properties.view_all",
   "properties.create",
   "properties.edit",
   "properties.delete",
@@ -108,6 +132,7 @@ export const ROLE_CAPABILITIES: Record<string, readonly Capability[]> = {
    */
   branch_manager: [
     "properties.view",
+    "properties.view_all",
     "properties.create",
     "properties.edit",
     "properties.delete",
@@ -145,6 +170,7 @@ export const ROLE_CAPABILITIES: Record<string, readonly Capability[]> = {
   ],
   agent: [
     "properties.view",
+    "properties.view_all",
     "properties.create",
     "properties.edit",
     "buyers.view_own",
@@ -158,6 +184,7 @@ export const ROLE_CAPABILITIES: Record<string, readonly Capability[]> = {
   ],
   assistant: [
     "properties.view",
+    "properties.view_all",
     "properties.edit",
     "buyers.view_own",
     "leads.view_own",
@@ -166,7 +193,13 @@ export const ROLE_CAPABILITIES: Record<string, readonly Capability[]> = {
     "matches.manage",
     "calendar.manage",
   ],
-  viewer: ["properties.view", "buyers.view_own", "leads.view_own", "matches.view"],
+  viewer: [
+    "properties.view",
+    "properties.view_all",
+    "buyers.view_own",
+    "leads.view_own",
+    "matches.view",
+  ],
 };
 
 /**

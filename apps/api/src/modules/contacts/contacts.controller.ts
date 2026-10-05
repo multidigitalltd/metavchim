@@ -15,14 +15,14 @@ import {
   CONTACT_ROLES,
   IdSchema,
   PHONE_LABELS,
-  PhoneSchema,
-  normalizePhone,
+  PhoneInputSchema,
   type ContactPerson,
   type DuplicateGroup,
+  OptionalEmailSchema,
 } from "@metavchim/shared";
-import { assertContactAccess, ownershipFilter } from "../../common/ownership";
+import { assertContactAccess, leadOwnershipFilter, ownershipFilter } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
-import { ZodValidationPipe } from "../../common/zod-validation.pipe";
+import { ZodValidationPipe, IdParam } from "../../common/zod-validation.pipe";
 import { AuditService } from "../../core/audit.service";
 import { PrismaService } from "../../core/prisma.service";
 import { AnyAuthenticated, RequireCapability } from "../../common/auth.decorators";
@@ -30,8 +30,8 @@ import { ContactsService } from "./contacts.service";
 import { ContactErasureService } from "./contact-erasure.service";
 import { DuplicatesService } from "./duplicates.service";
 
-/** אותו נרמול של קליטת הלידים — שני כתיבים של מספר חייבים להתלכד. */
-const PhoneField = z.string().trim().max(25).transform(normalizePhone).pipe(PhoneSchema);
+/** אותו נרמול בכל מקום שמקבל מספר שאדם הקליד — ראו `PhoneInputSchema`. */
+const PhoneField = PhoneInputSchema;
 
 const MergeSchema = z
   .object({ survivorId: IdSchema, duplicateId: IdSchema })
@@ -44,7 +44,7 @@ const DismissSchema = z
 
 /** אימייל תקין או מחרוזת ריקה למחיקה — אין מצב "לא נשלח" דו-משמעי. */
 const UpdateEmailSchema = z
-  .object({ email: z.union([z.string().trim().email().max(254), z.literal("")]) })
+  .object({ email: OptionalEmailSchema })
   .strict();
 
 /**
@@ -59,12 +59,19 @@ const AddPhoneSchema = z
   .strict();
 
 /**
+ * ‎**המספר הראשי — תיקון, ולא תוספת.** אין כאן `label`: הראשי הוא
+ * הראשי, ומספר עם תפקיד אחר הוא `AddPhoneSchema`.
+ */
+const UpdatePhoneSchema = z.object({ phone: PhoneField }).strict();
+
+/**
  * ‎**הסכמה לדיוור — `true` להצטרפות מחדש, `false` להסרה.**
  *
  * בוליאני מפורש ולא שני נתיבים: זו עובדה אחת על הלקוח, ולנתיב
  * „הצטרפות” בלי „הסרה” היה חסר בדיוק מה שהמשרד צריך כשלקוח מתקשר.
  */
 const MarketingConsentSchema = z.object({ consent: z.boolean() }).strict();
+const SharedTabuSchema = z.object({ sharedTabu: z.boolean() }).strict();
 
 /** אישור מחיקת לקוח: שמו המדויק — הפעולה אינה הפיכה. */
 const EraseContactSchema = z.object({ confirmName: z.string().min(1).max(120) }).strict();
@@ -95,7 +102,7 @@ const AddPersonSchema = z
     phone: PhoneField,
     role: z.enum(CONTACT_ROLES).default("spouse"),
     // אופציונלי: המתווך לא תמיד יודע את האימייל בזמן ההוספה
-    email: z.union([z.string().trim().email().max(254), z.literal("")]).optional(),
+    email: OptionalEmailSchema.optional(),
   })
   .strict();
 
@@ -142,7 +149,7 @@ export class ContactsController {
   @RequireCapability("contacts.delete")
   @Get(":id/erasure-preview")
   async erasurePreview(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
   ): Promise<ErasurePreviewDto> {
     return this.erasure.preview(id);
   }
@@ -159,7 +166,7 @@ export class ContactsController {
   @Delete(":id")
   @HttpCode(200)
   async erase(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
     @Body(new ZodValidationPipe(EraseContactSchema)) body: z.infer<typeof EraseContactSchema>,
   ): Promise<{ ok: true }> {
     return this.erasure.erase(id, body.confirmName);
@@ -198,21 +205,25 @@ export class ContactsController {
     return this.duplicates.dismiss(body.key);
   }
 
-  // אין כאן יכולת אחת נדרשת: כל תת-רשימה נשלטת ע"י כלל המודול שלה
-  // (הקונה והלידים בפילטר הבעלות, הנכסים כלל-משרדיים) — לכן ההצהרה
-  // היא "מחובר", וההרשאה בפועל נאכפת בתוך השאילתה עצמה.
+  /*
+   * ‏אין כאן יכולת אחת נדרשת: כל תת-רשימה נשלטת ע"י כלל המודול שלה,
+   * ‏ולכן ההצהרה היא "מחובר" וההרשאה נאכפת בתוך השאילתה.
+   *
+   * ‎**מה שהיה חסר: הלקוח עצמו.** הקיום שלו נבדק לפי `id` ו-`tenantId`
+   * ‏בלבד, וענף הנכסים נשלף בלי סינון בעלות — כי „הנכסים גלויים לכל
+   * ‏המשרד”, שהיה נכון לפני `properties.view_all`. מי שיודע מזהה של
+   * ‏בעל נכס מוסתר יכול היה לאשר שהוא קיים **ולראות איזה נכס בדיוק
+   * ‏שייך לו** (ביקורת Codex).
+   */
   @AnyAuthenticated()
   @Get(":id/related")
   async related(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
   ): Promise<RelatedEntitiesDto> {
     const tenantId = TenantContext.current().tenantId;
     return this.prisma.withTenant(async (tx) => {
-      const contact = await tx.contact.findFirst({
-        where: { id, tenantId },
-        select: { id: true },
-      });
-      if (!contact) throw new NotFoundException("איש קשר לא נמצא");
+      // „לא נמצא” ו„אינו שלי” חייבים להיראות זהים — ההבדל מסגיר קיום
+      await assertContactAccess(tx, tenantId, id);
 
       const [buyers, leads, properties] = await Promise.all([
         tx.buyer.findMany({
@@ -230,15 +241,24 @@ export class ContactsController {
           where: {
             tenantId,
             contactId: id,
-            ...ownershipFilter("leads.view_all", "assignedToUserId"),
+            ...leadOwnershipFilter(),
           },
           orderBy: { createdAt: "desc" },
           take: 10,
           select: { id: true, status: true, intent: true, createdAt: true },
         }),
-        // נכסים גלויים לכל המשרד — אין פילטר בעלות במודול הנכסים
+        /*
+         * ‏הנכס עצמו משרדי, אבל **הקישור בינו לבין האדם** הוא מה
+         * ‏שהיכולת מגנה עליו — אותו נימוק בדיוק כמו בחיפוש לפי
+         * ‏טלפון ובכרטיס הנכס.
+         */
         tx.property.findMany({
-          where: { tenantId, ownerContactId: id, deletedAt: null },
+          where: {
+            tenantId,
+            ownerContactId: id,
+            deletedAt: null,
+            ...ownershipFilter("properties.view_all", "agentUserId"),
+          },
           orderBy: { createdAt: "desc" },
           take: 10,
           select: { id: true, marketingTitle: true, city: true, status: true },
@@ -266,7 +286,7 @@ export class ContactsController {
   @AnyAuthenticated()
   @Get(":id/people")
   async people(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
   ): Promise<{
     people: ContactPerson[];
     phones: { id: string | null; phone: string; label: string; primary: boolean }[];
@@ -304,7 +324,7 @@ export class ContactsController {
   @Patch(":id/name")
   @HttpCode(200)
   async setName(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
     @Body(new ZodValidationPipe(UpdateNameSchema)) body: z.infer<typeof UpdateNameSchema>,
   ): Promise<{ ok: true; changed: boolean }> {
     const tenantId = TenantContext.current().tenantId;
@@ -329,7 +349,7 @@ export class ContactsController {
   @Patch(":id/email")
   @HttpCode(200)
   async setEmail(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
     @Body(new ZodValidationPipe(UpdateEmailSchema)) body: z.infer<typeof UpdateEmailSchema>,
   ): Promise<{ ok: true }> {
     const tenantId = TenantContext.current().tenantId;
@@ -338,6 +358,53 @@ export class ContactsController {
       await this.contacts.setEmail(tx, id, body.email.trim());
     });
     return { ok: true };
+  }
+
+  /**
+   * ‎**תיקון המספר הראשי של הכרטיס.**
+   *
+   * ‏ליד שנוצר משיחה או מטופס נושא את המספר שהגיע איתו, וספרה
+   * שגויה אחת נשארה עליו לתמיד: המסך ידע להוסיף מספרים נוספים
+   * ולהסיר אותם, והראשי לא היה ניתן לשינוי בשום מסלול.
+   *
+   * ‎**היכולת היא `buyers.edit`** — בדיוק כמו השם והאימייל, שהם
+   * אותו סוג של נתון על אותו כרטיס.
+   *
+   * ‎**ביומן הביקורת נרשם שהמספר הוחלף — ולא מהו.** הטלפון הוא PII
+   * מוצפן במנוחה, ורישום שלו בטקסט גלוי במטא-דאטה היה מבטל את
+   * ההצפנה; אותה מוסכמה בדיוק כמו ב-`contact.renamed`.
+   */
+  @RequireCapability("buyers.edit")
+  @Patch(":id/phone")
+  @HttpCode(200)
+  async setPhone(
+    @Param("id", IdParam) id: string,
+    @Body(new ZodValidationPipe(UpdatePhoneSchema)) body: z.infer<typeof UpdatePhoneSchema>,
+  ): Promise<{ ok: true; changed: boolean; phone: string }> {
+    const tenantId = TenantContext.current().tenantId;
+    const changed = await this.prisma.withTenant(async (tx) => {
+      await assertContactAccess(tx, tenantId, id);
+      const result = await this.contacts.setPrimaryPhone(tx, id, body.phone);
+      if (result.reason === "taken") {
+        throw new BadRequestException("המספר כבר רשום אצל איש קשר אחר במשרד");
+      }
+      // רק החלפה אמיתית היא אירוע; שמירה חוזרת של אותו מספר אינה שינוי
+      if (result.changed) {
+        await this.audit.record(tx, {
+          action: "contact.phone_changed",
+          entityType: "contact",
+          entityId: id,
+        });
+      }
+      return result.changed;
+    });
+    /*
+     * ‎**המספר המנורמל חוזר, ולא זה שהוקלד.** הסכימה ממירה
+     * ‏„054-777-1122” ל-E.164, וזה מה ששמור ומה שיוצג בטעינה הבאה.
+     * מסך שהיה מציג את מה שהוקלד היה משנה צורה מעצמו ברענון — נראה
+     * כאילו משהו נערך שוב.
+     */
+    return { ok: true, changed, phone: body.phone };
   }
 
   /**
@@ -359,7 +426,7 @@ export class ContactsController {
   @Patch(":id/marketing-consent")
   @HttpCode(200)
   async setMarketingConsent(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
     @Body(new ZodValidationPipe(MarketingConsentSchema))
     body: z.infer<typeof MarketingConsentSchema>,
   ): Promise<{ ok: true; changed: boolean }> {
@@ -380,12 +447,46 @@ export class ContactsController {
     return { ok: true, changed };
   }
 
+  /**
+   * ‎**„טאבו משותף” על הלקוח** (בקשת בעל המוצר).
+   *
+   * ‏רישום בטאבו משותף (מושאע) הוא עובדה משפטית שמשנה את כל אופן
+   * ‏העסקה, והיא נאמרת לרוב בשיחה הראשונה — לפני שיש כרטיס נכס
+   * ‏לרשום עליה. הסימון המקביל על הנכס עצמו עובר דרך עריכת הנכס.
+   *
+   * ‎`buyers.edit` כמו שאר עריכות הכרטיס: זו עריכת לקוח, לא צפייה.
+   */
+  @RequireCapability("buyers.edit")
+  @Patch(":id/shared-tabu")
+  @HttpCode(200)
+  async setSharedTabu(
+    @Param("id", IdParam) id: string,
+    @Body(new ZodValidationPipe(SharedTabuSchema))
+    body: z.infer<typeof SharedTabuSchema>,
+  ): Promise<{ ok: true; changed: boolean }> {
+    const tenantId = TenantContext.current().tenantId;
+    const changed = await this.prisma.withTenant(async (tx) => {
+      await assertContactAccess(tx, tenantId, id);
+      const did = await this.contacts.setSharedTabu(tx, id, body.sharedTabu);
+      /* ‏רק שינוי אמיתי הוא אירוע — קריאה חוזרת אינה סימון נוסף */
+      if (did) {
+        await this.audit.record(tx, {
+          action: body.sharedTabu ? "contact.shared_tabu_set" : "contact.shared_tabu_cleared",
+          entityType: "contact",
+          entityId: id,
+        });
+      }
+      return did;
+    });
+    return { ok: true, changed };
+  }
+
   /** הוספת אדם לכרטיס — עריכת לקוח, ולכן יכולת עריכה ולא צפייה. */
   @RequireCapability("buyers.edit")
   @Post(":id/people")
   @HttpCode(200)
   async addPerson(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
     @Body(new ZodValidationPipe(AddPersonSchema)) body: z.infer<typeof AddPersonSchema>,
   ): Promise<{ ok: true }> {
     const tenantId = TenantContext.current().tenantId;
@@ -406,8 +507,8 @@ export class ContactsController {
   @Patch(":id/people/:relatedId/email")
   @HttpCode(200)
   async setPersonEmail(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
-    @Param("relatedId", new ZodValidationPipe(IdSchema)) relatedId: string,
+    @Param("id", IdParam) id: string,
+    @Param("relatedId", IdParam) relatedId: string,
     @Body(new ZodValidationPipe(UpdateEmailSchema)) body: z.infer<typeof UpdateEmailSchema>,
   ): Promise<{ ok: true }> {
     const tenantId = TenantContext.current().tenantId;
@@ -423,8 +524,8 @@ export class ContactsController {
   @Delete(":id/people/:relatedId")
   @HttpCode(200)
   async removePerson(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
-    @Param("relatedId", new ZodValidationPipe(IdSchema)) relatedId: string,
+    @Param("id", IdParam) id: string,
+    @Param("relatedId", IdParam) relatedId: string,
   ): Promise<{ ok: true }> {
     const tenantId = TenantContext.current().tenantId;
     await this.prisma.withTenant(async (tx) => {
@@ -442,7 +543,7 @@ export class ContactsController {
   @Post(":id/phones")
   @HttpCode(200)
   async addPhone(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
     @Body(new ZodValidationPipe(AddPhoneSchema)) body: z.infer<typeof AddPhoneSchema>,
   ): Promise<{ ok: true }> {
     const tenantId = TenantContext.current().tenantId;
@@ -460,8 +561,8 @@ export class ContactsController {
   @Delete(":id/phones/:phoneId")
   @HttpCode(200)
   async removePhone(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
-    @Param("phoneId", new ZodValidationPipe(IdSchema)) phoneId: string,
+    @Param("id", IdParam) id: string,
+    @Param("phoneId", IdParam) phoneId: string,
   ): Promise<{ ok: true }> {
     const tenantId = TenantContext.current().tenantId;
     await this.prisma.withTenant(async (tx) => {

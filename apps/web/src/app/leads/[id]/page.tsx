@@ -5,7 +5,6 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@metavchim/ui";
 import {
-  MATURITY_LABELS as SHARED_MATURITY,
   MAX_REFERRAL_CITY,
   MAX_REFERRAL_NOTE,
   MAX_REFERRAL_PRICE,
@@ -23,17 +22,23 @@ import {
   type CreditEconomy,
   type PayoutMode,  labelOf } from "@metavchim/shared";
 import { apiDelete, apiGet, apiPost, apiPatch, ApiError, apiList } from "@/lib/api";
+import { formatDate, waMeUrl } from "@/lib/format";
 import {
-  formatDate,
-  PROPERTY_TYPE_LABELS,
-  shekelsToAgorot,
-  waMeUrl,
-} from "@/lib/format";
-import { LEAD_INTENT_LABELS, LEAD_SOURCE_LABELS, LEAD_STATUS_LABELS } from "@/lib/lead-labels";
+  LEAD_INTENT_LABELS,
+  LEAD_SOURCE_LABELS,
+  LEAD_STATUS_LABELS,
+  leadSourceText,
+} from "@/lib/lead-labels";
 import { can, useRequireAuth } from "@/lib/use-auth";
 import { ClickToDial } from "../../click-to-dial";
 import { ConfirmDialog } from "../../confirm-dialog";
+import { ContactIdentityEdit } from "../../contact-identity";
 import { ContactPeople } from "../../contact-people";
+import {
+  ConvertSection,
+  ConvertToPropertySection,
+  type ConvertPrefill,
+} from "../convert-sections";
 import { DeleteLeadDialog } from "../delete-lead-dialog";
 import { DictateFor } from "../../dictation-field";
 import { RelatedEntities } from "../../related-entities";
@@ -41,6 +46,7 @@ import { EntityTasks } from "../../entity-tasks";
 import { EntityTabs, TabPanel, useEntityTab } from "../../entity-tabs";
 import { LeadCalls } from "./lead-calls";
 import { IntakePanel } from "../../intake-panel";
+import { MoreActions } from "../../more-actions";
 import { SelectMenu } from "../../select-menu";
 import { ReplyEmail } from "./reply-email";
 import {
@@ -49,6 +55,7 @@ import {
   type ReferralConfirmationValue,
 } from "../../collaboration/client-rating";
 import {
+  IconBolt,
   IconCalendar,
   IconChat,
   IconCoins,
@@ -58,21 +65,27 @@ import {
   IconHome,
   IconInfo,
   IconMail,
+  IconMic,
   IconPhone,
   IconRefresh,
   IconUser,
 } from "../../icons";
+import { AgentTag } from "../../agent-tag";
 import { Notice } from "../../notice";
 
 interface LeadDetail {
   id: string;
-  contact: { id: string; name: string; phone: string; email?: string };
+  contact: { id: string; name: string; phone: string; email?: string; sharedTabu: boolean };
   source: string;
+  /** ‏הטקסט שנכתב תחת מקור „אחר”. חסר בכל מקור אחר. */
+  sourceNote?: string;
   intent: string;
   status: string;
   requiresHuman: boolean;
   requiresHumanReason?: string;
   summary?: string;
+  /** הסוכן המטפל, כפי שהשרת פתר אותו. חסר = לא משויך. */
+  agentName?: string;
   /** מתי הליד נקלט — היה בשרת מאז ומתמיד ולא הוצהר כאן */
   createdAt: string;
 }
@@ -110,11 +123,6 @@ const STATUS_PILL: Record<string, { fg: string; bg: string }> = {
   converted: { fg: "var(--color-success)", bg: "var(--color-success-soft)" },
   closed: { fg: "var(--chip-neutral-fg)", bg: "var(--chip-neutral-bg)" },
 };
-
-/** האות הראשונה לעיגול הכותרת — כמו בכרטיס הקונה. */
-function initials(name: string): string {
-  return name.trim().slice(0, 1);
-}
 
 const KIND_LABELS: Record<string, ReactNode> = {
   note: <><IconDoc s={15} /> הערה</>,
@@ -617,225 +625,6 @@ function DeleteLeadSection({ leadId, contactName }: { leadId: string; contactNam
   );
 }
 
-function ConvertToPropertySection({ leadId }: { leadId: string }) {
-  const router = useRouter();
-  const [open, setOpen] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  async function submit(event: React.FormEvent<HTMLFormElement>): Promise<void> {
-    event.preventDefault();
-    const f = new FormData(event.currentTarget);
-    setBusy(true);
-    setError(null);
-    try {
-      const res = await apiPost<{ id: string }>(`/properties/from-lead/${leadId}`, {
-        city: String(f.get("city") ?? "").trim(),
-        dealType: String(f.get("dealType") ?? "sale"),
-        propertyType: String(f.get("propertyType") ?? "apartment"),
-        ...(String(f.get("street") ?? "").trim() !== ""
-          ? { street: String(f.get("street") ?? "").trim() }
-          : {}),
-        ...(String(f.get("price") ?? "").trim() !== ""
-          ? { priceAgorot: Math.round(Number(f.get("price")) * 100) }
-          : {}),
-        ...(String(f.get("rooms") ?? "").trim() !== "" ? { rooms: Number(f.get("rooms")) } : {}),
-      });
-      router.push(`/properties/${res.id}`);
-    } catch (err: unknown) {
-      setError(err instanceof ApiError ? err.message : "ההמרה נכשלה");
-      setBusy(false);
-    }
-  }
-
-  if (!open) {
-    return (
-      <div className="mb-4">
-        <Button variant="secondary" onClick={() => setOpen(true)}>
-          <IconHome s={15} /> המר לנכס (בעל נכס)
-        </Button>
-      </div>
-    );
-  }
-
-  return (
-    <form
-      onSubmit={(e) => void submit(e)}
-      className="mb-4 rounded-xl border p-4"
-      style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
-    >
-      <p className="m-0 mb-3 font-bold">המרה לנכס — איש הקשר יהפוך לבעל הנכס</p>
-      {error ? (
-        <Notice tone="danger">{error}</Notice>
-      ) : null}
-      <div className="flex flex-wrap items-end gap-2">
-        <div>
-          <label htmlFor="cp-city" className="mb-1 block text-sm">עיר</label>
-          <input id="cp-city" name="city" required className="rounded-lg border px-3 py-2" style={{ borderColor: "var(--color-input-border)", background: "var(--color-field)" }} />
-        </div>
-        <div>
-          <label htmlFor="cp-address" className="mb-1 block text-sm">רחוב ומספר (לא חובה)</label>
-          <input id="cp-address" name="street" className="rounded-lg border px-3 py-2" style={{ borderColor: "var(--color-input-border)", background: "var(--color-field)" }} />
-        </div>
-        <div>
-          <label htmlFor="cp-deal" className="mb-1 block text-sm">עסקה</label>
-          <select id="cp-deal" name="dealType" className="rounded-lg border px-3 py-2" style={{ borderColor: "var(--color-input-border)", background: "var(--color-field)" }}>
-            <option value="sale">מכירה</option>
-            <option value="rent">השכרה</option>
-          </select>
-        </div>
-        <div>
-          <label htmlFor="cp-type" className="mb-1 block text-sm">סוג נכס</label>
-          <select id="cp-type" name="propertyType" className="rounded-lg border px-3 py-2" style={{ borderColor: "var(--color-input-border)", background: "var(--color-field)" }}>
-            {/*
-              רשימה שנכתבה ביד כאן פספסה מלכתחילה חמישה סוגים
-              (דו-משפחתי, סטודיו, יחידת דיור, אחר), וכל סוג חדש היה
-              נעדר ממנה בשקט. המקור הוא הטבלה המשותפת.
-            */}
-            {Object.entries(PROPERTY_TYPE_LABELS).map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label htmlFor="cp-price" className="mb-1 block text-sm">מחיר בש"ח (לא חובה)</label>
-          <input id="cp-price" name="price" type="number" min={0} className="w-32 rounded-lg border px-3 py-2" style={{ borderColor: "var(--color-input-border)", background: "var(--color-field)" }} />
-        </div>
-        <div>
-          <label htmlFor="cp-rooms" className="mb-1 block text-sm">חדרים (לא חובה)</label>
-          <input id="cp-rooms" name="rooms" type="number" min={1} max={20} step={0.5} className="w-24 rounded-lg border px-3 py-2" style={{ borderColor: "var(--color-input-border)", background: "var(--color-field)" }} />
-        </div>
-        <Button type="submit" disabled={busy}>{busy ? "ממיר…" : "צור נכס"}</Button>
-        <Button type="button" variant="ghost" onClick={() => setOpen(false)}>ביטול</Button>
-      </div>
-    </form>
-  );
-}
-
-function ConvertSection({ leadId }: { leadId: string }) {
-  const router = useRouter();
-  const [open, setOpen] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  async function onConvert(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setError(null);
-    setBusy(true);
-    const f = new FormData(event.currentTarget);
-    // ריק = לא נמסר; `Number("")` הוא 0, וזה בדיוק מה שאסור לשלוח
-    const budgetRaw = String(f.get("budgetMax") ?? "").trim();
-    const budget = budgetRaw === "" ? undefined : Number(budgetRaw);
-    try {
-      const buyer = await apiPost<{ id: string }>(`/leads/${leadId}/convert`, {
-        maturity: String(f.get("maturity")),
-        requirements: {
-          cities: String(f.get("cities"))
-            .split(",")
-            .map((c) => c.trim())
-            .filter(Boolean),
-          dealType: String(f.get("dealType")),
-          ...(budget === undefined || !Number.isFinite(budget)
-            ? {}
-            : { budgetMaxAgorot: shekelsToAgorot(budget) }),
-        },
-      });
-      router.push(`/buyers/${buyer.id}`);
-    } catch (err: unknown) {
-      setError(
-        err instanceof ApiError && err.status === 409
-          ? "הליד כבר הומר, או שכבר קיים קונה פעיל לאיש קשר זה"
-          : "ההמרה נכשלה — בדקו את הפרטים ונסו שוב",
-      );
-      setBusy(false);
-    }
-  }
-
-  if (!open) {
-    return (
-      <div className="mb-4">
-        <Button onClick={() => setOpen(true)}><IconUser s={15} /> המר לקונה</Button>
-      </div>
-    );
-  }
-
-  return (
-    <form
-      onSubmit={(event) => void onConvert(event)}
-      className="mb-6 rounded-xl border p-4"
-      style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
-    >
-      <h2 className="mb-3 text-lg font-semibold">המרה לקונה</h2>
-      <div className="mb-3 flex flex-wrap gap-3">
-        <div>
-          <label htmlFor="cv-cities" className="mb-1 block text-sm font-medium">
-            ערים (מופרדות בפסיק)
-          </label>
-          <input
-            id="cv-cities"
-            name="cities"
-            required
-            placeholder="תל אביב, גבעתיים"
-            className="rounded-lg border px-3 py-2"
-            style={{ borderColor: "var(--color-input-border)", background: "var(--color-field)" }}
-          />
-        </div>
-        <div>
-          <label htmlFor="cv-deal" className="mb-1 block text-sm font-medium">סוג עסקה</label>
-          <select
-            id="cv-deal"
-            name="dealType"
-            className="rounded-lg border px-3 py-2"
-            style={{ borderColor: "var(--color-input-border)", background: "var(--color-field)" }}
-          >
-            <option value="sale">קנייה</option>
-            <option value="rent">שכירות</option>
-          </select>
-        </div>
-        <div>
-          <label htmlFor="cv-budget" className="mb-1 block text-sm font-medium">
-            תקציב מקסימלי (₪){" "}
-            <span className="font-normal" style={{ color: "var(--color-text-muted)" }}>
-              — בלי תקציב ההתאמות מדויקות פחות
-            </span>
-          </label>
-          <input
-            id="cv-budget"
-            name="budgetMax"
-            type="number"
-            min={1}
-            className="rounded-lg border px-3 py-2"
-            style={{ borderColor: "var(--color-input-border)", background: "var(--color-field)" }}
-            dir="ltr"
-          />
-        </div>
-        <div>
-          <label htmlFor="cv-maturity" className="mb-1 block text-sm font-medium">בשלות</label>
-          <select
-            id="cv-maturity"
-            name="maturity"
-            defaultValue="interested"
-            className="rounded-lg border px-3 py-2"
-            style={{ borderColor: "var(--color-input-border)", background: "var(--color-field)" }}
-          >
-            {Object.entries(SHARED_MATURITY).map(([value, label]) => (
-              <option key={value} value={value}>{label}</option>
-            ))}
-          </select>
-        </div>
-      </div>
-      {error ? (
-        <Notice tone="danger">{error}</Notice>
-      ) : null}
-      <div className="flex gap-2">
-        <Button type="submit" disabled={busy}>{busy ? "ממיר…" : "המר לקונה"}</Button>
-        <Button type="button" variant="secondary" onClick={() => setOpen(false)}>ביטול</Button>
-      </div>
-    </form>
-  );
-}
 
 export default function LeadDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -843,7 +632,21 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
   // אותה יכולת שמגינה על "המר לקונה" למטה — הרשאת עריכת לקוח
   const canEditPeople = can(user, "buyers.edit");
   // הגעה מטופס "ליד חדש" כשכבר היה ליד פתוח — השרת מיזג את הפנייה לכאן
-  const merged = useSearchParams().get("merged") === "1";
+  /* ‎`search` ולא `params`: `params` תפוס כאן לפרמטרי הנתיב */
+  const search = useSearchParams();
+  const merged = search.get("merged") === "1";
+  /*
+   * ‎**מה שהתפריט ברשימה כבר בחר** — הצד וסוג העסקה.
+   *
+   * ‏שני הפרמטרים מגיעים מכתובת, כלומר מבחוץ, ולכן הם **נבדקים
+   * מול ערכים ידועים ולא מועברים כמו שהם**: `deal` נכנס לתוך טופס
+   * ששולח אותו לשרת, וכתובת שהודבקה מאיפשהו אינה מקור לערכי
+   * שדות. מה שאינו „sale”/„rent” פשוט אינו קיים.
+   */
+  const convertSide = search.get("convert");
+  const convertDeal = search.get("deal") === "rent" ? "rent" : "sale";
+  const convertPrefill: ConvertPrefill | undefined =
+    convertSide === null ? undefined : { dealType: convertDeal };
   const [lead, setLead] = useState<LeadDetail | null>(null);
   const [timeline, setTimeline] = useState<TimelineItem[]>([]);
   const [dialed, setDialed] = useState<DialedNumber | null>(null);
@@ -858,7 +661,7 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
    * נפל בחזרה לסקירה. תוקן יחד עם הוספת `calls` (ביקורת עצמית).
    */
   const [tab, selectTab] = useEntityTab(
-    ["overview", "next", "calls", "referral", "timeline"],
+    ["overview", "next", "calls", "tasks", "referral", "timeline"],
     "overview",
   );
 
@@ -895,26 +698,46 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
    * ערך או סגורה עם ערך שנשמר בצד.
    */
   const [editingSource, setEditingSource] = useState<string | null>(null);
+  /*
+   * ‎**הטקסט של „אחר”.** ‏„אחר” לבדו אינו אומר דבר, ולכן כשבוחרים
+   * אותו נפתחת לצידו תיבה: „דוכן ביריד”, „שלט על הרכב”. השדה נפרד
+   * מ-`editingSource` כי הוא נשמר בעמודה נפרדת — המקור נשאר ערך
+   * שאפשר לקבץ לפיו, וההערה היא מה שמוצג במקום המילה.
+   */
+  const [editingNote, setEditingNote] = useState("");
   const [sourceBusy, setSourceBusy] = useState(false);
   const [sourceFailed, setSourceFailed] = useState(false);
 
   async function saveSource(): Promise<void> {
     const next = (editingSource ?? "").trim();
     if (next === "" || lead === null) return;
+    const nextNote = next === "other" ? editingNote.trim() : "";
     // שינוי לאותו ערך אינו שינוי — סוגרים בלי לפנות לשרת
-    if (next === lead.source) {
+    if (next === lead.source && nextNote === (lead.sourceNote ?? "")) {
       setEditingSource(null);
       return;
     }
     setSourceBusy(true);
     setSourceFailed(false);
     try {
-      await apiPatch(`/leads/${id}/source`, { source: next });
+      await apiPatch(`/leads/${id}/source`, {
+        source: next,
+        ...(nextNote === "" ? {} : { sourceNote: nextNote }),
+      });
       /*
        * המסך מתעדכן רק אחרי אישור השרת. עדכון אופטימי היה מציג
        * מקור חדש על ליד שמקורו לא השתנה — והמתווך היה ממשיך משם.
        */
-      setLead((prev) => (prev ? { ...prev, source: next } : prev));
+      setLead((prev) =>
+        prev
+          ? {
+              ...prev,
+              source: next,
+              /* ההערה נמחקת יחד עם המעבר ממקור „אחר” — כמו בשרת */
+              ...(nextNote === "" ? { sourceNote: undefined } : { sourceNote: nextNote }),
+            }
+          : prev,
+      );
       setTimeline((prev) => [
         {
           id: `local-source-${next}`,
@@ -970,29 +793,78 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
         מקווקוים ותיבת סטטוס שצפה מתחתיה, וזה מה שהפך את המסך
         למבולגן: אין בו היררכיה, ולכן העין לא יודעת איפה להתחיל.
       */}
-      <div
-        className="mv-list-card mb-3 flex flex-wrap items-center gap-4 px-6 py-5"
-        style={{ overflow: "visible" }}
-      >
-        <span
-          aria-hidden="true"
-          className="grid flex-none place-items-center rounded-full"
-          style={{
-            width: 48,
-            height: 48,
-            background: "var(--color-primary-soft)",
-            color: "var(--color-primary)",
-            fontWeight: 800,
-            fontSize: "19px",
-          }}
-        >
-          {initials(lead.contact.name)}
+      <div className="mv-card mv-card--pad mb-3" style={{ overflow: "visible" }}>
+      <div className="flex flex-wrap items-center gap-4">
+        {/*
+          ‎**אריח הליד ולא ראשי תיבות.**
+
+          ליד נקלט לעיתים קרובות בלי שם — משיחה שלא נענתה, מטופס בלי
+          שדה שם — וראשי תיבות של מחרוזת ריקה הם עיגול ריק. הסמל אומר
+          מה זה הכרטיס הזה, וזה נכון גם כשאין למי שבו שם.
+        */}
+        <span className="mv-tile mv-domain-green" aria-hidden="true">
+          <IconBolt s={19} />
         </span>
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2.5">
             <h1 className="m-0" style={{ fontSize: "calc(21 / 16 * 1rem)", fontWeight: 800 }}>
               {lead.contact.name}
             </h1>
+            {/*
+              ‎**„טאבו משותף” ליד השם, ורק כשהוא מסומן.**
+
+              ‏זו עובדה משפטית שמשנה את כל אופן העסקה — אין חלקה
+              ‏נפרדת, נדרשת הסכמת שותפים, והמימון מורכב. מתווך שרואה
+              ‏אותה בראש הכרטיס לא בונה עסקה שאי אפשר לסגור. תגית
+              ‏„לא” על כל שאר הלקוחות הייתה רעש (בקשת בעל המוצר).
+            */}
+            {lead.contact.sharedTabu ? (
+              <span
+                className="mv-pill"
+                style={{
+                  fontSize: "var(--type-caption)",
+                  color: "#8a5a00",
+                  background: "#fdf1dc",
+                }}
+              >
+                טאבו משותף
+              </span>
+            ) : null}
+            {/*
+              ‎**תיקון הפרטים ליד הפרטים.**
+
+              ליד נקלט לעיתים בלי שם — שיחה שלא נענתה שומרת את מספר
+              הטלפון במקומו — ועם המספר שהגיע בשיחה או הוקלד בטופס.
+              עד כאן זה היה סופי בכרטיס הליד: לא השם, לא המספר ולא
+              האימייל. היכולת היא `buyers.edit`, אותה יכולת שהשרת
+              דורש בשלושת הנתיבים.
+            */}
+            <ContactIdentityEdit
+              contactId={lead.contact.id}
+              identity={lead.contact}
+              canEdit={canEditPeople}
+              /*
+                המפתח נבנה מחדש ולא נפרש על הקודם: אימייל שנמחק אינו
+                מגיע ב-`next`, ופרישה על הישן הייתה משאירה אותו על
+                המסך אחרי שכבר נמחק בשרת.
+              */
+              onSaved={(next) =>
+                setLead((prev) =>
+                  prev
+                    ? {
+                        ...prev,
+                        contact: {
+                          id: prev.contact.id,
+                          name: next.name,
+                          phone: next.phone,
+                          sharedTabu: next.sharedTabu,
+                          ...(next.email === undefined ? {} : { email: next.email }),
+                        },
+                      }
+                    : prev,
+                )
+              }
+            />
             {/* הכוונה צמודה לשם: "קונה" ו"מוכר" הן שתי שיחות שונות */}
             <span
               className="mv-pill"
@@ -1004,6 +876,8 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
             >
               {labelOf(LEAD_INTENT_LABELS, lead.intent) ?? lead.intent}
             </span>
+            {/* „של מי הליד הזה?” — השאלה הראשונה של מנהל בסוכנות */}
+            <AgentTag {...(lead.agentName === undefined ? {} : { name: lead.agentName })} />
             {/*
               רשימה מעוצבת ולא `select` נייטיב — אותו תיקון שכבר
               נעשה בכרטיס הקונה: הגלולה נראתה נכון סגורה, ובפתיחה
@@ -1025,7 +899,7 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
             style={{ color: "var(--color-text-muted)" }}
           >
             <span dir="ltr">{lead.contact.phone}</span> · מקור:{" "}
-            {labelOf(LEAD_SOURCE_LABELS, lead.source) ?? lead.source}
+            {leadSourceText(lead.source, lead.sourceNote)}
             {/*
               ‎**תיקון המקור — ליד המקור עצמו.**
 
@@ -1043,6 +917,8 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
                   onClick={() => {
                     setSourceFailed(false);
                     setEditingSource(lead.source);
+                    // התיבה נפתחת על מה שכבר רשום, ולא ריקה
+                    setEditingNote(lead.sourceNote ?? "");
                   }}
                 >
                   שינוי
@@ -1113,6 +989,26 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
                   <option key={value} value={value} label={label} />
                 ))}
               </datalist>
+              {/*
+                ‎**„אחר” פותח את התיבה שאומרת מה.** ‏מקור „אחר” בלי
+                המשך הוא בדיוק כמה שהוא נשמע — לא-ידוע שנרשם. התיבה
+                מופיעה רק עליו, כי לכל שאר הערכים היא סתם שדה ריק.
+              */}
+              {editingSource.trim() === "other" ? (
+                <input
+                  value={editingNote}
+                  onChange={(event) => setEditingNote(event.target.value)}
+                  aria-label="פירוט המקור"
+                  placeholder="למשל: דוכן ביריד"
+                  maxLength={60}
+                  className="rounded-lg border px-3 py-2"
+                  style={{
+                    background: "var(--color-field)",
+                    borderColor: "var(--color-input-border)",
+                    minWidth: 190,
+                  }}
+                />
+              ) : null}
               <button
                 type="submit"
                 className="mv-btn-action"
@@ -1145,58 +1041,111 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
             </form>
           ) : null}
         </div>
-        <div className="ms-auto flex flex-wrap items-center gap-2">
+      </div>
+
+      {/*
+        ‎**שורת הפעולות מתחת לזהות, ולא לצידה.**
+
+        ‎`ms-auto` דחף אותה לקצה השני של אותה שורה, ולכן ברוחב בינוני
+        היא נדחסה אל השם ובצר נשברה מתחתיו בלי סדר. שורה משלה נותנת
+        לכל הפעולות את אותו משקל ואותו מקום בכל רוחב.
+      */}
+      {/*
+        ‎**פעולה ראשית אחת, והשאר מאחורי „פעולות נוספות”.**
+
+        ‏קודם ישבו כאן שש פעולות שקולות בשורה אחת. בעל המוצר: זה
+        ‏„יוצר מאוד עומס”. הראשית נשארת גלויה, והשאר נאספות — אותו
+        ‏רכיב ואותו כלל בדיוק כמו בכרטיס הקונה, ולכן שתי הכותרות
+        ‏אינן יכולות להיפרד זו מזו.
+
+        ‏במובייל הן חוזרות להיות גלויות כגריד ארבע פעולות, כי שם
+        ‏„חייג” ו„וואטסאפ” הם מה שעושים באמת ובמרחק אגודל.
+      */}
+      <div className="mv-cardactions mt-4">
+        {/*
+          ‎**„המשך טיפול” ראשון, ובירוק** — זו הפעולה שכל הכרטיס
+          קיים בשבילה. הטפסים עצמם נשארים בלשונית „המשך טיפול”
+          ואינם משוכפלים כאן; הכפתור רק מוביל אליהם. ליד שכבר הומר
+          אינו מציג אותו — אין מה להמיר.
+        */}
+        {lead.status !== "converted" && canEditPeople ? (
+          <button
+            type="button"
+            className="mv-net-act mv-net-act--solid"
+            onClick={() => selectTab("next")}
+          >
+            <IconHandshake s={15} /> המשך טיפול
+          </button>
+        ) : null}
+        <MoreActions>
+          <a
+            href={`tel:${lead.contact.phone}`}
+            className="mv-net-act mv-act"
+            style={{ textDecoration: "none" }}
+          >
+            <IconPhone s={15} /> חייג
+          </a>
+          {/*
+            ‏וואטסאפ בגוון ירוק רך ולא לבן כמו השאר: זה הערוץ שמתווך
+            פותח בו בפועל.
+          */}
           <a
             href={waMeUrl(lead.contact.phone)}
             target="_blank"
             rel="noreferrer"
-            className="mv-btn-plain"
-            style={{ minHeight: 36, paddingInline: 13, fontSize: "var(--type-caption-lg)" }}
+            className="mv-net-act mv-net-act--go mv-act"
+            style={{ textDecoration: "none" }}
           >
-            <IconChat s={14} /> וואטסאפ
+            <IconChat s={15} /> וואטסאפ
           </a>
-          <a
-            href={`tel:${lead.contact.phone}`}
-            className="mv-btn-plain"
-            style={{ minHeight: 36, paddingInline: 13, fontSize: "var(--type-caption-lg)" }}
+          <Link
+            href={`/calendar/new?leadId=${lead.id}`}
+            className="mv-net-act mv-act"
+            style={{ textDecoration: "none" }}
           >
-            <IconPhone s={14} /> חייג
-          </a>
+            <IconCalendar s={15} /> קבע פגישה
+          </Link>
+          {lead.contact.email ? (
+            <a
+              href={`mailto:${lead.contact.email}`}
+              className="mv-net-act mv-act"
+              style={{ textDecoration: "none" }}
+            >
+              <IconMail s={15} /> אימייל
+            </a>
+          ) : null}
+          {/*
+            ‎„מהמרכזייה” אחרון: הוא קיים רק כשהטלפוניה מחוברת, ולכן
+            ‏אינו אחד מארבע הפעולות שהעיצוב מונה.
+          */}
           <ClickToDial
             contactId={lead.contact.id}
             phone={lead.contact.phone}
             label="מהמרכזייה"
           />
-          {lead.contact.email ? (
-            <a
-              href={`mailto:${lead.contact.email}`}
-              className="mv-btn-plain"
-              style={{ minHeight: 36, paddingInline: 13, fontSize: "var(--type-caption-lg)" }}
-            >
-              <IconMail s={14} /> אימייל
-            </a>
-          ) : null}
-          <Link
-            href={`/calendar/new?leadId=${lead.id}`}
-            className="mv-btn-plain"
-            style={{ minHeight: 36, paddingInline: 13, fontSize: "var(--type-caption-lg)" }}
-          >
-            <IconCalendar s={14} /> קבע פגישה
-          </Link>
-        </div>
+        </MoreActions>
       </div>
 
       {/*
         **הדחוף קודם.** ההתראה ישבה קודם במקום העשירי, מתחת לשש
         קופסאות — כלומר הדבר היחיד במסך שדורש פעולה מיידית היה
-        הדבר שהכי קשה לראות.
+        הדבר שהכי קשה לראות. עכשיו היא בתוך כרטיס הזהות עצמו,
+        מתחת לפעולות: אי אפשר להתחיל לטפל בליד בלי לעבור דרכה.
+      */}
+      {/*
+        ‏גוון אזהרה ולא שגיאה: „דורש טיפול אנושי” אינו כשל אלא מצב
+        שממתין למישהו. אדום שמור למה שנשבר, וכשהוא נשרף על כל ליד
+        חוזר הוא מפסיק להיקרא במקום שבו הוא באמת נחוץ.
       */}
       {lead.requiresHuman ? (
-        <Notice tone="danger">
-          ● דורש טיפול אנושי
-          {lead.requiresHumanReason ? `: ${lead.requiresHumanReason}` : ""}
-        </Notice>
+        <div className="mt-4">
+          <Notice tone="warning">
+            ● דורש טיפול אנושי
+            {lead.requiresHumanReason ? `: ${lead.requiresHumanReason}` : ""}
+          </Notice>
+        </div>
       ) : null}
+      </div>
 
       {merged ? (
         <Notice tone="info">
@@ -1214,6 +1163,7 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
           { key: "overview", label: "סקירה" },
           { key: "next", label: "המשך טיפול" },
           { key: "calls", label: "שיחות" },
+          { key: "tasks", label: "משימות" },
           { key: "referral", label: "הפניות" },
           { key: "timeline", label: "ציר זמן", count: timeline.length },
         ]}
@@ -1224,15 +1174,74 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
           ============================================================ */}
       <TabPanel tab="overview" active={tab}>
         {/*
-          שתי עמודות ולא טור אחד ארוך, כמו בכרטיס הקונה.
+          ‎---- הפעולה הבאה ---- ‏על פני כל הרוחב, מעל הטורים
 
-          בעמודה הצדדית יושב מה ש**קוראים** — תוכן הפנייה והקשרים
-          האחרים של אותו אדם; ברחבה יושב מה ש**עושים** — תשובה
-          במייל, משימות ואנשי קשר. טור אחד הכריח לגלול דרך טופס
-          תשובה שלם כדי להגיע לרשימת המשימות.
+          ‏כל הכרטיס הזה קיים כדי שהליד יפסיק להיות ליד. ההמרה
+          ‏חיה בלשונית „המשך טיפול”, וכאן נאמר **למה** כדאי לגשת
+          ‏אליה — אותו רכיב ואותו מקום כמו הבאנר בכרטיס הקונה.
+
+          ‏מוצג רק כשיש מה להמיר: ליד שכבר הומר אינו מקבל הזמנה
+          ‏להמיר אותו שוב, וזה גם התנאי של הכפתור בכותרת.
         */}
-        <div className="grid items-start gap-[18px] lg:[grid-template-columns:340px_1fr]">
-          <div className="grid gap-[18px]">
+        {lead.status !== "converted" && canEditPeople ? (
+          <div className="mv-nextaction mv-domain-violet">
+            <span
+              aria-hidden="true"
+              className="mv-tile mv-tile--44 mv-domain-violet flex-none"
+            >
+              <IconHandshake s={20} />
+            </span>
+            <div className="min-w-0">
+              <div
+                className="font-black"
+                style={{ fontSize: "calc(17 / 16 * 1rem)" }}
+              >
+                הפכו את הליד לכרטיס קונה — וההתאמות מתחילות לעבוד
+              </div>
+              <div
+                className="mt-0.5 text-[length:var(--type-body-sm)]"
+                style={{ color: "var(--domain-violet-fg)" }}
+              >
+                ברגע שיוגדרו תקציב ואזור, המערכת תסרוק גם את הרשת
+                ותציע נכסים מתאימים
+              </div>
+            </div>
+            <button
+              type="button"
+              className="mv-btn-primary ms-auto flex-none"
+              onClick={() => selectTab("next")}
+            >
+              המר לקונה
+            </button>
+          </div>
+        ) : null}
+
+        {/*
+          ‎---- שלושה טורים ---- (קובץ העיצוב)
+
+          ‏מי הוא · מה פתוח עליו · מה הוא ביקש. שלוש שאלות שסוכן
+          ‏שואל לפני שהוא מרים טלפון, ואף אחת אינה המשך של השנייה
+          ‏— ולכן הן זו לצד זו. בטלפון הרשת מתקפלת לטור אחד באותו
+          ‏סדר.
+
+          ‏עד כאן זה היה טור צר של 340px ולידו רחב, ותיבת תשובת
+          ‏המייל ברחב דחפה את המשימות ואת אנשי הקשר מטה — כלומר
+          ‏„מה פתוח עליו” היה מתחת לטופס שלם.
+        */}
+        <div className="grid items-start gap-[18px] lg:grid-cols-3">
+          <div className="grid content-start gap-[18px]">
+            <ContactPeople
+              contactId={lead.contact.id}
+              canEdit={canEditPeople}
+              canErase={can(user, "contacts.delete")}
+            />
+          </div>
+
+          <div className="grid content-start gap-[18px]">
+            <EntityTasks entityType="lead" entityId={id} />
+          </div>
+
+          <div className="grid content-start gap-[18px]">
             {/*
               ---- תוכן הפנייה ----
               הדבר הראשון שהמתווך צריך לדעת ("מה הוא רצה?") היה עד
@@ -1242,43 +1251,38 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
             {lead.summary ? (
               <section
                 aria-labelledby="lead-summary-heading"
-                className="rounded-xl border px-5 py-[18px]"
-                style={{
-                  borderColor: "var(--color-primary)",
-                  background: "var(--color-primary-soft)",
-                }}
+                className="mv-card mv-card--pad"
               >
-                <h2
-                  id="lead-summary-heading"
-                  className="m-0 mb-1.5"
-                  style={{
-                    fontSize: "var(--type-caption-lg)",
-                    fontWeight: 800,
-                    color: "var(--color-primary)",
-                  }}
-                >
-                  תוכן הפנייה
-                </h2>
-                {/* whitespace-pre-line: שורות ההודעה נשמרות כפי שנשלחו */}
-                <p
-                  className="m-0 whitespace-pre-line"
-                  style={{ fontSize: "var(--type-body)", lineHeight: 1.5 }}
-                >
-                  {lead.summary}
-                </p>
+                <div className="mv-card-head">
+                  <span className="mv-tile mv-tile--44 mv-domain-green" aria-hidden="true">
+                    <IconMic s={20} />
+                  </span>
+                  <h2 id="lead-summary-heading" className="mv-card-head__title">
+                    תוכן הפנייה
+                  </h2>
+                </div>
+                {/*
+                  ‏מה שהלקוח כתב — בתיבה משלו. זה הציטוט היחיד בכרטיס,
+                  והוא מה שמפריד בין דבריו לבין מה שהמערכת מוסיפה עליהם.
+                  ‎`whitespace-pre-line` שומר את שורות ההודעה כפי שנשלחו.
+                */}
+                <blockquote className="mv-quote">
+                  <p className="m-0 whitespace-pre-line">{lead.summary}</p>
+                </blockquote>
               </section>
             ) : (
               <section
-                className="mv-list-card px-5 py-[18px]"
+                className="mv-card mv-card--pad"
                 aria-labelledby="lead-summary-heading"
               >
-                <h2
-                  id="lead-summary-heading"
-                  className="m-0 mb-1.5"
-                  style={{ fontSize: "calc(16.5 / 16 * 1rem)", fontWeight: 800 }}
-                >
-                  תוכן הפנייה
-                </h2>
+                <div className="mv-card-head">
+                  <span className="mv-tile mv-tile--44 mv-domain-neutral" aria-hidden="true">
+                    <IconMic s={20} />
+                  </span>
+                  <h2 id="lead-summary-heading" className="mv-card-head__title">
+                    תוכן הפנייה
+                  </h2>
+                </div>
                 {/*
                   מצב ריק שאומר מה לעשות ולא רק שאין כלום: ליד
                   ממרכזייה מגיע בלי טקסט, וההערה בציר הזמן היא
@@ -1294,39 +1298,77 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
               </section>
             )}
 
-            {/* הכובעים האחרים של אותו אדם — קונה קיים, נכס שהוא מוכר */}
-            <RelatedEntities
-              contactId={lead.contact.id}
-              exclude={{ kind: "lead", id: lead.id }}
-            />
-          </div>
-
-          <div className="grid gap-[18px]">
-            {/* קראת מה הוא רצה — עכשיו תענה לו */}
-            <ReplyEmail
-              contactId={lead.contact.id}
-              leadId={lead.id}
-              contactName={lead.contact.name}
-              {...(lead.contact.email !== undefined
-                ? { contactEmail: lead.contact.email }
-                : {})}
-            />
-
-            <EntityTasks entityType="lead" entityId={id} />
-
             {/*
-              „הלקוח ממלא בעצמו” — כאן, ולא בלשונית „המשך טיפול”.
-              זו הפעולה שעושים **לפני** שמחליטים אם להמיר: מה שהלקוח
-              ימלא הוא בדיוק המידע שההחלטה נשענת עליו.
-            */}
-            <IntakePanel subject="lead" entityId={id} canEdit={can(user, "leads.edit")} />
+              ‎---- השיחות של הליד, בכרטיס ולא רק בלשונית ----
 
-            <ContactPeople
-              contactId={lead.contact.id}
-              canEdit={canEditPeople}
-              canErase={can(user, "contacts.delete")}
-            />
+              ‏בקשת בעל המוצר: „חשוב שיוכלו לראות בכרטיס של הליד את
+              ‏השיחות, ושיציג את כל השיחות של הליד”.
+
+              ‎`LeadCalls` הוא בדיוק הרכיב שכבר עושה את זה — הוא
+              ‏מושך `GET /calls?leadId=` (כלומר **כל** השיחות, לא
+              ‏האחרונה), ולכל אחת נגן הקלטה, תמלול מתקפל והשדות
+              ‏שחולצו מהשיחה. הוא היה מורכב רק בלשונית „שיחות”,
+              ‏ולכן מי שפתח את הכרטיס לא ראה שיש בכלל הקלטה.
+
+              ‏אותו רכיב בשני המקומות ולא עותק: `TabPanel` מחזיר
+              ‎`null` ללשונית שאינה פעילה, ולכן רק אחד מהם מורכב בכל
+              ‏רגע — ואי אפשר שהשניים יציגו רשימות שונות.
+            */}
+            <section
+              aria-labelledby="lead-calls-heading"
+              className="mv-card mv-card--pad"
+            >
+              <div className="mv-card-head">
+                <span
+                  className="mv-tile mv-tile--44 mv-domain-green"
+                  aria-hidden="true"
+                >
+                  <IconPhone s={20} />
+                </span>
+                <h2 id="lead-calls-heading" className="mv-card-head__title">
+                  שיחות
+                </h2>
+              </div>
+              <LeadCalls leadId={id} />
+            </section>
+
           </div>
+        </div>
+
+        {/*
+          ‎---- מתחת לטורים ----
+
+          ‏מה שאינו אחת משלוש השאלות שלמעלה אלא **פעולה** עליהן:
+          ‏תשובה במייל, ההזמנה למילוי עצמי, והכובעים האחרים של אותו
+          ‏אדם. הם על פני כל הרוחב כי אף אחד מהם אינו „טור”.
+
+          ‏תיבת התשובה ירדה לכאן ולא נמחקה: היא לא מופיעה בקובץ
+          ‏העיצוב, אבל היא הדרך לענות ללקוח — והעברה מהמסך אינה
+          ‏שינוי עיצובי.
+        */}
+        <div className="mt-[18px] grid items-start gap-[18px] lg:grid-cols-2">
+          <ReplyEmail
+            contactId={lead.contact.id}
+            leadId={lead.id}
+            contactName={lead.contact.name}
+            {...(lead.contact.email !== undefined
+              ? { contactEmail: lead.contact.email }
+              : {})}
+          />
+          {/*
+            „הלקוח ממלא בעצמו” — כאן, ולא בלשונית „המשך טיפול”.
+            זו הפעולה שעושים **לפני** שמחליטים אם להמיר: מה שהלקוח
+            ימלא הוא בדיוק המידע שההחלטה נשענת עליו.
+          */}
+          <IntakePanel subject="lead" entityId={id} canEdit={can(user, "leads.edit")} />
+        </div>
+
+        {/* הכובעים האחרים של אותו אדם — קונה קיים, נכס שהוא מוכר */}
+        <div className="mt-[18px]">
+          <RelatedEntities
+            contactId={lead.contact.id}
+            exclude={{ kind: "lead", id: lead.id }}
+          />
         </div>
       </TabPanel>
 
@@ -1357,7 +1399,13 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
                   הלקוח מחפש נכס — הכרטיס נכנס למנוע ההתאמות. איש
                   הקשר וההיסטוריה נשמרים.
                 </p>
-                <ConvertSection leadId={lead.id} />
+                <ConvertSection
+                  leadId={lead.id}
+                  autoOpen={convertSide === "buyer"}
+                  {...(convertSide === "buyer" && convertPrefill !== undefined
+                    ? { prefill: convertPrefill }
+                    : {})}
+                />
               </section>
             ) : null}
 
@@ -1374,7 +1422,14 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
                   הלקוח מוכר או משכיר — איש הקשר של הליד הופך לבעל
                   הנכס אוטומטית.
                 </p>
-                <ConvertToPropertySection leadId={lead.id} />
+                <ConvertToPropertySection
+                  leadId={lead.id}
+                  contactSharedTabu={lead.contact.sharedTabu}
+                  autoOpen={convertSide === "property"}
+                  {...(convertSide === "property" && convertPrefill !== undefined
+                    ? { prefill: convertPrefill }
+                    : {})}
+                />
               </section>
             ) : null}
           </div>
@@ -1393,6 +1448,24 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
           ============================================================ */}
       <TabPanel tab="calls" active={tab}>
         <LeadCalls leadId={id} />
+      </TabPanel>
+
+      {/* ============================================================
+          משימות — לשונית משלהן (בקשת בעל המוצר)
+          ============================================================ */}
+      {/*
+        ‏המשימות מופיעות גם בטור האמצעי של „סקירה”, כפי שקובץ העיצוב
+        ‏מראה, וגם כאן. זו אינה כפילות מסוכנת: `TabPanel` מחזיר
+        ‎`null` ללשונית שאינה פעילה, ולכן רק אחד מהשניים מורכב בכל
+        ‏רגע — מעבר ללשונית מרכיב מחדש ומרענן, ואי אפשר שהשניים
+        ‏יציגו מצב שונה זה מזה.
+
+        ‏הלשונית היא גם היעד של „משימות” בניווט התחתון במובייל,
+        ‏שקובץ העיצוב מונה — עד כה היא לא הייתה קיימת, ולכן הפס
+        ‏הצביע על ארבע לשוניות אחרות.
+      */}
+      <TabPanel tab="tasks" active={tab}>
+        <EntityTasks entityType="lead" entityId={id} />
       </TabPanel>
 
       {/* ============================================================
@@ -1517,7 +1590,7 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
                             יכול להיות תווית קמפיין חופשית שאינה
                             ברשימה, והצגתה כפי שהיא היא האמת.
                           */
-                          `המקור שונה ל: ${labelOf(LEAD_SOURCE_LABELS, item.content) ?? item.content}`
+                          `המקור שונה ל: ${leadSourceText(item.content)}`
                         : item.content}
                   </p>
                 </li>
@@ -1526,6 +1599,38 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
           )}
         </section>
       </TabPanel>
+
+      {/*
+        ‎---- ניווט תחתון — מובייל בלבד ---- (קובץ העיצוב)
+
+        ‏אותו רכיב ואותן לשוניות של הפס העליון, ואותו `selectTab` —
+        ‏לא ניווט שני שצריך לזכור לסנכרן. „הפניות” נשארת למעלה: היא
+        ‏נפתחת במשרד, לא בין פגישות.
+
+        ‏ארבע הלשוניות שקובץ העיצוב מונה, מאז שנוספה „משימות”.
+        ‏„המשך טיפול” ו„הפניות” נשארות בפס העליון: הן נפתחות
+        ‏במשרד, לא בין פגישות.
+      */}
+      <div className="mv-bottomnav-space" aria-hidden="true" />
+      <nav className="mv-bottomnav" aria-label="לשוניות כרטיס הליד">
+        {(
+          [
+            ["overview", "כרטיס"],
+            ["calls", "שיחות"],
+            ["tasks", "משימות"],
+            ["timeline", "ציר זמן"],
+          ] as const
+        ).map(([key, label]) => (
+          <button
+            key={key}
+            type="button"
+            aria-current={tab === key}
+            onClick={() => selectTab(key)}
+          >
+            {label}
+          </button>
+        ))}
+      </nav>
     </>
   );
 }

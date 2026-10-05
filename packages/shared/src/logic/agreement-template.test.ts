@@ -5,11 +5,17 @@ import {
   PLACEHOLDER_NAMES,
   REQUIRED_PLACEHOLDERS,
   SAMPLE_AGREEMENT_VALUES,
+  OPEN_SIGNER_PLACEHOLDERS,
+  SIGNER_ADDRESS_BLANK,
   SIGNER_BLANK,
   SIGNER_PROVIDED_PLACEHOLDERS,
+  agreementAllowsOpenLink,
+  agreementDealLabel,
   defaultAgreementTemplate,
+  fillSignerAddress,
   fillSignerId,
   missingRequiredPlaceholders,
+  openSignerBlanks,
   renderAgreement,
   type AgreementKind,
 } from "./agreement-template.js";
@@ -134,6 +140,56 @@ describe("fillSignerId", () => {
   });
 });
 
+describe("fillSignerAddress", () => {
+  it("ממלא את שורת הכתובת בכתובת שהחותם הזין", () => {
+    expect(fillSignerAddress(`כתובת: ${SIGNER_ADDRESS_BLANK}`, " הדקל 5, רמת גן ")).toBe(
+      "כתובת: הדקל 5, רמת גן",
+    );
+  });
+
+  it("הכתובת והזהות לא נבלעות זו בשורה של זו — בכל סדר בנוסח", () => {
+    const cases: [string, string][] = [
+      [`כתובת ${SIGNER_ADDRESS_BLANK} · ת"ז ${SIGNER_BLANK}`, 'כתובת הדקל 5 · ת"ז 123456789'],
+      [`ת"ז ${SIGNER_BLANK} · כתובת ${SIGNER_ADDRESS_BLANK}`, 'ת"ז 123456789 · כתובת הדקל 5'],
+      [`${SIGNER_ADDRESS_BLANK}${SIGNER_BLANK}`, "הדקל 5123456789"],
+    ];
+    for (const [body, expected] of cases) {
+      expect(fillSignerAddress(fillSignerId(body, "123456789"), "הדקל 5")).toBe(expected);
+      expect(fillSignerId(fillSignerAddress(body, "הדקל 5"), "123456789")).toBe(expected);
+    }
+  });
+
+  it("נוסח שמזכיר את הכתובת פעמיים — שני המקומות מתמלאים", () => {
+    const body = `כתובת: ${SIGNER_ADDRESS_BLANK}\nולמשלוח הודעות: ${SIGNER_ADDRESS_BLANK}`;
+    expect(fillSignerAddress(body, "הדקל 5")).toBe("כתובת: הדקל 5\nולמשלוח הודעות: הדקל 5");
+  });
+
+  it("מספר זהות אינו נכנס לשורת הכתובת כשאין לו שורה משלו", () => {
+    const body = `כתובת: ${SIGNER_ADDRESS_BLANK}`;
+    expect(fillSignerId(body, "123456789")).toBe(body);
+  });
+
+  it("כתובת ריקה לא מוחקת את השורה", () => {
+    const body = `כתובת: ${SIGNER_ADDRESS_BLANK}`;
+    expect(fillSignerAddress(body, "  ")).toBe(body);
+  });
+
+  it("נוסח ברירת המחדל: אחרי החתימה אין שורה ריקה ואין „חסר”", () => {
+    for (const kind of KINDS) {
+      const sent = renderAgreement(defaultAgreementTemplate(kind), {
+        ...SAMPLE_AGREEMENT_VALUES,
+        תעודת_זהות_הלקוח: SIGNER_BLANK,
+        כתובת_הלקוח: SIGNER_ADDRESS_BLANK,
+      }).text;
+      const signed = fillSignerAddress(fillSignerId(sent, "123456789"), "הדקל 5, רמת גן");
+      expect(signed).not.toContain(SIGNER_BLANK);
+      expect(signed).not.toContain(SIGNER_ADDRESS_BLANK);
+      expect(signed).not.toContain("[חסר");
+      expect(signed).toContain("הדקל 5, רמת גן");
+    }
+  });
+});
+
 describe("SIGNER_PROVIDED_PLACEHOLDERS", () => {
   it("כל פרט שהחותם ממלא הוא גם פרט חובה — אחרת אין סיבה לטפל בו בנפרד", () => {
     for (const name of SIGNER_PROVIDED_PLACEHOLDERS) {
@@ -166,5 +222,101 @@ describe("מטא-דאטה לעורך הנוסחים", () => {
 
   it("ערכי הדוגמה מסומנים כדוגמה ולא נראים כלקוח אמיתי", () => {
     expect(SAMPLE_AGREEMENT_VALUES.שם_הלקוח).toContain("לדוגמה");
+  });
+});
+
+/**
+ * ‏הקישור הפתוח — הנוסח מוקפא פעם אחת, ונחתם פעם אחת. שתי ההרצות
+ * ‏האלה הן כל המנגנון, ולכן הן נבדקות כאן ולא בשירות.
+ */
+describe("קישור החתמה פתוח", () => {
+  const OFFICE = {
+    שם_המשרד: "תיווך לדוגמה",
+    מספר_רישיון_תיווך: "3001",
+    כתובת_המשרד: "הרצל 1, תל אביב",
+    טלפון_המשרד: "03-1111111",
+    דמי_תיווך: "2%",
+    מועד_תשלום: "במעמד החתימה",
+    תאריך: "17.09.2026",
+  };
+
+  const frozen = (): string =>
+    renderAgreement(defaultAgreementTemplate("brokerage"), OFFICE, {
+      keep: OPEN_SIGNER_PLACEHOLDERS,
+    }).text;
+
+  it("ההקפאה ממלאת את פרטי המשרד ומשאירה את שדות החותם כשורטקוד", () => {
+    const text = frozen();
+    expect(text).toContain("תיווך לדוגמה");
+    expect(text).toContain("{{שם_הלקוח}}");
+    expect(text).toContain("{{תיאור_הנכס}}");
+    expect(text).not.toContain("[חסר");
+  });
+
+  it("שדה ששמור להמשך אינו נספר כחסר", () => {
+    const result = renderAgreement(defaultAgreementTemplate("brokerage"), OFFICE, {
+      keep: OPEN_SIGNER_PLACEHOLDERS,
+    });
+    expect(result.unfilled).toEqual([]);
+  });
+
+  it("פרט משרד שלא הוזן עדיין נספר כחסר — ההקפאה אינה פוטרת ממנו", () => {
+    const { unfilled } = renderAgreement(
+      defaultAgreementTemplate("brokerage"),
+      { ...OFFICE, דמי_תיווך: "" },
+      { keep: OPEN_SIGNER_PLACEHOLDERS },
+    );
+    expect(unfilled).toEqual(["דמי_תיווך"]);
+  });
+
+  it("התצוגה שלפני החתימה מציגה שורה למילוי, לא [חסר]", () => {
+    const preview = renderAgreement(frozen(), openSignerBlanks());
+    expect(preview.unfilled).toEqual([]);
+    expect(preview.text).not.toContain("[חסר");
+    expect(preview.text).toContain(SIGNER_BLANK);
+    expect(preview.text).not.toContain("{{");
+  });
+
+  it("החתימה ממלאת את אותו נוסח קפוא בערכים של החותם", () => {
+    const signed = renderAgreement(frozen(), {
+      שם_הלקוח: "דנה כהן",
+      תעודת_זהות_הלקוח: "123456789",
+      כתובת_הלקוח: "הדקל 5, רמת גן",
+      טלפון_הלקוח: "0521234567",
+      סוג_העסקה: "מכר",
+      תיאור_הנכס: "דירת 4 חדרים, הרב שך 12, בני ברק",
+      מחיר_משוער: "2,100,000 ₪",
+    });
+    expect(signed.unfilled).toEqual([]);
+    expect(signed.text).toContain("דנה כהן");
+    expect(signed.text).toContain("123456789");
+    expect(signed.text).toContain("הרב שך 12");
+    expect(signed.text).not.toContain(SIGNER_BLANK);
+    expect(signed.text).not.toContain("{{");
+  });
+
+  it("שדות החותם מכסים את כל פרטי החובה שאינם של המשרד", () => {
+    const officeSide: (keyof typeof OFFICE)[] = ["שם_המשרד", "דמי_תיווך", "מועד_תשלום"];
+    for (const name of REQUIRED_PLACEHOLDERS.brokerage) {
+      expect(
+        OPEN_SIGNER_PLACEHOLDERS.includes(name) ||
+          (officeSide as string[]).includes(name),
+      ).toBe(true);
+    }
+  });
+
+  it("בלעדיות אינה נִתנת בקישור פתוח — היא על נכס של המשרד", () => {
+    expect(agreementAllowsOpenLink("brokerage")).toBe(true);
+    expect(agreementAllowsOpenLink("exclusivity")).toBe(false);
+  });
+});
+
+describe("agreementDealLabel", () => {
+  it("מתרגם את שני סוגי העסקה, ושותק על מה שאינו מוכר", () => {
+    expect(agreementDealLabel("sale")).toBe("מכר");
+    expect(agreementDealLabel("rent")).toBe("שכירות");
+    expect(agreementDealLabel(null)).toBe("");
+    expect(agreementDealLabel(undefined)).toBe("");
+    expect(agreementDealLabel("barter")).toBe("");
   });
 });

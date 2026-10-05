@@ -1,7 +1,9 @@
 import { Injectable, Logger } from "@nestjs/common";
 import {
+  displayWhatsappNumber,
   fitsInteractive,
   listPayload,
+  normalizePhoneForWhatsapp,
   replyButtonsPayload,
   splitForWhatsApp,
   whatsappTemplateButton,
@@ -11,7 +13,9 @@ import {
   type WhatsAppTemplateQuickReply,
 } from "@metavchim/shared";
 import { loadEnv } from "../../config/env";
+import { CryptoService } from "../../core/crypto.service";
 import { PlatformSettingsService } from "../../core/platform-settings.service";
+import { PrismaService } from "../../core/prisma.service";
 import { WA_AUDIO_MAX_BYTES } from "./assistant-buttons";
 import { toWhatsAppAudio } from "./audio-transcode";
 
@@ -29,6 +33,13 @@ import { toWhatsAppAudio } from "./audio-transcode";
 
 const GRAPH_BASE = "https://graph.facebook.com/v23.0";
 const SEND_TIMEOUT_MS = 15_000;
+
+/**
+ * נוסח הודעת הבדיקה. קבוע ולא נתון מהמסך: מי שמפעיל את הפלטפורמה
+ * מקליד מספר של אדם אמיתי, וטקסט חופשי היה הופך את הכפתור לכלי
+ * שליחה אל כל מספר — משהו אחר לגמרי מבדיקת חיבור.
+ */
+const TEST_MESSAGE = "בדיקת חיבור מהמערכת. אין צורך להשיב.";
 /** הקלטה קולית סבירה שוקלת מאות KB; מעל זה משהו אחר קורה. */
 const MAX_MEDIA_BYTES = 16 * 1024 * 1024;
 
@@ -52,7 +63,82 @@ export interface SendTextOptions {
 export class WhatsAppSendService {
   private readonly logger = new Logger(WhatsAppSendService.name);
 
-  constructor(private readonly platformSettings: PlatformSettingsService) {}
+  constructor(
+    private readonly platformSettings: PlatformSettingsService,
+    private readonly prisma: PrismaService,
+    private readonly crypto: CryptoService,
+  ) {}
+
+  /**
+   * ‎**שליחה בשם המשרד — לא מקו מסוים ולא מהמספר של הפלטפורמה.**
+   *
+   * ‏`sendText` יוצא מהקו של המערכת, ו-`sendTextAs` דורש שהקורא
+   * יביא כבר את פרטי החיבור. יש מקרה שלישי שלא היה לו בית: הודעה
+   * שהמשרד שולח ללקוח שלו — דוח פעילות לבעל נכס — שבה השולח הוא
+   * **המשרד** ואין בה קו שממנו לצאת.
+   *
+   * ‎`WhatsAppConnectionService` היה המקום המתבקש, והוא יושב
+   * ב-`WhatsAppModule` שתלוי ב-`AgentModule` שתלוי ב-
+   * ‎`PropertiesModule` — כלומר ייבוא שלו מנכסים הוא מעגל, בדיוק
+   * כפי שההערה ב-`messaging.module.ts` מזהירה. השאילתה כאן היא
+   * קריאה אחת ופענוח אחד, בלי אף אחת מהתלויות האלה, והיא יושבת
+   * לצד שאר השליחה.
+   *
+   * ‏החיבור הראשון שחובר ולא האחרון: משרד עם שני קווים שולח מזה
+   * שהלקוחות כבר מכירים.
+   *
+   * ‏`"no_connection"` ו-`"rejected"` הן שתי תשובות שונות ולא
+   * ‎`false` אחד: הראשונה אומרת „חברו וואטסאפ” והשנייה „חלון 24
+   * השעות סגור” — עצות הפוכות למי שלחץ.
+   */
+  /**
+   * ‏האם למשרד יש חיבור וואטסאפ פעיל.
+   *
+   * ‏קיים כדי שמסך יוכל לומר מראש **איך** הוא ישלח, במקום לגלות את
+   * זה אחרי הלחיצה: „ייפתח וואטסאפ” ו„יישלח מהמשרד” הן שתי הבטחות
+   * שונות, ומסך שמבטיח את הלא-נכונה מבלבל דווקא את מי שכן קרא.
+   *
+   * ‏אותה שאילתה בדיוק של `sendAsTenant` — אותו תנאי, אותו סדר —
+   * כדי ששתיהן לא יוכלו לסטות: בדיקה שאומרת „מחובר” על מה ששליחה
+   * דוחה גרועה מהיעדר בדיקה.
+   */
+  async hasTenantConnection(tenantId: string): Promise<boolean> {
+    const row = await this.prisma.whatsAppBusinessConnection.findFirst({
+      where: { tenantId, disconnectedAt: null },
+      orderBy: { connectedAt: "asc" },
+      select: { accessTokenEncrypted: true },
+    });
+    if (!row?.accessTokenEncrypted) return false;
+    /* ‏טוקן שנכתב במפתח קודם — מבחינת השולח אין חיבור, וגם כאן */
+    try {
+      this.crypto.decrypt(row.accessTokenEncrypted);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  async sendAsTenant(
+    tenantId: string,
+    to: string,
+    body: string,
+  ): Promise<"sent" | "no_connection" | "rejected"> {
+    const row = await this.prisma.whatsAppBusinessConnection.findFirst({
+      where: { tenantId, disconnectedAt: null },
+      orderBy: { connectedAt: "asc" },
+      select: { accessTokenEncrypted: true, phoneNumberId: true },
+    });
+    if (!row?.accessTokenEncrypted) return "no_connection";
+    let token: string;
+    try {
+      token = this.crypto.decrypt(row.accessTokenEncrypted);
+    } catch {
+      /* ‏טוקן שנכתב במפתח קודם — מבחינת השולח אין חיבור */
+      return "no_connection";
+    }
+    const sent = await this.sendTextAs({ token, phoneNumberId: row.phoneNumberId }, to, body);
+    return sent ? "sent" : "rejected";
+  }
 
   /** null = הצד היוצא לא הוגדר; הקליטה ממשיכה לעבוד בלעדיו. */
   async credentials(): Promise<WhatsAppCredentials | null> {
@@ -63,6 +149,78 @@ export class WhatsAppSendService {
       (await this.platformSettings.get("whatsappPhoneNumberId")) ?? env.WHATSAPP_PHONE_NUMBER_ID;
     if (!token || !phoneNumberId) return null;
     return { token, phoneNumberId };
+  }
+
+  /**
+   * ‎**המספר העסקי שהלקוחות שולחים אליו — כפי ש-Meta מכירה אותו.**
+   *
+   * ‎`phoneNumberId` הוא מזהה אטום ואי אפשר לחייג אליו; המספר לחיוג
+   * יושב אצל Meta ומגיע רק מהגרף. הוא נדרש כדי לבנות קישור
+   * ‎`wa.me` — כלומר כדי שאפשר יהיה **לסרוק ברקוד** או ללחוץ על
+   * קישור במקום להקליד קוד בן שש אותיות ביד.
+   *
+   * הוא אינו נשמר כהגדרה בכוונה: הגדרה כזאת אפשר להקליד שגוי, והיא
+   * מתיישנת בשקט אם המספר מוחלף. המקור הוא Meta, והמטמון כאן קצר
+   * דיו כדי שהחלפה תתפוס תוך שעה.
+   *
+   * ‎`null` = הצד היוצא לא הוגדר, או ש-Meta לא ענתה. הקוד עצמו עדיין
+   * מוצג, והמשתמש עדיין יכול לשלוח אותו ידנית — הקיצור נעלם, לא
+   * היכולת.
+   */
+  private displayNumber: { value: string | null; at: number } | null = null;
+
+  async businessNumber(): Promise<string | null> {
+    const fromMeta = await this.metaDisplayNumber();
+    if (fromMeta !== null) return fromMeta;
+    /*
+     * ‎**הגיבוי אינו במטמון של Meta, בכוונה.**
+     *
+     * המטמון שומר גם כישלון, ולשעה — אחרת כל פתיחת מסך הייתה ממתינה
+     * לפסק זמן. אבל ההגדרה הידנית היא בדיוק מה שממלאים **בגלל**
+     * הכישלון הזה, ושעה שבה היא אינה נכנסת לתוקף נראית כמו שדה
+     * שבור. ‎`PlatformSettingsService` ממילא ממטמן ל-30 שניות.
+     */
+    /*
+     * ‎`normalizePhoneForWhatsapp` ולא הסרת תווים בלבד: המנהל מקליד
+     * ‎`0553142235`, וזו הצורה שהתיעוד מציג. מספר מקומי שיוצא מכאן
+     * כמות שהוא הופך ל-`+0553142235` בתצוגה ובקישור החיוג — מספר
+     * שאינו קיים. הנרמול כאן, כי זה הגבול שממנו כל השאר צורך.
+     */
+    const manual = normalizePhoneForWhatsapp(
+      (await this.platformSettings.get("whatsappBotNumber")) ?? "",
+    );
+    return manual === "" ? null : manual;
+  }
+
+  private async metaDisplayNumber(): Promise<string | null> {
+    const TTL_MS = 60 * 60 * 1000;
+    if (this.displayNumber !== null && Date.now() - this.displayNumber.at < TTL_MS) {
+      return this.displayNumber.value;
+    }
+    const creds = await this.credentials();
+    if (!creds) return null;
+    let value: string | null = null;
+    try {
+      const res = await fetch(`${GRAPH_BASE}/${creds.phoneNumberId}?fields=display_phone_number`, {
+        headers: { authorization: `Bearer ${creds.token}` },
+        signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
+      });
+      if (res.ok) {
+        const data = (await res.json()) as { display_phone_number?: string };
+        const digits = (data.display_phone_number ?? "").replace(/\D/gu, "");
+        value = digits === "" ? null : digits;
+      } else {
+        this.logger.warn(`Meta לא החזירה את המספר העסקי: HTTP ${res.status}`);
+      }
+    } catch (error) {
+      this.logger.warn(`שליפת המספר העסקי מ-Meta נכשלה: ${String(error)}`);
+    }
+    /*
+     * גם כישלון נשמר במטמון, ולזמן מלא: בלי זה כל פתיחת מסך שמציג
+     * את הקוד הייתה פונה שוב ל-Meta ומחכה לפסק הזמן.
+     */
+    this.displayNumber = { value, at: Date.now() };
+    return value;
   }
 
   /**
@@ -91,6 +249,37 @@ export class WhatsAppSendService {
           : {}),
       });
       // חלק שנכשל עוצר את השאר: המשך בלי ההתחלה מבלבל יותר מכלום
+      if (!sent) return false;
+    }
+    return true;
+  }
+
+  /**
+   * שליחה **על קו של סוכן** ולא על קו הפלטפורמה.
+   *
+   * ‎`sendText` שולף את אישורי הפלטפורמה, וזה נכון לסוכן האישי אבל
+   * הפוך לבוט: הלקוח כתב למספר של המתווך, ותשובה שתצא ממספר אחר
+   * נראית לו כמו הודעה מזרה — ובמקרה הטוב מתעלמים ממנה. האישורים
+   * מגיעים מכאן מהחיבור עצמו (`credentialsFor`).
+   */
+  async sendTextAs(
+    creds: WhatsAppCredentials,
+    to: string,
+    body: string,
+    options: SendTextOptions = {},
+  ): Promise<boolean> {
+    const chunks = splitForWhatsApp(body);
+    if (chunks.length === 0) return true;
+    for (const [index, chunk] of chunks.entries()) {
+      const sent = await this.post(creds, {
+        messaging_product: "whatsapp",
+        to,
+        type: "text",
+        text: { body: chunk, preview_url: false },
+        ...(index === 0 && options.replyTo !== undefined
+          ? { context: { message_id: options.replyTo } }
+          : {}),
+      });
       if (!sent) return false;
     }
     return true;
@@ -396,6 +585,109 @@ export class WhatsAppSendService {
    * בדיקת חיבור למסך הפלטפורמה — שואל את Graph על המספר עצמו.
    * מחזיר את השם המאומת והמספר כדי שיהיה ברור *מה* חובר, לא רק שחובר.
    */
+  /**
+   * ‎**שליחת הודעת בדיקה — ומה ש-`probe` אינו יכול להוכיח.**
+   *
+   * ‎`probe` *קורא* את פרטי המספר מ-Meta, וזו בדיקה חלשה יותר משהיא
+   * נראית: טוקן שחסרה לו ההרשאה `whatsapp_business_messaging` עובר
+   * אותה בהצלחה מלאה ונכשל רק בהודעה הראשונה של מתווך אמיתי. גם
+   * מספר שאינו ברשימת הבדיקה במצב Development נראה שם תקין.
+   *
+   * ‎**התשובה נושאת את הסיבה של Meta ולא „נכשל”.** זה כל ההבדל בין
+   * בדיקה שמכוונת לתיקון לבין בדיקה שמותירה את המנהל לנחש; ובראשן
+   * שגיאת חלון 24 השעות, שהיא הכישלון הצפוי ביותר כאן ונראית בלי
+   * הסבר כמו תקלת חיבור.
+   */
+  async probeSend(to: string): Promise<{ ok: boolean; message: string }> {
+    const creds = await this.credentials();
+    if (!creds) {
+      return { ok: false, message: "חסרים Access Token או Phone Number ID" };
+    }
+    /*
+     * ‎**הבדיקה על התוצאה, לא על הקלט.**
+     *
+     * ‏`normalizePhoneForWhatsapp` מסיר כל תו שאינו ספרה, ולכן
+     * ‎`"050123456 ext 7"` ו-`"abc0501234567"` הופכים שניהם למספר
+     * ‎**תקין אך אחר** — וההודעה יוצאת לאדם שלא התכוונו אליו
+     * (ביקורת Codex). „אינו ריק” לא תופס את זה; אורך סביר כן.
+     *
+     * הבדיקה כאן ולא רק בבקר: השירות אינו יכול להניח שמי שקורא לו
+     * סינן, ושליחה לאדם זר אינה משהו שנשען על נימוס של הקורא.
+     */
+    /*
+     * ‎**שתי בדיקות, כי אף אחת מהן לבדה אינה מספיקה.**
+     *
+     * ‏על הקלט הגולמי: `normalizePhoneForWhatsapp` מסיר כל תו שאינו
+     * ספרה, ולכן `"050123456 ext 7"` ו-`"abc0501234567"` הופכים
+     * שניהם ל-`972501234567` — מספר **תקין לחלוטין של מישהו אחר**,
+     * וההודעה יוצאת לאדם זר. בדיקה על התוצאה לא תתפוס את זה: היא
+     * כבר תקינה. רק הקלט מסגיר את הזבל.
+     *
+     * ועל התוצאה: מספר קצר מדי עובר את בדיקת התחביר ונשלח לחינם.
+     */
+    if (!/^\+?[\d\s()-]+$/u.test(to.trim())) {
+      return { ok: false, message: "מספר לא תקין" };
+    }
+    const target = normalizePhoneForWhatsapp(to);
+    if (!/^\d{9,15}$/u.test(target)) {
+      return { ok: false, message: "מספר לא תקין" };
+    }
+    try {
+      const res = await fetch(`${GRAPH_BASE}/${creds.phoneNumberId}/messages`, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${creds.token}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          messaging_product: "whatsapp",
+          to: target,
+          type: "text",
+          text: { body: TEST_MESSAGE, preview_url: false },
+        }),
+        signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
+      });
+      const body = (await res.json().catch(() => null)) as {
+        error?: { message?: string; code?: number };
+      } | null;
+      if (!res.ok) {
+        const detail = body?.error?.message ?? `HTTP ${res.status}`;
+        const code = body?.error?.code;
+        /*
+         * ‎131047 = „re-engagement message”. Meta מתירה טקסט חופשי רק
+         * בתוך 24 שעות מהודעה של הנמען, וזו אינה תקלה אלא כלל — אבל
+         * הנוסח שלה אינו אומר את זה, והמנהל מסיק שהחיבור שבור.
+         */
+        if (code === 131047) {
+          return {
+            ok: false,
+            message:
+              "‏Meta דחתה: מחוץ לחלון 24 השעות. שלחו הודעה מהמספר הזה אל המספר של המערכת, ונסו שוב מיד אחר כך",
+          };
+        }
+        return {
+          ok: false,
+          message:
+            res.status === 401 || code === 190
+              ? `האסימון נדחה על ידי Meta (${detail}) — ודאו שזה טוקן קבוע של System User`
+              : `Meta החזירה שגיאה: ${detail}`,
+        };
+      }
+      /*
+       * ‎**בלי המספר.** ‏docs/04 §4: „ללא PII בלוגים טכניים”, וטלפון
+       * מנוי שם כ-PII — הוא נשמר מוצפן בעמודה ועם `phone_hash`
+       * לחיפוש בלי פענוח. שורת לוג בגלוי מבטלת בדיוק את ההגנה הזו,
+       * ומשאירה אותו באגרגטורים הרבה אחרי שהבדיקה נשכחה (ביקורת
+       * Codex). מי שלחץ רואה את המספר בתשובה שחזרה אליו — שם הוא
+       * מידע, לא דליפה.
+       */
+      this.logger.log("הודעת בדיקה נשלחה");
+      return { ok: true, message: `ההודעה נשלחה אל ${target} — בדקו במכשיר` };
+    } catch (error) {
+      return { ok: false, message: `השליחה נכשלה: ${String(error)}` };
+    }
+  }
+
   async probe(): Promise<{ ok: boolean; message: string }> {
     const creds = await this.credentials();
     if (!creds) {
@@ -426,9 +718,38 @@ export class WhatsAppSendService {
         display_phone_number?: string;
         verified_name?: string;
       };
+      const connected = normalizePhoneForWhatsapp(data.display_phone_number ?? "");
+      const name = data.verified_name ?? "ללא שם מאומת";
+
+      /*
+       * ‎**החיבור עלה — אבל לאיזה קו?**
+       *
+       * ‎`Phone Number ID` הוא מזהה אטום, ולחשבון עסקי אחד ב-Meta
+       * יכולים להיות כמה מספרים. הדבקה של המזהה של המספר השני
+       * באותו חשבון אינה נכשלת בשום מקום: האסימון תקף, Meta עונה,
+       * ההודעות יוצאות — פשוט מהמספר הלא נכון. עד כאן הבדיקה הייתה
+       * מחזירה „מחובר” ירוק בדיוק על התקלה הזאת.
+       *
+       * ‎`whatsappBotNumber` הוא ההצהרה של המנהל על מה *אמור* להיות
+       * מחובר, ולכן הוא אמת המידה. ריק = לא הוצהר דבר, ואין מה
+       * להשוות — הבדיקה נשארת כשהייתה ואינה ממציאה כשל.
+       */
+      const expected = normalizePhoneForWhatsapp(
+        (await this.platformSettings.get("whatsappBotNumber")) ?? "",
+      );
+      if (expected !== "" && connected !== "" && expected !== connected) {
+        return {
+          ok: false,
+          message:
+            `מחובר למספר הלא נכון: ${displayWhatsappNumber(connected)} (${name}), ` +
+            `בעוד שמספר הבוט המוגדר הוא ${displayWhatsappNumber(expected)}. ` +
+            "‏החליפו את Phone Number ID לזה של המספר הנכון — או תקנו את שדה מספר הבוט אם הוא זה שגוי.",
+        };
+      }
+
       return {
         ok: true,
-        message: `מחובר: ${data.verified_name ?? "ללא שם מאומת"} · ${data.display_phone_number ?? creds.phoneNumberId}`,
+        message: `מחובר: ${name} · ${connected === "" ? creds.phoneNumberId : displayWhatsappNumber(connected)}`,
       };
     } catch (error) {
       return { ok: false, message: `החיבור ל-Meta נכשל: ${String(error)}` };

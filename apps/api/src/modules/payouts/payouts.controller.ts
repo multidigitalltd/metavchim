@@ -7,6 +7,7 @@ import {
   MAX_PAYOUT_REQUEST_AGOROT,
   PAYOUT_STATUSES,
   type PayoutStatus,
+  IdSchema,
 } from "@metavchim/shared";
 import { BillingAllowed, PlatformAdmin, RequireCapability } from "../../common/auth.decorators";
 import { PlatformAdminGuard } from "../../common/platform-admin.guard";
@@ -33,7 +34,7 @@ const RequestSchema = z.object({
 });
 
 const DecisionSchema = z.object({
-  id: z.string().length(26),
+  id: IdSchema,
   status: z.enum(PAYOUT_STATUSES),
   note: z.string().max(MAX_PAYOUT_NOTE).optional(),
   reference: z.string().max(MAX_PAYOUT_REFERENCE).optional(),

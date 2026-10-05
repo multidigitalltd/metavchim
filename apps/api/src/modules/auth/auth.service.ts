@@ -3,18 +3,21 @@ import * as argon2 from "argon2";
 import { createHash, randomBytes } from "node:crypto";
 import { ulid } from "ulid";
 import {
-  applyBlockedModules,
+  boardOpenToAgents,
+  effectiveCapabilities,
   isTrialExpired,
   normalizePhone,
-  resolveCapabilities,
-  type Capability,
 } from "@metavchim/shared";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PrismaService } from "../../core/prisma.service";
 import type { RequestContext } from "../../common/tenant-context";
 import { WhatsAppLinkService } from "../messaging/whatsapp-link.service";
-
-const SESSION_TTL_MS = 1000 * 60 * 60 * 12; // 12 שעות; Refresh בפעילות
+import {
+  isPersistentSession,
+  renewedExpiry,
+  sessionTtlMs,
+  type SessionClient,
+} from "../../common/session-lifetime";
 
 /** חיבור פתוח כפי שהוא מוצג — בלי הטוקן ובלי ה-hash שלו. */
 export interface SessionInfo {
@@ -27,6 +30,8 @@ export interface SessionInfo {
   current: boolean;
   /** לא null = חיבור של התמיכה בהסכמת המשרד, ולא של המשתמש */
   supportAdminEmail: string | null;
+  /** ‏דפדפן או האפליקציה לנייד — שער „חיבור אחד לחשבון” סופר רק דפדפנים */
+  client: SessionClient;
 }
 
 export interface AuthenticatedUser {
@@ -43,6 +48,18 @@ export interface AuthenticatedUser {
    * null = אין תפוגה (משרד משלם או שהוקם ידנית).
    */
   trialEndsAt?: string | null;
+  /**
+   * האם למשרד יש לוגו — כדי שהסרגל יבקש את הקובץ רק כשהוא קיים.
+   * בלי זה כל מסך ביקש `logo/raw` וקיבל 404 למשרד שלא העלה.
+   */
+  tenantHasLogo?: boolean;
+  /**
+   * ‏האם „המשרד שלנו” פתוח לסוכנים ולא להנהלה בלבד.
+   *
+   * ‏נדרש כדי שהכפתור בראש המסך לא יוביל ל-403, ולא ייעלם
+   * ‏ויופיע בכל טעינה — הזהות יושבת במטמון המקומי.
+   */
+  officeBoardOpen?: boolean;
 }
 
 /**
@@ -260,13 +277,33 @@ export class AuthService {
     };
   }
 
-  /** יצירת Session למשתמש שכבר אומת (סיסמה, ואם מופעל — גם קוד אימייל). */
+  /**
+   * יצירת Session למשתמש שכבר אומת (סיסמה, ואם מופעל — גם קוד אימייל).
+   *
+   * ‏`client` הוא מי נושא את הטוקן (עוגייה / Bearer), ו-`persistent` —
+   * ‏בקשת האפליקציה ל-Session ארוך ומתגלגל, שמתקבלת רק ממנה (ראו
+   * ‏`session-lifetime.ts`). דפדפן שמבקש מקבל את 12 השעות הרגילות.
+   */
   async issueSession(
     user: ValidatedUser,
-    meta: { ip?: string; userAgent?: string },
+    meta: { ip?: string; userAgent?: string; client?: SessionClient; persistent?: boolean },
   ): Promise<{ token: string; expiresAt: Date; user: AuthenticatedUser }> {
     const token = randomBytes(32).toString("base64url");
-    const expiresAt = new Date(Date.now() + SESSION_TTL_MS);
+    const client = meta.client ?? "web";
+    const persistent = isPersistentSession(client, meta.persistent ?? false);
+    const expiresAt = new Date(Date.now() + sessionTtlMs(persistent));
+
+    /*
+     * ‏**מכשיר נייד אחד לחשבון — נאכף כאן, בשרת.** שער „חיבור אחד
+     * ‏לחשבון” ב-web אינו סופר Sessions של האפליקציה, ו-`client` הוא
+     * ‏הצהרה של הלקוח — לכן ההצהרה אינה פטור אלא כניסה למשבצת אחת:
+     * ‏התחברות חדשה מהאפליקציה (או ממי שמתחזה לה) מנתקת את הטלפון
+     * ‏הקודם. חשבון משותף בין שני טלפונים מנתק את עצמו בלופ, בדיוק
+     * ‏כמו שני דפדפנים מול השער (ביקורת Codex).
+     */
+    if (client === "mobile") {
+      await this.prisma.session.deleteMany({ where: { userId: user.id, client: "mobile" } });
+    }
 
     await this.prisma.session.create({
       data: {
@@ -274,6 +311,8 @@ export class AuthService {
         userId: user.id,
         tokenHash: AuthService.hashToken(token),
         expiresAt,
+        client,
+        persistent,
         ipAddress: meta.ip ?? null,
         userAgent: meta.userAgent?.slice(0, 300) ?? null,
         // החותמת שנלכדה באימות — לא הערך העדכני. אם הסיסמה שונתה
@@ -540,6 +579,7 @@ export class AuthService {
       current: currentHash !== null && row.tokenHash === currentHash,
       /* חיבור של התמיכה, לא של המשתמש — מסומן במפורש */
       supportAdminEmail: row.supportAdminEmail,
+      client: row.client === "mobile" ? "mobile" : "web",
     }));
   }
 
@@ -575,6 +615,18 @@ export class AuthService {
       },
     });
     return count;
+  }
+
+  /**
+   * ‏תפוגת ה-Session שהטוקן מזהה, או `null` כשאין כזה — למסירת אותו
+   * ‏Session לעוגייה של הדפדפן המוטמע באפליקציה, עם התפוגה המקורית.
+   */
+  async sessionExpiry(token: string): Promise<Date | null> {
+    const row = await this.prisma.session.findUnique({
+      where: { tokenHash: AuthService.hashToken(token) },
+      select: { expiresAt: true },
+    });
+    return row?.expiresAt ?? null;
   }
 
   /** פענוח עוגיית Session → הקשר בקשה מלא, או null אם לא מאומת. */
@@ -635,6 +687,17 @@ export class AuthService {
       return null;
     }
     /*
+     * ‏Session מתמשך של האפליקציה — הפעילות מזיזה את התפוגה קדימה,
+     * ‏לכל היותר פעם ביום (`renewedExpiry`). הכתיבה אינה מעכבת את
+     * ‏הבקשה ואינה מפילה אותה: הארכה שנכשלה תקרה בבקשה הבאה.
+     */
+    const renewed = renewedExpiry(session, new Date());
+    if (renewed !== null) {
+      void this.prisma.session
+        .update({ where: { id: session.id }, data: { expiresAt: renewed } })
+        .catch(() => undefined);
+    }
+    /*
      * חריגי ההרשאה של המשתמש נטענים בכל בקשה, ולא נצרבים ב-Session.
      *
      * זו הנקודה היחידה במערכת שבה נקבעות היכולות בפועל, וזה מכוון:
@@ -650,29 +713,48 @@ export class AuthService {
      * שקיים הקשר דייר, והטבלה תחת FORCE RLS — בלי app.tenant_id
      * התוצאה הייתה אפס שורות בשקט, כלומר כל ההרשאות מתעלמות.
      */
-    const overrides = await this.prisma.withExplicitTenant(session.user.tenantId, (tx) =>
-      tx.userCapability.findMany({
-        where: { userId: session.user.id, tenantId: session.user.tenantId },
-        select: { capability: true, effect: true, expiresAt: true },
-      }),
+    const [overrides, tenantRow] = await this.prisma.withExplicitTenant(
+      session.user.tenantId,
+      (tx) =>
+        Promise.all([
+          tx.userCapability.findMany({
+            where: { userId: session.user.id, tenantId: session.user.tenantId },
+            select: { capability: true, effect: true, expiresAt: true },
+          }),
+          // הלוגו נרשם ב-settings (ראו tenant-logo.service) — אותה שורה,
+          // בלי שאילתה נוספת לכל בקשה: זה רץ רק ב-/auth/me.
+          tx.tenant.findUnique({ where: { id: session.user.tenantId }, select: { settings: true } }),
+        ]),
     );
+    const tenantSettings = (tenantRow?.settings ?? {}) as Record<string, unknown>;
+    const tenantHasLogo = typeof tenantSettings["logoKey"] === "string";
     /*
-     * חסימת מודול של הפלטפורמה מוחלת **אחרי** חריגי המנהל, ולא
-     * כחריג נוסף: חריג deny ברמת המשתמש נמחק בלחיצה של מנהל המשרד,
-     * וחסימה שהנחסם יכול להסיר אינה חסימה. הכיוון חד־צדדי — היא
-     * מורידה יכולות ולעולם לא מוסיפה.
+     * ‎**האם „המשרד שלנו” פתוח לסוכנים — מאותה שורה.**
+     *
+     * ‏זו תכונה של המשרד ולא של המשתמש, ולכן היא נוסעת עם
+     * ‏ה-Session בדיוק כמו `tenantName` ו-`tenantHasLogo`: הכפתור בראש
+     * ‏המסך נגזר ממנה בכל רינדור, ושאילתה נפרדת לשם כך הייתה
+     * ‏מבהבה אותו בכל מעבר בין מסכים. השורה נקראת כאן ממילא
+     * ‏בשביל הלוגו.
+     *
+     * ‎**וזו תצוגה בלבד.** האכיפה היא בשער של הנתיב עצמו,
+     * ‏שקורא את הדגל מחדש בכל בקשה — כדי ש-Session ממוטמן מלפני
+     * ‏הכיבוי לא ימשיך לפתוח את הטבלה.
      */
-    const capabilities = applyBlockedModules(
-      resolveCapabilities(
-        session.user.role,
-        overrides.map((o) => ({
-          capability: o.capability as Capability,
-          effect: o.effect === "grant" ? "grant" : "deny",
-          expiresAt: o.expiresAt,
-        })),
-        new Date(),
-      ),
-      session.user.tenant.blockedModules,
+    const officeBoardOpen = boardOpenToAgents(tenantSettings);
+    /*
+     * ‏שלוש השכבות — תפקיד, חריגים, חסימות — יושבות ב-shared בפונקציה
+     * ‏אחת, ובכוונה: הצירוף הזה נדרש גם לעוזר שבוואטסאפ, גם לשער
+     * ‏ההתראות, גם לסבב של העובד וגם למסך ההרשאות, ועותק שנפרד
+     * ‏פירושו „מי רשאי למה” שונה בין שניים מהם.
+     */
+    const capabilities = effectiveCapabilities(
+      {
+        role: session.user.role,
+        overrides,
+        blockedModules: session.user.tenant.blockedModules,
+      },
+      new Date(),
     );
     /*
      * המסלול נקרא מהקטלוג המומטמן ולא מהמסד — הקוד הזה רץ על כל
@@ -699,6 +781,8 @@ export class AuthService {
         role: session.user.role,
         mustChangePassword: session.user.mustChangePassword,
         tenantName: session.user.tenant.name,
+        tenantHasLogo,
+        officeBoardOpen,
         /*
          * במסלול חינמי אין ספירה לאחור. הבאנר במסכים נגזר מהשדה
          * הזה, ולכן משרד חינמי עם תאריך ישן על השורה היה רואה

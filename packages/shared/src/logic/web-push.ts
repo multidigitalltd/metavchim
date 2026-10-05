@@ -8,6 +8,8 @@
  * ומנוי מת שלא נמחק ממשיך להיכשל לנצח.
  */
 
+import { notifyCategory, type WhatsAppNotifyCategory } from "./notify-categories.js";
+
 /** התראה כפי שהיא נשמרת — רק השדות שהפוש צריך. */
 export interface PushableNotification {
   type: string;
@@ -41,6 +43,10 @@ const NO_PUSH_TYPES = new Set([
   "daily_brief",
   "weekly_summary",
   "mentor_weekly",
+  // הבוקר של המנטור — כמו התקציר היומי: לפעמון ולוואטסאפ, לא לפוש ב-08:00
+  "mentor_daily",
+  // הסיכום החודשי — סיכום, לפעמון ולוואטסאפ
+  "mentor_monthly",
 ]);
 
 export function shouldPush(notification: PushableNotification): boolean {
@@ -54,31 +60,151 @@ export function shouldPush(notification: PushableNotification): boolean {
  * פריט בנתיב משלו. שיחה נבחרת בתוך רשימת השיחות ולכן היא פרמטר
  * בכתובת, ותבנית אחידה הייתה מייצרת `/calls/<id>` — נתיב שאינו
  * קיים, כלומר בדיוק הכתובת השבורה שהפונקציה למטה מבטיחה למנוע.
+ *
+ * ## הכלל שנשבר כאן שלוש פעמים, ומה שומר עליו עכשיו
+ *
+ * ‎**נתיב שנכתב כאן חייב להתקיים ב-`apps/web/src/app`.** שלוש
+ * מהשורות ייצרו 404: `/offers/<id>`, `/matches/<id>` ו-
+ * ‎`/collaboration/<id>` — לשלושתם יש מסך רשימה בלבד, ואין
+ * ‎`[id]` מתחתיו. שום בדיקה לא ראתה את זה: הטיפוס מסתפק
+ * במחרוזת, והפונקציה מחזירה אותה בהצלחה.
+ *
+ * ‎`scripts/verify-notification-routes.mjs` בודק כל נתיב שהטבלה
+ * יכולה לייצר מול עץ הנתיבים של Next, וזה מה שמחליף את ההבטחה
+ * שבתיעוד בבדיקה שנכשלת.
  */
 const ENTITY_ROUTES: Record<string, (id?: string) => string> = {
   lead: (id) => (id ? `/leads/${id}` : "/leads"),
   buyer: (id) => (id ? `/buyers/${id}` : "/buyers"),
   property: (id) => (id ? `/properties/${id}` : "/properties"),
-  offer: (id) => (id ? `/offers/${id}` : "/offers"),
+  /*
+   * ‎**שורת גיוס אינה נכס** — היא יושבת במסך הגיוס, ולכן נתיב
+   * ‏משלה. `taskEntityHref` אומר את אותו דבר בפעמון, ו-`verify:notify`
+   * ‏הוא מה שתפס שהוספתי שם ולא כאן.
+   */
+  recruitment: (id) => (id ? `/properties/recruitment/${id}` : "/properties/recruitment"),
+  // אין `/offers/<id>` — ההצעות מוצגות ברשימה אחת
+  offer: () => "/offers",
   appointment: () => "/calendar",
   task: () => "/tasks",
-  match: (id) => (id ? `/matches/${id}` : "/matches"),
-  coop_offer: (id) => (id ? `/collaboration/${id}` : "/collaboration"),
+  // אין `/matches/<id>` — ההתאמות מוצגות ברשימה אחת
+  match: () => "/matches",
+  /*
+   * ‎**הצעה שהתקבלה נמצאת בלשונית „הצעות שקיבלתי”, לא בנתיב משלה.**
+   * הלשונית נבחרת ב-`?tab=`, וזה מה ש-`TabFromQuery` קורא.
+   */
+  coop_offer: () => "/collaboration?tab=incoming",
+  /*
+   * ‎**חדר העסקה — הנתיב שהיה חסר לגמרי.**
+   *
+   * ‏שלוש התראות נכתבות עם `entityType: "coop_deal"`, ובראשן זו
+   * שנשלחת למתווך שהציע ברגע שהצד השני אישר. בלי שורה כאן
+   * ‎`notificationUrl` החזירה `"/"`, ו-`formatNotifyMessage`
+   * מדלגת על שורת הקישור בדיוק כשהיא `"/"` — כלומר ההודעה
+   * בוואטסאפ בישרה שנפתח חדר ולא אמרה איפה הוא (בקשת המשתמש).
+   */
+  coop_deal: (id) =>
+    id ? `/collaboration/deals/${id}` : "/collaboration?tab=deals",
+  /*
+   * ‎**ביקוש ברשת — אין לו מסך משלו, ולא צריך.**
+   *
+   * ‏ההתראה היחידה שנושאת אותו היא „נכנס נכס שמתאים לביקוש שאתה
+   * עוקב אחריו”, והפעולה שהיא מזמינה — „הצע נכס זה” — יושבת על
+   * הכרטיס בלשונית הקונים. לכן היעד הוא הלשונית ולא נתיב לביקוש
+   * בודד, שאינו קיים.
+   */
+  coop_demand: () => "/collaboration?tab=demands",
+  /*
+   * ‎**הפניית לקוח בין משרדים.** „ההפניה נקלטה” נכתבת עם
+   * ‎`shared_lead`, והייתה מסלול במסך ולא כאן — כלומר הלחיצה
+   * בפעמון עבדה וההודעה בוואטסאפ נחתה בדשבורד. שתי המפות היו
+   * מפוצלות בשני הכיוונים בבת אחת.
+   */
+  shared_lead: () => "/collaboration?tab=market",
+  /*
+   * ‎**הישג שבועי — מכוון ‏לא‎ מנותב, כל עוד מסך המנטור מוסתר.**
+   *
+   * ‏שתי ההתראות שנושאות אותו הובילו ל-`/mentor`, ובנתיב הזה יושב
+   * היום „בקרוב” בלבד: המסך הבנוי הועבר ל-`mentor-screen.tsx` ואינו
+   * מנותב עד שנסיים לפתח אותו. כלומר המנהל שקיבל „הצוות שלך סגר את
+   * השבוע” היה נשלח לעמוד שאין בו ההישג שההתראה מדברת עליו, ואין בו
+   * מה לעשות (ביקורת Codex).
+   *
+   * ‏בלי שורה כאן `notificationUrl` מחזירה `"/"`,
+   * ‎`formatNotifyMessage` משמיטה את שורת הקישור, והפעמון נופל למסך
+   * ההתראות — היעד היחיד שבו גוף ההתראה כן מוצג במלואו.
+   *
+   * ‏ביום שמסך המנטור ייחשף צריך להחזיר את שלושתם יחד:
+   * ‎`mentor_achievement: () => "/mentor"` כאן,
+   * ‎`case "mentor_achievement"` ב-`notification-links.ts`, והסרה
+   * מ-`FALLBACK_BY_DESIGN` ב-`scripts/verify-notification-routes.mjs`.
+   */
+  /*
+   * ‎**חיבור המרכזייה — מסך ההגדרות שלו.** המזהה הוא של המשרד ולא
+   * של החיבור, ולכן אין כאן פריט בודד לפתוח; מסך החיבורים הוא
+   * המקום שבו באמת עושים משהו עם „המרכזייה השתתקה”.
+   */
+  integration: () => "/settings/integrations",
+  /*
+   * ‎**שיוך מספרים וירטואליים משולחן הפלטפורמה.** המזהה הוא של
+   * המשרד ולא של מספר בודד, ולכן היעד הוא סעיף המספרים במסך
+   * ההגדרות — שם מנהל המשרד רואה מה השתנה ויכול לתקן.
+   */
+  virtual_number: () => "/settings#virtual-numbers",
+  /** הזמנת מדיה — עמוד ההזמנה; בלי מזהה, הרשימה */
+  media_order: (id) => (id ? `/media/orders/${id}` : "/media/orders"),
   call: (id) => (id ? `/calls?call=${id}` : "/calls"),
   mentor: () => "/mentor",
+  // הפורום — השרשור עצמו; בלי מזהה, רשימת הפורום
+  forum_thread: (id) => (id ? `/forum/t/${id}` : "/forum"),
+};
+
+/**
+ * ‎**כשלישות אין מסך — המסך של הנושא, לא מסך ההתראות.**
+ *
+ * ‏„שיחה נכנסת” מלקוח מוכר נכתבת על איש הקשר, ולאיש קשר אין עמוד
+ * ‏(ראו `FALLBACK_BY_DESIGN` ב-`verify-notification-routes.mjs`).
+ * ‏בלי השורה הזו היא נפלה ל-`"/"`, והכפתור „צפייה במערכת” נחת על
+ * ‏מסך ההתראות — במקום על השיחות, שזה מה שההודעה מדברת עליו (בקשת
+ * ‏המשתמש). כך גם „שיחה שלא נענתה” ממספר לא מוכר, „ההתאמות רועננו”
+ * ‏ו„ההצעה נדחתה” ברשת.
+ *
+ * ‏סיכומים והודעות מערכת אינם כאן בכוונה: אין להם מסך נושא, ומסך
+ * ‏ההתראות הוא המקום היחיד שבו גוף ההודעה מוצג במלואו.
+ */
+const CATEGORY_HOME: Partial<Record<WhatsAppNotifyCategory, string>> = {
+  calls: "/calls",
+  leads: "/leads",
+  tasks: "/tasks",
+  matches: "/matches",
+  network: "/collaboration",
+  forum: "/forum",
+};
+
+/**
+ * ‏סוגים שהמסך שלהם אינו רשימת הקטגוריה. הקטגוריה היא העדפת
+ * ‏ההשתקה בוואטסאפ, לא בהכרח המסך: החלטה על משיכה שייכת לרשת, אבל
+ * ‏היסטוריית המשיכות יושבת בלשונית החיוב; והכיול האוטומטי שייך
+ * ‏להתאמות, אבל ההודעה עצמה אומרת שמשנים אותו בהגדרות ההתאמות.
+ */
+const TYPE_HOME: Readonly<Record<string, string>> = {
+  email_reply: "/inbox",
+  payout_decision: "/settings?tab=billing",
+  match_weights_calibrated: "/settings#match-weights",
 };
 
 /**
  * נתיב היעד. ישות מוכרת עם מזהה → הכרטיס עצמו; ישות מוכרת בלי מזהה →
- * הרשימה; לא מוכרת → הדשבורד. אף פעם לא כתובת שבורה: לחיצה על התראה
- * שנוחתת על 404 גרועה מהתראה שלא נשלחה.
+ * הרשימה; אין לישות מסך → המסך של סוג ההתראה; גם לו אין → הדשבורד.
+ * אף פעם לא כתובת שבורה: לחיצה על התראה שנוחתת על 404 גרועה מהתראה
+ * שלא נשלחה.
  */
 export function notificationUrl(notification: PushableNotification): string {
   const route = notification.entityType
     ? ENTITY_ROUTES[notification.entityType]
     : undefined;
-  if (!route) return "/";
-  return route(notification.entityId ?? undefined);
+  if (route) return route(notification.entityId ?? undefined);
+  return TYPE_HOME[notification.type] ?? CATEGORY_HOME[notifyCategory(notification.type)] ?? "/";
 }
 
 export function pushPayload(notification: PushableNotification): PushPayload {

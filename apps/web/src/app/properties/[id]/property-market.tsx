@@ -13,7 +13,7 @@ import { Notice } from "../../notice";
 import { DealsTable, FreshnessNote, MarketAttribution, PositionPill, ils, ppsqm } from "../../market/market-parts";
 
 /**
- * ‎**„מחיר ושוק” — הנכס מול עסקאות אמת** (docs/14 §3, יכולות 1–3).
+ * ‎**„מחיר ושוק” — הנכס מול עסקאות אמת** (docs/18 §3, יכולות 1–3).
  *
  * שלוש שאלות, בסדר שבו המתווך שואל אותן מול בעלים: כמה הנכס שווה
  * (טווח, ובכמה עסקאות), האם המחיר המבוקש סביר, ומה נמכר בבניין הזה

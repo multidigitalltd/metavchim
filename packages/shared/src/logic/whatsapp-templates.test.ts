@@ -2,9 +2,13 @@ import { describe, expect, it } from "vitest";
 import {
   WHATSAPP_TEMPLATE_PARAMS,
   whatsappDeepLinkSuffix,
+  whatsappButtonUrlTemplate,
+  whatsappButtonLandsOn,
   whatsappTemplateButton,
   whatsappTemplateParams,
+  unescapedSlashPath,
 } from "./whatsapp-templates.js";
+import { notificationUrl } from "./web-push.js";
 
 /**
  * ‎**מה שהמסך מבטיח שנרשם ב-Meta, ומה שנשלח בפועל.**
@@ -48,9 +52,14 @@ describe("ערכי התבנית נושאים שמות", () => {
    * נוסח התזכורת לסיור נכתב על ידי המשרד בתיבת טקסט רב-שורתית, ולכן
    * זה לא מקרה קצה תיאורטי אלא מה שקורה כשמשרד מעצב לעצמו הודעה.
    */
-  it("ערך רב-שורתי מיושר לשורה אחת", () => {
+  /*
+   * ‏שורה אחת — אבל הגבול נשמר כ-`·`. סיכום המנטור נבנה שורה לכל
+   * ‏פריט, והדבקה ברווח החזירה אותו לגוש טקסט אחד (דיווח מהשטח).
+   */
+  it("ערך רב-שורתי מיושר לשורה אחת, והשורות נשארות פריטים", () => {
     const [param] = whatsappTemplateParams("emailReply", ["דנה\nכהן\n\nלוי"]);
-    expect(param?.text).toBe("דנה כהן לוי");
+    expect(param?.text).toBe("דנה · כהן · לוי");
+    expect(param?.text).not.toContain("\n");
   });
 
   /* גוף התבנית מוגבל ל-1024 תווים, וחריגה פוסלת — לא מקצרת */
@@ -157,6 +166,29 @@ describe("כפתור „פתח במערכת”", () => {
     expect(whatsappDeepLinkSuffix("https://evil.example/x")).toBe("notifications");
   });
 
+  /*
+   * ‎**החצי שנקבע מחוץ לקוד.** הסיפא היא נתיב בלי לוכסן מוביל,
+   * ‏ולכן הבסיס שנרשם ב-Meta חייב להסתיים בלוכסן. זו הטענה
+   * ‏שמרכיבה את שני החצאים בחזרה לכתובת המקורית.
+   */
+  it("הבסיס והסיפא מרכיבים בדיוק את הנתיב שהתכוונו אליו", () => {
+    const origin = "https://app.example.com";
+    const template = whatsappButtonUrlTemplate(origin);
+    expect(template).toBe("https://app.example.com/{{1}}");
+    for (const path of ["/properties/abc", "/buyers/7", "/leads/x", "/notifications"]) {
+      expect(whatsappButtonLandsOn(template, whatsappDeepLinkSuffix(path))).toBe(
+        `${origin}${path}`,
+      );
+    }
+  });
+
+  /* ‏לוכסן בסוף המקור אינו מכפיל את עצמו בתבנית */
+  it("מקור עם לוכסן בסוף אינו מייצר לוכסן כפול", () => {
+    expect(whatsappButtonUrlTemplate("https://app.example.com/")).toBe(
+      "https://app.example.com/{{1}}",
+    );
+  });
+
   it("הכפתור מיקומי, ואינו נושא שם משתנה", () => {
     const button = whatsappTemplateButton("leads/abc");
     expect(button).toEqual({
@@ -170,5 +202,51 @@ describe("כפתור „פתח במערכת”", () => {
 
   it("סיפא ריקה אינה מייצרת כפתור", () => {
     expect(whatsappTemplateButton("  ")).toBeNull();
+  });
+});
+
+describe("‏לוכסן מקודד בכפתור „פתח במערכת”", () => {
+  /*
+   * ‏כל יעד שכפתור יכול לשאת: הסיפא נבנית בדיוק כמו בסבב ההתראות
+   * ‏(`notificationUrl` ← `whatsappDeepLinkSuffix`), ואז הלוכסנים
+   * ‏שבה מקודדים — וחייבת לחזור אל אותו נתיב.
+   */
+  const targets = [
+    { entityType: "integration", entityId: null },
+    { entityType: "property", entityId: "01JPROP00000000000000000AB" },
+    { entityType: "lead", entityId: "01JLEAD00000000000000000AB" },
+    { entityType: "buyer", entityId: "01JBUYR00000000000000000AB" },
+    { entityType: "recruitment", entityId: "01JRECR00000000000000000AB" },
+    { entityType: "coop_deal", entityId: "01JDEAL00000000000000000AB" },
+    { entityType: "forum_thread", entityId: "01JTHRD00000000000000000AB" },
+    { entityType: "media_order", entityId: null },
+  ];
+
+  for (const target of targets) {
+    it(`${target.entityType}: הצורה המקודדת חוזרת לנתיב שהכפתור התכוון אליו`, () => {
+      const suffix = whatsappDeepLinkSuffix(
+        notificationUrl({ type: "x", title: "", body: null, ...target }),
+      );
+      expect(suffix).toContain("/");
+      const encoded = `/${encodeURIComponent(suffix)}`;
+      expect(encoded).toContain("%2F");
+      expect(unescapedSlashPath(encoded)).toBe(`/${suffix}`);
+    });
+  }
+
+  it("‏נתיב תקין אינו משתנה", () => {
+    expect(unescapedSlashPath("/settings/integrations")).toBeNull();
+    expect(unescapedSlashPath("/notifications")).toBeNull();
+    // ‏קידוד אחר (עברית) אינו לוכסן ואינו נוגעים בו
+    expect(unescapedSlashPath("/forum/%D7%A9%D7%9C%D7%95%D7%9D")).toBeNull();
+  });
+
+  it("‏אותיות קטנות וגדולות — שתיהן", () => {
+    expect(unescapedSlashPath("/settings%2fintegrations")).toBe("/settings/integrations");
+  });
+
+  it("‏לעולם אינו יוצא מהאתר — גם כשהלוכסנים המקודדים מובילים", () => {
+    expect(unescapedSlashPath("/%2F%2Fevil.example")).toBe("/evil.example");
+    expect(unescapedSlashPath("/%2F")).toBe("/");
   });
 });

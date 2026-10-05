@@ -1,6 +1,7 @@
 import { Body, Controller, Get, HttpCode, Post } from "@nestjs/common";
 import { z } from "zod";
 import { ulid } from "ulid";
+import { isExpoPushToken } from "@metavchim/shared";
 import { AnyAuthenticated } from "../../common/auth.decorators";
 import { TenantContext } from "../../common/tenant-context";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
@@ -33,6 +34,21 @@ const SubscribeSchema = z
   .strict();
 
 const UnsubscribeSchema = z.object({ endpoint: z.string().max(1000) }).strict();
+
+/**
+ * ‏רישום מכשיר של האפליקציה לנייד. הטוקן הוא מה ש-Expo הנפיק —
+ * ‏הצורה נבדקת, כי המחרוזת הזו נשלחת אחר כך לשירות של Expo בשם
+ * ‏השרת, ומחרוזת חופשית מהלקוח היא קלט שאסור להעביר הלאה כמות שהוא.
+ */
+const DeviceSchema = z
+  .object({
+    token: z.string().max(200).refine(isExpoPushToken, "טוקן פוש לא תקין"),
+    platform: z.enum(["ios", "android"]),
+    deviceName: z.string().trim().max(120).optional(),
+  })
+  .strict();
+
+const DeviceRemoveSchema = z.object({ token: z.string().max(200) }).strict();
 
 @Controller("notifications/push")
 export class PushController {
@@ -104,6 +120,48 @@ export class PushController {
         },
       });
     });
+    return { ok: true };
+  }
+
+  /**
+   * ‏רישום מכשיר נייד — אותו כלל כמו מנוי הדפדפן: אידמפוטנטי לפי
+   * ‏הטוקן, ומכשיר שעבר בין שני חשבונות **עובר** לבעלים הנוכחי
+   * ‏(המחיקה הגולמית לפני היצירה, מאותו נימוק בדיוק כמו ב-`subscribe`).
+   */
+  @AnyAuthenticated()
+  @Post("device")
+  @HttpCode(200)
+  async registerDevice(
+    @Body(new ZodValidationPipe(DeviceSchema)) body: z.infer<typeof DeviceSchema>,
+  ): Promise<{ ok: true }> {
+    const { tenantId, userId } = TenantContext.current();
+    await this.prisma.withTenant(async (tx) => {
+      await tx.$executeRaw`DELETE FROM device_push_tokens WHERE token = ${body.token}`;
+      await tx.devicePushToken.create({
+        data: {
+          id: ulid(),
+          tenantId,
+          userId,
+          token: body.token,
+          platform: body.platform,
+          deviceName: body.deviceName ?? null,
+        },
+      });
+    });
+    return { ok: true };
+  }
+
+  /** ‏הסרת מכשיר — רק של המשתמש עצמו; נקרא לפני התנתקות באפליקציה. */
+  @AnyAuthenticated()
+  @Post("device/remove")
+  @HttpCode(200)
+  async removeDevice(
+    @Body(new ZodValidationPipe(DeviceRemoveSchema)) body: z.infer<typeof DeviceRemoveSchema>,
+  ): Promise<{ ok: true }> {
+    const { tenantId, userId } = TenantContext.current();
+    await this.prisma.withTenant((tx) =>
+      tx.devicePushToken.deleteMany({ where: { tenantId, userId, token: body.token } }),
+    );
     return { ok: true };
   }
 

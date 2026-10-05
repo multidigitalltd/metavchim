@@ -1,18 +1,22 @@
 "use client";
 
 import { useEffect, useState, use, type FormEvent } from "react";
+import { NeighborhoodInput } from "../../../neighborhood-input";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import type { CustomFeature } from "@metavchim/shared";
+import { formatPropertyAddress, type CustomFeature } from "@metavchim/shared";
 import { Button } from "@metavchim/ui";
 import { apiGet, apiPatch, ApiError } from "@/lib/api";
 import { PriceField } from "../../../price-field";
-import { shekelsToAgorot, PROPERTY_TYPE_LABELS } from "@/lib/format";
+import { shekelsToAgorot } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
 import { DictateFor } from "../../../dictation-field";
+import { ConditionField } from "../../condition-field";
+import { FacingField } from "../../facing-field";
 import { FeatureChips } from "../../feature-chips";
 import { EntryTimingField } from "../../entry-timing-field";
 import { Notice } from "../../../notice";
+import { PropertyTypeOptions } from "../../../property-type-options";
 
 /**
  * עריכת נכס קיים — סוגר את הלולאה של "השלם פרטים": הדשבורד שולח לכאן
@@ -30,6 +34,7 @@ interface PropertyDetail {
   city?: string;
   neighborhood?: string;
   street?: string;
+  houseNumber?: string;
   propertyType?: string;
   dealType?: string;
   rooms?: number;
@@ -42,6 +47,9 @@ interface PropertyDetail {
   hasSafeRoom?: boolean;
   customFeatures?: CustomFeature[];
   hasStorage?: boolean;
+  sharedTabu?: boolean;
+  facing?: string;
+  condition?: string;
   priceAgorot?: number;
   entryType?: string;
   entryDate?: string;
@@ -93,13 +101,26 @@ export default function EditPropertyPage({ params }: { params: Promise<{ id: str
   const { loading: authLoading } = useRequireAuth();
   const router = useRouter();
   const [property, setProperty] = useState<PropertyDetail | null>(null);
+  /*
+   * ‎**העיר מנוהלת — כדי שהצעות השכונה יעקבו אחריה** (ביקורת Codex).
+   *
+   * הצורה הקודמת העבירה את העיר **השמורה**, ונימקתי שעריכת עיר היא
+   * מקרה נדיר שבו „פשוט לא יוצעו הצעות”. זה היה שגוי: במקרה הזה
+   * ההצעות דווקא כן מוצגות — מהעיר הישנה — והבחירה בהן נשמרת יחד
+   * עם העיר החדשה. כלומר בדיוק שיבוש החוצה-עיר שהצמצום בשרת נועד
+   * למנוע, רק דרך הדלת השנייה.
+   */
+  const [city, setCity] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     if (authLoading) return;
     apiGet<PropertyDetail>(`/properties/${id}`)
-      .then(setProperty)
+      .then((loaded) => {
+        setProperty(loaded);
+        setCity(loaded.city ?? "");
+      })
       .catch(() => setError("הנכס לא נמצא"));
   }, [authLoading, id]);
 
@@ -150,6 +171,18 @@ export default function EditPropertyPage({ params }: { params: Promise<{ id: str
       city: str("city"),
       neighborhood: str("neighborhood"),
       street: str("street"),
+      /*
+       * ‎**מספר בית — `null` ולא `undefined` כשהוא רוקן.**
+       *
+       * ‏`str` מתרגם ריק ל-`undefined`, ו-`undefined` נמחק מה-Patch
+       * ‏למטה — כלומר מספר שנמחק במסך פשוט לא נשלח, והערך הישן
+       * ‏נשאר. זה בדיוק הדיווח: כתובת שגויה שאי אפשר לתקן מהמסך
+       * ‏שנועד לתיקונה.
+       *
+       * ‏הרחוב והעיר נשארים כשהיו במכוון: כתובת בלי עיר אינה כתובת,
+       * ‏ורחוב מחליפים ולא מרוקנים. „בית בלי מספר” הוא מצב אמיתי.
+       */
+      houseNumber: str("houseNumber") ?? null,
       propertyType: str("propertyType"),
       dealType: str("dealType"),
       rooms: num("rooms"),
@@ -165,6 +198,21 @@ export default function EditPropertyPage({ params }: { params: Promise<{ id: str
       hasBalcony: triState(f, "hasBalcony"),
       hasSafeRoom: triState(f, "hasSafeRoom"),
       hasStorage: triState(f, "hasStorage"),
+      /*
+       * ‎**„טאבו משותף” הוא תיבת סימון ולא תלת-מצב** (בקשת בעל
+       * ‏המוצר). חמשת המאפיינים הם „כן / לא / טרם נשאל”, כי הם
+       * ‏נאספים בהדרגה. רישום בטאבו משותף הוא סימון של המתווך:
+       * ‏או שהוא סימן, או שלא. מצב „טרם נבדק” הוא מצב שאיש אינו
+       * ‏מתחזק, והעמודה `NOT NULL` בהתאם.
+       */
+      sharedTabu: f.get("sharedTabu") === "on",
+      /*
+       * ‎**„לא צוין” נשלח כ-`null` ולא נבלע.** בעריכה, בשונה
+       * ‏מקליטה, „ריק” הוא בקשה למחוק ערך שנרשם בטעות — והשמטה
+       * ‏של המפתח הייתה משאירה אותו על הכרטיס לנצח.
+       */
+      facing: String(f.get("facing") ?? "") || null,
+      condition: String(f.get("condition") ?? "") || null,
       /*
        * JSON משדה חבוי אחד — הרשימה גדלה ומשתנה, ולכן אין לה שם
        * שדה קבוע כמו לחמשת הקבועים. השרת מנרמל אותה שוב בשער
@@ -194,7 +242,7 @@ export default function EditPropertyPage({ params }: { params: Promise<{ id: str
   }
   if (!property) return <p aria-live="polite">טוען…</p>;
 
-  const address = [property.street, property.neighborhood, property.city].filter(Boolean).join(", ");
+  const address = formatPropertyAddress(property);
 
   return (
     <div className="mx-auto max-w-2xl">
@@ -217,15 +265,57 @@ export default function EditPropertyPage({ params }: { params: Promise<{ id: str
           <div className="grid gap-4 sm:grid-cols-3">
             <div>
               <label htmlFor="city" className="mb-1 block font-medium">עיר</label>
-              <input id="city" name="city" defaultValue={property.city ?? ""} className="w-full rounded-lg border px-3 py-2.5" style={inputStyle} />
+              <input
+                id="city"
+                name="city"
+                value={city}
+                onChange={(event) => setCity(event.target.value)}
+                className="w-full rounded-lg border px-3 py-2.5"
+                style={inputStyle}
+              />
             </div>
             <div>
               <label htmlFor="neighborhood" className="mb-1 block font-medium">שכונה</label>
-              <input id="neighborhood" name="neighborhood" defaultValue={property.neighborhood ?? ""} className="w-full rounded-lg border px-3 py-2.5" style={inputStyle} />
+              {/*
+                העיר שבשדה, לא זו השמורה: מי שמתקן עיר ואז בוחר
+                שכונה חייב לקבל הצעות מהעיר החדשה — אחרת הבחירה
+                שומרת שכונה מהעיר הישנה תחת החדשה.
+              */}
+              <NeighborhoodInput
+                id="neighborhood"
+                name="neighborhood"
+                defaultValue={property.neighborhood ?? ""}
+                city={city}
+                style={inputStyle}
+              />
             </div>
-            <div>
-              <label htmlFor="street" className="mb-1 block font-medium">רחוב</label>
-              <input id="street" name="street" defaultValue={property.street ?? ""} className="w-full rounded-lg border px-3 py-2.5" style={inputStyle} />
+            {/*
+              רחוב ומספר בשדה אחד ויזואלית ובשני שדות בפועל: זו הצורה
+              שבה כתובת נכתבת, והחלוקה 2:1 נותנת למספר את הרוחב שהוא
+              באמת צריך.
+
+              המספר **היה חסר כאן לגמרי** — הוא נאסף בטופס נכס חדש,
+              בטופס המוכר ובייבוא אקסל, ואז לא הוצג ולא ניתן היה
+              לתקנו (דיווח המשתמש). נכס שיובא עם כתובת שגויה לא היה
+              ניתן לתיקון מהמסך שנועד בדיוק לזה.
+            */}
+            <div className="grid grid-cols-3 gap-2">
+              <div className="col-span-2">
+                <label htmlFor="street" className="mb-1 block font-medium">רחוב</label>
+                <input id="street" name="street" defaultValue={property.street ?? ""} className="w-full rounded-lg border px-3 py-2.5" style={inputStyle} />
+              </div>
+              <div>
+                <label htmlFor="houseNumber" className="mb-1 block font-medium">מספר</label>
+                <input
+                  id="houseNumber"
+                  name="houseNumber"
+                  inputMode="numeric"
+                  maxLength={10}
+                  defaultValue={property.houseNumber ?? ""}
+                  className="w-full rounded-lg border px-3 py-2.5"
+                  style={inputStyle}
+                />
+              </div>
             </div>
           </div>
         </fieldset>
@@ -237,9 +327,8 @@ export default function EditPropertyPage({ params }: { params: Promise<{ id: str
               <label htmlFor="propertyType" className="mb-1 block font-medium">סוג נכס</label>
               <select id="propertyType" name="propertyType" defaultValue={property.propertyType ?? ""} className="w-full rounded-lg border px-3 py-2.5" style={inputStyle}>
                 <option value="">לא נבחר</option>
-                {Object.entries(PROPERTY_TYPE_LABELS).map(([value, label]) => (
-                  <option key={value} value={value}>{label}</option>
-                ))}
+                {/* ‏הערך השמור נשאר בבורר — ראו `keep` */}
+                <PropertyTypeOptions keep={property.propertyType} />
               </select>
             </div>
             <div>
@@ -275,6 +364,40 @@ export default function EditPropertyPage({ params }: { params: Promise<{ id: str
             )}
             initialCustom={property.customFeatures ?? []}
           />
+
+          <FacingField value={property.facing} />
+          <ConditionField value={property.condition} />
+
+          {/*
+            ‎**„טאבו משותף” מתחת למאפיינים, ולא ביניהם** (בקשת בעל
+            ‏המוצר).
+
+            ‏הוא נראה כמו עוד מאפיין ואינו כזה: מעלית ומחסן הם נוחות,
+            ‏ורישום בטאבו משותף (מושאע) הוא עובדה משפטית שמשנה את כל
+            ‏אופן העסקה — אין חלקה נפרדת, נדרשת הסכמת שותפים, והמימון
+            ‏מסובך. לכן הוא שדה משלו, עם משפט שמסביר למה זה חשוב, ולא
+            ‏צ׳יפ שנבלע בשורה.
+          */}
+          <div
+            className="mt-4 rounded-xl border p-3"
+            style={{ borderColor: "var(--color-border)", background: "var(--color-field)" }}
+          >
+            <label className="flex items-center gap-2 font-medium">
+              <input
+                type="checkbox"
+                name="sharedTabu"
+                defaultChecked={property.sharedTabu === true}
+              />
+              רשום בטאבו משותף (מושאע)
+            </label>
+            <p
+              className="m-0 mt-1 text-[length:var(--type-caption-lg)]"
+              style={{ color: "var(--color-text-muted)" }}
+            >
+              אין חלקה נפרדת — העסקה דורשת הסכמת שותפים, והמימון מורכב יותר.
+              כדאי לדעת את זה בהתחלה ולא בסוף.
+            </p>
+          </div>
         </fieldset>
 
         <fieldset className="mb-6 rounded-xl border p-4" style={{ borderColor: "var(--color-border)" }}>

@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import { emailDomainStatus } from "@metavchim/shared";
 import {
   DomainNotFoundAtProviderError,
@@ -6,6 +6,7 @@ import {
   type ProviderDomain,
 } from "./email-domain-provider.service";
 import { PrismaService } from "./prisma.service";
+import { Sweep } from "./sweeps";
 
 /**
  * כל שש שעות. רשומת DNS שנמחקה אצל רשם הדומיינים אינה מודיעה לאף
@@ -63,40 +64,24 @@ export interface RecheckResult {
  * לשני הקוראים, כדי ששניהם יכתבו את אותם דגלים באותם כללים.
  */
 @Injectable()
-export class EmailDomainRecheckService implements OnModuleInit, OnModuleDestroy {
+export class EmailDomainRecheckService {
   private readonly logger = new Logger(EmailDomainRecheckService.name);
-  private timer: NodeJS.Timeout | null = null;
-  private kickoff: NodeJS.Timeout | null = null;
-  private running = false;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly provider: EmailDomainProviderService,
   ) {}
 
-  onModuleInit(): void {
-    this.kickoff = setTimeout(() => {
-      void this.tick();
-      this.timer = setInterval(() => void this.tick(), SWEEP_INTERVAL_MS);
-    }, FIRST_SWEEP_DELAY_MS);
-    // אחרת התהליך לא יוצא בבדיקות ובסקריפטים קצרים
-    this.kickoff.unref?.();
-  }
-
-  onModuleDestroy(): void {
-    if (this.kickoff) clearTimeout(this.kickoff);
-    if (this.timer) clearInterval(this.timer);
-  }
-
+  @Sweep({
+    name: "email-domain-recheck",
+    everyMs: SWEEP_INTERVAL_MS,
+    firstDelayMs: FIRST_SWEEP_DELAY_MS,
+  })
   private async tick(): Promise<void> {
-    if (this.running) return;
-    this.running = true;
     try {
       await this.sweep();
     } catch (error: unknown) {
       this.logger.error(`בדיקת דומיינים חוזרת נכשלה: ${String(error)}`);
-    } finally {
-      this.running = false;
     }
   }
 

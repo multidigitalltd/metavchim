@@ -29,11 +29,14 @@ function build(mode: ChargeMode): {
   rentalUpdates: Record<string, unknown>[];
   paymentUpdates: Record<string, unknown>[];
   adminNotices: string[];
+  invoicedFor: string[];
+  createdPayments: string[];
 } {
   const rentalBatchUpdates: Record<string, unknown>[] = [];
   const rentalUpdates: Record<string, unknown>[] = [];
   const paymentUpdates: Record<string, unknown>[] = [];
   const adminNotices: string[] = [];
+  const createdPayments: string[] = [];
   const rental = {
     id: "01R",
     tenantId: TENANT,
@@ -65,7 +68,10 @@ function build(mode: ChargeMode): {
       }),
     },
     payment: {
-      create: async (args: { data: unknown }) => args.data,
+      create: async (args: { data: { id: string } }) => {
+        createdPayments.push(args.data.id);
+        return args.data;
+      },
       update: async (args: { data: Record<string, unknown> }) => {
         paymentUpdates.push(args.data);
         return args.data;
@@ -121,23 +127,36 @@ function build(mode: ChargeMode): {
     paymentUpdates,
     adminNotices,
     invoicedFor,
+    createdPayments,
   };
 }
 
 describe("חידוש חודשי — התפיסה האופטימית נסגרת תמיד", () => {
   it("חיוב מוצלח מותיר את התקופה החדשה ומסמן את התשלום כשולם", async () => {
-    const { svc, rentalBatchUpdates, paymentUpdates } = build("paid");
+    const { svc, rentalBatchUpdates, paymentUpdates, invoicedFor, createdPayments } =
+      build("paid");
     const result = await svc.renewDue(NOW);
     expect(result).toEqual({ renewed: 1, failed: 0 });
     // תפיסה אחת, בלי החזרה — התקופה שולמה
     expect(rentalBatchUpdates.length).toBe(1);
     expect(paymentUpdates).toContainEqual(expect.objectContaining({ status: "paid" }));
+    /*
+     * ‏וחשבונית על **אותו** תשלום. ההערה ב-`build` הבטיחה שהבדיקה הזו
+     * ‏תתפוס הסרה של השורה — אבל `invoicedFor` נאסף ואף בדיקה לא קראה
+     * ‏אותו, כלומר ההגנה לא הייתה קיימת עד שבדיקת הטיפוסים של הבדיקות
+     * ‏הראתה שהוא אינו חלק מהחוזה של `build`.
+     */
+    expect(createdPayments).toHaveLength(1);
+    expect(invoicedFor).toEqual(createdPayments);
   });
 
   it("חיוב שנדחה מחזיר את התקופה ומסמן פיגור — בלי לשחרר את המספר", async () => {
-    const { svc, rentalBatchUpdates, rentalUpdates, adminNotices } = build("declined");
+    const { svc, rentalBatchUpdates, rentalUpdates, adminNotices, invoicedFor } =
+      build("declined");
     const result = await svc.renewDue(NOW);
     expect(result).toEqual({ renewed: 0, failed: 1 });
+    // ‏חיוב שלא עבר אינו מקבל חשבונית
+    expect(invoicedFor).toEqual([]);
     // התפיסה, ואז ההחזרה לתקופה המקורית
     expect(rentalBatchUpdates.length).toBe(2);
     expect(rentalBatchUpdates[1]).toMatchObject({ currentPeriodEnd: PERIOD_END });

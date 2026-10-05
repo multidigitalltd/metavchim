@@ -1,7 +1,10 @@
 import { Injectable } from "@nestjs/common";
-import type { Prisma } from "@prisma/client";
 import { TenantContext } from "../../common/tenant-context";
 import { PrismaService } from "../../core/prisma.service";
+import {
+  notificationVisibility,
+  redactUnauthorizedNotifications,
+} from "./notification-visibility";
 
 /**
  * ‎**התראות — והכלל היחיד שקובע מי רואה מה.**
@@ -35,25 +38,22 @@ export interface NotificationDto {
 export class NotificationsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  /**
-   * ‎**התראה אישית נראית לנמען בלבד; `userId` ריק = לכל המשרד.**
-   *
-   * זו אינה העדפת תצוגה אלא גבול נתונים: כותרת התראה נושאת שם לקוח
-   * („דנה לוי ממתינה”), ולכן התראה של סוכן אחר היא PII של לקוח שאינו
-   * שלו.
-   */
-  private static visible(): Prisma.NotificationWhereInput {
-    const ctx = TenantContext.current();
-    return { tenantId: ctx.tenantId, OR: [{ userId: null }, { userId: ctx.userId }] };
-  }
-
   async list(limit: number): Promise<{ items: NotificationDto[]; unreadCount: number }> {
     return this.prisma.withTenant(async (tx) => {
-      const visible = NotificationsService.visible();
-      const [rows, unreadCount] = await Promise.all([
+      const visible = notificationVisibility();
+      const [found, unreadCount] = await Promise.all([
         tx.notification.findMany({ where: visible, orderBy: { createdAt: "desc" }, take: limit }),
         tx.notification.count({ where: { ...visible, readAt: null } }),
       ]);
+      /*
+       * ‎**והצנזורה בקריאה, ולא רק בכתיבה** (ביקורת Codex, P1):
+       * ‏שורה משרדית ישנה נכתבה כשהלקוח היה גלוי לכל המשרד.
+       */
+      const rows = await redactUnauthorizedNotifications(
+        tx,
+        TenantContext.current().tenantId,
+        found,
+      );
       return {
         items: rows.map((n) => ({
           id: n.id,
@@ -79,11 +79,16 @@ export class NotificationsService {
    */
   async unread(limit: number): Promise<{ items: NotificationDto[]; unreadCount: number }> {
     return this.prisma.withTenant(async (tx) => {
-      const where = { ...NotificationsService.visible(), readAt: null };
-      const [rows, unreadCount] = await Promise.all([
+      const where = { ...notificationVisibility(), readAt: null };
+      const [found, unreadCount] = await Promise.all([
         tx.notification.findMany({ where, orderBy: { createdAt: "desc" }, take: limit }),
         tx.notification.count({ where }),
       ]);
+      const rows = await redactUnauthorizedNotifications(
+        tx,
+        TenantContext.current().tenantId,
+        found,
+      );
       return {
         items: rows.map((n) => ({
           id: n.id,
@@ -103,7 +108,7 @@ export class NotificationsService {
   async markRead(id: string): Promise<void> {
     await this.prisma.withTenant((tx) =>
       tx.notification.updateMany({
-        where: { ...NotificationsService.visible(), id, readAt: null },
+        where: { ...notificationVisibility(), id, readAt: null },
         data: { readAt: new Date() },
       }),
     );
@@ -112,7 +117,7 @@ export class NotificationsService {
   async markAllRead(): Promise<number> {
     const result = await this.prisma.withTenant((tx) =>
       tx.notification.updateMany({
-        where: { ...NotificationsService.visible(), readAt: null },
+        where: { ...notificationVisibility(), readAt: null },
         data: { readAt: new Date() },
       }),
     );

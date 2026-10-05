@@ -2,6 +2,10 @@ import { Module } from "@nestjs/common";
 import { AgreementsModule } from "../agreements/agreements.module";
 import { ExclusivityModule } from "../exclusivity/exclusivity.module";
 import { AnalyticsModule } from "../analytics/analytics.module";
+import { SettingsModule } from "../settings/settings.module";
+import { AuthModule } from "../auth/auth.module";
+import { BillingModule } from "../billing/billing.module";
+import { RecruitmentModule } from "../recruitment/recruitment.module";
 import { BuyersModule } from "../buyers/buyers.module";
 import { CalendarModule } from "../calendar/calendar.module";
 import { CallsModule } from "../calls/calls.module";
@@ -12,6 +16,7 @@ import { ContactsModule } from "../contacts/contacts.module";
 import { IntakeModule } from "../intake/intake.module";
 import { LeadsModule } from "../leads/leads.module";
 import { MatchingModule } from "../matching/matching.module";
+import { ForumModule } from "../forum/forum.module";
 import { MentorModule } from "../mentor/mentor.module";
 import { MessagingModule } from "../messaging/messaging.module";
 import { SupportModule } from "../support/support.module";
@@ -47,6 +52,14 @@ import { MarketModule } from "../market/market.module";
 @Module({
   imports: [
     PropertiesModule,
+    /*
+     * ‎`SettingsModule` — „מי במשרד” ו„תוסיף סוכן” דרך `TeamService`,
+     * ‏אותו מסלול כתיבה של המסך (מכסה, נעילה ויומן). `AuthModule` —
+     * ‏קישור קביעת הסיסמה לסוכן החדש. שניהם אינם מייבאים את מודול
+     * ‏הסוכן, ולכן אין מעגל.
+     */
+    SettingsModule,
+    AuthModule,
     BuyersModule,
     LeadsModule,
     SearchModule,
@@ -64,6 +77,14 @@ import { MarketModule } from "../market/market.module";
     TelephonyModule,
     // „כמה כסף מגיע לי מהפניות” — אותה יתרה של מסך ההגדרות
     PayoutsModule,
+    /*
+     * ‎„מה מצב המנוי” ו„תחדש לי אותו” — אותו `startCheckout` של
+     * ‏מסך החיוב, ולכן אותם קופון, מחיר מוסכם ומע"מ. מודול עלה
+     * ‏בלי `imports` משלו, ולכן אין מעגל.
+     */
+    BillingModule,
+    // משפך הגיוס מהשיחה — אותו שירות של הטופס ושל המודעה המצולמת
+    RecruitmentModule,
     // „קישור לחתימה על הזמנה בכתב” — דרך אותו שירות שהכרטיס משתמש בו
     AgreementsModule,
     // בלעדיות — „מה בסיכון” ותיעוד פעולת שיווק, דרך אותו שירות כמו הפאנל
@@ -82,6 +103,8 @@ import { MarketModule } from "../market/market.module";
     SupportModule,
     // „מה המצב ביעדים שלי” — אותו מנטור של המסך, מתוך השיחה
     MentorModule,
+    // „מה חדש בפורום”, „תשאל בפורום” — אותו פורום של המסך (docs/16)
+    ForumModule,
     // „כמה נמכרות דירות בחיפה” — אותו מאגר של מסך נתוני השוק
     MarketModule,
   ],

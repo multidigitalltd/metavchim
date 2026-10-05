@@ -16,8 +16,10 @@
  *
  * - שם משתנה: אותיות קטנות באנגלית, ספרות וקו תחתון בלבד.
  * - ערך משתנה **אינו יכול להכיל ירידת שורה, טאב או רצף רווחים** —
- *   הודעה כזו נדחית כולה. לכן `flatten` כאן, ולא באחד הקוראים:
- *   נוסח התזכורת לסיור נכתב על ידי המשרד בתיבת טקסט רב-שורתית.
+ *   הודעה כזו נדחית כולה. לכן `flattenTemplateParam` כאן, ולא באחד
+ *   הקוראים: נוסח התזכורת לסיור נכתב על ידי המשרד בתיבת טקסט
+ *   רב-שורתית. שורות שהן **פריטים נפרדים** אינן נפתרות בשיטוח אלא
+ *   במשתנה לכל שורה — ראו `notifyLines`.
  */
 
 /** ערך אחד לשליחה, כפי ש-Meta מצפה לו בגוף התבנית. */
@@ -52,6 +54,28 @@ export interface WhatsAppTemplateButton {
 export const WHATSAPP_TEMPLATE_PARAMS = {
   /** התראה יזומה למתווך: כותרת ופירוט */
   notify: ["update_title", "update_details"],
+  /*
+   * ‎**אותה התראה, שורה לכל פריט — וזו תבנית אחרת אצל Meta.**
+   *
+   * ‎`update_details` הוא ערך אחד, וערך של תבנית **אינו יכול להכיל
+   * ירידת שורה** (הכלל למעלה). לכן תקציר המנטור, שנכתב שורה לכל
+   * נושא, הגיע כגוש אחד עם `·` בין השורות — קריא בקושי (דיווח
+   * מהשטח). את ירידות השורה אפשר לשים רק ב**גוף התבנית** עצמו,
+   * כלומר משתנה לכל שורה.
+   *
+   * ‎**ולמה לא פשוט להחליף.** שם התבנית שמור בהגדרות, ומאחוריו
+   * תבנית שכבר אושרה עם שני משתנים. שליחת חמישה שמות אחרים לאותה
+   * תבנית נדחית אצל Meta, וההתראה פשוט לא מגיעה — בלי שאיש יידע.
+   * לכן זו הגדרה מפורשת שאומרת איזו תבנית נרשמה, וברירת המחדל היא
+   * הישנה — בדיוק כמו ב-`viewingReminderFields`.
+   */
+  notifyLines: [
+    "update_title",
+    "line_1",
+    "line_2",
+    "line_3",
+    "line_4",
+  ],
   /*
    * ‎**ללקוח שהתקשר ולא נענה: שם המשרד, ואז הקישור.**
    *
@@ -105,6 +129,14 @@ export const WHATSAPP_TEMPLATE_PARAMS = {
   ],
   /** לסוכן, „לקוח ענה במייל”: שם הלקוח בלבד */
   emailReply: ["customer_name"],
+  /**
+   * ‏לסוכן, הסיכום החודשי: שמו, החודש, והמיקום שלו.
+   *
+   * ‏המספרים עצמם אינם כאן בכוונה: תבנית מאושרת היא הדרך
+   * ‏לפתוח את השיחה, והפירוט המלא מחכה בהתראות במערכת
+   * ‏— שם אין מגבלת אורך ואין אישור מראש.
+   */
+  officeDigest: ["agent_name", "month_name", "rank"],
 } as const satisfies Record<string, readonly string[]>;
 
 export type WhatsAppTemplateRole = keyof typeof WHATSAPP_TEMPLATE_PARAMS;
@@ -129,12 +161,23 @@ const MAX_PARAM = 900;
 
 /**
  * ‏ניקוי שערך יחיד חייב לעבור: שורה אחת, בלי רצף רווחים, ובאורך
- * שאינו פוסל את ההודעה. ריק הופך לרווח יחיד — Meta דוחה ערך ריק.
+ * שאינו פוסל את ההודעה. ריק חוזר ריק — מי שקורא מחליט מה שם
+ * במקומו (כאן רווח, כי Meta דוחה ערך ריק).
+ *
+ * ‎**ירידת שורה הופכת למפריד ולא נעלמת.** ‏Meta אינה מתירה ירידות
+ * ‏שורה בערך של תבנית, ולכן אין ברירה אלא לשטח. אבל שטוח ברווח
+ * ‏מדביק שורות שהן פריטים נפרדים — סיכום המנטור הגיע כגוש טקסט
+ * ‏אחד שאי אפשר לסרוק (דיווח מהשטח). ‎`·` שומר את הגבול שהיה שם.
+ *
+ * ‎**זהו הכלל היחיד**, ומי שצריך תקרה צרה יותר מוסר `max` — כך אין
+ * שני ניסוחים של אותו ניקוי בשני קבצים.
  */
-function flatten(text: string): string {
-  const cleaned = text.replace(/\s+/gu, " ").trim();
-  if (cleaned === "") return " ";
-  return cleaned.length > MAX_PARAM ? `${cleaned.slice(0, MAX_PARAM - 1)}…` : cleaned;
+export function flattenTemplateParam(text: string, max: number = MAX_PARAM): string {
+  const cleaned = text
+    .replace(/[^\S\n]*\n[\s]*/gu, " · ")
+    .replace(/\s+/gu, " ")
+    .trim();
+  return cleaned.length > max ? `${cleaned.slice(0, max - 1)}…` : cleaned;
 }
 
 /**
@@ -151,7 +194,9 @@ export function whatsappTemplateParams<R extends WhatsAppTemplateRole>(
   return names.map((name, index) => ({
     type: "text" as const,
     parameter_name: name,
-    text: flatten((values as readonly string[])[index] ?? ""),
+    /* ‏רווח יחיד ולא ריק: Meta דוחה ערך ריק, ושורה שאין בה תוכן
+       חייבת בכל זאת ערך — ראו `notifyLines`. */
+    text: flattenTemplateParam((values as readonly string[])[index] ?? "") || " ",
   }));
 }
 
@@ -188,6 +233,66 @@ export function whatsappDeepLinkSuffix(urlOrPath: string, origin?: string): stri
   const path = rest.split(/[?#]/u)[0] ?? "";
   const trimmed = path.replace(/^\/+/u, "").replace(/\s+/gu, "");
   return trimmed === "" ? FALLBACK_SUFFIX : trimmed;
+}
+
+/**
+ * ‎**הנתיב שהכפתור התכוון אליו, כשהלוכסן בו הגיע מקודד (`%2F`).**
+ *
+ * ‏הסיפא של כפתור „פתח במערכת” היא נתיב עם לוכסנים
+ * ‏(`settings/integrations`, `properties/abc`). אם היא נפתחת כשהלוכסן
+ * ‏מקודד — `…/settings%2Fintegrations` — השרת רואה **קטע נתיב אחד**
+ * ‏בשם `settings/integrations`, שאינו קיים, ומחזיר „העמוד לא נמצא”.
+ * ‏זה נמדד מול השרת החי: הנתיב הרגיל מחזיר 200 והמקודד 404 (דיווח
+ * ‏המשתמש על הקישור בהתראת „המרכזייה השתתקה”).
+ *
+ * ‏מחזיר את הנתיב עם הלוכסנים האמיתיים, או `null` כשאין מה לתקן —
+ * ‏כתובת תקינה לעולם אינה משתנה כאן.
+ *
+ * ‏לוכסנים מובילים מתכווצים לאחד: ‎`/%2F%2Fevil.com` הופך לנתיב
+ * ‎`/evil.com` באתר שלנו, ולעולם לא לקישור יחסי-פרוטוקול לאתר אחר.
+ */
+export function unescapedSlashPath(pathname: string): string | null {
+  if (!/%2f/iu.test(pathname)) return null;
+  return `/${pathname.replace(/%2f/giu, "/").replace(/^\/+/u, "")}`;
+}
+
+/**
+ * ‎**הכתובת שצריך לרשום ב-Meta לכפתור „פתח במערכת”, מילה במילה.**
+ *
+ * ‏זה החצי שהקוד לא ראה. `whatsappDeepLinkSuffix` מחזיר נתיב **בלי**
+ * ‏לוכסן מוביל (`properties/abc`), ו-Meta מדביקה אותו לכתובת בסיס
+ * ‏שנרשמה בעורך התבניות שלה — מקום שהמערכת מעולם לא קראה ולא
+ * ‏אימתה. כלומר מחצית מכל קישור שהבוט שולח בכפתור נקבעה מחוץ
+ * ‏למאגר, והצורה היחידה שבה היא נכונה היא זו:
+ *
+ * ```
+ * https://<הדומיין>/{{1}}
+ * ```
+ *
+ * ‏והלוכסן הזה הוא כל ההבדל:
+ *
+ * ‏| מה נרשם | מה נפתח |
+ * ‏| --- | --- |
+ * ‏| `…example.com/{{1}}` | `…example.com/properties/abc` ✓ |
+ * ‏| `…example.com{{1}}` | `…example.comproperties/abc` — אין מארח כזה |
+ * ‏| `…example.com/n/{{1}}` | `…example.com/n/properties/abc` — „העמוד לא נמצא” |
+ *
+ * ‏ההנחיה שהופיעה במסך הפלטפורמה אמרה „כתובת הבסיס של המערכת
+ * ‏ואחריה ‎{{1}}”, וזו בדיוק הניסוח שמזמין את השורה השנייה בטבלה.
+ * ‏מכאן והלאה המסך מציג את המחרוזת עצמה, נגזרת מ-`WEB_ORIGIN`,
+ * ‏ולא תיאור שלה.
+ */
+export function whatsappButtonUrlTemplate(webOrigin: string): string {
+  return `${webOrigin.replace(/\/+$/u, "")}/{{1}}`;
+}
+
+/**
+ * ‏לאן נוחתת לחיצה בפועל — הבסיס שנרשם עם הסיפא במקום `{{1}}`.
+ * ‏זו ההרכבה שהמסך מציג, ולכן היא כאן ולא שם: תצוגה שמחשבת בעצמה
+ * ‏היא עותק שני של החוזה.
+ */
+export function whatsappButtonLandsOn(urlTemplate: string, suffix: string): string {
+  return urlTemplate.replace("{{1}}", suffix);
 }
 
 /**

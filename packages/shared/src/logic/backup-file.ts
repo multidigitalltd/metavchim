@@ -20,12 +20,14 @@ export interface BackupFile {
 }
 
 /**
- * db_2026-08-06_1900.dump          — גיבוי מסד יומי
+ * db_2026-08-06_1900.dump             — גיבוי מסד יומי
  * db_2026-08-06_1900_pre-restore.dump — גיבוי הבטיחות שנלקח לפני שחזור
- * media_2026-08-06_1900.tar.gz     — ארכיון התמונות השבועי
+ * media_2026-08-06_1900_full.tar.gz   — ארכיון מדיה מלא
+ * media_2026-08-07_1900_diff.tar.gz   — רק מה שהשתנה מאז המלא האחרון
+ * media_2026-08-06_1900.tar.gz        — ארכיון מלא מהשיטה הישנה (עדיין נתמך)
  */
 const DB_NAME = /^db_\d{4}-\d{2}-\d{2}_\d{4}(?:_[a-z][a-z-]{0,23})?\.dump$/;
-const MEDIA_NAME = /^media_\d{4}-\d{2}-\d{2}_\d{4}(?:_[a-z][a-z-]{0,23})?\.tar\.gz$/;
+const MEDIA_NAME = /^media_(\d{4}-\d{2}-\d{2}_\d{4})(?:_([a-z][a-z-]{0,23}))?\.tar\.gz$/;
 
 /** סיווג לפי השם, או null אם השם אינו שם גיבוי תקין. */
 export function backupKind(name: string): BackupKind | null {
@@ -43,6 +45,55 @@ export function isSafeBackupName(name: string): boolean {
   return backupKind(name) !== null;
 }
 
+/**
+ * ‎**מלא או משלים.** ארכיון המדיה רץ כל יום, אבל רק אחת לכמה ימים הוא
+ * סורק את כל האחסון; בין לבין נשמר רק מה שהשתנה מאז אותו ארכיון מלא.
+ * ‎`diff`‎ הוא הפרשי — לא מצטבר — ולכן שחזור דורש בדיוק שני קבצים:
+ * המלא שהוא נשען עליו, ואותו. זה מה שמאפשר למחוק ארכיון משלים אחד
+ * באמצע בלי לשבור את כל מה שבא אחריו.
+ *
+ * שם ללא סיומת הוא ארכיון מלא מהשיטה הקודמת — הוא עומד בפני עצמו.
+ */
+export type MediaTier = "full" | "diff";
+
+export function mediaTier(name: string): MediaTier | null {
+  const match = MEDIA_NAME.exec(name);
+  if (match === null) return null;
+  return match[2] === "diff" ? "diff" : "full";
+}
+
+/** חותמת הזמן מתוך השם — משמשת לסידור כרונולוגי בלי לפענח אזור זמן. */
+function mediaStamp(name: string): string | null {
+  const match = MEDIA_NAME.exec(name);
+  return match === null ? null : (match[1] ?? null);
+}
+
+/**
+ * הארכיון המלא שארכיון משלים נשען עליו: המלא האחרון שנלקח לפניו.
+ * null כשאין כזה — כלומר המשלים יתום ואי אפשר לשחזר ממנו.
+ *
+ * הלוגיקה הזאת משוכפלת בכוונה ב-infra/backup/restore.sh: הסקריפט רץ
+ * בקונטיינר בלי Node, ואסור שהשחזור יסתמך על חבילה שצריך לבנות.
+ */
+export function mediaBaseFor(name: string, files: BackupFile[]): string | null {
+  if (mediaTier(name) !== "diff") return null;
+  const stamp = mediaStamp(name);
+  if (stamp === null) return null;
+
+  let base: { name: string; stamp: string } | null = null;
+  for (const file of files) {
+    if (mediaTier(file.name) !== "full") continue;
+    const fullStamp = mediaStamp(file.name);
+    if (fullStamp === null || fullStamp > stamp) continue;
+    const better =
+      base === null ||
+      fullStamp > base.stamp ||
+      (fullStamp === base.stamp && file.name > base.name);
+    if (better) base = { name: file.name, stamp: fullStamp };
+  }
+  return base?.name ?? null;
+}
+
 export type BackupLevel = "ok" | "warn" | "danger";
 
 export interface BackupHealth {
@@ -50,7 +101,7 @@ export interface BackupHealth {
   totalBytes: number;
   /** הגיבוי האחרון של מסד הנתונים (ISO) — null אם אין אף אחד. */
   latestDbAt: string | null;
-  /** ארכיון התמונות האחרון (ISO) — null אם עוד לא רץ יום ראשון. */
+  /** ארכיון המדיה האחרון (ISO) — null כשאין אף אחד (למשל בפיתוח). */
   latestMediaAt: string | null;
   /** גיל הגיבוי האחרון של המסד בשעות; null כשאין גיבוי. */
   ageHours: number | null;
@@ -65,9 +116,15 @@ const DANGER_HOURS = 48;
 const MS_PER_HOUR = 1000 * 60 * 60;
 
 /**
- * חיווי מצב לגיבויים המקומיים. הרמה נגזרת מגיל הגיבוי **של המסד**
- * בלבד: ארכיון התמונות רץ שבועית ולכן גיל של ימים בו הוא תקין,
- * ואילו מסד שלא גובה 48 שעות פירושו שהמנגנון נפל.
+ * חיווי מצב לגיבויים המקומיים.
+ *
+ * הרמה נגזרת בראש ובראשונה מגיל הגיבוי של **המסד** — מסד שלא גובה
+ * 48 שעות פירושו שהמנגנון נפל. אבל גם המדיה רצה כל 24 שעות מאז
+ * שהיא הפכה ליומית, ומה שיושב בה — הקלטות שיחה וחתימות על מסמכים —
+ * אין לו מקור אחר לשחזור מתוכו. לכן ארכיון מדיה שנתקע מעלה אזהרה
+ * במקום לעבור בשקט, כפי שקרה כשהוא היה שבועי.
+ *
+ * ‎**אין אף ארכיון מדיה** אינו אזהרה: כך נראית סביבת פיתוח בלי MinIO.
  */
 export function summarizeBackups(files: BackupFile[], now: Date): BackupHealth {
   const latestOf = (kind: BackupKind): string | null => {
@@ -84,6 +141,10 @@ export function summarizeBackups(files: BackupFile[], now: Date): BackupHealth {
       ? null
       : Math.max(0, (now.getTime() - new Date(latestDbAt).getTime()) / MS_PER_HOUR);
 
+  const mediaAgeHours =
+    latestMediaAt === null
+      ? null
+      : Math.max(0, (now.getTime() - new Date(latestMediaAt).getTime()) / MS_PER_HOUR);
   let level: BackupLevel = "ok";
   let message = "";
   if (ageHours === null) {
@@ -99,6 +160,11 @@ export function summarizeBackups(files: BackupFile[], now: Date): BackupHealth {
     message = `הגיבוי האחרון בן ${Math.round(ageHours)} שעות`;
   }
 
+  if (level === "ok" && mediaAgeHours !== null && mediaAgeHours >= DANGER_HOURS) {
+    level = "warn";
+    message = `${message} · ארכיון המדיה בן ${Math.round(mediaAgeHours)} שעות — הקלטות וחתימות אינן מגובות`;
+  }
+
   return {
     count: files.length,
     totalBytes,
@@ -111,12 +177,33 @@ export function summarizeBackups(files: BackupFile[], now: Date): BackupHealth {
 }
 
 /**
- * הגיבוי היחיד שאסור למחוק מהממשק: הדאמפ האחרון של המסד. בלעדיו
- * לחיצה אחת נוספת יכולה להשאיר את המערכת בלי רשת ביטחון מקומית.
- * מחזיר את שם הקובץ המוגן, או null כשאין גיבויי מסד כלל.
+ * למה אסור למחוק את הגיבוי הזה מהממשק — או null כשמותר.
+ *
+ * שתי סיבות, ושתיהן על אותו עיקרון: לחיצה אחת בממשק לא אמורה להשאיר
+ * את המערכת בלי דרך לחזור אחורה.
+ *   1. הדאמפ האחרון של המסד — בלעדיו אין רשת ביטחון מקומית כלל.
+ *   2. ארכיון מדיה מלא שארכיונים משלימים עדיין נשענים עליו — מחיקתו
+ *      הופכת כל אחד מהם לחסר-תועלת, וזה לא נראה בממשק בזמן הלחיצה.
  */
-export function protectedBackupName(files: BackupFile[]): string | null {
+export function backupDeleteBlock(name: string, files: BackupFile[]): string | null {
   const dbFiles = files.filter((f) => f.kind === "db");
-  if (dbFiles.length === 0) return null;
-  return dbFiles.reduce((a, b) => (a.createdAt > b.createdAt ? a : b)).name;
+  const latestDb =
+    dbFiles.length === 0 ? null : dbFiles.reduce((a, b) => (a.createdAt > b.createdAt ? a : b)).name;
+  if (latestDb === name) {
+    return "זהו הגיבוי האחרון של מסד הנתונים — לא ניתן למחוק אותו מהממשק";
+  }
+
+  if (mediaTier(name) === "full") {
+    const dependents = files.filter((f) => mediaBaseFor(f.name, files) === name).length;
+    if (dependents > 0) {
+      return `${dependents} ארכיוני מדיה משלימים נשענים על הארכיון המלא הזה — מחקו אותם קודם`;
+    }
+  }
+
+  return null;
+}
+
+/** אותה הכרעה, כרשימת שמות — זה מה שהמסך צריך כדי לסמן שורות. */
+export function protectedBackupNames(files: BackupFile[]): string[] {
+  return files.filter((f) => backupDeleteBlock(f.name, files) !== null).map((f) => f.name);
 }

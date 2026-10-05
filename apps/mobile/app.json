@@ -1,0 +1,171 @@
+{
+  "expo": {
+    "name": "מתווכים",
+    "slug": "metavchim",
+    "version": "0.1.0",
+    "scheme": "metavchim",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0b0e0c"
+    },
+    "ios": {
+      "bundleIdentifier": "co.il.metavchim.app",
+      "supportsTablet": false,
+      "infoPlist": {
+        "CFBundleDevelopmentRegion": "he",
+        "CFBundleLocalizations": [
+          "he"
+        ]
+      }
+    },
+    "android": {
+      "package": "co.il.metavchim.app",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#111513"
+      },
+      "blockedPermissions": [
+        "android.permission.SYSTEM_ALERT_WINDOW"
+      ],
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "https",
+              "host": "app.metavchim.co.il",
+              "pathPrefix": "/leads"
+            },
+            {
+              "scheme": "https",
+              "host": "app.metavchim.co.il",
+              "pathPrefix": "/properties"
+            },
+            {
+              "scheme": "https",
+              "host": "app.metavchim.co.il",
+              "pathPrefix": "/buyers"
+            },
+            {
+              "scheme": "https",
+              "host": "app.metavchim.co.il",
+              "pathPrefix": "/matches"
+            },
+            {
+              "scheme": "https",
+              "host": "app.metavchim.co.il",
+              "pathPrefix": "/calendar"
+            },
+            {
+              "scheme": "https",
+              "host": "app.metavchim.co.il",
+              "pathPrefix": "/tasks"
+            },
+            {
+              "scheme": "https",
+              "host": "app.metavchim.co.il",
+              "pathPrefix": "/today"
+            },
+            {
+              "scheme": "https",
+              "host": "app.metavchim.co.il",
+              "pathPrefix": "/notifications"
+            },
+            {
+              "scheme": "https",
+              "host": "app.metavchim.co.il",
+              "pathPrefix": "/inbox"
+            },
+            {
+              "scheme": "https",
+              "host": "app.metavchim.co.il",
+              "pathPrefix": "/offers"
+            },
+            {
+              "scheme": "https",
+              "host": "app.metavchim.co.il",
+              "pathPrefix": "/profile"
+            },
+            {
+              "scheme": "https",
+              "host": "app.metavchim.co.il",
+              "pathPrefix": "/settings"
+            },
+            {
+              "scheme": "https",
+              "host": "app.metavchim.co.il",
+              "pathPrefix": "/voice"
+            },
+            {
+              "scheme": "https",
+              "host": "app.metavchim.co.il",
+              "pathPrefix": "/calls"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
+        }
+      ]
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      "expo-localization",
+      "expo-background-task",
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "האפליקציה בודקת שהמכשיר נעול כדי לשמור אותך מחובר."
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/notification-icon.png",
+          "color": "#0f8a43",
+          "defaultChannel": "default"
+        }
+      ],
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "האפליקציה מקליטה כדי לתמלל מה שאמרת ולהפוך אותו לפעולה במערכת."
+        }
+      ],
+      [
+        "expo-font",
+        {
+          "fonts": [
+            "./assets/fonts/Almoni-Regular.ttf",
+            "./assets/fonts/Almoni-Medium.ttf",
+            "./assets/fonts/Almoni-Bold.ttf",
+            "./assets/fonts/Almoni-Ultrabold.ttf"
+          ]
+        }
+      ]
+    ],
+    "extra": {
+      "supportsRTL": true,
+      "router": {},
+      "eas": {
+        "projectId": ""
+      }
+    },
+    "notification": {
+      "icon": "./assets/notification-icon.png",
+      "color": "#0f8a43",
+      "iosDisplayInForeground": true
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    }
+  }
+}

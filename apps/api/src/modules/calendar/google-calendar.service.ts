@@ -229,10 +229,27 @@ export class GoogleCalendarService {
     const calendar = encodeURIComponent(link.calendarId);
 
     if (event.cancelled && event.googleEventId) {
-      await this.fetchRaw(`${CALENDAR_BASE}/calendars/${calendar}/events/${event.googleEventId}`, {
-        method: "DELETE",
-        token,
-      });
+      const deleted = await this.fetchRaw(
+        `${CALENDAR_BASE}/calendars/${calendar}/events/${event.googleEventId}`,
+        { method: "DELETE", token },
+      );
+      /*
+       * ‎**מחיקה שנכשלה נאמרת** (ביקורת Codex, P2).
+       *
+       * ‏התשובה לא נבדקה כלל, ולכן 401, 403 או 5xx חזרו כ„בוצע”.
+       * ‏הקורא אז מסמן את השורה כמסונכרנת ומאפס את המזהה — כלומר
+       * ‏האירוע נשאר ביומן של המתווך, והמזהה היחיד שמצביע עליו
+       * ‏נמחק. שגיאה חולפת הפכה לאירוע נצחי.
+       *
+       * ‎404 ו-410 הם הצלחה: האירוע כבר איננו, וזו בדיוק המטרה.
+       * ‏שאר הקודים נזרקים — הסבב נכשל, נרשם ב-`lastError`, והשורה
+       * ‏נשארת עם `googleSyncedAt: null` כלומר תיבחר שוב בסבב הבא.
+       * ‏אותו טיפול בדיוק שכבר קיים בעדכון שמתחת.
+       */
+      if (!deleted.ok && deleted.status !== 404 && deleted.status !== 410) {
+        this.logger.error(`Google החזיר ${deleted.status} במחיקת אירוע`);
+        throw new ServiceUnavailableException("Google החזיר שגיאה");
+      }
       return null;
     }
     if (event.cancelled) return null;

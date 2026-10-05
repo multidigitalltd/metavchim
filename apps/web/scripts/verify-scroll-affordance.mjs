@@ -34,13 +34,14 @@ const css = read("../src/app/globals.css");
 const hook = read("../src/lib/use-scroll-affordance.ts");
 
 /** כל סרגל שנגלל לרוחב ומסתיר את פס הגלילה חייב את הטיפול הזה. */
-const STRIPS = [".mv-entity-tabs", ".mv-tabs"];
+const STRIPS = [".mv-entity-tabs", ".mv-tabs", ".mv-chiprow"];
 
 /** מי שמרנדר סרגל כזה — חייב לקרוא להוק, לא להעתיק אותו. */
 const CALLERS = [
   "../src/app/entity-tabs.tsx",
   "../src/app/settings/page.tsx",
   "../src/app/collaboration/commission-terms-tabs.tsx",
+  "../src/app/mentor/page.tsx",
 ];
 
 const problems = [];
@@ -50,13 +51,63 @@ const problems = [];
  *
  * הרשימה נגזרת מה-CSS עצמו ולא נכתבת כאן בלבד: סרגל שלישי שיתווסף
  * עם `overflow-x: auto` ופס מוסתר ייתפס, במקום להיוולד עם התקלה.
+ *
+ * ‎**וההצלבה היא בין הכרזות, לא בין שורות באותו בלוק.**
+ *
+ * ‏הניסוח הראשון חיפש את שתי ההכרזות **בתוך אותו כלל**. זה עבד רק
+ * ‏כל עוד כל סרגל כתב את שתיהן בעצמו — וברגע ש-`scrollbar-width`
+ * ‏אוחד לכלל מקובץ אחד, ההצטלבות התרוקנה והשער הפסיק לגלות
+ * ‏סרגלים בלי לומר מילה. באותה מידה הוא פספס סרגל שקיבל
+ * ‎`overflow-x` מ-Tailwind ואת הסתרת הפס ממחלקה שנייה — וזה בדיוק
+ * ‏מה שקרה בשורת השאלות של המנטור (ביקורת Codex).
+ *
+ * ‏לכן נאספות שתי הקבוצות בנפרד, כולל מכללים מקובצים, והחיתוך
+ * ‏ביניהן הוא ההכרעה: מי גם נגלל וגם מסתיר את הפס.
  */
-const scrollers = [...css.matchAll(/(\.[\w-]+)\s*\{[^}]*?overflow-x:\s*auto[^}]*?\}/gsu)]
-  .filter((m) => /scrollbar-width:\s*none/u.test(m[0]))
-  .map((m) => m[1]);
+/*
+ * ‏הערות מוסרות לפני הניתוח: לכידת הסלקטור מתחילה אחרי הסוגר
+ * ‏הקודם, ולכן היא בולעת גם את ההערה שמעל הכלל — ואז שם המחלקה
+ * ‏אינו נראה כשם מחלקה. זה בדיוק מה שהפיל את הניסוח הראשון כאן.
+ */
+const bare = css.replace(/\/\*[\s\S]*?\*\//gu, "");
+
+/** ‏הסלקטורים שכלל כלשהו מכריז עליהם `prop: value`. */
+function declaring(prop, value) {
+  const found = new Set();
+  /* ‎`[^{}]*` בגוף — כך נתפסים רק הכללים הפנימיים, גם בתוך `@media` */
+  for (const rule of bare.matchAll(/([^{}]+)\{([^{}]*)\}/gu)) {
+    if (!new RegExp(`${prop}:\\s*${value}`, "u").test(rule[2])) continue;
+    for (const part of rule[1].split(",")) {
+      const name = /^\.[\w-]+$/u.exec(part.trim());
+      if (name !== null) found.add(name[0]);
+    }
+  }
+  return found;
+}
+const hidesBar = declaring("scrollbar-width", "none");
+const scrollers = [...declaring("overflow-x", "auto")].filter((sel) =>
+  hidesBar.has(sel),
+);
+if (scrollers.length === 0) {
+  problems.push(
+    "לא נמצא אף סרגל שנגלל לרוחב ומסתיר את הפס — הכללים השתנו והשער אינו מגלה עוד דבר",
+  );
+}
 for (const selector of scrollers) {
   if (!STRIPS.includes(selector)) {
     problems.push(`${selector} נגלל לרוחב עם פס מוסתר ואינו ברשימת הסרגלים המטופלים`);
+  }
+}
+/*
+ * ‏וגם ההפך: כל מי שברשימה **הוא באמת סרגל נגלל**. בלי זה הרשימה
+ * ‏נפרדת מהמציאות — סרגל שאיבד את `overflow-x` נשאר שמור בשער
+ * ‏שכבר אינו שומר על דבר (מוטציה שנבדקה).
+ */
+for (const selector of STRIPS) {
+  if (!scrollers.includes(selector)) {
+    problems.push(
+      `${selector} ברשימת הסרגלים המטופלים אך אינו נגלל לרוחב עם פס מוסתר — הרשימה נפרדה מה-CSS`,
+    );
   }
 }
 for (const selector of STRIPS) {
@@ -129,7 +180,13 @@ if (!/const PAD = SCROLL_FADE_PX \+ \d+;/u.test(hook)) {
 /* 6 · אף קורא אינו מחזיק עותק משלו */
 for (const caller of CALLERS) {
   const src = read(caller);
-  if (!src.includes("useScrollAffordance")) {
+  /*
+   * ‎**קריאה, לא אזכור.** `includes` בלבד הסתפק בשורת ה-`import`:
+   * ‏קובץ שייבא את ההוק והפסיק להשתמש בו עבר ירוק (מוטציה שנבדקה).
+   * ‏סוגר או סוגריים מזוויתיים אחרי השם הם ההבדל בין „מוזכר”
+   * ‏לבין „נקרא”.
+   */
+  if (!/useScrollAffordance\s*[<(]/u.test(src)) {
     problems.push(`${caller} מרנדר סרגל נגלל ואינו קורא ל-useScrollAffordance`);
   }
   if (src.includes('dataset["fade"]')) {

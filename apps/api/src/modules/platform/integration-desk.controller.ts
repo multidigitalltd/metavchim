@@ -1,9 +1,9 @@
-import { Body, Controller, Get, HttpCode, Param, Post, UseGuards } from "@nestjs/common";
+import { Body, Controller, Delete, Get, HttpCode, Param, Post, UseGuards } from "@nestjs/common";
 import { z } from "zod";
 import { IdSchema } from "@metavchim/shared";
 import { PlatformAdmin } from "../../common/auth.decorators";
 import { PlatformAdminGuard } from "../../common/platform-admin.guard";
-import { ZodValidationPipe } from "../../common/zod-validation.pipe";
+import { ZodValidationPipe, IdParam } from "../../common/zod-validation.pipe";
 import {
   IntegrationDeskService,
   type DeskTelephonyStatus,
@@ -13,9 +13,9 @@ import {
 /**
  * שולחן החיבורים של מנהל הפלטפורמה.
  *
- * **קונטרולר נפרד ולא עוד נתיב ב-`PlatformController`**, ובכוונה:
+ * **קונטרולר נפרד ולא עוד נתיב בבקרי הפלטפורמה הכלליים**, ובכוונה:
  * הגבול של השולחן הזה הוא שהוא נוגע בטבלת החיבורים בלבד, וגבול
- * שאפשר להצביע עליו כקובץ שלם קל יותר לשמור מגבול שנטמע בתוך אלפיים
+ * שאפשר להצביע עליו כקובץ שלם קל יותר לשמור מגבול שנטמע בתוך אלפי
  * שורות. המבחן המבני קורא בדיוק את הקובץ הזה ואת השירות שלו.
  *
  * מה שאין כאן חשוב לא פחות ממה שיש: אין יצירת סשן, אין החלפת עוגייה,
@@ -39,8 +39,12 @@ const SaveTelephonySchema = z
   .strict();
 
 /**
- * רשימת „מספר ← סוכן”. השם רשות: בעדכון של מספר קיים ריק פירושו
- * „השאר את השם שהמשרד נתן”, וביצירה נגזר שם מהמספר.
+ * רשימת „מספר ← סוכן”. שתי צורות של שורה:
+ *
+ * - **עם `id`** — מספר שכבר קיים אצל המשרד. נשלחים רק השדות שהשתנו,
+ *   ושדה שלא נשלח אינו נכתב. שורה שכבר אינה קיימת נדחית ולא נוצרת
+ *   מחדש: המשרד מחק אותה בכוונה.
+ * - **בלי `id`** — מספר חדש. השם רשות, ונגזר מהמספר כשחסר.
  *
  * התקרה היא על **שורות שהשתנו** בשמירה אחת, לא על מספר המספרים
  * של המשרד: המסך שולח רק את מה שנגעו בו, ולכן משרד עם מאתיים
@@ -52,9 +56,10 @@ const AssignVirtualNumbersSchema = z
       .array(
         z
           .object({
+            id: IdSchema.optional(),
             phone: z.string().trim().min(3).max(20),
-            label: z.string().trim().max(60).default(""),
-            assignedToUserId: IdSchema.nullable().default(null),
+            label: z.string().trim().max(60).optional(),
+            assignedToUserId: IdSchema.nullable().optional(),
           })
           .strict(),
       )
@@ -75,7 +80,7 @@ export class IntegrationDeskController {
    * נקלט אם לא נקלט.
    */
   @Get(":id/integrations")
-  async status(@Param("id", new ZodValidationPipe(IdSchema)) id: string): Promise<{
+  async status(@Param("id", IdParam) id: string): Promise<{
     agencyName: string;
     telephony: DeskTelephonyStatus;
     providers: { id: string; label: string; fields: { key: string; label: string; secret: boolean }[] }[];
@@ -104,7 +109,7 @@ export class IntegrationDeskController {
   @Post(":id/integrations/telephony")
   @HttpCode(200)
   async saveTelephony(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
     @Body(new ZodValidationPipe(SaveTelephonySchema)) body: z.infer<typeof SaveTelephonySchema>,
   ): Promise<{ ok: true }> {
     return this.desk.saveTelephony(id, {
@@ -120,7 +125,7 @@ export class IntegrationDeskController {
    */
   @Get(":id/integrations/virtual-numbers")
   async virtualNumbers(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
   ): Promise<DeskVirtualNumbers> {
     return this.desk.virtualNumbers(id);
   }
@@ -134,10 +139,23 @@ export class IntegrationDeskController {
   @Post(":id/integrations/virtual-numbers")
   @HttpCode(200)
   async assignVirtualNumbers(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
     @Body(new ZodValidationPipe(AssignVirtualNumbersSchema))
     body: z.infer<typeof AssignVirtualNumbersSchema>,
   ): Promise<{ ok: true; saved: number }> {
     return this.desk.assignVirtualNumbers(id, body.numbers);
+  }
+
+  /**
+   * מחיקת מספר בשם המשרד — ההגדרה בלבד, ההיסטוריה נשארת.
+   * ראו `IntegrationDeskService.deleteVirtualNumber`.
+   */
+  @Delete(":id/integrations/virtual-numbers/:numberId")
+  @HttpCode(200)
+  async deleteVirtualNumber(
+    @Param("id", IdParam) id: string,
+    @Param("numberId", IdParam) numberId: string,
+  ): Promise<{ ok: true }> {
+    return this.desk.deleteVirtualNumber(id, numberId);
   }
 }

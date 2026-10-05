@@ -1,9 +1,10 @@
-import { Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import { PhoneSchema, normalizeNameForMatch } from "@metavchim/shared";
 import { CryptoService } from "../../core/crypto.service";
 import { PrismaService } from "../../core/prisma.service";
 import { WebLeadService } from "../leads/web-lead.service";
 import { GmailService, type GmailLinkRow, type InboundEmail } from "./gmail.service";
+import { Sweep } from "../../core/sweeps";
 
 /**
  * סורק ה-Gmail — כל רבע שעה, על כל החיבורים הפעילים.
@@ -37,10 +38,8 @@ function extractPhone(text: string): string | null {
 }
 
 @Injectable()
-export class GmailSyncService implements OnModuleInit, OnModuleDestroy {
+export class GmailSyncService {
   private readonly logger = new Logger(GmailSyncService.name);
-  private timer: NodeJS.Timeout | null = null;
-  private running = false;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -49,24 +48,12 @@ export class GmailSyncService implements OnModuleInit, OnModuleDestroy {
     private readonly webLeads: WebLeadService,
   ) {}
 
-  onModuleInit(): void {
-    this.timer = setInterval(() => void this.tick(), TICK_MS);
-    this.timer.unref();
-  }
-
-  onModuleDestroy(): void {
-    if (this.timer) clearInterval(this.timer);
-  }
-
+  @Sweep({ name: "gmail-sync", everyMs: TICK_MS })
   private async tick(): Promise<void> {
-    if (this.running) return;
-    this.running = true;
     try {
       await this.syncAll();
     } catch (err) {
       this.logger.error(`סבב Gmail נכשל: ${err instanceof Error ? err.message : String(err)}`);
-    } finally {
-      this.running = false;
     }
   }
 

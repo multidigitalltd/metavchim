@@ -1,30 +1,55 @@
-import { Body, Controller, Get, HttpCode, Param, Post, Req } from "@nestjs/common";
+import {
+  Body,
+  Controller,
+  Get,
+  Header,
+  HttpCode,
+  Param,
+  Post,
+  Req,
+  StreamableFile,
+} from "@nestjs/common";
 import type { Request } from "express";
 import { z } from "zod";
-import { AGREEMENT_KINDS, IdSchema, isSignatureDataUrl } from "@metavchim/shared";
+import { AGREEMENT_KINDS, IdSchema, isSignatureDataUrl, PhoneInputSchema } from "@metavchim/shared";
 import { Throttle } from "@nestjs/throttler";
 import { Public, RequireCapability } from "../../common/auth.decorators";
 import { assertContactAccess } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
-import { ZodValidationPipe } from "../../common/zod-validation.pipe";
+import { ZodValidationPipe, IdParam } from "../../common/zod-validation.pipe";
 import { PrismaService } from "../../core/prisma.service";
 import {
   AgreementsService,
   type AgreementSummary,
   type PublicAgreementView,
 } from "./agreements.service";
+import { signerText } from "./signer-text";
 
 const CreateSchema = z
   .object({
     kind: z.enum(AGREEMENT_KINDS),
     contactId: IdSchema,
     propertyId: IdSchema.optional(),
+    /** ‏הזמנה כללית — על כל הנכסים שהמשרד יציע ללקוח, ובלי `propertyId` */
+    allProperties: z.literal(true).optional(),
     /** ערכים שהמתווך משלים ידנית — דמי תיווך, מועד תשלום, תקופת בלעדיות */
     values: z.record(z.string(), z.string().max(500)).optional(),
   })
   .strict();
 
 const SendSchema = z.object({ channel: z.enum(["whatsapp", "email"]) }).strict();
+
+/**
+ * ‎**קישור פתוח — בלי לקוח ובלי נכס.**
+ *
+ * ‏אין כאן `contactId` ואין `propertyId` ובכוונה: זה כל העניין.
+ * ‏`kind` נשאר, כי הקטלוג עשוי לגדול; השירות דוחה סוג שאינו נִתן
+ * ‏בקישור פתוח.
+ */
+const CreateOpenSchema = z.object({ kind: z.enum(AGREEMENT_KINDS) }).strict();
+
+/** ‏כתובת מגורים שהחותם מזין — אותו כלל בהסכם רגיל ובקישור פתוח. */
+const SignerAddressSchema = signerText(2, 200);
 
 /*
  * "מספר זיהוי" בתקנות אינו בהכרח תעודת זהות ישראלית — רוכשים תושבי
@@ -33,8 +58,10 @@ const SendSchema = z.object({ channel: z.enum(["whatsapp", "email"]) }).strict()
  */
 const SignSchema = z
   .object({
-    signerName: z.string().min(2).max(120),
+    signerName: signerText(2, 120),
     signerIdNumber: z.string().regex(/^[0-9A-Za-z]{5,20}$/u, "מספר הזיהוי אינו תקין"),
+    /** ‏הסכם רגיל שמבקש כתובת — רשות כאן, חובה בשירות (רק לו יש את השורה). */
+    signerAddress: SignerAddressSchema.optional(),
     confirmed: z.literal(true),
     /*
      * החתימה המצוירת — רשות בסכמה, חובה במסך.
@@ -45,6 +72,36 @@ const SignSchema = z
     signatureImage: z
       .string()
       .refine(isSignatureDataUrl, "החתימה אינה תקינה — נסו לחתום שוב")
+      .optional(),
+    /*
+     * ‎**רק בקישור פתוח** — ולכן `optional` כאן, וחובה בשירות.
+     *
+     * ‏בהסכם רגיל כל השדות האלה כבר בנוסח מרגע השליחה, ושליחה
+     * ‏שלהם הייתה ניסיון לדרוס אותם. בקישור פתוח אף אחד מהם אינו
+     * ‏ידוע, והחותם הוא המקור היחיד. השירות הוא שמכריע מה נדרש,
+     * ‏כי רק לו יש את השורה.
+     */
+    open: z
+      .object({
+        address: SignerAddressSchema,
+        /*
+         * ‎**`PhoneInputSchema` ולא מחרוזת** (ביקורת Codex, P1).
+         *
+         * ‏המספר הזה אינו רק טקסט למסמך — הוא מה שמזהה לקוח קיים.
+         * ‏`findOrCreateByPhone` מגבבת את מה שהיא מקבלת **כמות
+         * ‏שהוא**, וכל שאר המערכת שומרת `+972…` (זה בדיוק מה
+         * ‏ש-`PhoneInputSchema` עושה, ולכן היא קיימת). חותם שהקליד
+         * ‏`050-1234567` היה מייצר גיבוב שאינו תואם לשום כרטיס,
+         * ‏מקבל כרטיס כפול, וההסכם היה נוחת עליו — כלומר בדיוק
+         * ‏ההפך מ„אם זה לקוח קיים שההסכם ייכנס לו לכרטיס”, שהיא
+         * ‏הבקשה שהולידה את התכונה.
+         */
+        phone: PhoneInputSchema,
+        dealType: z.enum(["sale", "rent"]),
+        propertyText: signerText(4, 300),
+        priceText: signerText(1, 60),
+      })
+      .strict()
       .optional(),
   })
   .strict();
@@ -65,6 +122,26 @@ export class AgreementsController {
   }
 
   /**
+   * ‎**קישור החתמה בלי לקוח.**
+   *
+   * ‏אותה יכולת `offers.send` של `POST /agreements`: מי שרשאי
+   * ‏להפיק קישור חתימה על הזמנה בכתב רשאי להפיק גם אחד פתוח.
+   * ‏יכולת נפרדת הייתה מתג שאיש אינו יודע מתי להדליק.
+   *
+   * ‏כל קריאה יוצרת קישור חדש, ובכוונה: שני לקוחות שנפגשו באותו
+   * ‏יום צריכים שני קישורים. החזרת אותו קישור לשניהם הייתה
+   * ‏מכניסה את השני להסכם של הראשון.
+   */
+  @Post("agreements/open")
+  @RequireCapability("offers.send")
+  @HttpCode(200)
+  async createOpen(
+    @Body(new ZodValidationPipe(CreateOpenSchema)) body: z.infer<typeof CreateOpenSchema>,
+  ): Promise<{ id: string; url: string }> {
+    return this.prisma.withTenant((tx) => this.agreements.createOpen(tx, body));
+  }
+
+  /**
    * שליחת הקישור ללקוח.
    *
    * `offers.send` ולא יכולת חדשה: זו אותה פעולה בדיוק כמו יצירת
@@ -75,7 +152,7 @@ export class AgreementsController {
   @RequireCapability("offers.send")
   @HttpCode(200)
   async send(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
     @Body(new ZodValidationPipe(SendSchema)) body: z.infer<typeof SendSchema>,
   ): Promise<{ waUrl?: string; sentTo?: string; message: string }> {
     return this.prisma.withTenant((tx) => this.agreements.deliver(tx, id, body.channel));
@@ -93,7 +170,7 @@ export class AgreementsController {
   @Get("agreements/contact/:contactId")
   @RequireCapability("buyers.view_own")
   async listForContact(
-    @Param("contactId", new ZodValidationPipe(IdSchema)) contactId: string,
+    @Param("contactId", IdParam) contactId: string,
   ): Promise<AgreementSummary[]> {
     const tenantId = TenantContext.current().tenantId;
     return this.prisma.withTenant(async (tx) => {
@@ -132,7 +209,7 @@ export class AgreementsController {
   @Get("agreements/:id/document")
   @RequireCapability("buyers.view_own", "settings.manage")
   async document(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
   ): Promise<Awaited<ReturnType<AgreementsService["document"]>>> {
     return this.prisma.withTenant((tx) => this.agreements.document(tx, id));
   }
@@ -144,6 +221,24 @@ export class AgreementsController {
   @Get("public/agreements/:token")
   async publicView(@Param("token") token: string): Promise<PublicAgreementView> {
     return this.agreements.publicView(token);
+  }
+
+  /**
+   * הלוגו של המשרד — הדף הציבורי טוען אותו כתמונה רגילה.
+   *
+   * מטמון ארוך: הקובץ מזוהה בטוקן של ההסכם, והוא אינו משתנה במהלך
+   * חייו. `private` ולא `public` — זהו נכס של משרד מסוים.
+   */
+  @Public()
+  @Throttle({ default: { ttl: 60_000, limit: 60 } })
+  @Get("public/agreements/:token/logo")
+  @Header("Cache-Control", "private, max-age=3600")
+  async publicLogo(@Param("token") token: string): Promise<StreamableFile> {
+    const obj = await this.agreements.publicLogo(token);
+    return new StreamableFile(obj.body as never, {
+      type: obj.contentType,
+      ...(obj.contentLength !== undefined ? { length: obj.contentLength } : {}),
+    });
   }
 
   @Public()
@@ -158,6 +253,8 @@ export class AgreementsController {
     return this.agreements.sign(token, {
       signerName: body.signerName,
       signerIdNumber: body.signerIdNumber,
+      ...(body.signerAddress !== undefined ? { signerAddress: body.signerAddress } : {}),
+      ...(body.open !== undefined ? { open: body.open } : {}),
       ...(body.signatureImage !== undefined ? { signatureImage: body.signatureImage } : {}),
       ip: req.ip,
       userAgent: req.headers["user-agent"],

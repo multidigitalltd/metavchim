@@ -26,6 +26,17 @@ export type PlanFeature =
   | "agreements"
   | "landing_pages"
   | "whatsapp"
+  /**
+   * ‎**הבוט שעונה ללקוחות על הקו של המשרד** (docs/12).
+   *
+   * נפרד מ-`whatsapp` בכוונה, ולא מפני שנעים לגבות פעמיים: חיבור
+   * המספר וקליטת הפניות אינם עולים לנו דבר (Meta אינה מחייבת על
+   * הודעות נכנסות, והחיוב על היוצאות הוא של המשרד מול Meta), בעוד
+   * שכל תשובה של הבוט היא קריאת LLM שאנחנו משלמים עליה. פיצ'ר
+   * אחד לשניהם היה או חוסם בחינם מה שעולה לנו, או מחייב על מה
+   * שאינו עולה.
+   */
+  | "whatsapp_bot"
   | "data_io"
   | "ai_coach"
   | "voice_intake";
@@ -80,6 +91,12 @@ export const PLAN_FEATURES: readonly PlanFeatureInfo[] = [
     code: "whatsapp",
     label: "שליחה בוואטסאפ",
     description: "הצעות ועדכוני שיווק נפתחים בוואטסאפ עם ההודעה מוכנה.",
+  },
+  {
+    code: "whatsapp_bot",
+    label: "בוט מענה ללקוחות בוואטסאפ",
+    description:
+      "הבוט עונה ללקוחות על המספר של המשרד, מאפיין את הפנייה ומעביר לסוכן. חיבור המספר וקליטת הפניות כלולים בכל מסלול — כאן נוסף המענה האוטומטי.",
   },
   {
     code: "data_io",
@@ -261,6 +278,21 @@ export function isFreePlan(
  * הטבלה היא מה שבעל הפלטפורמה קבע, וזו נקודת ההתחלה שממנה הוא
  * התחיל. משרד שנרשם לפני שהוגדר משהו עדיין צריך לעבוד.
  */
+/**
+ * ‎**המחיר למקום וואטסאפ נוסף — 49 ₪ לחודש, בכל המסלולים.**
+ *
+ * ‏עד כה כל ארבעת המסלולים נשאו `null`, שפירושו „לא נמכר”: כפתור
+ * ‏„הוספת מקום” לא הופיע לאף משרד, והודעת החסימה הפנתה ל„פנו
+ * ‏אלינו” — כלומר יכולת שקיימת בקוד ואי אפשר לקנות אותה.
+ *
+ * ‏קבוע אחד ולא ארבעה מספרים: מחיר שנכתב ארבע פעמים משתנה שלוש
+ * ‏פעמים ביום שבו מעדכנים אותו.
+ *
+ * ‏זו **ברירת מחדל**, לא תקרה: בעל הפלטפורמה משנה אותה לכל מסלול
+ * ‏בנפרד ב-`/platform` ← מסלולים, ומה שנשמר שם גובר.
+ */
+export const WHATSAPP_SEAT_MONTHLY_AGOROT = 4_900;
+
 export const DEFAULT_PLANS: readonly PlanDefinition[] = [
   {
     code: "basic",
@@ -271,7 +303,7 @@ export const DEFAULT_PLANS: readonly PlanDefinition[] = [
     maxUsers: 2,
     maxProperties: 60,
     maxAutomations: null,
-    whatsappSeatMonthlyAgorot: null,
+    whatsappSeatMonthlyAgorot: WHATSAPP_SEAT_MONTHLY_AGOROT,
     maxNetworkListings: null,
     maxNetworkDemands: null,
     features: ["whatsapp", "landing_pages", "voice_intake"],
@@ -289,7 +321,7 @@ export const DEFAULT_PLANS: readonly PlanDefinition[] = [
     maxUsers: 6,
     maxProperties: 300,
     maxAutomations: null,
-    whatsappSeatMonthlyAgorot: null,
+    whatsappSeatMonthlyAgorot: WHATSAPP_SEAT_MONTHLY_AGOROT,
     maxNetworkListings: null,
     maxNetworkDemands: null,
     features: [
@@ -314,7 +346,7 @@ export const DEFAULT_PLANS: readonly PlanDefinition[] = [
     maxUsers: 20,
     maxProperties: null,
     maxAutomations: null,
-    whatsappSeatMonthlyAgorot: null,
+    whatsappSeatMonthlyAgorot: WHATSAPP_SEAT_MONTHLY_AGOROT,
     maxNetworkListings: null,
     maxNetworkDemands: null,
     features: [
@@ -342,7 +374,7 @@ export const DEFAULT_PLANS: readonly PlanDefinition[] = [
     maxUsers: null,
     maxProperties: null,
     maxAutomations: null,
-    whatsappSeatMonthlyAgorot: null,
+    whatsappSeatMonthlyAgorot: WHATSAPP_SEAT_MONTHLY_AGOROT,
     maxNetworkListings: null,
     maxNetworkDemands: null,
     features: PLAN_FEATURES.map((f) => f.code),
@@ -358,8 +390,6 @@ export const DEFAULT_PLANS: readonly PlanDefinition[] = [
     sortOrder: 40,
   },
 ];
-
-export const DEFAULT_PLAN_CODE = "pro";
 
 export function defaultPlan(code: string): PlanDefinition | undefined {
   return DEFAULT_PLANS.find((p) => p.code === code);

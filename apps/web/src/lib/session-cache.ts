@@ -38,6 +38,16 @@ import { apiGet } from "./api";
 
 const TTL_MS = 60_000;
 
+/**
+ * נשלח על `window` ברגע ש-`/auth/me` ענה — כלומר יש session מאומת.
+ *
+ * הרכיבים שמורכבים בכל מסך (סנכרון הנגישות) אינם יודעים אם המבקר
+ * מחובר: העוגייה היא `HttpOnly`. עד כה הם פשוט ביקשו, וכל מסך
+ * ציבורי — התחברות, תיעוד, דף הצעה — ייצר 401 בקונסול. האירוע הזה
+ * הוא הסימן: מי שממתין לו מבקש רק אחרי שידוע שיש למי.
+ */
+export const SESSION_READY_EVENT = "mv:session-ready";
+
 let cached: { user: AuthUser; at: number } | null = null;
 let inflight: Promise<AuthUser> | null = null;
 
@@ -58,6 +68,7 @@ export async function fetchMe(): Promise<AuthUser> {
   inflight ??= apiGet<{ user: AuthUser }>("/auth/me")
     .then((res) => {
       cached = { user: res.user, at: Date.now() };
+      window.dispatchEvent(new CustomEvent(SESSION_READY_EVENT));
       return res.user;
     })
     .finally(() => {
@@ -92,4 +103,32 @@ export async function fetchMe(): Promise<AuthUser> {
 export function clearSessionCache(): void {
   cached = null;
   inflight = null;
+}
+
+/**
+ * ‎**שינוי מסלול — המטמון בלבד אינו מספיק, צריך טעינה מלאה.**
+ *
+ * ## ‏הבאג שזה סוגר
+ *
+ * ‏מסלול השת״פ הוא חינמי, ולכן מעבר אליו **פותח מיד** משרד שתקופתו
+ * ‏נגמרה: `planIsFree` מבטל את התפוגה בשרת. אבל המסך לא ידע: הבקשה
+ * ‏הצליחה, כרטיס המנוי התעדכן — והמשתמש נשאר תקוע במעטפת המצומצמת
+ * ‏של „חיוב בלבד”, בלי תפריט ובלי דרך לדשבורד, עד שיעבור זמן וירענן
+ * ‏ידנית (דיווח המשתמש).
+ *
+ * ## ‏למה `router.replace` לא היה מספיק
+ *
+ * ‏שני מטמונים נושאים את התשובה הישנה, ורק אחד מהם הוא זה שכאן:
+ * ‏ה-`AppShell` שולף `me` פעם אחת ב-`useEffect` שתלוי ב-`isPublic`
+ * ‏בלבד, ולכן ניווט פנימי **אינו** קורא מחדש. מעבר רך היה מגיע
+ * ‏לדשבורד ועדיין מצייר את המעטפת החסומה סביבו.
+ *
+ * ‏זה נכון גם למי ש**לא** היה חסום: המסלול קובע גם את רשימת
+ * ‏הפיצ׳רים, ומעטפת שנושאת את הרשימה הישנה מציגה כפתורים חסומים
+ * ‏ומסתירה פעילים — בדיוק התקלה שה-`AppShell` כבר מתגונן מפניה
+ * ‏במעבר בין משתמשים.
+ */
+export function reloadWithFreshSession(path: string): void {
+  clearSessionCache();
+  window.location.assign(path);
 }

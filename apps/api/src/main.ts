@@ -6,12 +6,17 @@ import { json } from "express";
 import helmet from "helmet";
 import { AppModule } from "./app.module";
 import { loadEnv } from "./config/env";
+import { ServerErrorLogger } from "./core/server-errors";
 
 async function bootstrap(): Promise<void> {
   const env = loadEnv();
 
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
-    logger: env.NODE_ENV === "production" ? ["error", "warn", "log"] : ["debug", "log", "warn", "error"],
+    /* ‏יומן רגיל שגם סופר שגיאות לסיכום היומי — ראו core/server-errors.ts */
+    logger: new ServerErrorLogger({
+      logLevels:
+        env.NODE_ENV === "production" ? ["error", "warn", "log"] : ["debug", "log", "warn", "error"],
+    }),
     rawBody: true, // נדרש לאימות חתימות Webhook (WhatsApp)
     /*
      * רישום ידני של מפרקי הגוף, כי ברירת המחדל (100KB) קטנה מדי
@@ -48,11 +53,24 @@ async function bootstrap(): Promise<void> {
   // זיוף X-Forwarded-For שעוקף את מגבלת ההתחברות (docs/04 §6).
   app.getHttpAdapter().getInstance().set("trust proxy", env.TRUST_PROXY_HOPS);
 
-  // CORS נעול ל-Origin המוצהר בלבד — לא wildcard, לא רשימה דינמית.
+  /*
+   * ‎**CORS נעול ל-Origin המוצהר בלבד** — לא wildcard, לא רשימה דינמית.
+   *
+   * ‏רשימת הפעלים חייבת לכסות את **כל** מה שהבקרים מצהירים עליו.
+   * ‎`PUT` נעדר ממנה, ושלושה מסלולים כאלה כבר קיימים (הרשאות משתמש,
+   * תבניות הסכם, ויעדי המנטור) — כלומר הדפדפן קיבל `ERR_FAILED` על
+   * שמירה, בלי סטטוס ובלי הודעה, ובלי שהבקשה הגיעה לשרת בכלל.
+   *
+   * ‏זה **לא** נראה בייצור, ובדיוק זה מה שהופך אותו למלכודת: שם
+   * ‎`NEXT_PUBLIC_API_URL` ריק, הדפדפן קורא ל-`/api/v1` על אותו מקור,
+   * ו-CORS אינו רץ כלל. בפיתוח (‎:3000 מול ‎:3001) הוא כן — ולכן
+   * הפיתוח שיקר לגבי הייצור לשני הכיוונים. שער
+   * ‎`cors-methods.test.ts` גוזר עכשיו את הרשימה מהבקרים.
+   */
   app.enableCors({
     origin: [env.WEB_ORIGIN],
     credentials: true,
-    methods: ["GET", "POST", "PATCH", "DELETE"],
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
   });
 
   app.setGlobalPrefix("api/v1");

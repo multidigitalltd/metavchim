@@ -18,10 +18,9 @@ import { z } from "zod";
 import {
   EMAIL_ATTACHMENT_MAX_BYTES,
   EMAIL_ATTACHMENT_MAX_COUNT,
-  IdSchema,
 } from "@metavchim/shared";
 import { RequireCapability } from "../../common/auth.decorators";
-import { ZodValidationPipe } from "../../common/zod-validation.pipe";
+import { ZodValidationPipe, IdParam } from "../../common/zod-validation.pipe";
 import {
   EmailInboxService,
   type InboxMessageDto,
@@ -57,7 +56,7 @@ export class EmailInboxController {
   @Get("email-inbox/:contactId")
   @RequireCapability("buyers.view_own")
   async thread(
-    @Param("contactId", new ZodValidationPipe(IdSchema)) contactId: string,
+    @Param("contactId", IdParam) contactId: string,
   ): Promise<{ contactName: string; messages: InboxMessageDto[] }> {
     return this.inbox.thread(contactId);
   }
@@ -66,7 +65,7 @@ export class EmailInboxController {
   @RequireCapability("buyers.view_own")
   @HttpCode(200)
   async markRead(
-    @Param("contactId", new ZodValidationPipe(IdSchema)) contactId: string,
+    @Param("contactId", IdParam) contactId: string,
   ): Promise<{ ok: true }> {
     await this.inbox.markRead(contactId);
     return { ok: true };
@@ -85,7 +84,7 @@ export class EmailInboxController {
     }),
   )
   async reply(
-    @Param("contactId", new ZodValidationPipe(IdSchema)) contactId: string,
+    @Param("contactId", IdParam) contactId: string,
     @UploadedFiles() files: Express.Multer.File[] | undefined,
     @Body(new ZodValidationPipe(ReplyMultipartSchema)) body: z.infer<typeof ReplyMultipartSchema>,
   ): Promise<{ ok: true; state: "sent" | "unknown" }> {
@@ -111,7 +110,7 @@ export class EmailInboxController {
   @RequireCapability("buyers.view_own")
   @Header("Cache-Control", "private, max-age=3600")
   async attachmentRaw(
-    @Param("attachmentId", new ZodValidationPipe(IdSchema)) attachmentId: string,
+    @Param("attachmentId", IdParam) attachmentId: string,
     @Res({ passthrough: true }) res: Response,
   ): Promise<StreamableFile> {
     const obj = await this.inbox.attachmentRaw(attachmentId);

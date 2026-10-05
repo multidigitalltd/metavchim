@@ -5,6 +5,7 @@ import {
   propertyEvaluableCriteria,
   resolveMatchWeights,
   scoreMatch,
+  buyerGateMissing,
 } from "./matching.js";
 import { MATCH_CRITERIA, ScoreComponentSchema } from "../schemas/match.js";
 import type { PropertyFields } from "../schemas/property.js";
@@ -27,6 +28,7 @@ const baseProperty: PropertyFields = {
 const baseBuyer: BuyerRequirements = {
   cities: ["בני ברק"],
   neighborhoods: [],
+  searchAreas: [],
   dealType: "sale",
   propertyTypes: ["apartment"],
   budgetMaxAgorot: 280_000_000,
@@ -102,7 +104,7 @@ describe("scoreMatch — מנוע ההתאמות", () => {
       dealType: "rent",
       budgetMaxAgorot: 700_000, // 7,000 ₪
     };
-    const rental = { ...baseProperty, dealType: "rent" };
+    const rental = { ...baseProperty, dealType: "rent" as const };
     // 8,500 ₪ — יותר מ-15% מעל: מוחרג (רצועת המכירה הייתה בולעת הכל)
     expect(
       scoreMatch({ ...rental, priceAgorot: 850_000 }, buyer).excluded,
@@ -121,7 +123,7 @@ describe("scoreMatch — מנוע ההתאמות", () => {
       budgetMinAgorot: 500_000,
       budgetMaxAgorot: 1_000_000,
     };
-    const rental = { ...baseProperty, dealType: "rent" };
+    const rental = { ...baseProperty, dealType: "rent" as const };
     // 4,000 ₪ — מתחת לרצפה: מוחרג (רצועה מהתקרה הייתה מקבלת אותו)
     expect(
       scoreMatch({ ...rental, priceAgorot: 400_000 }, buyer).excluded,
@@ -230,6 +232,89 @@ describe("scoreMatch — מיקום", () => {
     expect(loose.score).toBe(strict.score);
   });
 
+  /*
+   * ‎**השכונה היא דרישה, לא העדפה** (בקשת המשתמש, דיווח מהשטח).
+   *
+   * ‏הדיווח: „מתווך העלה קונה וציין שכונה, העלה נכס באותה שכונה,
+   * ‏ושאר הנתונים מתאימים — וההתאמה לא נוצרה”. הבדיקות כאן מכסות
+   * ‏את שני הכיוונים של הכלל, כי רק שניהם יחד הם „התייחסות לשכונה”:
+   * ‏מי שביקש שכונה מקבל אותה, ומי שביקש שכונה **אינו** מקבל את
+   * ‏שאר העיר.
+   */
+  it("שכונה שהקונה נקב בה — נכס בשכונה אחרת באותה עיר אינו מוצג", () => {
+    const result = scoreMatch(
+      { ...baseProperty, neighborhood: "קרית הרצוג" },
+      { ...baseBuyer, neighborhoods: ["פרדס כץ"] },
+    );
+    expect(result.excluded).toBe(true);
+  });
+
+  it("קונה בלי שכונה — כל העיר מתאימה", () => {
+    const result = scoreMatch(
+      { ...baseProperty, neighborhood: "קרית הרצוג" },
+      { ...baseBuyer, neighborhoods: [] },
+    );
+    expect(result.excluded).toBe(false);
+    const location = result.breakdown.find((p) => p.criterion === "location")!;
+    expect(location.score).toBe(1);
+  });
+
+  it("השכונה נבדקת בקיפול של שכונות — „שכונת פרדס כץ” היא „פרדס כץ”", () => {
+    /*
+     * ‏זה הכלל שנשבר: ההשוואה רצה ב-`bestLocationMatch`, כלל
+     * ‏**הערים**, שאינו מכיר את הקידומת „שכונת ”. הסינון בעמוד
+     * ‏הקונים כן הכיר אותה — שתי תשובות לאותה שאלה.
+     */
+    const result = scoreMatch(
+      { ...baseProperty, neighborhood: "שכונת פרדס כץ" },
+      { ...baseBuyer, neighborhoods: ["פרדס כץ"] },
+    );
+    expect(result.excluded).toBe(false);
+    const location = result.breakdown.find((p) => p.criterion === "location")!;
+    expect(location.score).toBe(1);
+  });
+
+  it("כתיב מלא מול חסר בשכונה — „קריית הרצוג” היא „קרית הרצוג”", () => {
+    const result = scoreMatch(
+      { ...baseProperty, neighborhood: "קריית הרצוג" },
+      { ...baseBuyer, neighborhoods: ["קרית הרצוג"] },
+    );
+    expect(result.excluded).toBe(false);
+  });
+
+  it("ההערה נוקבת בשכונה, ולא רק בעיר", () => {
+    const result = scoreMatch(baseProperty, { ...baseBuyer, neighborhoods: ["פרדס כץ"] });
+    const location = result.breakdown.find((p) => p.criterion === "location")!;
+    expect(location.note).toContain("פרדס כץ");
+  });
+
+  /*
+   * ‎**„ריק” מגיע בארבע צורות, וכולן אותו דבר** (ביקורת Codex).
+   *
+   * ‏הסכמה היא `z.string().max(80).optional()` בלי `.min(1)`, ולכן
+   * ‏שדה טקסט שלא נגעו בו שולח `""` — המסלול הרגיל, לא שארית
+   * ‏היסטורית. בדיקת `undefined` לבדה חילקה את אותם נתונים לשתי
+   * ‏תשובות, ובקריטריון פוסל ההבדל הזה הוא נכס שנעלם.
+   */
+  it("מחרוזת ריקה, רווחים וסימני פיסוק הם „לא מולא” כמו שדה חסר", () => {
+    const wanted = { ...baseBuyer, neighborhoods: ["פרדס כץ"] };
+    const missing = scoreMatch({ ...baseProperty, neighborhood: undefined }, wanted);
+    for (const blank of ["", "   ", "-", "'"]) {
+      const result = scoreMatch({ ...baseProperty, neighborhood: blank }, wanted);
+      expect(result.excluded).toBe(false);
+      expect(result.score).toBe(missing.score);
+    }
+  });
+
+  it("נכס בלי שכונה אינו נפסל — „לא ידוע” אינו „מחוץ לשכונה”", () => {
+    const unknown = { ...baseProperty, neighborhood: undefined };
+    const result = scoreMatch(unknown, { ...baseBuyer, neighborhoods: ["פרדס כץ"] });
+    expect(result.excluded).toBe(false);
+    /* ‏אבל הוא נגרע: נכס מאומת מדורג מעליו. */
+    const exact = scoreMatch(baseProperty, { ...baseBuyer, neighborhoods: ["פרדס כץ"] });
+    expect(result.score).toBeLessThan(exact.score);
+  });
+
   it("אזור על המפה: נכס במרכז מקבל ניקוד מלא על המיקום", () => {
     const result = scoreMatch(located(32.0853, 34.7818), areaBuyer);
     const location = result.breakdown.find((p) => p.criterion === "location")!;
@@ -237,9 +322,23 @@ describe("scoreMatch — מיקום", () => {
     expect(location.note).toContain("ליד העבודה");
   });
 
-  it("נכס מעט מחוץ לרדיוס עדיין מוצג — זה ההבדל מכל שער קשיח", () => {
-    // ~2.3 ק״מ מהמרכז, ברדיוס של 2
+  /*
+   * ‎**הבדיקה הזו הפוכה ממה שהייתה, וזו בקשת המשתמש.**
+   *
+   * ‏קודם היא קיבעה רצועת חסד עד פי שניים מהרדיוס: נכס ב-2.3 ק״מ
+   * ‏מאזור שסומן לשני קילומטרים הוצג כהתאמה. הרצועה אינה נראית
+   * ‏בשום מקום — המפה מציירת את העיגול שהקונה סימן, ורק אותו —
+   * ‏ולכן היא הבטיחה גבול אחד והתאימה לפי אחר.
+   */
+  it("נכס מחוץ לרדיוס שסומן אינו מוצג — העיגול על המפה הוא הגבול", () => {
+    // ~2.4 ק״מ מהמרכז, ברדיוס של 2
     const result = scoreMatch(located(32.1053, 34.7918), areaBuyer);
+    expect(result.excluded).toBe(true);
+  });
+
+  it("נכס בתוך הרדיוס מוצג, גם קרוב לשפה", () => {
+    // ~1.5 ק״מ מהמרכז, ברדיוס של 2
+    const result = scoreMatch(located(32.0983, 34.7858), areaBuyer);
     expect(result.excluded).toBe(false);
     const location = result.breakdown.find((p) => p.criterion === "location")!;
     expect(location.score).toBeGreaterThan(0.5);
@@ -419,6 +518,7 @@ describe("סף המידע — כרטיס ריק אינו נכנס להתאמות
   const importedBuyer: BuyerRequirements = {
     cities: [],
     neighborhoods: [],
+    searchAreas: [],
     dealType: "sale",
     propertyTypes: [],
     budgetMaxAgorot: 280_000_000,
@@ -469,10 +569,20 @@ describe("סף המידע — כרטיס ריק אינו נכנס להתאמות
     const thin: BuyerRequirements = {
       ...importedBuyer,
       areaSqmMin: 80,
-      entryDatePreference: "flexible",
+      entryType: "flexible",
     };
-    const result = scoreMatch(baseProperty, thin);
-    expect(result.breakdown.length).toBeGreaterThanOrEqual(2);
+    // ‏לנכס הבסיסי אין מועד מסירה, ובלעדיו קריטריון הכניסה אינו נספר כלל
+    const result = scoreMatch({ ...baseProperty, entryType: "immediate" }, thin);
+    /*
+     * ‏שלושת הקריטריונים השוליים נבדקו בפועל. השדה כאן נקרא פעם
+     * ‏`entryDatePreference`, ואחרי שהשם הוחלף ל-`entryType` הבדיקה
+     * ‏המשיכה לעבור עם **שניים** — כלומר הבאג שהיא נכתבה עליו (שלושה
+     * ‏שעוברים את שער הספירה) לא נבדק כלל, עד שבדיקת הטיפוסים של
+     * ‏הבדיקות הראתה שהשדה אינו קיים.
+     */
+    expect(result.breakdown.map((part) => part.criterion)).toEqual(
+      expect.arrayContaining(["budget", "area", "entry_date"]),
+    );
     expect(result.insufficientData).toBe(true);
     expect(result.score).toBe(0);
   });
@@ -489,6 +599,7 @@ describe("סף המידע — כרטיס ריק אינו נכנס להתאמות
     const withoutRooms: BuyerRequirements = {
       cities: ["בני ברק"],
       neighborhoods: [],
+      searchAreas: [],
       dealType: "sale",
       propertyTypes: ["apartment"],
       // בתוך רצועת התקציב של הנכס (2.65M) — הבדיקה על הכיסוי, לא על הרצועה
@@ -536,6 +647,7 @@ describe("סף המידע — כרטיס ריק אינו נכנס להתאמות
     const belowGate = scoreMatch(baseProperty, {
       cities: ["בני ברק"],
       neighborhoods: [],
+      searchAreas: [],
       dealType: "sale",
       propertyTypes: ["apartment"],
       features: {},
@@ -547,6 +659,7 @@ describe("סף המידע — כרטיס ריק אינו נכנס להתאמות
     const atGate = scoreMatch(baseProperty, {
       cities: ["בני ברק"],
       neighborhoods: [],
+      searchAreas: [],
       dealType: "sale",
       propertyTypes: ["apartment"],
       roomsMin: 3,
@@ -588,6 +701,7 @@ describe("סף המידע — כרטיס ריק אינו נכנס להתאמות
     const buyer: BuyerRequirements = {
       cities: ["בני ברק"],
       neighborhoods: [],
+      searchAreas: [],
       dealType: "sale",
       propertyTypes: [],
       budgetMaxAgorot: 280_000_000,
@@ -694,7 +808,7 @@ describe("כלל הברזל — מיקום חייב להיבחן", () => {
    * הוא נעשה.
    */
   it("וילה למי שביקש דירה — נפסלת, לא „מתאימה ב-88%”", () => {
-    const villa = scoreMatch({ ...baseProperty, propertyType: "house" }, baseBuyer);
+    const villa = scoreMatch({ ...baseProperty, propertyType: "private_house" }, baseBuyer);
     expect(villa.breakdown.some((p) => p.criterion === "property_type")).toBe(true);
     expect(villa.excluded).toBe(true);
     expect(villa.score).toBe(0);
@@ -710,6 +824,7 @@ describe("כלל הברזל — מיקום חייב להיבחן", () => {
     const bare = scoreMatch(baseProperty, {
       cities: ["בני ברק"],
       neighborhoods: [],
+      searchAreas: [],
       dealType: "sale",
       propertyTypes: ["apartment"],
       features: {},
@@ -737,7 +852,7 @@ describe("כלל הברזל — מיקום חייב להיבחן", () => {
 
   it("סוג שאינו מתאים **וגם** בלי מיקום — הדחייה גוברת", () => {
     const result = scoreMatch(
-      { ...baseProperty, propertyType: "house" },
+      { ...baseProperty, propertyType: "private_house" },
       { ...baseBuyer, cities: [] },
     );
     expect(result.excluded).toBe(true);
@@ -818,6 +933,90 @@ describe("שטח — רצועת סטייה חד-צדדית", () => {
  * הופיע על המסך כ„לא נבדק” (ביקורת Codex). הבדיקה מודדת מול
  * הסכמה עצמה, ולא מול חשבון תווים שכתבתי בהערה.
  */
+describe("מסחרי — המטרייה מגיעה עד המנוע", () => {
+  /*
+   * ‎**הבדיקות ב-`commercial-types.test.ts` הן על הפונקציה; זו על
+   * החיבור.** מנוע שממשיך לקרוא `includes` ישיר יעבור שם ויפיל
+   * כאן — וזה בדיוק הפער שהיה שובר קונים קיימים בשקט.
+   */
+  const shop = { ...baseProperty, propertyType: "commercial_shop" as const };
+
+  it("קונה שביקש „מסחרי” אינו מוחרג מול חנות", () => {
+    const buyer: BuyerRequirements = { ...baseBuyer, propertyTypes: ["commercial"] };
+    const result = scoreMatch(shop, buyer);
+    expect(result.excluded).toBe(false);
+    expect(result.breakdown.find((p) => p.criterion === "property_type")?.score).toBe(1);
+  });
+
+  it("ונכס „מסחרי” אינו מוחרג מול קונה שמחפש משרד", () => {
+    const property = { ...baseProperty, propertyType: "commercial" as const };
+    const result = scoreMatch(property, { ...baseBuyer, propertyTypes: ["commercial_office"] });
+    expect(result.excluded).toBe(false);
+  });
+
+  /* ‎**וההפרדה עצמה עובדת**, אחרת הפיצול לא הוסיף דבר. */
+  it("אבל חנות מוחרגת מול מי שמחפש משרד", () => {
+    const result = scoreMatch(shop, { ...baseBuyer, propertyTypes: ["commercial_office"] });
+    expect(result.excluded).toBe(true);
+  });
+});
+
+describe("קומה — מוריד בציון, ואינו פוסל", () => {
+  /* ‎`floor` מוסר ולא נדרס: ל-`baseProperty` יש קומה, וספרייד לא מוחק. */
+  const part = (buyer: BuyerRequirements, floor?: number) => {
+    const { floor: _drop, ...withoutFloor } = baseProperty;
+    const property = floor === undefined ? withoutFloor : { ...withoutFloor, floor };
+    return scoreMatch(property, buyer).breakdown.find((p) => p.criterion === "floor");
+  };
+
+  it("קונה בלי העדפת קומה — הקריטריון אינו נבחן כלל", () => {
+    expect(part(baseBuyer, 2)).toBeUndefined();
+  });
+
+  /*
+   * ‎**„לא נבדק” ולא „לא מתאים”.** נכס בלי קומה רשומה הוא כרטיס חסר
+   * נתון, ולא נכס שנפסל — וזו ההבחנה שרצועת ההסבר קיימת בשבילה.
+   */
+  it("ונכס בלי קומה רשומה — גם כשהקונה כן ביקש", () => {
+    const buyer: BuyerRequirements = { ...baseBuyer, floorPreference: { mode: "range", min: 3 } };
+    expect(part(buyer, undefined)).toBeUndefined();
+  });
+
+  it("קומה בטווח — ניקוד מלא, בלי הערה", () => {
+    const buyer: BuyerRequirements = { ...baseBuyer, floorPreference: { mode: "range", min: 1, max: 4 } };
+    const found = part(buyer, 2);
+    expect(found?.score).toBe(1);
+    expect(found?.note).toBeUndefined();
+  });
+
+  it("קומה מחוץ לרשימה — אפס, עם הערה שנוקבת במה שביקש", () => {
+    const buyer: BuyerRequirements = { ...baseBuyer, floorPreference: { mode: "list", floors: [0, 1] } };
+    const found = part(buyer, 2);
+    expect(found?.score).toBe(0);
+    expect(found?.note).toContain("קרקע, קומה 1");
+  });
+
+  /*
+   * ‎**וזה ההבדל מקריטריון חובה.** „קרקע או ראשונה” היא לרוב העדפה
+   * חזקה ולא תנאי; נכס בקומה שנייה מצוין בכל השאר צריך להישאר
+   * ברשימה, ולא להיעלם ממנה.
+   */
+  it("ואינו מוציא את ההתאמה מהרשימה", () => {
+    const buyer: BuyerRequirements = { ...baseBuyer, floorPreference: { mode: "list", floors: [0] } };
+    const result = scoreMatch({ ...baseProperty, floor: 2 }, buyer);
+    expect(result.excluded).toBe(false);
+    expect(result.score).toBeGreaterThan(0);
+  });
+
+  /* ‎**ובכל זאת עולה כסף** — אחרת הקריטריון לא היה עושה דבר. */
+  it("ומוריד מהציון מול אותו נכס בדיוק שמתאים", () => {
+    const wants: BuyerRequirements = { ...baseBuyer, floorPreference: { mode: "list", floors: [0] } };
+    const miss = scoreMatch({ ...baseProperty, floor: 2 }, wants).score;
+    const hit = scoreMatch({ ...baseProperty, floor: 0 }, wants).score;
+    expect(miss).toBeLessThan(hit);
+  });
+});
+
 describe("אורך ההערות מול הסכמה", () => {
   /** מפתח מותאם באורך המרבי שהסכמה מתירה — התרחיש הגרוע ביותר. */
   const longFeature = (i: number): string =>
@@ -948,6 +1147,11 @@ describe("propertyEvaluableCriteria", () => {
       const { entryDate: _d, ...rest } = completeProperty;
       return { ...rest, entryType: "on_date" as const };
     })(),
+    /* נכס בלי קומה רשומה — הקריטריון אינו נבחן, וזה „חסר בנכס” */
+    floor: (() => {
+      const { floor: _f, ...rest } = completeProperty;
+      return rest;
+    })(),
     /* אין שדה בנכס שחוסם מאפיינים — הם דרישה של הקונה בלבד */
     features_must: null,
     features_nice: null,
@@ -1007,6 +1211,7 @@ describe("כל ההערות עומדות בסכמה, על הקלט המרבי", 
       dealType: "sale",
       rooms: 4,
       areaSqm: 95,
+      floor: 2,
       priceAgorot: 265_000_000,
       entryType: "on_date",
       entryDate: new Date("2030-01-01"),
@@ -1035,6 +1240,16 @@ describe("כל ההערות עומדות בסכמה, על הקלט המרבי", 
       ),
       entryType: "by_date",
       entryBy: new Date("2026-01-01"),
+      /*
+       * ‎**הרשימה הארוכה ביותר שהסכמה מתירה, בתוויות הארוכות ביותר.**
+       * הערת הקומה מונה את כל מה שהקונה ביקש, ולכן זו ההערה שעלולה
+       * לחרוג מ-`SCORE_NOTE_MAX` — בדיוק הצורה שבה הליקוי הזה נולד
+       * פעם.
+       */
+      floorPreference: {
+        mode: "list",
+        floors: Array.from({ length: 22 }, (_, i) => 39 + i),
+      },
     };
 
     const { breakdown } = scoreMatch(property, buyer);
@@ -1106,5 +1321,22 @@ describe("פירוט שנשמר מכיל תמיד את קריטריוני החו
     for (const mandatory of MANDATORY_MATCH_CRITERIA) {
       expect(criteria.has(mandatory)).toBe(true);
     }
+  });
+
+  describe("buyerGateMissing — מה חסר בקונה כדי שתהיה התאמה", () => {
+    const base = {
+      cities: ["תל אביב"], neighborhoods: [], dealType: "sale" as const, propertyTypes: ["apartment" as const],
+      features: {},
+    };
+    it("קונה עם עיר וסוג נכס — לא חסר דבר", () => {
+      expect(buyerGateMissing(base as never)).toEqual([]);
+    });
+    it("בלי סוג נכס — „סוג הנכס”; בלי עיר ובלי אזור — גם „מיקום”", () => {
+      expect(buyerGateMissing({ ...base, propertyTypes: [] } as never)).toEqual(["סוג הנכס"]);
+      expect(buyerGateMissing({ ...base, cities: [], propertyTypes: [] } as never)).toEqual(["מיקום (עיר ושכונה)", "סוג הנכס"]);
+    });
+    it("קונה שסימן אזור על המפה בלי עיר — המיקום נבחן", () => {
+      expect(buyerGateMissing({ ...base, cities: [], searchAreas: [{ lat: 32.07, lon: 34.78, radiusKm: 2 }] } as never)).toEqual([]);
+    });
   });
 });

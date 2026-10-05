@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, type FormEvent } from "react";
-import { IconFilter, IconSearch, IconX } from "./icons";
+import { IconChevronDown, IconFilter, IconSearch, IconX } from "./icons";
 import { formatNumber } from "@/lib/format";
 
 /**
@@ -209,7 +209,11 @@ export function ListFilters({
   searchHint,
   priceLabel,
   card,
+  layout = "card",
+  view,
   children,
+  childrenActive = false,
+  mobileToggle = false,
 }: {
   values: ListFilterValues;
   onApply: (next: ListFilterValues) => void;
@@ -217,22 +221,70 @@ export function ListFilters({
   searchHint: string;
   priceLabel: string;
   /**
-   * ‎**צורת הכרטיס — כותרת עם אריח, ודוגמה בשדה.**
+   * ‎**צורת הכרטיס — כותרת עם אריח, ושדה שקוף.**
    *
    * בלי זה הרכיב נשאר טופס חשוף, וזו הצורה שכל שאר הרשימות מציגות.
-   * ‎`example` מחליף את `searchHint` כטקסט הרפאים בשדה, כי במצב הזה
-   * הרמז כבר נאמר בכותרת — ושדה שחוזר על מה שכתוב מעליו מבזבז את
-   * המקום היחיד שבו אפשר להראות **איך** מנסחים חיפוש.
+   *
+   * ‎`example` הוא **אופציונלי, וברירת המחדל היא בלי טקסט רפאים
+   * כלל.** הרמז כבר נאמר בכותרת הכרטיס (`searchHint`), ומשפט דוגמה
+   * ארוך בתוך שדה צר נקטע באמצע — כלומר הוא לא הדגים דבר, רק מילא
+   * את השדה ברעש שנעלם ברגע שמקלידים. שדה ריק קורא נקי, והדוגמה
+   * נשארת אפשרית למסך שבאמת צריך אותה.
    *
    * התווית של השדה נשארת ב-DOM ומוסתרת חזותית: היא מה שקורא מסך
    * מקריא, וכותרת הכרטיס אינה קשורה אליו ב-`htmlFor`.
    */
-  card?: { example: string };
-  /** צ'יפים או פקדים שיושבים בתחתית אותו כרטיס. */
+  card?: {
+    example?: string;
+    /**
+     * ‎**בלי המרווח התחתון** — הכרטיס יושב בתוך רשת שמנהלת את
+     * המרווחים בעצמה. `mb-[18px]` בתוך תא של רשת מוסיף מרווח
+     * שהרשת לא ביקשה, והתוצאה היא טור אחד שנגמר נמוך מהשני.
+     */
+    flush?: boolean;
+  };
+  /**
+   * ‎**`"inline"` — שורת חיפוש בתוך כרטיס של מישהו אחר.**
+   *
+   * ברשת שיתופי הפעולה החיפוש יושב בתוך כרטיס הכיוונים ולא בכרטיס
+   * משלו: שדה רחב עם זכוכית מגדלת בתוכו, ו„עוד סינונים” בקצה. כפתור
+   * „חפש” נפרד יורד — השדה נשלח ב-Enter, והכפתור רק גזל מרוחבו.
+   */
+  layout?: "card" | "inline";
+  /** פקד תצוגה שיושב בקצה שורת החיפוש — למשל כרטיסיות/שורות. */
+  view?: React.ReactNode;
+  /** צ'יפים או פקדים שיושבים בתחתית אותו כרטיס, בתוך „עוד סינון”. */
   children?: React.ReactNode;
+  /**
+   * ‎`true` כשהפקדים ב-`children` מחזיקים סינון פעיל — למשל עיר
+   * שנבחרה. המגירה נפתחת עליו, כי סינון שלא רואים הוא רשימה חסרה
+   * בלי הסבר.
+   */
+  childrenActive?: boolean;
+  /**
+   * ‎**במובייל: אייקון סינון במקום שורת כפתורים** (בקשת המשתמש).
+   *
+   * ## מה זה פותר
+   *
+   * ‏בטלפון שורת החיפוש נשברה לשלוש שורות — כותרת הכרטיס, השדה
+   * ‏עם „חפש”, ו„עוד סינון” שנדחק לשורה משלו — לפני הנכס הראשון.
+   * ‏במסך שכל תפקידו הרשימה, זה שליש מהקיפול על פקדים.
+   *
+   * ‏עכשיו במובייל נשארת שורה אחת: השדה, ולידו **אייקון סינון**
+   * ‏שפותח את אותה מגירה בדיוק. „חפש”, „עוד סינון” ו„נקה” עוברים
+   * ‏לתוך המגירה, כך ששום פעולה אינה נעלמת — היא רק זזה לאן
+   * ‏שפותחים אותה.
+   *
+   * ‎**בדסקטופ לא משתנה דבר** (בקשה מפורשת): כל הכפתורים
+   * ‏במקומם, והמעבר הוא ב-CSS בלבד — `sm:` ולא בדיקת רוחב
+   * ‏ב-JavaScript, שהייתה מרנדרת במובייל דבר אחד ובשרת אחר.
+   *
+   * ‏אופציונלי, כי נכון לעכשיו זו בקשה על מסך הנכסים בלבד.
+   */
+  mobileToggle?: boolean;
 }): React.JSX.Element {
   const [draft, setDraft] = useState(values);
-  const [open, setOpen] = useState(hasActiveFilters(values));
+  const [open, setOpen] = useState(hasActiveFilters(values) || childrenActive);
 
   /*
    * הטיוטה מתעדכנת כשההורה משנה את הערכים.
@@ -287,7 +339,13 @@ export function ListFilters({
   return (
     <form
       onSubmit={submit}
-      className={card === undefined ? "mb-4" : "mv-card mv-card--pad mb-[18px]"}
+      className={
+        card === undefined
+          ? "mb-4"
+          : /* ‎`mv-card--pad` נשאר אסימון שלם — שער הריפוד קורא מחרוזות
+               ומפצל ברווחים, ו-`mv-card--pad${…}` אינו נראה לו כמחלקה */
+            `mv-card mv-card--pad ${card.flush === true ? "" : "mb-[18px]"}`
+      }
     >
       {card === undefined ? null : (
         <div className="mv-card-head">
@@ -303,8 +361,41 @@ export function ListFilters({
           </span>
         </div>
       )}
-      {/* גובה אחיד (38px) לשדה ולכפתונים — שורה אחת ישרה שגם נשברת
-          יפה במובייל בזכות flex-wrap */}
+      {layout === "inline" ? (
+        <div className="mv-searchrow">
+          <label htmlFor="flt-q" className="mv-visually-hidden">
+            {searchLabel}
+          </label>
+          <span className="mv-searchbox">
+            <IconSearch s={18} />
+            <input
+              id="flt-q"
+              value={draft.q}
+              placeholder={searchHint}
+              onChange={(event) => setDraft({ ...draft, q: event.target.value })}
+            />
+          </span>
+          {view}
+          <button
+            type="button"
+            className="mv-morefilters"
+            aria-expanded={open}
+            onClick={() => setOpen(!open)}
+          >
+            <IconFilter s={16} /> עוד סינונים
+            <span className="mv-morefilters__chevron" aria-hidden="true">
+              <IconChevronDown s={15} />
+            </span>
+          </button>
+          {hasActiveFilters(draft) ? (
+            <button type="button" className="mv-morefilters" onClick={clear}>
+              <IconX s={15} /> נקה
+            </button>
+          ) : null}
+        </div>
+      ) : (
+      /* גובה אחיד (38px) לשדה ולכפתונים — שורה אחת ישרה שגם נשברת
+          יפה במובייל בזכות flex-wrap */
       <div className="flex flex-wrap items-end gap-2">
         <div className="min-w-0 flex-1" style={{ minWidth: 200 }}>
           <label
@@ -320,7 +411,7 @@ export function ListFilters({
           <input
             id="flt-q"
             value={draft.q}
-            placeholder={card?.example ?? searchHint}
+            placeholder={card === undefined ? searchHint : (card.example ?? "")}
             onChange={(event) => setDraft({ ...draft, q: event.target.value })}
             className="w-full rounded-lg border px-3 text-sm"
             style={{ ...inputStyle, minHeight: 38 }}
@@ -328,14 +419,14 @@ export function ListFilters({
         </div>
         <button
           type="submit"
-          className="mv-btn-action"
+          className={`mv-btn-action ${mobileToggle ? "mv-filter-desktop" : ""}`}
           style={{ minHeight: 38 }}
         >
           <IconSearch s={15} /> חפש
         </button>
         <button
           type="button"
-          className="mv-btn-plain"
+          className={`mv-btn-plain ${mobileToggle ? "mv-filter-desktop" : ""}`}
           style={{ minHeight: 38, fontSize: "var(--type-caption)", paddingInline: 14 }}
           aria-expanded={open}
           onClick={() => setOpen(!open)}
@@ -345,14 +436,63 @@ export function ListFilters({
         {hasActiveFilters(draft) ? (
           <button
             type="button"
-            className="mv-btn-plain"
+            className={`mv-btn-plain ${mobileToggle ? "mv-filter-desktop" : ""}`}
             style={{ minHeight: 38, fontSize: "var(--type-caption)", paddingInline: 14 }}
             onClick={clear}
           >
             <IconX s={14} /> נקה
           </button>
         ) : null}
+        {/*
+          ‎**האייקון — מובייל בלבד.** אותו `open` בדיוק, ולכן אין
+          ‏כאן מצב שני שיכול להיפרד מזה של הדסקטופ. הנקודה מסמנת
+          ‏שיש סינון פעיל מתחת למגירה הסגורה — סינון שלא רואים הוא
+          ‏רשימה חסרה בלי הסבר.
+
+          ‎**44×44 — ולכן בלי `width`/`height` משלו** (ביקורת Codex).
+          ‏שאר הפקדים בשורה הם 38 גובה, ולכן נתתי לו את אותה מידה;
+          ‏אבל במובייל **זו הדרך היחידה** לפתוח את הסינונים, והרצפה
+          ‏המתועדת לאזור מגע היא 44 (docs/06 §נגישות). `mv-btn-icon`
+          ‏כבר נותן בדיוק את זה, והדריסה רק גרעה ממנו.
+        */}
+        {mobileToggle ? (
+          <button
+            type="button"
+            className="mv-btn-plain mv-btn-icon mv-filter-mobile relative"
+            aria-expanded={open}
+            aria-label={open ? "סגירת הסינונים" : "סינונים"}
+            onClick={() => setOpen(!open)}
+          >
+            <IconFilter s={17} />
+            {/*
+              ‎**הנקודה נגזרת מ-`values` ולא מ-`draft`** (ביקורת
+              ‏Codex).
+
+              ‏`draft` הוא מה שהוקלד וטרם נשלח, ו-`values` הוא מה
+              ‏שהרשימה באמת מסוננת לפיו — הטופס מחיל ערכים מוקלדים
+              ‏רק בשליחה, במכוון. עם `draft` הנקודה שיקרה לשני
+              ‏הכיוונים: מי שניקה שדה וסגר את המגירה איבד את הנקודה
+              ‏בזמן שהרשימה עדיין מסוננת, ומי שהקליד וסגר קיבל נקודה
+              ‏על סינון שלא הוחל. סימון שמתאר את מה שמוצג — זה כל
+              ‏תפקידו.
+            */}
+            {hasActiveFilters(values) || childrenActive ? (
+              <span
+                aria-hidden="true"
+                className="absolute rounded-full"
+                style={{
+                  insetBlockStart: 6,
+                  insetInlineEnd: 6,
+                  width: 7,
+                  height: 7,
+                  background: "var(--color-primary)",
+                }}
+              />
+            ) : null}
+          </button>
+        ) : null}
       </div>
+      )}
 
       {open ? (
         <div
@@ -368,7 +508,19 @@ export function ListFilters({
         </div>
       ) : null}
 
-      {children === undefined ? null : <div className="mt-3">{children}</div>}
+      {/*
+        ‎**הצ׳יפים חיים בתוך „עוד סינון”, ולא מעל הכל.**
+
+        רשימת הערים גדלה עם המשרד: משרד שעובד בשתים-עשרה ערים קיבל
+        שתי שורות של כפתורים בראש המסך, לפני הנכס הראשון — כלומר
+        המסך נפתח על הסינון במקום על התוכן. הם אותו סוג של בקרה כמו
+        טווח המחיר והחדרים שכבר יושבים שם, ולכן זה המקום שלהם.
+
+        ‎`childrenActive` הוא מה שמונע סינון שקוף: עיר שנבחרה פותחת
+        את המגירה מעצמה, כדי שלא תישאר רשימה מסוננת בלי שום סימן
+        למה.
+      */}
+      {open && children !== undefined ? <div className="mt-3">{children}</div> : null}
 
       {/*
         הצירים מתחת לשדות ולא במקומם: גרירה מהירה למי שרוצה טווח,
@@ -409,6 +561,32 @@ export function ListFilters({
               onApply(merged);
             }}
           />
+        </div>
+      ) : null}
+
+      {/*
+        ‎**„חפש” ו„נקה” — במובייל, בתוך המגירה שהאייקון פתח.**
+
+        ‏הם ירדו משורת החיפוש כדי לפנות לה מקום, ולכן הם חייבים
+        ‏להופיע כאן: שדה מספרי שאין לצדו „החל” הוא שדה שהמתווך ממלא
+        ‏ולא קורה דבר. (‏Enter בשדה שולח את הטופס ממילא — זה הכפתור
+        ‏שאומר זאת.)
+      */}
+      {open && mobileToggle ? (
+        <div className="mt-3 flex gap-2 sm:hidden">
+          <button type="submit" className="mv-btn-action flex-1" style={{ minHeight: 40 }}>
+            <IconSearch s={15} /> חפש
+          </button>
+          {hasActiveFilters(draft) ? (
+            <button
+              type="button"
+              className="mv-btn-plain"
+              style={{ minHeight: 40, paddingInline: 16 }}
+              onClick={clear}
+            >
+              <IconX s={14} /> נקה
+            </button>
+          ) : null}
         </div>
       ) : null}
     </form>

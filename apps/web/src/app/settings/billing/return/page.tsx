@@ -4,6 +4,7 @@ import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { apiGet } from "@/lib/api";
+import { reloadWithFreshSession } from "@/lib/session-cache";
 import { useRequireAuth } from "@/lib/use-auth";
 
 /**
@@ -84,9 +85,28 @@ function ReturnContent(): React.JSX.Element | null {
         <>
           <h1 className="mb-2 text-2xl font-bold">התשלום התקבל ✓</h1>
           <p className="mb-5">המנוי פעיל. אפשר להמשיך לעבוד.</p>
-          <Link href="/settings/billing" className="mv-btn-primary inline-block">
-            למסך המנוי
-          </Link>
+          {/*
+            ‎**כפתור ולא קישור, ובטעינה מלאה.** „אפשר להמשיך לעבוד”
+            היה הבטחה ריקה: המעטפת עוד נושאת `billingOnly: true`
+            מהסשן שנשלף פעם אחת, ולכן מי ששילם והמשיך בקישור רך
+            נחת שוב במסך החסום — בדיוק כמו במעבר למסלול חינמי.
+          */}
+          <button
+            type="button"
+            className="mv-btn-primary inline-block"
+            onClick={() => reloadWithFreshSession("/")}
+          >
+            להתחיל לעבוד
+          </button>
+          <p className="mt-4">
+            <button
+              type="button"
+              className="underline"
+              onClick={() => reloadWithFreshSession("/settings/billing")}
+            >
+              למסך המנוי
+            </button>
+          </p>
         </>
       ) : status === "failed" ? (
         <>

@@ -2,10 +2,11 @@ import {
   Body,
   Controller,
   Get,
-  Header,
   HttpCode,
   Param,
   Post,
+  Req,
+  Res,
   Query,
   StreamableFile,
 } from "@nestjs/common";
@@ -13,7 +14,10 @@ import { z } from "zod";
 import { IdSchema, OfferStatusSchema } from "@metavchim/shared";
 import { Public, RequireCapability } from "../../common/auth.decorators";
 import { RequireFeature } from "../../common/feature.guard";
-import { ZodValidationPipe } from "../../common/zod-validation.pipe";
+import type { Request, Response } from "express";
+import { objectResponse } from "../../common/object-response";
+import { ZodValidationPipe, IdParam, PublicTokenParam } from "../../common/zod-validation.pipe";
+import { OfferEmailService } from "./offer-email.service";
 import {
   OffersService,
   type OfferDto,
@@ -29,7 +33,6 @@ const BulkOfferSchema = z
   })
   .strict();
 const RespondSchema = z.object({ response: z.enum(["interested", "declined"]) }).strict();
-const TokenSchema = z.string().regex(/^[A-Za-z0-9_-]{43}$/u);
 const ListQuerySchema = z
   .object({
     /*
@@ -48,7 +51,10 @@ const ForMatchesQuerySchema = z
 
 @Controller()
 export class OffersController {
-  constructor(private readonly offers: OffersService) {}
+  constructor(
+    private readonly offers: OffersService,
+    private readonly offerEmail: OfferEmailService,
+  ) {}
 
   @Post("offers")
   @RequireCapability("offers.send")
@@ -102,33 +108,52 @@ export class OffersController {
   @RequireCapability("offers.send")
   @HttpCode(200)
   async prepareWhatsApp(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("id", IdParam) id: string,
   ): Promise<{ waUrl: string; message: string }> {
     return this.offers.prepareWhatsApp(id);
+  }
+
+  /**
+   * ‎**שליחת ההצעה במייל — הערוץ שבו „נשלח” באמת אומר נשלח.**
+   *
+   * ‎`POST /offers` יוצר קישור ותו לא. הערוץ היחיד שיצא ללקוח עד כה
+   * היה וואטסאפ; משרד שלקוחותיו עובדים במייל לא היה לו כפתור שליחה
+   * בכלל, והמסך בכל זאת אמר „ההצעה נשלחה”.
+   *
+   * אין `@RequireFeature`: המייל אינו תלוי בחיבור וואטסאפ, וזה הערוץ
+   * שנשאר למשרד שאין לו אחד.
+   */
+  @Post("offers/:id/email")
+  @RequireCapability("offers.send")
+  @HttpCode(200)
+  async sendEmail(
+    @Param("id", IdParam) id: string,
+  ): Promise<{ sentTo: string }> {
+    return this.offerEmail.sendOne(id);
   }
 
   /** דף ההצעה ללקוח קצה — ציבורי, לפי טוקן בלבד, ללא Session. */
   @Public()
   @Get("public/offers/:token")
   async view(
-    @Param("token", new ZodValidationPipe(TokenSchema)) token: string,
+    @Param("token", PublicTokenParam) token: string,
   ): Promise<PublicOfferView> {
     return this.offers.publicView(token);
   }
 
-  /** תמונות ההצעה — מוזרמות דרך ה-API (שרת האחסון פנימי בלבד). */
+  /**
+   * תמונות ההצעה — מוזרמות דרך ה-API (שרת האחסון פנימי בלבד).
+   * ‏התמונה משתכתבת במקום (טשטוש), ולכן ETag ולא שעה של מטמון.
+   */
   @Public()
   @Get("public/offers/:token/media/:index")
-  @Header("Cache-Control", "public, max-age=3600")
   async image(
-    @Param("token", new ZodValidationPipe(TokenSchema)) token: string,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+    @Param("token", PublicTokenParam) token: string,
     @Param("index", new ZodValidationPipe(z.coerce.number().int().min(0).max(19))) index: number,
-  ): Promise<StreamableFile> {
-    const obj = await this.offers.publicImage(token, index);
-    return new StreamableFile(obj.body as never, {
-      type: obj.contentType ?? "application/octet-stream",
-      ...(obj.contentLength !== undefined ? { length: obj.contentLength } : {}),
-    });
+  ): Promise<StreamableFile | undefined> {
+    return objectResponse(req, res, await this.offers.publicImage(token, index), "public");
   }
 
   /** הסרה מקבלת הצעות במייל — מהקישור שבתחתית כל מייל אוטומטי. */
@@ -136,7 +161,7 @@ export class OffersController {
   @Post("public/offers/:token/email-optout")
   @HttpCode(200)
   async emailOptOut(
-    @Param("token", new ZodValidationPipe(TokenSchema)) token: string,
+    @Param("token", PublicTokenParam) token: string,
   ): Promise<{ ok: true }> {
     await this.offers.publicEmailOptOut(token);
     return { ok: true };
@@ -146,7 +171,7 @@ export class OffersController {
   @Post("public/offers/:token/respond")
   @HttpCode(200)
   async respond(
-    @Param("token", new ZodValidationPipe(TokenSchema)) token: string,
+    @Param("token", PublicTokenParam) token: string,
     @Body(new ZodValidationPipe(RespondSchema)) body: z.infer<typeof RespondSchema>,
   ): Promise<{ ok: true }> {
     await this.offers.publicRespond(token, body.response);

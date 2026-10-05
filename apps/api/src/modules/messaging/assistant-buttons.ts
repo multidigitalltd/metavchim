@@ -12,6 +12,7 @@
 
 import {
   buttonTitle,
+  FORUM_QUICK_COMMANDS,
   MENTOR_QUICK_COMMANDS,
   WA_MAX_REPLY_BUTTONS,
   type WhatsAppButton,
@@ -64,9 +65,14 @@ export const WA_AUDIO_MAX_BYTES = 16 * 1024 * 1024;
  */
 export const WA_AUDIO_SOURCE_MAX_BYTES = 40 * 1024 * 1024;
 
-/** תווית ההשתקה הרגעית — מוצגת גם בהודעת האישור שאחריה. */
-export const SNOOZE_LABEL = "שקט לשעתיים";
-/** משך ההשתקה בדקות. שעתיים: פגישה, נהיגה, ארוחת ערב. */
+/**
+ * משך ההשתקה של כפתור ישן. שעתיים: פגישה, נהיגה, ארוחת ערב.
+ *
+ * ‏הכפתור עצמו כבר אינו נשלח — ההשתקה היא משפט
+ * (`parseSnoozeRequest`), ולכן היא אינה צריכה להיצמד לכל התראה.
+ * הקבוע נשאר כי לחיצה על כפתור **שכבר בהיסטוריה** של מישהו
+ * חייבת להמשיך לעבוד: מסך וואטסאפ אינו נמחק כשהקוד משתנה.
+ */
 export const SNOOZE_MINUTES = 120;
 
 /**
@@ -80,6 +86,8 @@ const BUTTON_COMMANDS: Record<string, string> = {
   today: "מה יש לי היום?",
   // כפתורי המנטור על ההתראות — אותו מקור כמו הוורקר שמצמיד אותם
   ...MENTOR_QUICK_COMMANDS,
+  // כפתורי הפורום — „להשיב בפורום”, „להפסיק לעקוב”
+  ...FORUM_QUICK_COMMANDS,
 };
 
 /**
@@ -135,6 +143,19 @@ export function choiceVariant(
 export function buttonAsText(action: string, arg?: string): string | null {
   if (action === "confirm") return "אשר";
   if (action === "cancel") return "בטל";
+  /*
+   * ‎**כפתור „חידוש המנוי” אחרי שהמנוי כבר חודש.**
+   *
+   * ‏הכפתור נשלח למשרד שתקופתו נגמרה, ומטופל שם לפני המנוע. אבל
+   * ‏הוא נשאר בהיסטוריה של השיחה: אחרי התשלום המשרד כבר אינו
+   * ‏„נגמר”, ולחיצה על הכפתור הישן נופלת לכאן. בלי השורה הזו
+   * ‏היא הייתה מקבלת „אני יודע לטפל כרגע בטקסט ובהודעות קוליות”
+   * ‏— תשובה חסרת פשר על כפתור לגיטימי שהמערכת עצמה שלחה.
+   *
+   * ‏כמשפט למנוע: `renew_subscription` הוא `create`, ולכן הוא
+   * ‏עוצר על כרטיס ההצעה ואינו פותח דף תשלום בלחיצה מקרית.
+   */
+  if (action === "renew") return "תחדש את המנוי";
   if (action === "pick") return arg !== undefined && /^\d{1,2}$/u.test(arg) ? arg : null;
   /*
    * ‎`cmd` נושא או מפתח מוכן או **את משפט הפקודה עצמו** — צעדי ההמשך

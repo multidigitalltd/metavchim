@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException, type OnModuleDestroy, type OnModuleInit } from "@nestjs/common";
+import { Injectable, Logger, NotFoundException } from "@nestjs/common";
 import {
   MARKET_SOURCE_ATTRIBUTION,
   marketPosition,
@@ -12,6 +12,7 @@ import {
 } from "@metavchim/shared";
 import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
+import { Sweep } from "../../core/sweeps";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import type { MarketIngest } from "./market-ingest";
 import { MarketService, type SettlementRecord } from "./market.service";
@@ -66,11 +67,8 @@ const PROPERTY_SELECT = {
  * הקליד על הנכס שלו אינו מגיע לאף משרד אחר.
  */
 @Injectable()
-export class MarketPropertyService implements OnModuleInit, OnModuleDestroy {
+export class MarketPropertyService {
   private readonly logger = new Logger(MarketPropertyService.name);
-  private timer: NodeJS.Timeout | null = null;
-  private kickoff: NodeJS.Timeout | null = null;
-  private ticking = false;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -78,29 +76,12 @@ export class MarketPropertyService implements OnModuleInit, OnModuleDestroy {
     private readonly audit: AuditService,
   ) {}
 
-  onModuleInit(): void {
-    this.kickoff = setTimeout(() => {
-      void this.tick();
-      this.timer = setInterval(() => void this.tick(), SNAPSHOT_TICK_MS);
-      this.timer.unref?.();
-    }, SNAPSHOT_FIRST_DELAY_MS);
-    this.kickoff.unref?.();
-  }
-
-  onModuleDestroy(): void {
-    if (this.kickoff) clearTimeout(this.kickoff);
-    if (this.timer) clearInterval(this.timer);
-  }
-
+  @Sweep({ name: "market-snapshots", everyMs: SNAPSHOT_TICK_MS, firstDelayMs: SNAPSHOT_FIRST_DELAY_MS })
   private async tick(): Promise<void> {
-    if (this.ticking) return;
-    this.ticking = true;
     try {
       await this.refreshSnapshots({ onlyStale: true });
     } catch (error: unknown) {
       this.logger.error(`market snapshots failed: ${String(error)}`);
-    } finally {
-      this.ticking = false;
     }
   }
 
@@ -303,7 +284,7 @@ export class MarketPropertyService implements OnModuleInit, OnModuleDestroy {
    * ‎`parcel_source IS NULL`: אם המתווך הקליד חלקה בדיוק באמצע, הוא גובר.
    *
    * ‎**מה יוצא החוצה**: קואורדינטה בלבד, בלי מזהה נכס, משרד או משתמש
-   * (docs/14 §7).
+   * (docs/18 §7).
    */
   async linkParcels(ingest: MarketIngest, limit: number): Promise<number> {
     const tenants = await this.prisma.tenant.findMany({ select: { id: true } });

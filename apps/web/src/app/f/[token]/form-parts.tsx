@@ -6,23 +6,29 @@
  */
 
 import type { ReactNode } from "react";
+import { OfficeBrand } from "../../public-brand";
 
 export function Shell({
   officeName,
+  logoUrl = null,
   children,
 }: {
   officeName?: string;
+  /** הלוגו של המשרד; `null` = אין, ואז מוצגת מונוגרמה. */
+  logoUrl?: string | null;
   children: ReactNode;
 }) {
   return (
     <main className="mx-auto w-full max-w-xl px-4 py-8">
+      {/*
+        המשרד בראש הטופס, לא רק שמו בטקסט. מי שמקבל את הקישור
+        בוואטסאפ צריך לזהות ממי הוא הגיע לפני שהוא ממלא בו טלפון —
+        שורה אפורה עם שם לא עושה את זה.
+      */}
       {officeName !== undefined ? (
-        <p
-          className="m-0 mb-4 text-center text-[length:var(--type-body-sm)] font-bold"
-          style={{ color: "var(--color-primary)" }}
-        >
-          {officeName}
-        </p>
+        <div className="mb-4 flex justify-center">
+          <OfficeBrand officeName={officeName} logoUrl={logoUrl} />
+        </div>
       ) : null}
       <div
         className="rounded-2xl border p-6"

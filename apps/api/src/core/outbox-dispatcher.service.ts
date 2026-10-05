@@ -297,6 +297,17 @@ export class OutboxDispatcherService implements OnModuleInit, OnModuleDestroy {
         },
       );
     }
+    // המחיר ירד — Worker פותח משימה לסוכן על הקונים שכדאי להציע להם שוב
+    if (name === "property.price_dropped" && this.lowQueue) {
+      const p = payload as { propertyId: string; tenantId: string; fromAgorot: number; toAgorot: number; changedAt: string };
+      await this.lowQueue.add("price-drop-reoffer", p, {
+        jobId: `price-drop-${event.id}`,
+        removeOnComplete: 1000,
+        removeOnFail: 5000,
+        attempts: 5,
+        backoff: { type: "exponential", delay: 5000 },
+      });
+    }
     // SLA לליד (docs/01 — "כל ליד מקבל מענה"): ליד שנשאר "חדש" בלי
     // מענה ראשון אחרי N שעות → אסקלציה. החלון נמדד מרגע יצירת הליד
     // (occurred_at), לא מרגע ההפצה.

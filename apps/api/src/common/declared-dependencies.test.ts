@@ -191,7 +191,12 @@ function usages(file: string): Usage[] {
   return found;
 }
 
-describe("תלויות מוצהרות בקוד שנפרס", () => {
+/*
+ * ‏‎`timeout`‎ מפורש: הבדיקה מנתחת את כל קוד המקור (AST של TypeScript), ובהרצה
+ * ‏מקבילה מלאה מקומית (typecheck + lint + test יחד) היא חרגה מ-5 השניות של
+ * ‏ברירת המחדל ונכשלה בלי שום הפרה. ב-CI השלבים רצים בזה אחר זה.
+ */
+describe("תלויות מוצהרות בקוד שנפרס", { timeout: 30_000 }, () => {
   for (const workspace of DEPLOYED) {
     const { declared, dependencies } = manifest(workspace);
     const all = sourceFiles(workspace).flatMap(usages);

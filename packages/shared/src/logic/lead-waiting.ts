@@ -86,13 +86,25 @@ export function hebrewElapsed(from: Date | string, now: Date): string {
 }
 
 /**
- * סדר הטיפול במסך הלידים: קודם מה שסומן כדורש טיפול אנושי, ואחריו
- * הוותיק ביותר — הליד שהכי קרוב להפר את ה-KPI נמצא למעלה.
+ * ‎**סדר מסך הלידים: החדש למעלה.**
+ *
+ * ‏הניסוח הקודם היה „הוותיק ביותר קודם”, כדי שהליד הקרוב להפר את
+ * ‏ה-KPI יהיה למעלה. בפועל זה הפך את המסך לרשימה שמתחילה מלפני
+ * ‏שבועיים: מי שנכנס אחרי שיחה שזה עתה נכנסה חיפש אותה בתחתית
+ * ‏(בקשת המשתמש).
+ *
+ * ‎**והדחיפות לא אבדה.** תג ההמתנה („ממתין 13 ימים”, ורמות
+ * ‏`warn`/`late`) יושב על כל שורה ומסמן בדיוק את מה שהסדר הזה
+ * ‏סימן — ומסמן אותו גם כשהרשימה מסוננת או מחופשת, מה שהסדר
+ * ‏מעולם לא עשה.
+ *
+ * ‏„דורש טיפול אנושי” נשאר ראשון: זו אינה ותק אלא סימון מפורש
+ * ‏שהמערכת אינה יכולה להתקדם בלי אדם.
  */
 export function compareLeadsByUrgency(
   a: { requiresHuman: boolean; createdAt: Date | string },
   b: { requiresHuman: boolean; createdAt: Date | string },
 ): number {
   if (a.requiresHuman !== b.requiresHuman) return a.requiresHuman ? -1 : 1;
-  return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+  return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
 }
