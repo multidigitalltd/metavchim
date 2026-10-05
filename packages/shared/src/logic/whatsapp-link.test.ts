@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canReceiveWhatsapp, normalizePhoneForWhatsapp, whatsappLink } from "./whatsapp-link.js";
+import { canReceiveWhatsapp, normalizePhoneForWhatsapp, phoneFromWaId, whatsappLink } from "./whatsapp-link.js";
 
 describe("normalizePhoneForWhatsapp", () => {
   it("מספר ישראלי מקומי מקבל קידומת — 0 בהתחלה שובר את הקישור", () => {
@@ -60,5 +60,29 @@ describe("canReceiveWhatsapp", () => {
     expect(canReceiveWhatsapp("0044 7700 900123")).toBe(true);
     expect(canReceiveWhatsapp("")).toBe(false);
     expect(canReceiveWhatsapp("+1 555")).toBe(false);
+  });
+});
+
+describe("phoneFromWaId", () => {
+  it("מזהה ישראלי — ‎+972‎", () => {
+    expect(phoneFromWaId("972501234567")).toBe("+972501234567");
+  });
+
+  /* ‏Meta שולחת קידומת מדינה בלי „+” — גם ללקוח מחו״ל (ביקורת Codex, P1) */
+  it("מזהה מחו״ל נשאר עם קידומת המדינה שלו", () => {
+    expect(phoneFromWaId("14155550100")).toBe("+14155550100");
+    expect(phoneFromWaId("447700900123")).toBe("+447700900123");
+  });
+
+  it("צורה מקומית מפנקס הכתובות — כמו בכל המערכת", () => {
+    expect(phoneFromWaId("050-123-4567")).toBe("+972501234567");
+    expect(phoneFromWaId("+44 7700 900123")).toBe("+447700900123");
+  });
+});
+
+describe("normalizePhoneForWhatsapp — מספר מחו״ל", () => {
+  it("‎+‎ בהתחלה נשאר בינלאומי, גם באורך של מספר ישראלי בלי 0", () => {
+    expect(normalizePhoneForWhatsapp("+687123456")).toBe("687123456");
+    expect(normalizePhoneForWhatsapp("+14155550100")).toBe("14155550100");
   });
 });
