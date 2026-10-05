@@ -55,6 +55,12 @@ export interface AgentCandidate {
   detail?: string;
 }
 
+/**
+ * ‎**ההנחיה ליד בורר הרשומות — במסך ובאפליקציה.** בלעדיה הכפתור חסום
+ * ‏בשקט עד לבחירה, ומי שלוחץ עליו חושב שהמסך תקוע.
+ */
+export const AGENT_CHOICE_PROMPT = "בחרו אחת כדי להמשיך — או אמרו את שם הלקוח כדי לצמצם";
+
 export interface AgentProposal {
   actionId: string;
   title: string;

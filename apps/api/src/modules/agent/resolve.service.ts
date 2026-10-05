@@ -650,9 +650,8 @@ export class AgentResolveService {
      * ההיצע מצומצם מראש למה שאפשר בכלל לסגור.
      */
     if (kind === "task") {
-      const needle = phrase.toLowerCase();
       return (await this.tasks.list({ status: "open" }))
-        .filter((task) => task.title.toLowerCase().includes(needle))
+        .filter((task) => taskMatchesPhrase(phrase, task))
         .slice(0, 8)
         .map((task) => ({
           id: task.id,
@@ -1549,6 +1548,31 @@ const RECOMMENDED: Record<string, readonly string[]> = {
   share_property: ["propertyPhrase"],
   share_buyer: ["buyerPhrase"],
 };
+
+/** ‏מילים שנאמרות **על** משימה ואינן חלק ממנה — „המשימה של דוד”. */
+const TASK_FILLER = new Set(["של", "את", "עם", "משימה", "המשימה", "משימת", "תזכורת", "התזכורת"]);
+
+/**
+ * ‎**משימה מתאימה לביטוי — כל מילה, בכותרת או בכרטיס שהיא קשורה אליו.**
+ *
+ * ‏משימות האוטומציה נושאות כותרת זהה („קונה שקט — ליצור קשר”), וההבדל
+ * ‏ביניהן הוא הקונה. כשהחיפוש היה בכותרת בלבד, „המשימה של דוד בריסק”
+ * ‏או „קונה שקט דוד בריסק” לא מצאו דבר, והבורר נשאר עם שמונה כרטיסים
+ * ‏זהים בלי דרך לצמצם אותם בדיבור. סדר המילים אינו משנה, ופיסוק
+ * ‏שנדבק למילה („שקט,”) אינו מפיל אותה.
+ */
+export function taskMatchesPhrase(
+  phrase: string,
+  task: { title: string; entityLabel?: string },
+): boolean {
+  const haystack = `${task.title} ${task.entityLabel ?? ""}`.toLowerCase();
+  const words = phrase
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .split(/\s+/u)
+    .filter((word) => word !== "" && !TASK_FILLER.has(word));
+  return words.length > 0 && words.every((word) => haystack.includes(word));
+}
 
 function formatDate(iso: string): string {
   const date = new Date(iso);
