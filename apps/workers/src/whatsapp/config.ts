@@ -1,5 +1,5 @@
 import * as nodeCrypto from "node:crypto";
-import { openAesGcm } from "@metavchim/shared";
+import { openAesGcm, WHATSAPP_TEMPLATE_LANG_DEFAULT } from "@metavchim/shared";
 import { prisma } from "../runtime.js";
 
 /* ==================== דחיפת התראות לוואטסאפ ==================== */
@@ -112,7 +112,7 @@ export async function whatsappConfig(): Promise<WhatsAppConfig | null> {
           token,
           phoneNumberId,
           template: template !== null && template.trim() !== "" ? template.trim() : null,
-          templateLang: stored.get("whatsappNotifyTemplateLang")?.trim() || "he",
+          templateLang: stored.get("whatsappNotifyTemplateLang")?.trim() || WHATSAPP_TEMPLATE_LANG_DEFAULT,
           buttonUrl: stored.get("whatsappNotifyTemplateButton")?.trim() === "true",
           templateLines: stored.get("whatsappNotifyTemplateLines")?.trim() === "true",
         }

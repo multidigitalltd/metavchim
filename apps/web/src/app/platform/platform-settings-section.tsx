@@ -315,6 +315,46 @@ export function PlatformSettingsSection({
 
   useEffect(load, []);
 
+  /*
+   * ‎**הכפתור „פתח במערכת” — נבדק מול Meta כשהמסך נפתח ואחרי כל
+   * ‏שמירה.** הבסיס של הכתובת נקבע ביד בעורך התבניות של Meta; בסיס
+   * ‏שגוי שולח כל לחיצה ל„העמוד לא נמצא”, ובלי הבדיקה איש אינו יודע
+   * ‏על כך.
+   */
+  const [buttonCheck, setButtonCheck] = useState<{
+    ok: boolean | null;
+    message: string;
+    registered?: string;
+  } | null>(null);
+  const checksButton =
+    settings?.whatsapp.assistant.notifyTemplateButton === true && (settings.whatsapp.assistant.notifyTemplate ?? "") !== "";
+  useEffect(() => {
+    /*
+     * ‏פסק של הגדרות קודמות אינו מוצג: נמחק כשהבדיקה כבר לא חלה, ותשובה
+     * ‏איטית של בקשה ישנה אינה דורסת את החדשה (ביקורת Codex).
+     */
+    setButtonCheck(null);
+    if (!checksButton) return;
+    let current = true;
+    void apiPost<{ ok: boolean | null; message: string; registered?: string }>(
+      "/platform/settings/check-whatsapp-template",
+      {},
+    )
+      .then((verdict) => {
+        if (current) setButtonCheck(verdict);
+      })
+      .catch(() => {
+        if (current) setButtonCheck({ ok: null, message: "הבדיקה מול Meta לא הושלמה" });
+      });
+    return () => {
+      current = false;
+    };
+    /*
+     * ‏`settings` ולא רק הדגל: כל שמירה טוענת אותו מחדש, ותבנית, שפה או
+     * ‏פרטי חיבור שהשתנו חייבים פסק חדש ולא את זה של ההגדרות הקודמות.
+     */
+  }, [checksButton, settings]);
+
   /**
    * תיבת התמיכה — הכתובת שהפניות **נכנסות** אליה.
    *
@@ -2235,6 +2275,32 @@ export function PlatformSettingsSection({
                 <p className="mt-1" style={{ color: "var(--color-text-muted)" }}>
                   ‏הלוכסן שלפני ‎{"{{1}}"}‎ הכרחי — בלעדיו כל לחיצה נוחתת על „העמוד לא נמצא”.
                 </p>
+                {buttonCheck !== null && (
+                  <p
+                    className="mt-2"
+                    role={buttonCheck.ok === false ? "alert" : "status"}
+                    style={{
+                      color:
+                        buttonCheck.ok === true
+                          ? "var(--color-success)"
+                          : buttonCheck.ok === false
+                            ? "var(--color-danger)"
+                            : "var(--color-text-muted)",
+                    }}
+                  >
+                    {buttonCheck.ok === true ? "✓ " : buttonCheck.ok === false ? "✗ " : ""}
+                    {buttonCheck.message}
+                    {buttonCheck.ok === false && buttonCheck.registered !== undefined && (
+                      <>
+                        {" "}
+                        ‏— רשום כעת:{" "}
+                        <span dir="ltr" className="font-mono break-all">
+                          {buttonCheck.registered}
+                        </span>
+                      </>
+                    )}
+                  </p>
+                )}
               </div>
             )}
             {/*
