@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { View } from "react-native";
 import {
+  AGENT_CHOICE_PROMPT,
   agentResultRefs,
   agentTurnRefs,
   type AgentHistoryRef,
@@ -169,6 +170,13 @@ export function ProposalCard({
       {proposal.candidates ? (
         <View style={styles.field}>
           <Text variant="label">{proposal.candidates.label}</Text>
+          {/*
+            ‏מה עושים עכשיו — בלי זה הכפתור חסום בשקט עד לבחירה. בלי
+            ‏„אמרו כדי לצמצם”: כאן משפט חדש הוא בקשה חדשה, לא המשך הכרטיס.
+          */}
+          {candidateChips.length > 0 && chosen === null ? (
+            <Text variant="muted">{AGENT_CHOICE_PROMPT}</Text>
+          ) : null}
           {candidateChips.length > 0 ? (
             <Chips
               options={candidateChips}

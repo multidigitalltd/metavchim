@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { Button } from "@metavchim/ui";
 import { ApiError, apiPost } from "@/lib/api";
 import {
+  AGENT_CHOICE_PROMPT,
   agentAction,
   agentResultRefs,
   agentTurnRefs,
@@ -168,6 +169,9 @@ export function ProposalCard({
   const [chosen, setChosen] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** ‏לחצו „אשר” בלי לבחור — ההנחיה ליד הבורר מודגשת והפוקוס עובר אליו. */
+  const [nudged, setNudged] = useState(false);
+  const choiceRef = useRef<HTMLFieldSetElement>(null);
 
   /*
    * הצעה חדשה מאפסת את התיקונים. בלי זה ערך שהמתווך הקליד על ההצעה
@@ -177,6 +181,7 @@ export function ProposalCard({
     setEdits({});
     setChosen(null);
     setError(null);
+    setNudged(false);
   }, [proposal]);
 
   const needsChoice = proposal.candidates !== undefined && chosen === null;
@@ -409,8 +414,28 @@ export function ProposalCard({
         מגיעה לאדם הלא נכון, ולכן אין כאן ברירת מחדל.
       */}
       {proposal.candidates === undefined ? null : (
-        <fieldset className="mv-proposal-choice">
+        <fieldset ref={choiceRef} className="mv-proposal-choice">
           <legend className="text-[length:var(--type-body-sm)] font-semibold">{proposal.candidates.label}</legend>
+          {/*
+            ‎**מה עושים עכשיו — במילים.** בלי השורה הזו הכפתור היה
+            ‏חסום בשקט עד לבחירה, ומי שלחץ עליו חשב שהמסך תקוע (דיווח
+            ‏משתמש: שמונה משימות „קונה שקט” וכפתור שלא מגיב).
+          */}
+          {needsChoice && !noCandidates ? (
+            <p
+              className="m-0 mb-2 text-[length:var(--type-body-sm)]"
+              role={nudged ? "alert" : undefined}
+              style={{ color: nudged ? "var(--color-danger)" : "var(--color-text-muted)" }}
+            >
+              {/*
+                ‏במסך תשובה בהודעה הבאה ממשיכה את הכרטיס (`prior`), ולכן גם
+                ‏„אמרו” — אבל רק כשמנוע ההבנה ענה: מנוע הכללים אינו ממשיך הצעה
+                ‏קודמת, ומשפט נוסף היה נקרא כבקשה חדשה (ביקורת Codex).
+              */}
+              {AGENT_CHOICE_PROMPT}
+              {proposal.fallback ? null : " — או אמרו פרט מזהה כדי לצמצם"}
+            </p>
+          ) : null}
           {noCandidates ? (
             <p className="m-0 text-[length:var(--type-body-sm)]" style={{ color: "var(--color-danger)" }}>
               {proposal.candidates.reason === "unsaid"
@@ -425,7 +450,10 @@ export function ProposalCard({
                   type="button"
                   className="mv-chip"
                   aria-pressed={chosen === option.id}
-                  onClick={() => setChosen(option.id)}
+                  onClick={() => {
+                    setChosen(option.id);
+                    setNudged(false);
+                  }}
                 >
                   {option.label}
                   {option.detail === undefined ? null : (
@@ -474,7 +502,17 @@ export function ProposalCard({
       )}
 
       <div className="mt-4 flex flex-wrap gap-2">
-        <Button onClick={() => void confirm()} disabled={busy || needsChoice || noCandidates}>
+        <Button
+          onClick={() => {
+            if (needsChoice) {
+              setNudged(true);
+              choiceRef.current?.querySelector("button")?.focus();
+              return;
+            }
+            void confirm();
+          }}
+          disabled={busy || noCandidates}
+        >
           <IconCheck s={15} />{" "}
           {busy
             ? "מבצע…"

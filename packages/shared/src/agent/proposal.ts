@@ -55,6 +55,13 @@ export interface AgentCandidate {
   detail?: string;
 }
 
+/**
+ * ‎**ההנחיה ליד בורר הרשומות — במסך ובאפליקציה.** בלעדיה הכפתור חסום
+ * ‏בשקט עד לבחירה, ומי שלוחץ עליו חושב שהמסך תקוע. נייטרלית לסוג
+ * ‏הרשומה: הבורר משמש גם לסוכנים, לנכסים ולעסקאות, לא רק ללקוחות.
+ */
+export const AGENT_CHOICE_PROMPT = "בחרו אחת כדי להמשיך";
+
 export interface AgentProposal {
   actionId: string;
   title: string;

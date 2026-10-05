@@ -650,9 +650,8 @@ export class AgentResolveService {
      * ההיצע מצומצם מראש למה שאפשר בכלל לסגור.
      */
     if (kind === "task") {
-      const needle = phrase.toLowerCase();
       return (await this.tasks.list({ status: "open" }))
-        .filter((task) => task.title.toLowerCase().includes(needle))
+        .filter((task) => taskMatchesPhrase(phrase, task))
         .slice(0, 8)
         .map((task) => ({
           id: task.id,
@@ -1549,6 +1548,36 @@ const RECOMMENDED: Record<string, readonly string[]> = {
   share_property: ["propertyPhrase"],
   share_buyer: ["buyerPhrase"],
 };
+
+/**
+ * ‏מה שנאמר **סביב** המשימה ואינו חלק ממנה — „(את) המשימה של …”, רק
+ * ‏בפתיחה. מילה כזו באמצע הכותרת („פגישה עם דוד”) היא חלק ממנה (ביקורת
+ * ‏Codex), ועטיפה שאין אחריה דבר אינה עטיפה — „תזכורת” היא שם המשימה.
+ */
+const TASK_WRAPPER = /^(?:את\s+)?(?:(?:ה?משימה|משימת|ה?תזכורת)\s+)?(?:של\s+)?(?=\S)/u;
+
+/**
+ * ‎**משימה מתאימה לביטוי — כל מילה, בכותרת או בכרטיס שהיא קשורה אליו.**
+ *
+ * ‏משימות האוטומציה נושאות כותרת זהה („קונה שקט — ליצור קשר”), וההבדל
+ * ‏ביניהן הוא הקונה. כשהחיפוש היה בכותרת בלבד, „המשימה של דוד בריסק”
+ * ‏או „קונה שקט דוד בריסק” לא מצאו דבר, והבורר נשאר עם שמונה כרטיסים
+ * ‏זהים בלי דרך לצמצם אותם בדיבור. סדר המילים אינו משנה, ופיסוק
+ * ‏שנדבק למילה („שקט,”) אינו מפיל אותה.
+ */
+export function taskMatchesPhrase(
+  phrase: string,
+  task: { title: string; entityLabel?: string },
+): boolean {
+  const haystack = `${task.title} ${task.entityLabel ?? ""}`.toLowerCase();
+  const said = phrase
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .replace(/\s+/gu, " ")
+    .trim();
+  const words = said.replace(TASK_WRAPPER, "").split(" ").filter((word) => word !== "");
+  return words.length > 0 && words.every((word) => haystack.includes(word));
+}
 
 function formatDate(iso: string): string {
   const date = new Date(iso);
