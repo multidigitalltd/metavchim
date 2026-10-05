@@ -1,6 +1,6 @@
 import { COOP_DEAL_STAGE_LABELS, type CoopDealStage } from "../logic/coop-deal.js";
 import { AGENT_RESULT_ROWS, numberedForms } from "./history.js";
-import type { AgentHistoryRef } from "./prompt.js";
+import type { AgentHistoryRef, AgentHistoryTurn } from "./prompt.js";
 import { formatJerusalemDate, formatJerusalemTime } from "../logic/israel-time.js";
 import { CALL_OUTCOME_LABELS } from "../schemas/labels.js";
 import { LEAD_STATUS_LABELS } from "../schemas/lead.js";
@@ -817,6 +817,15 @@ export function agentResultText(data: unknown): string | null {
  */
 export const AGENT_RESULT_SUMMARY_MAX = 600;
 
+/**
+ * אורך תשובה שיחתית (`reply`) — גם כפי שנוסחה וגם כפי שנזכרת. כפול
+ * מהתקרה הקודמת: תשובה לשאלה מקצועית או טקסט מנוסח ללקוח אינם נכנסים
+ * ב-600 תווים, וקיטוע באמצע משפט גרוע מכל אורך. וואטסאפ מקבל עד
+ * 4,096. תקרה אחת לשניהם: זיכרון קצר מהתשובה היה משמיט בדיוק את
+ * הסוף ש„תקצר את הסוף” מדבר עליו (ביקורת Codex).
+ */
+export const AGENT_REPLY_MAX = 1200;
+
 /** שורה כפי שהיא נזכרת: כותרת, מה שנשמר במקומה, והטלפון לתצוגה. */
 export interface AgentMemoryRow {
   label: string;
@@ -901,6 +910,23 @@ export function agentHistorySummary(message: string, data: unknown): string {
     0,
     AGENT_RESULT_SUMMARY_MAX,
   );
+}
+
+/**
+ * ‎**תור שיחתי לזיכרון** — המשפט והתשובה החופשית שניתנה עליו.
+ *
+ * אחד לכל הערוצים, כמו `agentHistorySummary`: הוואטסאפ, המסך
+ * והאפליקציה שומרים אותו דבר בדיוק, ובאותה תקרה שסכימת הנתיב מקבלת.
+ * התשובה נשמרת כפי שהוצגה, כולל שורות — כך היא מוצגת שוב כשהשיחה
+ * נטענת. היא נוסחה מהמשפט ומהשיחה, ואין בה נתון שלא היה כבר בפרומפט.
+ */
+export function agentReplyTurn(transcript: string, reply: string): AgentHistoryTurn {
+  return {
+    transcript,
+    action: "unknown",
+    params: {},
+    reply: reply.trim().slice(0, AGENT_REPLY_MAX),
+  };
 }
 
 /**

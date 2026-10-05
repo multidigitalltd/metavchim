@@ -5,6 +5,7 @@ import {
   AGENT_ID_KEYS,
   AGENT_RESULT_LABEL_MAX,
   AGENT_RESULT_ROWS,
+  AGENT_REPLY_MAX,
   AGENT_RESULT_SUMMARY_MAX,
   agentAction,
   agentHelpGroups,
@@ -66,12 +67,15 @@ const TurnSchema = z
      * דיווח (`assistantMemoryTurn`), והמסך מחזיר את השיחה השמורה
      * כהקשר. סכימה שמכירה רק את הקטלוג דחתה כל בקשה שאחד מששת
      * התורות שלה היה התראה — 400 על השיחה כולה (ביקורת Codex, P1).
+     * ‎`"unknown"` מאותה סיבה: תור של תשובה חופשית (`agentReplyTurn`).
      */
-    action: z.enum([...AGENT_ACTION_IDS, "notify"] as unknown as [string, ...string[]]),
+    action: z.enum([...AGENT_ACTION_IDS, "notify", "unknown"] as unknown as [string, ...string[]]),
     /** מי יזם את התור — תור התראה נושא `"assistant"` */
     origin: z.enum(["user", "assistant"]).optional(),
     params: z.record(z.string(), z.unknown()),
     resultSummary: z.string().max(AGENT_RESULT_SUMMARY_MAX).optional(),
+    /** התשובה החופשית שניתנה בתור שיחתי — באותה תקרה שבה נוסחה */
+    reply: z.string().max(AGENT_REPLY_MAX).optional(),
     /*
      * ההפניות לרשומות שהוצגו בתור ההוא — התווית והמזהה.
      *

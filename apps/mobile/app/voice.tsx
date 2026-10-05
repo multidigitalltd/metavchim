@@ -4,6 +4,7 @@ import { useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import {
   agentHistorySummary,
+  agentReplyTurn,
   agentResultText,
   proposalRunsImmediately,
   type AgentHistoryRef,
@@ -125,6 +126,13 @@ export default function VoiceScreen() {
     [],
   );
 
+  /** ‏תור לזיכרון השיחה — המקומי והשמור, לשני סוגי התורות. */
+  const keep = useCallback((turn: HistoryTurn) => {
+    history.current = [...history.current, turn].slice(-6);
+    // השיחה נשמרת גם בשרת — כדי שתימשך בוואטסאפ ובמחשב. בלי המתנה.
+    void apiPost("/agent/conversation/turn", turn).catch(() => undefined);
+  }, []);
+
   /** ‏תוצאה של פעולה: הודעה, שורות, וזיכרון השיחה — כמו ב-web. */
   const settle = useCallback(
     (
@@ -141,18 +149,15 @@ export default function VoiceScreen() {
         result,
         lines: agentResultText(result.data),
       });
-      const turn: HistoryTurn = {
+      keep({
         transcript,
         action,
         params,
         resultSummary: agentHistorySummary(result.message, result.data),
         ...(refs.length > 0 ? { refs } : {}),
-      };
-      history.current = [...history.current, turn].slice(-6);
-      // השיחה נשמרת גם בשרת — כדי שתימשך בוואטסאפ ובמחשב. בלי המתנה.
-      void apiPost("/agent/conversation/turn", turn).catch(() => undefined);
+      });
     },
-    [push],
+    [keep, push],
   );
 
   const send = useCallback(
@@ -169,6 +174,8 @@ export default function VoiceScreen() {
         });
         if (proposal.actionId === "unknown" && proposal.reply) {
           push({ role: "agent", kind: "reply", text: proposal.reply });
+          // נזכרת — כמו בוואטסאפ ובמחשב, כדי ש„תקצר” ימשיך אותה
+          keep(agentReplyTurn(transcript, proposal.reply));
           return;
         }
         if (proposal.actionId === "unknown") {
@@ -225,7 +232,7 @@ export default function VoiceScreen() {
         setPhase("idle");
       }
     },
-    [phase, push, settle],
+    [keep, phase, push, settle],
   );
 
   async function toggleRecording() {

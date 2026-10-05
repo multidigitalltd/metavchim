@@ -1,4 +1,4 @@
-import type { AgentHistoryRef, AgentProposal } from "@metavchim/shared";
+import type { AgentHistoryRef, AgentHistoryTurn, AgentProposal } from "@metavchim/shared";
 
 /**
  * ‏צורות הסוכן — אותן הצהרות כמו ב-`apps/web/src/app/voice`.
@@ -20,15 +20,12 @@ export interface ExecuteResult {
   ref?: AgentHistoryRef;
 }
 
-/** תור בשיחה — נשלח לשרת כהקשר למשפטי המשך ("ומה עם רמת גן?"). */
-export interface HistoryTurn {
-  transcript: string;
-  action: string;
-  origin?: "user" | "assistant";
-  params: Record<string, unknown>;
-  resultSummary?: string;
-  refs?: AgentHistoryRef[];
-}
+/**
+ * תור בשיחה — נשלח לשרת כהקשר למשפטי המשך ("ומה עם רמת גן?").
+ * הצורה המשותפת, לא העתק שלה: שדה שנוסף לזיכרון (כמו `reply`) מגיע
+ * לכל הערוצים יחד.
+ */
+export type HistoryTurn = AgentHistoryTurn;
 
 export interface AgentHelp {
   groups: { label: string; actions: { id: string; title: string; example: string }[] }[];
