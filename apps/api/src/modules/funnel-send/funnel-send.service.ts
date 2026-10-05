@@ -271,11 +271,25 @@ export class FunnelSendService {
         };
         try {
           /*
-           * ‏אותם נמענים לניסיון החוזר ולשליחה. רשימה ריקה — אין למי;
-           * ‏הסגירה כ„ביקש להפסיק” נעשית בסבב הסגירה (`optedOut`).
+           * ‏אותם נמענים לניסיון החוזר ולשליחה. רשימה ריקה — אין למי.
+           *
+           * ‎**ואם זה כי כל הבעלים ביקשו להפסיק — הרישום נסגר כך**
+           * ‏(ביקורת Codex): אחרת הוא נשאר „במסלול” עד שהשלבים יפוגו. משרד
+           * ‏בלי בעלים פעיל כלל לא „ביקש” דבר, ונשאר פתוח. השאלה הנוספת
+           * ‏רק כאן, ברשימה הריקה הנדירה — לא לכל רישום בכל סבב.
            */
           const recipients = await this.recipientsOf.recipients(row.tenantId);
-          if (recipients.length === 0) continue;
+          if (recipients.length === 0) {
+            if (await this.recipientsOf.allOptedOut(row.tenantId)) {
+              const { id: _id, name: _name, ...snapshot } = tenant;
+              await this.enrollment.close(row.id, "opted_out", now, {
+                tenantId: row.tenantId,
+                tenant: snapshot,
+                hasCard,
+              });
+            }
+            continue;
+          }
           /*
            * ‎**נמען שנכשל — אחרי שאחר כבר קיבל** (ביקורת Codex, P1).
            *
