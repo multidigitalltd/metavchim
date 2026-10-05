@@ -17,9 +17,6 @@
     "test:rls": "vitest run --config vitest.int.config.ts",
     "verify:boot": "node scripts/verify-boot.mjs"
   },
-  "prisma": {
-    "seed": "tsx prisma/seed.ts"
-  },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1146.0",
     "@metavchim/shared": "workspace:*",
@@ -27,14 +24,15 @@
     "@nestjs/core": "^12.1.2",
     "@nestjs/platform-express": "^12.1.2",
     "@nestjs/throttler": "^6.7.1",
-    "@prisma/client": "^6.5.0",
+    "@prisma/adapter-pg": "^7.10.0",
+    "@prisma/client": "^7.10.0",
     "argon2": "^0.41.0",
     "bullmq": "^5.34.0",
     "cookie-parser": "^1.4.7",
     "express": "^5.2.1",
     "helmet": "^8.0.0",
     "ioredis": "^5.4.0",
-    "prisma": "^6.5.0",
+    "prisma": "^7.10.0",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
     "sharp": "^0.35.4",

@@ -1,6 +1,8 @@
 import "./env.js";
 import IORedis from "ioredis";
+import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient, type Prisma } from "@prisma/client";
+import { databaseConnection } from "@metavchim/shared";
 
 /** ‏החיבורים של התהליך — Redis אחד ו-Prisma אחד, משותפים לכל המשימות. */
 export const connection = new IORedis(
@@ -9,7 +11,9 @@ export const connection = new IORedis(
     maxRetriesPerRequest: null,
   },
 );
-export const prisma = new PrismaClient();
+/* ‏הגדרות החיבור — אותן של ה-API (`databaseConnection`) */
+const db = databaseConnection(process.env["DATABASE_URL"]);
+export const prisma = new PrismaClient({ adapter: new PrismaPg(db.pool, { schema: db.schema }) });
 
 /**
  * ‎**כל גישה לנתוני משרד — בתוך הקשר המשרד, במקום אחד.**

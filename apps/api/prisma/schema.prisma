@@ -10,12 +10,11 @@ generator client {
   provider = "prisma-client-js"
 }
 
+// ‏הכתובות אינן כאן (Prisma 7): השרת וה-Workers מתחברים דרך
+// ‏`databaseConnection` עם תפקיד האפליקציה המוגבל (RLS חל עליו), והמיגרציות
+// ‏רצות עם תפקיד הבעלים מ-`prisma.config.ts` — הפרדת הרשאות (docs/04 §2).
 datasource db {
-  provider  = "postgresql"
-  // הרצה שוטפת: תפקיד האפליקציה המוגבל (RLS חל עליו)
-  url       = env("DATABASE_URL")
-  // מיגרציות: תפקיד הבעלים — הפרדת הרשאות (docs/04 §2)
-  directUrl = env("DIRECT_DATABASE_URL")
+  provider = "postgresql"
 }
 
 model Tenant {

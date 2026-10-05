@@ -1,5 +1,6 @@
 import { PrismaClient } from "@prisma/client";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { prismaAdapter } from "../core/prisma-adapter";
 
 /**
  * בידוד הדיירים — **נבדק מול מסד אמיתי, לא מול הקוד שמעליו.**
@@ -216,8 +217,8 @@ function allowedByCheck(defs: string[]): Record<string, string> {
 beforeAll(async () => {
   const ownerUrl = requiredEnv("DIRECT_DATABASE_URL");
   const appUrl = requiredEnv("APP_DATABASE_URL");
-  owner = new PrismaClient({ datasources: { db: { url: ownerUrl } } });
-  app = new PrismaClient({ datasources: { db: { url: appUrl } } });
+  owner = new PrismaClient({ adapter: prismaAdapter(ownerUrl) });
+  app = new PrismaClient({ adapter: prismaAdapter(appUrl) });
 
   /* ---------- 1. אילו טבלאות נושאות דייר, ומה מצב ההגנה שלהן ---------- */
   tenantTables = await owner.$queryRawUnsafe<{ name: string; forced: boolean }[]>(`

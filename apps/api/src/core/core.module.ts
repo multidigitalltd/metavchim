@@ -21,6 +21,7 @@ import { PlatformAdminNotifierService } from "./platform-admin-notifier.service"
 import { PlatformSettingsService } from "./platform-settings.service";
 import { TaxTablesService } from "./tax-tables.service";
 import { OutboxService } from "./outbox.service";
+import { loadEnv } from "../config/env";
 import { PrismaService } from "./prisma.service";
 import { REDIS, REDIS_PROVIDERS } from "./redis";
 import { ServerErrorDigestService } from "./server-errors";
@@ -35,7 +36,7 @@ import { VatService } from "./vat.service";
   /* ‏`SweepScheduler` מוצא את הסבבים בכל הספקים — ראו `sweeps.ts` */
   imports: [DiscoveryModule],
   providers: [
-    PrismaService,
+    { provide: PrismaService, useFactory: () => new PrismaService(loadEnv().DATABASE_URL) },
     /* ‏חיבור Redis אחד לכל השירותים — ראו `redis.ts` */
     ...REDIS_PROVIDERS,
     CryptoService,

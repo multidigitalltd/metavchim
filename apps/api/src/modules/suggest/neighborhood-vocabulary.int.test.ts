@@ -2,6 +2,7 @@ import { Prisma, PrismaClient } from "@prisma/client";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { mergeNeighborhoodUses, neighborhoodKey, suggestNeighborhoods } from "@metavchim/shared";
 import { foldedNeighborhood, neighborhoodVocabulary } from "./neighborhood-vocabulary";
+import { prismaAdapter } from "../../core/prisma-adapter";
 
 /**
  * ‎**אוצר השכונות — מול מסד אמיתי, כי זו שאילתה גולמית.**
@@ -48,9 +49,7 @@ async function vocabulary(
 }
 
 beforeAll(async () => {
-  owner = new PrismaClient({
-    datasources: { db: { url: requiredEnv("DIRECT_DATABASE_URL") } },
-  });
+  owner = new PrismaClient({ adapter: prismaAdapter(requiredEnv("DIRECT_DATABASE_URL")) });
 
   await owner.$executeRaw`
     INSERT INTO tenants (id, name, created_at, updated_at)

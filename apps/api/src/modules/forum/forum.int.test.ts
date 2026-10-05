@@ -6,6 +6,7 @@ import type { CryptoService } from "../../core/crypto.service";
 import type { PrismaService } from "../../core/prisma.service";
 import { ForumNotifyService } from "./forum-notify.service";
 import { ForumService } from "./forum.service";
+import { prismaAdapter } from "../../core/prisma-adapter";
 
 /**
  * הפורום מול מסד אמיתי — **מה שבדיקת היחידה אינה יכולה להבטיח.**
@@ -45,7 +46,7 @@ function as<T>(tenantId: string, userId: string, fn: () => Promise<T>): Promise<
 }
 
 beforeAll(async () => {
-  owner = new PrismaClient({ datasources: { db: { url: requiredEnv("DIRECT_DATABASE_URL") } } });
+  owner = new PrismaClient({ adapter: prismaAdapter(requiredEnv("DIRECT_DATABASE_URL")) });
   for (const [tenant, user, name, email, prefs] of [
     [TENANT_A, USER_A, "דנה לוי", "forum-a@test.local", "{}"],
     [TENANT_B, USER_B, "יוסי כהן", "forum-b@test.local", '{"forum":{"followAll":true}}'],
@@ -59,7 +60,7 @@ beforeAll(async () => {
        ON CONFLICT (id) DO NOTHING`,
     );
   }
-  app = new PrismaClient({ datasources: { db: { url: requiredEnv("APP_DATABASE_URL") } } });
+  app = new PrismaClient({ adapter: prismaAdapter(requiredEnv("APP_DATABASE_URL")) });
 
   /*
    * ‎`PrismaService` בלי Nest: אותם שני מסלולים שהשירות משתמש בהם —

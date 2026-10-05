@@ -3,6 +3,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { PrismaService } from "../../core/prisma.service";
 import { FunnelEnrollmentService } from "./funnel-enrollment.service";
 import { FunnelStageService } from "./funnel-stage.service";
+import { prismaAdapter } from "../../core/prisma-adapter";
 
 /**
  * ‎**הכניסה למסלול — מול מסד אמיתי.**
@@ -111,7 +112,7 @@ beforeAll(async () => {
   if (url === undefined || url === "") {
     throw new Error("DIRECT_DATABASE_URL חסר — הבדיקה דורשת מסד אמיתי");
   }
-  direct = new PrismaClient({ datasources: { db: { url } } });
+  direct = new PrismaClient({ adapter: prismaAdapter(url) });
   /*
    * ‎**דרך תפקיד האפליקציה, לא דרך הבעלים.**
    *
@@ -119,7 +120,7 @@ beforeAll(async () => {
    * ‏`withFunnelAdmin` לא היה מדליק דבר — כלומר מאמתת את ההפך ממה
    * שהיא מתיימרת.
    */
-  prisma = new PrismaService();
+  prisma = new PrismaService(process.env["DATABASE_URL"]);
   service = new FunnelEnrollmentService(prisma, new FunnelStageService(prisma));
 });
 
@@ -426,9 +427,7 @@ describe("כניסה למשפך — מול מסד אמיתי", () => {
     const today = new Date();
     const day = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Jerusalem" }).format(today);
 
-    const holder = new PrismaClient({
-      datasources: { db: { url: process.env["DIRECT_DATABASE_URL"]! } },
-    });
+    const holder = new PrismaClient({ adapter: prismaAdapter(process.env["DIRECT_DATABASE_URL"]) });
     try {
       /*
        * ‏הנעילה חייבת להיות מוחזקת **לאורך** הסבב, ולכן טרנזקציה
@@ -543,8 +542,8 @@ describe("רק הודעה שנשלחה נחשבת לשלב שיצא", () => {
         `INSERT INTO funnel_messages
            (id, tenant_id, enrollment_id, track, stage_key, user_id, destination, channel,
             token, status, sent_at, updated_at)
-         VALUES ($1, $2, $3, 'conversion', $4, $5, 'a@b.com', 'email', $6, $7,
-                 CASE WHEN $7 = 'sent' THEN now() ELSE NULL END, now())`,
+         VALUES ($1, $2, $3, 'conversion', $4, $5, 'a@b.com', 'email', $6, $7::text,
+                 CASE WHEN $7::text = 'sent' THEN now() ELSE NULL END, now())`,
         `01M1FNNLTESTMSG${String(index).padStart(11, "0")}`,
         OLD_TENANT,
         enrollmentId,

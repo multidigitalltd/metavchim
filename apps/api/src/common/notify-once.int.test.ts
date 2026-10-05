@@ -3,6 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ulid } from "ulid";
 import { notifyOnce } from "./notify-once";
 import type { TenantTx } from "../core/prisma.service";
+import { prismaAdapter } from "../core/prisma-adapter";
 
 /**
  * התראה אחת לאירוע — **מול Postgres אמיתי.**
@@ -45,9 +46,7 @@ async function asTenant<T>(run: (tx: TenantTx) => Promise<T>): Promise<T> {
 }
 
 beforeAll(async () => {
-  const owner = new PrismaClient({
-    datasources: { db: { url: requiredEnv("DIRECT_DATABASE_URL") } },
-  });
+  const owner = new PrismaClient({ adapter: prismaAdapter(requiredEnv("DIRECT_DATABASE_URL")) });
   // הדייר נדרש כדי שהפוליסה תראה שורה חוקית; הבעלים כותב אותו
   await owner.$executeRawUnsafe(
     `INSERT INTO tenants (id, name, created_at, updated_at)
@@ -55,9 +54,7 @@ beforeAll(async () => {
      ON CONFLICT (id) DO NOTHING`,
   );
   await owner.$disconnect();
-  prisma = new PrismaClient({
-    datasources: { db: { url: requiredEnv("APP_DATABASE_URL") } },
-  });
+  prisma = new PrismaClient({ adapter: prismaAdapter(requiredEnv("APP_DATABASE_URL")) });
 });
 
 afterAll(async () => {
@@ -67,9 +64,7 @@ afterAll(async () => {
    * שסוויטת הבידוד סורקת אחריה. הבעלים ולא תפקיד האפליקציה, כי
    * המחיקה כוללת את שורת הדייר עצמה.
    */
-  const owner = new PrismaClient({
-    datasources: { db: { url: requiredEnv("DIRECT_DATABASE_URL") } },
-  });
+  const owner = new PrismaClient({ adapter: prismaAdapter(requiredEnv("DIRECT_DATABASE_URL")) });
   await owner.$executeRawUnsafe(`DELETE FROM notifications WHERE tenant_id = '${TENANT}'`);
   await owner.$executeRawUnsafe(`DELETE FROM tenants WHERE id = '${TENANT}'`);
   await owner.$disconnect();

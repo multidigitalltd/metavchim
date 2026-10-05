@@ -2,6 +2,7 @@ import { PrismaClient } from "@prisma/client";
 import { ulid } from "ulid";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ServerErrorDigestService, serverErrors } from "./server-errors";
+import { prismaAdapter } from "./prisma-adapter";
 
 /**
  * ‎**ספירת השגיאות — מול Postgres אמיתי, כתפקיד האפליקציה.**
@@ -43,8 +44,8 @@ async function stored(): Promise<{ count: number; notified: boolean } | undefine
 }
 
 beforeAll(() => {
-  prisma = new PrismaClient({ datasources: { db: { url: requiredEnv("APP_DATABASE_URL") } } });
-  owner = new PrismaClient({ datasources: { db: { url: requiredEnv("DIRECT_DATABASE_URL") } } });
+  prisma = new PrismaClient({ adapter: prismaAdapter(requiredEnv("APP_DATABASE_URL")) });
+  owner = new PrismaClient({ adapter: prismaAdapter(requiredEnv("DIRECT_DATABASE_URL")) });
   serverErrors.drain();
 });
 

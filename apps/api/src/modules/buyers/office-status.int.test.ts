@@ -5,6 +5,7 @@ import {
   readOfficeStatuses,
   writeOfficeStatuses,
 } from "../../common/office-buyer-statuses";
+import { prismaAdapter } from "../../core/prisma-adapter";
 
 /**
  * ‎**סטטוס המשרד על כרטיס הקונה — מול מסד אמיתי.**
@@ -53,12 +54,8 @@ const LIST: OfficeBuyerStatus[] = [
 ];
 
 beforeAll(async () => {
-  owner = new PrismaClient({
-    datasources: { db: { url: requiredEnv("DIRECT_DATABASE_URL") } },
-  });
-  other = new PrismaClient({
-    datasources: { db: { url: requiredEnv("DIRECT_DATABASE_URL") } },
-  });
+  owner = new PrismaClient({ adapter: prismaAdapter(requiredEnv("DIRECT_DATABASE_URL")) });
+  other = new PrismaClient({ adapter: prismaAdapter(requiredEnv("DIRECT_DATABASE_URL")) });
 
   await owner.$executeRaw`
     INSERT INTO tenants (id, name, settings, created_at, updated_at)

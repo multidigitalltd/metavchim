@@ -1,4 +1,5 @@
 import { PrismaClient } from "@prisma/client";
+import { prismaAdapter } from "../../core/prisma-adapter";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { MARKET_FLAGS } from "@metavchim/shared";
 import { MarketIngest, type IngestClock } from "./market-ingest";
@@ -121,7 +122,7 @@ async function settlementA() {
 beforeAll(async () => {
   const url = process.env["DIRECT_DATABASE_URL"];
   if (url === undefined || url === "") throw new Error("DIRECT_DATABASE_URL חסר — הבדיקה דורשת מסד אמיתי");
-  db = new PrismaClient({ datasources: { db: { url } } });
+  db = new PrismaClient({ adapter: prismaAdapter(url) });
   await clean();
 });
 

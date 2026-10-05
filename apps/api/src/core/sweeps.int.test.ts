@@ -2,6 +2,7 @@ import { PrismaClient } from "@prisma/client";
 import { ulid } from "ulid";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { SweepScheduler, type SweepOptions } from "./sweeps";
+import { prismaAdapter } from "./prisma-adapter";
 
 /**
  * ‎**חכירת הסבבים — מול Postgres אמיתי, כתפקיד האפליקציה.**
@@ -37,8 +38,8 @@ async function counted(scheduler: SweepScheduler, options: SweepOptions): Promis
 }
 
 beforeAll(() => {
-  prisma = new PrismaClient({ datasources: { db: { url: requiredEnv("APP_DATABASE_URL") } } });
-  owner = new PrismaClient({ datasources: { db: { url: requiredEnv("DIRECT_DATABASE_URL") } } });
+  prisma = new PrismaClient({ adapter: prismaAdapter(requiredEnv("APP_DATABASE_URL")) });
+  owner = new PrismaClient({ adapter: prismaAdapter(requiredEnv("DIRECT_DATABASE_URL")) });
 });
 
 afterAll(async () => {

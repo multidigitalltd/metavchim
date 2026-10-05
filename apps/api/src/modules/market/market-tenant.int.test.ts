@@ -10,6 +10,7 @@ import { MarketPropertyService } from "./market-property.service";
 import { MarketPublicService } from "./market-public.service";
 import type { MarketSource } from "./market-source";
 import { MarketService } from "./market.service";
+import { prismaAdapter } from "../../core/prisma-adapter";
 
 /**
  * ‎**הגשר בין נכס של משרד לבין נתוני השוק — מבעד לתפקיד האפליקציה.**
@@ -92,7 +93,7 @@ async function cleanup(): Promise<void> {
 }
 
 beforeAll(async () => {
-  owner = new PrismaClient({ datasources: { db: { url: requiredEnv("DIRECT_DATABASE_URL") } } });
+  owner = new PrismaClient({ adapter: prismaAdapter(requiredEnv("DIRECT_DATABASE_URL")) });
   await cleanup();
   await owner.$executeRaw`
     INSERT INTO tenants (id, name, created_at, updated_at) VALUES (${TENANT}, 'משרד גשר השוק', now(), now())`;
@@ -107,7 +108,7 @@ beforeAll(async () => {
     INSERT INTO lead_webhooks (id, tenant_id, key, source_label, created_at)
     VALUES (${ulid()}, ${TENANT}, ${KEY}, 'אתר', now())`;
 
-  app = new PrismaService({ datasources: { db: { url: requiredEnv("APP_DATABASE_URL") } } });
+  app = new PrismaService(requiredEnv("APP_DATABASE_URL"));
   market = new MarketService(app);
   properties = new MarketPropertyService(app, market, { record: async () => undefined } as unknown as AuditService);
 });

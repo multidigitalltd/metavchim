@@ -37,6 +37,21 @@ const declared = new Set(
   Object.keys(JSON.parse(readFileSync(join(deployed, "package.json"), "utf8")).dependencies ?? {}),
 );
 
+/*
+ * ‏‎`pnpm list` מדפיס חבילה שחוזרת בעץ **פעם אחת במלואה**, ובשאר המקומות
+ * ‏‎`deduped` בלי התלויות שלה. ההליכה ממשיכה תמיד מההדפסה המלאה — אחרת
+ * ‏חבילה שהופיעה קודם כ-`deduped` (‏`ioredis` בשורש) „נראתה” בלי תלויות,
+ * ‏ומה שהיא צריכה (‏`denque`) נמחק כשגם ה-CLI תלוי בו (Prisma 7).
+ */
+const full = new Map();
+const index = (node) => {
+  for (const info of Object.values(node.dependencies ?? {})) {
+    if (!info.deduped && !full.has(info.path)) full.set(info.path, info);
+    index(info);
+  }
+};
+index(tree);
+
 /** ‏כל החבילות שאפשר להגיע אליהן; עם `skipPeers` — בלי ה-peers של הקליינט. */
 function reachable(skipPeers) {
   const seen = new Set();
@@ -49,7 +64,7 @@ function reachable(skipPeers) {
       const key = `${name}@${info.version}`;
       if (seen.has(key)) continue;
       seen.add(key);
-      walk(info, name);
+      walk(info.deduped ? (full.get(info.path) ?? info) : info, name);
     }
   };
   walk(tree, null);
@@ -85,7 +100,8 @@ execFileSync(
   [
     "-e",
     `for (const m of Object.keys(require("./package.json").dependencies)) require(m);
-     new (require("@prisma/client").PrismaClient)();`,
+     const { PrismaPg } = require("@prisma/adapter-pg");
+     new (require("@prisma/client").PrismaClient)({ adapter: new PrismaPg({ connectionString: "postgresql://verify@localhost/verify" }) });`,
   ],
   { cwd: deployed, stdio: "inherit" },
 );

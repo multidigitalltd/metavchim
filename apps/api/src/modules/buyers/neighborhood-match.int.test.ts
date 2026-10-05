@@ -2,6 +2,7 @@ import { PrismaClient } from "@prisma/client";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { neighborhoodKey, neighborhoodKeyMatches } from "@metavchim/shared";
 import { neighborhoodKeyMatchSql } from "./buyers.service";
+import { prismaAdapter } from "../../core/prisma-adapter";
 
 /**
  * ‎**הכלל שבמסד זהה לכלל שבקוד — מול Postgres אמיתי.**
@@ -31,9 +32,7 @@ function requiredEnv(name: string): string {
 }
 
 beforeAll(() => {
-  owner = new PrismaClient({
-    datasources: { db: { url: requiredEnv("DIRECT_DATABASE_URL") } },
-  });
+  owner = new PrismaClient({ adapter: prismaAdapter(requiredEnv("DIRECT_DATABASE_URL")) });
 });
 
 afterAll(async () => {

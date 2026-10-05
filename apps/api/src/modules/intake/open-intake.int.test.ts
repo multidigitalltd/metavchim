@@ -3,6 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ulid } from "ulid";
 import { lockContactPhone, lockIntakeRequest } from "../../common/locks";
 import type { TenantTx } from "../../core/prisma.service";
+import { prismaAdapter } from "../../core/prisma-adapter";
 
 /**
  * הקישור הפתוח הופך לכרטיס — **פעם אחת, מול Postgres אמיתי.**
@@ -155,17 +156,13 @@ async function materialize(
 }
 
 beforeAll(async () => {
-  owner = new PrismaClient({
-    datasources: { db: { url: requiredEnv("DIRECT_DATABASE_URL") } },
-  });
+  owner = new PrismaClient({ adapter: prismaAdapter(requiredEnv("DIRECT_DATABASE_URL")) });
   await owner.$executeRawUnsafe(
     `INSERT INTO tenants (id, name, created_at, updated_at)
      VALUES ('${TENANT}', 'בדיקת קישור פתוח', now(), now())
      ON CONFLICT (id) DO NOTHING`,
   );
-  prisma = new PrismaClient({
-    datasources: { db: { url: requiredEnv("APP_DATABASE_URL") } },
-  });
+  prisma = new PrismaClient({ adapter: prismaAdapter(requiredEnv("APP_DATABASE_URL")) });
 });
 
 afterAll(async () => {

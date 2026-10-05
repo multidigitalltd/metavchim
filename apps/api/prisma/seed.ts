@@ -5,8 +5,9 @@
 import { PrismaClient } from "@prisma/client";
 import * as argon2 from "argon2";
 import { ulid } from "ulid";
+import { prismaAdapter } from "../src/core/prisma-adapter";
 
-const prisma = new PrismaClient();
+const prisma = new PrismaClient({ adapter: prismaAdapter(process.env["DATABASE_URL"]) });
 
 async function main(): Promise<void> {
   if (process.env["NODE_ENV"] === "production") {
