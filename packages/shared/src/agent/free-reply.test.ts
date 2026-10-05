@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { lastOffer } from "./history.js";
 import { buildInterpretPrompt, type AgentHistoryTurn } from "./prompt.js";
-import { AGENT_RESULT_SUMMARY_MAX, agentReplyTurn } from "./result-lines.js";
-import { AGENT_REPLY_MAX, InterpretResponseSchema } from "./schema.js";
+import { AGENT_REPLY_MAX, agentReplyTurn } from "./result-lines.js";
+import { InterpretResponseSchema } from "./schema.js";
 
 /**
  * ‎**תשובה חופשית — וזיכרון שלה.**
@@ -30,11 +30,12 @@ describe("agentReplyTurn", () => {
     expect(lastOffer([{ ...turn }])).toBeNull();
   });
 
-  it("שורה אחת, ובתקרה שסכימת הנתיב מקבלת", () => {
-    const long = `שורה ראשונה\n${"א".repeat(AGENT_RESULT_SUMMARY_MAX * 2)}`;
-    const turn = agentReplyTurn("שאלה", long);
-    expect(turn.reply).not.toContain("\n");
-    expect(turn.reply!.length).toBe(AGENT_RESULT_SUMMARY_MAX);
+  // ‏תשובה שהוצגה שלמה נזכרת שלמה — „תקצר את הסוף” צריך את הסוף
+  it("נשמרת שלמה עד תקרת התשובה עצמה, עם השורות שלה", () => {
+    const full = `שורה ראשונה\n${"א".repeat(1000)}`;
+    expect(agentReplyTurn("שאלה", full).reply).toBe(full);
+    const over = agentReplyTurn("שאלה", "ב".repeat(AGENT_REPLY_MAX + 10));
+    expect(over.reply).toHaveLength(AGENT_REPLY_MAX);
   });
 });
 
@@ -51,6 +52,15 @@ describe("תשובה חופשית בפרומפט", () => {
     expect(prompt).toContain('המתווך: "תנסח לי הודעה ללקוח שלא ענה"');
     expect(prompt).toContain('עניתי: "היי, רציתי לוודא שראית את הדירה ששלחתי."');
     expect(prompt).not.toContain("בוצע: unknown");
+  });
+
+  it("תשובה בכמה שורות מודפסת בשורה אחת — לא נשברת לשורות של השיחה", () => {
+    const prompt = buildInterpretPrompt("תקצר", {
+      nowText: NOW,
+      allowedActions: ["search"],
+      history: [agentReplyTurn("תנסח הודעה", "שלום רב,\nרציתי לעדכן")],
+    });
+    expect(prompt).toContain('עניתי: "שלום רב, רציתי לעדכן"');
   });
 
   it("השאלות החופשיות מותרות — עם הגבולות שמשאירים אותן בטוחות", () => {

@@ -5,6 +5,7 @@ import {
   AGENT_ID_KEYS,
   AGENT_RESULT_LABEL_MAX,
   AGENT_RESULT_ROWS,
+  AGENT_REPLY_MAX,
   AGENT_RESULT_SUMMARY_MAX,
   agentAction,
   agentHelpGroups,
@@ -73,8 +74,8 @@ const TurnSchema = z
     origin: z.enum(["user", "assistant"]).optional(),
     params: z.record(z.string(), z.unknown()),
     resultSummary: z.string().max(AGENT_RESULT_SUMMARY_MAX).optional(),
-    /** התשובה החופשית שניתנה בתור שיחתי — באותה תקרה של התקציר */
-    reply: z.string().max(AGENT_RESULT_SUMMARY_MAX).optional(),
+    /** התשובה החופשית שניתנה בתור שיחתי — באותה תקרה שבה נוסחה */
+    reply: z.string().max(AGENT_REPLY_MAX).optional(),
     /*
      * ההפניות לרשומות שהוצגו בתור ההוא — התווית והמזהה.
      *

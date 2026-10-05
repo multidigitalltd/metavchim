@@ -17,13 +17,7 @@
 import * as z from "../zod.js";
 import { AGENT_ACTION_IDS, AGENT_ACTIONS, type AgentActionDef } from "./actions.js";
 import { fieldDescription, fieldJsonSchema, type AgentFieldSpec } from "./field-spec.js";
-
-/**
- * אורך תשובה שיחתית (`reply`). כפול מהתקרה הקודמת: תשובה לשאלה
- * מקצועית או טקסט מנוסח ללקוח אינם נכנסים ב-600 תווים, וקיטוע באמצע
- * משפט גרוע מכל אורך. וואטסאפ מקבל עד 4,096.
- */
-export const AGENT_REPLY_MAX = 1200;
+import { AGENT_REPLY_MAX } from "./result-lines.js";
 
 /** ולידציית שדה בודד — כולל מה שסכימת Gemini אינה יודעת לבטא. */
 export function fieldZod(spec: AgentFieldSpec): z.ZodTypeAny {

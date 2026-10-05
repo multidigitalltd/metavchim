@@ -239,7 +239,8 @@ export function buildInterpretPrompt(
       if (turn.reply !== undefined) {
         lines.push(
           `${i + 1}. המתווך: "${turn.transcript.replaceAll('"', "'")}"`,
-          `   עניתי: "${turn.reply.replaceAll('"', "'")}"`,
+          // שורה אחת בפרומפט — שורות התשובה אינן שורות של השיחה
+          `   עניתי: "${turn.reply.replaceAll('"', "'").replaceAll("\n", " ")}"`,
         );
         return;
       }

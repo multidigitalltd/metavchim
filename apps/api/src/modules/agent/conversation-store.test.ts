@@ -78,7 +78,7 @@ describe("ליבת אחסון השיחה", () => {
    */
   it("תור של תשובה חופשית נשמר ועובר את הסכימה", () => {
     const controller = read("./agent.controller.ts");
-    expect(controller).toMatch(/reply: z\.string\(\)\.max\(AGENT_RESULT_SUMMARY_MAX\)\.optional\(\)/u);
+    expect(controller).toMatch(/reply: z\.string\(\)\.max\(AGENT_REPLY_MAX\)\.optional\(\)/u);
     const branch = WA.slice(
       WA.indexOf('if (proposal.reply !== undefined && proposal.reply !== "")'),
       WA.indexOf("return { text: proposal.reply, speak: proposal.reply };"),

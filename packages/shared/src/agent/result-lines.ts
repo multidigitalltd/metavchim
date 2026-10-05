@@ -817,6 +817,15 @@ export function agentResultText(data: unknown): string | null {
  */
 export const AGENT_RESULT_SUMMARY_MAX = 600;
 
+/**
+ * אורך תשובה שיחתית (`reply`) — גם כפי שנוסחה וגם כפי שנזכרת. כפול
+ * מהתקרה הקודמת: תשובה לשאלה מקצועית או טקסט מנוסח ללקוח אינם נכנסים
+ * ב-600 תווים, וקיטוע באמצע משפט גרוע מכל אורך. וואטסאפ מקבל עד
+ * 4,096. תקרה אחת לשניהם: זיכרון קצר מהתשובה היה משמיט בדיוק את
+ * הסוף ש„תקצר את הסוף” מדבר עליו (ביקורת Codex).
+ */
+export const AGENT_REPLY_MAX = 1200;
+
 /** שורה כפי שהיא נזכרת: כותרת, מה שנשמר במקומה, והטלפון לתצוגה. */
 export interface AgentMemoryRow {
   label: string;
@@ -906,16 +915,17 @@ export function agentHistorySummary(message: string, data: unknown): string {
 /**
  * ‎**תור שיחתי לזיכרון** — המשפט והתשובה החופשית שניתנה עליו.
  *
- * אחד לשני הערוצים, כמו `agentHistorySummary`: הוואטסאפ והמסך שומרים
- * אותו דבר בדיוק, ובאותה תקרה שסכימת הנתיב מקבלת. התשובה עצמה
- * נוסחה מהמשפט ומהשיחה — אין בה נתון שלא היה כבר בפרומפט.
+ * אחד לכל הערוצים, כמו `agentHistorySummary`: הוואטסאפ, המסך
+ * והאפליקציה שומרים אותו דבר בדיוק, ובאותה תקרה שסכימת הנתיב מקבלת.
+ * התשובה נשמרת כפי שהוצגה, כולל שורות — כך היא מוצגת שוב כשהשיחה
+ * נטענת. היא נוסחה מהמשפט ומהשיחה, ואין בה נתון שלא היה כבר בפרומפט.
  */
 export function agentReplyTurn(transcript: string, reply: string): AgentHistoryTurn {
   return {
     transcript,
     action: "unknown",
     params: {},
-    reply: reply.replaceAll("\n", " ").trim().slice(0, AGENT_RESULT_SUMMARY_MAX),
+    reply: reply.trim().slice(0, AGENT_REPLY_MAX),
   };
 }
 
