@@ -1,6 +1,7 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
 import {
   isOpenHouseSlot,
+  normalizeValidPhone,
   openHouseSlots,
   slotAvailability,
   type OpenHouseCreate,
@@ -8,10 +9,12 @@ import {
   type SlotAvailability,
 } from "@metavchim/shared";
 import { ulid } from "ulid";
+import { lockContactPhone } from "../../common/locks";
 import { leadOwnershipFilter } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { loadEnv } from "../../config/env";
 import { AuditService } from "../../core/audit.service";
+import { CryptoService } from "../../core/crypto.service";
 import { OutboxService } from "../../core/outbox.service";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
@@ -114,6 +117,7 @@ export class OpenHouseService {
     private readonly webLeads: WebLeadService,
     private readonly landing: LandingService,
     private readonly outbox: OutboxService,
+    private readonly crypto: CryptoService,
   ) {}
 
   async list(propertyId: string): Promise<OpenHousesDto> {
@@ -190,6 +194,7 @@ export class OpenHouseService {
       if (!isOpenHouseSlot(slotAt, event.startsAt, event.endsAt, event.slotMinutes)) {
         throw new BadRequestException("השעה אינה אחת ממשבצות האירוע");
       }
+      await this.adoptLegacyVisitor(tx, ctx.tenantId, event.id, input.phone);
       const { leadId } = await this.webLeads.ingestIn(tx, ctx.tenantId, this.leadInput(property, input), OPEN_HOUSE_SOURCE);
       await this.upsertVisit(tx, { tenantId: ctx.tenantId, event, property, leadId, slotAt, status: "completed", createdBy: ctx.userId });
       return this.listIn(tx, property);
@@ -258,6 +263,7 @@ export class OpenHouseService {
         throw new BadRequestException("השעה אינה אחת ממשבצות האירוע");
       }
       if (!slotStillOpen(slotAt, event.slotMinutes, now)) throw new BadRequestException("השעה הזו כבר עברה — בחרו שעה מאוחרת יותר");
+      await this.adoptLegacyVisitor(tx, tenantId, event.id, input.phone);
       const { leadId } = await this.webLeads.ingestIn(tx, tenantId, this.leadInput(property, input), OPEN_HOUSE_SOURCE);
       if (event.slotCapacity !== null) {
         const taken = await tx.appointment.count({
@@ -270,6 +276,31 @@ export class OpenHouseService {
   }
 
   /* ---------- ‏פנימי ---------- */
+
+  /**
+   * ‏מבקר שנרשם לפני שהטלפון נורמל נשמר בכתיב שהקליד („050-123-4567”), ולכן
+   * ‏החתימה שלו אינה של הכתיב האחיד. הרשמה חוזרת לאותו אירוע הייתה פותחת לו
+   * ‏כרטיס שני ותופסת מקום שני (ביקורת Codex). כרטיס כזה בין מבקרי האירוע
+   * ‏עובר לכתיב האחיד לפני הקליטה, והקליטה מוצאת אותו — תחת נעילת המספר
+   * ‏שהקליטה עצמה נוטלת, כדי שלא יתנגש בכרטיס שנוצר במקביל.
+   */
+  private async adoptLegacyVisitor(tx: TenantTx, tenantId: string, eventId: string, phone: string): Promise<void> {
+    const phoneHash = this.crypto.phoneHash(phone);
+    await lockContactPhone(tx, tenantId, phoneHash);
+    const current = await tx.contact.findUnique({ where: { tenantId_phoneHash: { tenantId, phoneHash } }, select: { id: true } });
+    if (current !== null) return;
+    const visits = await tx.appointment.findMany({ where: { tenantId, openHouseId: eventId }, select: { leadId: true } });
+    const leadIds = visits.flatMap((visit) => (visit.leadId === null ? [] : [visit.leadId]));
+    if (leadIds.length === 0) return;
+    const leads = await tx.lead.findMany({ where: { tenantId, id: { in: leadIds } }, select: { contactId: true } });
+    const visitors = await tx.contact.findMany({
+      where: { tenantId, id: { in: leads.map((lead) => lead.contactId) } },
+      select: { id: true, phoneEncrypted: true },
+    });
+    const legacy = visitors.find((visitor) => normalizeValidPhone(this.crypto.decrypt(visitor.phoneEncrypted)) === phone);
+    if (legacy === undefined) return;
+    await tx.contact.update({ where: { id: legacy.id }, data: { phoneHash, phoneEncrypted: this.crypto.encrypt(phone) } });
+  }
 
   private async property(tx: TenantTx, propertyId: string) {
     const property = await tx.property.findFirst({
