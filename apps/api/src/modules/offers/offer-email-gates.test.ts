@@ -481,7 +481,7 @@ describe("ההחתמה בניסיון החוזר", () => {
   it("שער ההחתמה נבדק גם כאן, ובאותה בדיקה של הזכאות", () => {
     expect(retry).toContain("this.agreements.signedPairs(");
     expect(retry).toContain('"brokerage"');
-    expect(retry).toMatch(/signed\.has\(`\$\{contactId\}:\$\{row\.propertyId\}`\)/u);
+    expect(retry).toContain("signed.covers(contactId, row.propertyId)");
   });
 
   it("הלולאה שולחת רק את מה שעבר את השער", () => {

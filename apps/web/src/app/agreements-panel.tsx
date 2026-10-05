@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Button } from "@metavchim/ui";
-import { agreementRequiresProperty } from "@metavchim/shared";
+import { agreementRequiresProperty, GENERAL_BROKERAGE_LABEL } from "@metavchim/shared";
 import { apiGet, apiPost, ApiError, apiList } from "@/lib/api";
 import { ConfirmDialog } from "./confirm-dialog";
 import { IconDoc, IconEdit, IconWarning } from "./icons";
@@ -31,7 +31,12 @@ interface AgreementRow {
   canEmail: boolean;
   /* ‏חסר = ההסכם אינו נוקב בנכס. ראו `AgreementNoPropertyNote`. */
   propertyId?: string;
+  /** ‏הזמנה כללית — חלה על כל הנכסים שהמשרד יציע ללקוח */
+  allProperties: boolean;
 }
+
+/** ‏ערך הבחירה של הזמנה כללית בבורר הנכס — לא מזהה נכס, ולכן אינו נשלח כ-`propertyId`. */
+const ALL_PROPERTIES = "all";
 
 const STATUS_LABELS: Record<string, string> = {
   pending: "נשלח — ממתין לחתימה",
@@ -153,7 +158,9 @@ export function AgreementsPanel({
       .catch(() => setProperties([]));
   }, [open, showPicker, properties]);
 
-  const effectiveProperty = propertyId ?? chosenProperty;
+  /* ‏הזמנה כללית — רק כשהבורר מוצג ומותר לחתום בלי נכס (הזמנה בכתב) */
+  const general = showPicker && !requiresProperty && chosenProperty === ALL_PROPERTIES;
+  const effectiveProperty = propertyId ?? (general ? "" : chosenProperty);
 
   async function send(): Promise<void> {
     if (requiresProperty && effectiveProperty === "") {
@@ -171,15 +178,16 @@ export function AgreementsPanel({
           contactId,
           // שדה ריק לא נשלח כלל: ערך בבקשה גובר על הגדרות המשרד,
           // ולכן "" היה מוחק את ברירת המחדל במקום ליפול אליה
-          ...(effectiveProperty !== "" ? { propertyId: effectiveProperty } : {}),
+          ...(general ? { allProperties: true } : effectiveProperty !== "" ? { propertyId: effectiveProperty } : {}),
           values: {
             ...(fee.trim() !== "" ? { דמי_תיווך: fee.trim() } : {}),
             ...(payment.trim() !== "" ? { מועד_תשלום: payment.trim() } : {}),
             /*
              * ‏רק כשאין נכס. עם נכס השרת גוזר אותם מהשורה וגובר על
-             * ‏מה שנשלח — שליחה כאן הייתה רעש, לא מקור שני.
+             * ‏מה שנשלח — שליחה כאן הייתה רעש, לא מקור שני. ובהזמנה
+             * ‏כללית השרת כותב את הנוסח הכללי בעצמו.
              */
-            ...(effectiveProperty === ""
+            ...(effectiveProperty === "" && !general
               ? {
                   ...(dealText.trim() !== "" ? { סוג_העסקה: dealText.trim() } : {}),
                   ...(propertyText.trim() !== "" ? { תיאור_הנכס: propertyText.trim() } : {}),
@@ -365,9 +373,13 @@ export function AgreementsPanel({
                 ‏חוזר אליו כדי לבדוק „על מה הוא החתים”, והיא הציגה
                 ‏הסכם בלי נכס בדיוק כמו הסכם עם נכס.
               */}
-              {row.propertyId === undefined ? (
+              {row.allProperties ? (
                 <p className="m-0 text-sm" style={{ color: "var(--color-text-muted)" }}>
-                  <IconWarning s={15} /> בלי נכס מסוים — התחייבות כללית, אינה פותחת הצעות על נכס
+                  {GENERAL_BROKERAGE_LABEL} — החתימה פותחת הצעות על כל נכס
+                </p>
+              ) : row.propertyId === undefined ? (
+                <p className="m-0 text-sm" style={{ color: "var(--color-text-muted)" }}>
+                  <IconWarning s={15} /> בלי נכס מהמערכת — החתימה אינה פותחת הצעות על נכס
                 </p>
               ) : null}
 
@@ -456,7 +468,9 @@ export function AgreementsPanel({
                   ‏ניסוח שמזמין לבחור מציג בחירה חוקית כשדה שלא מולא,
                   ‏והמתווך אינו יכול לדעת מהמסך שמותר להשאיר אותו ריק.
                 */}
-                <option value="">{requiresProperty ? "בחרו נכס…" : "בלי נכס מסוים"}</option>
+                <option value="">{requiresProperty ? "בחרו נכס…" : "נכס שאינו במערכת — תיאור ידני"}</option>
+                {/* ‏הזמנה כללית — על כל הנכסים שהמשרד יציע (בקשת המשתמש) */}
+                {requiresProperty ? null : <option value={ALL_PROPERTIES}>{GENERAL_BROKERAGE_LABEL}</option>}
                 {(properties ?? []).map((option) => (
                   <option key={option.id} value={option.id}>
                     {propertyLabel(option)}
@@ -471,12 +485,17 @@ export function AgreementsPanel({
                 ‏`לקוח:נכס` ומסנן `propertyId` ריק — ולכן חתימה כזו
                 ‏אינה פותחת הצעות על שום נכס.
               */}
-              {!requiresProperty && effectiveProperty === "" ? (
+              {general ? (
+                <Notice tone="info">
+                  <strong>ההסכם יחול על כל הנכסים שהמשרד יציע ללקוח.</strong> אחרי החתימה אפשר
+                  לשלוח לו הצעות על כל נכס, בלי חתימה נוספת.
+                </Notice>
+              ) : !requiresProperty && effectiveProperty === "" ? (
                 <>
                   <Notice tone="warning">
                     <strong>ההסכם ייחתם בלי נכס מהמערכת.</strong> הוא לא יהיה משויך לשום
-                    כרטיס נכס, והחתימה לא תפתח הצעות על נכס מסוים — היא התחייבות כללית של
-                    הלקוח מולכם. כדי שהחתימה תפתח הצעות, בחרו את הנכס.
+                    כרטיס נכס, והחתימה לא תפתח הצעות על נכס. כדי שהחתימה תפתח הצעות, בחרו
+                    נכס או הסכם תיווך כללי.
                   </Notice>
                   {/*
                     ‎**ובכל זאת שלושה שדות, ולא מסמך עם חורים.**

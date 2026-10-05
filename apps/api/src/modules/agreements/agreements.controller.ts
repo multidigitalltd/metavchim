@@ -30,6 +30,8 @@ const CreateSchema = z
     kind: z.enum(AGREEMENT_KINDS),
     contactId: IdSchema,
     propertyId: IdSchema.optional(),
+    /** ‏הזמנה כללית — על כל הנכסים שהמשרד יציע ללקוח, ובלי `propertyId` */
+    allProperties: z.literal(true).optional(),
     /** ערכים שהמתווך משלים ידנית — דמי תיווך, מועד תשלום, תקופת בלעדיות */
     values: z.record(z.string(), z.string().max(500)).optional(),
   })

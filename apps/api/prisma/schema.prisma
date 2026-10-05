@@ -3538,6 +3538,9 @@ model Agreement {
   /// והנוסח החתום), כי בלעדיה המסמך חסר ערך.
   contactId       String?   @map("contact_id") @db.Char(26)
   propertyId      String?   @map("property_id") @db.Char(26)
+  /// הזמנה בכתב כללית — חלה על כל הנכסים שהמשרד יציע ללקוח, ולכן
+  /// חתימה עליה פותחת הצעות על כל נכס. רק brokerage, ותמיד בלי propertyId.
+  allProperties   Boolean   @default(false) @map("all_properties")
   /// pending | viewed | signed | declined | expired
   /// expired נקבע כשקישור שפג מפנה את מקומו להסכם חדש — האינדקס
   /// הייחודי על הסכם פעיל לא יכול לבדוק תאריך בעצמו.
