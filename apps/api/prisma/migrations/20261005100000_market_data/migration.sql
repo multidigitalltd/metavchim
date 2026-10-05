@@ -164,6 +164,9 @@ ALTER TABLE "properties"
   ADD COLUMN "helka"             INTEGER,
   ADD COLUMN "sub_parcel"        INTEGER,
   ADD COLUMN "parcel_source"     VARCHAR(10),
+  -- below | within | above — ההכרעה של `marketPosition`, כדי שהתגית
+  -- ברשימה תגיד בדיוק מה שהכרטיס אומר ולא תחשב סף משלה מהאחוז
+  ADD COLUMN "market_position"   VARCHAR(6),
   ADD COLUMN "market_diff_pct"   SMALLINT,
   ADD COLUMN "market_sample"     SMALLINT,
   ADD COLUMN "market_checked_at" TIMESTAMP(3);

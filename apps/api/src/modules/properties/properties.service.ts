@@ -57,6 +57,7 @@ import {
   PROPERTY_READY_SCORE,
   rowToFields,
   type PropertyDto,
+  marketSnapshot,
 } from "./property.mapper";
 
 @Injectable()
@@ -925,6 +926,7 @@ export class PropertiesService {
           : { leaseEndsAt: row.leaseEndsAt.toISOString().slice(0, 10) }),
         ...(row.noticePeriodDays === null ? {} : { noticePeriodDays: row.noticePeriodDays }),
         archived: row.deletedAt !== null,
+        ...marketSnapshot(row),
         createdAt: row.createdAt,
         updatedAt: row.updatedAt,
       };
@@ -1100,6 +1102,7 @@ export class PropertiesService {
           thumbnailUrl: primaryId ? mediaRawPath(row.id, primaryId) : undefined,
           suggestedMatchCount: matchCountByProperty.get(row.id) ?? 0,
           archived: row.deletedAt !== null,
+          ...marketSnapshot(row),
           createdAt: row.createdAt,
           updatedAt: row.updatedAt,
         } satisfies PropertyDto & {

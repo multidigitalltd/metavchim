@@ -217,6 +217,7 @@ export class MarketPropertyService implements OnModuleInit, OnModuleDestroy {
     if (!property) return;
     const settlement = property.dealType === "rent" ? null : await this.market.resolveSettlement(property.city);
     const evaluated = settlement ? await this.evaluate(property, settlement, now) : null;
+    const kind = evaluated?.position?.kind ?? null;
     const diffPct = evaluated?.position?.diffPct ?? null;
     const sample = evaluated && !evaluated.comparison.insufficient ? evaluated.comparison.sampleSize : null;
     /*
@@ -229,7 +230,8 @@ export class MarketPropertyService implements OnModuleInit, OnModuleDestroy {
     await this.prisma.withExplicitTenant(tenantId, (tx) =>
       tx.$executeRaw`
         UPDATE properties
-        SET market_diff_pct = ${diffPct}, market_sample = ${sample}, market_checked_at = ${now}
+        SET market_position = ${kind}, market_diff_pct = ${diffPct}, market_sample = ${sample},
+            market_checked_at = ${now}
         WHERE id = ${propertyId} AND tenant_id = ${tenantId}`,
     );
   }

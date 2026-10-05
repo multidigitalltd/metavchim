@@ -38,6 +38,7 @@ import { EntityTabs, TabPanel, useEntityTab } from "../../entity-tabs";
 import { IntakePanel } from "../../intake-panel";
 import { LoadError } from "../../load-error";
 import { Notice } from "../../notice";
+import { MarketChip } from "../../market/market-parts";
 
 /**
  * כרטיס הקונה.
@@ -99,7 +100,12 @@ interface MatchRow {
   score: number;
   explanation: string;
   status: string;
-  property: { address: string; title?: string; priceAgorot?: number };
+  property: {
+    address: string;
+    title?: string;
+    priceAgorot?: number;
+    market?: { position: "below" | "within" | "above"; diffPct: number; sample: number };
+  };
 }
 
 interface OfferInfo {
@@ -970,6 +976,9 @@ export default function BuyerDetailPage({
                               · {formatPrice(m.property.priceAgorot)}
                             </span>
                           ) : null}
+                          <span className="ms-1.5">
+                            <MarketChip market={m.property.market} />
+                          </span>
                         </div>
                         <div
                           className="text-[length:var(--type-caption-lg)]"

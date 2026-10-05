@@ -444,6 +444,8 @@ model Property {
   /// agent | tabu = אדם הקליד · lookup = נגזר מהמיקום. אדם גובר.
   parcelSource         String?   @map("parcel_source") @db.VarChar(10)
   /// צילום ההשוואה האחרונה: המחיר המבוקש מול חציון העסקאות הדומות.
+  /// below | within | above — אותה הכרעה שהכרטיס מציג.
+  marketPosition       String?   @map("market_position") @db.VarChar(6)
   marketDiffPct        Int?      @map("market_diff_pct") @db.SmallInt
   marketSample         Int?      @map("market_sample") @db.SmallInt
   marketCheckedAt      DateTime? @map("market_checked_at")
