@@ -161,8 +161,9 @@ export function FreshnessNote({ freshness }: { freshness: MarketFreshnessDto | n
   if (freshness.status === "pending" || freshness.status === "backfill") {
     return (
       <p className="m-0" role="status" style={{ color: "var(--color-warning)", fontSize: "var(--type-caption-lg)" }}>
-        העסקאות של היישוב עדיין נקלטות
-        {freshness.coveragePct !== null ? ` (${freshness.coveragePct}% עד עכשיו)` : ""} — ההשוואה תתעדכן מעצמה.
+        {freshness.coveragePct !== null && freshness.coveragePct > 0
+          ? `המערכת מורידה ברקע את העסקאות של היישוב הזה מרשות המסים — ${freshness.coveragePct}% כבר הורדו. ההשוואה תתעדכן לבד כשזה יסתיים.`
+          : "העסקאות של היישוב הזה עוד לא הורדו מרשות המסים — המערכת מורידה אותן ברקע, יישוב אחרי יישוב. ההשוואה תופיע כאן לבד."}
       </p>
     );
   }
