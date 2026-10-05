@@ -1,7 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import {
   filterVisibleNotes,
-  normalizeIsraeliPhone,
+  normalizeValidPhone,
   normalizeNameForMatch,
   parseSearchQuery,
   type ParsedSearchQuery,
@@ -146,7 +146,7 @@ export class SearchService {
     const canLeads =
       ctx.capabilities.has("leads.view_all") || ctx.capabilities.has("leads.view_own");
 
-    const phone = normalizeIsraeliPhone(query);
+    const phone = normalizeValidPhone(query);
     return phone !== undefined
       ? this.searchByPhone(phone, { canProperties, canBuyers, canLeads })
       : this.searchByText(query, { canProperties, canBuyers, canLeads });

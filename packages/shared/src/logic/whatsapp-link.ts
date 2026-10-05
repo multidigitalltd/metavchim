@@ -1,3 +1,5 @@
+import { normalizePhone, VALID_PHONE } from "./contact-people.js";
+
 /**
  * קישור `wa.me` עם טקסט מוכן.
  *
@@ -50,11 +52,14 @@ export function whatsappLink(phone: string, message: string): string {
  * וואטסאפ לקו נייח אינה נכשלת ברעש**: Meta מקבלת את הבקשה, ההודעה
  * אינה מגיעה לאיש, ומבחינת המערכת „נשלח”.
  *
- * ולכן זו הבדיקה שקובעת אם יש בכלל טעם לפתוח כרטיס ולשלוח: מה
- * שאינו נייד ישראלי אינו נמען.
+ * ולכן זו הבדיקה שקובעת אם יש בכלל טעם לפתוח כרטיס ולשלוח: מספר
+ * ישראלי — רק נייד. ‏מספר מחו״ל (`VALID_PHONE`) אינו נושא בקידומת שלו
+ * ‏סימן לנייח או לנייד, ומי שמסר מספר מחו״ל למתווך מוסר כמעט תמיד את
+ * ‏הנייד שלו — ולכן הוא נמען.
  */
 export function canReceiveWhatsapp(phone: string): boolean {
-  return /^9725\d{8}$/u.test(normalizePhoneForWhatsapp(phone));
+  const normalized = normalizePhone(phone);
+  return /^\+9725\d{8}$/u.test(normalized) || (VALID_PHONE.test(normalized) && !normalized.startsWith("+972"));
 }
 
 /**

@@ -1,9 +1,9 @@
 import {
   normalizeHeader,
-  normalizeIsraeliPhone,
   parseCsvRecords,
   unsanitizeFormulaCell,
 } from "./csv-import.js";
+import { normalizeValidPhone } from "./contact-people.js";
 
 /**
  * מיפוי CSV לרשומות **לידים** — הסוג השלישי שאפשר לייבא.
@@ -176,7 +176,7 @@ export function parseLeadsCsv(
         if (!fallback) namePrimary = true;
         if (!fallback || row.name === undefined) row.name = raw;
       } else if (target === "phone") {
-        row.phone = normalizeIsraeliPhone(raw) ?? raw;
+        row.phone = normalizeValidPhone(raw) ?? raw;
       } else if (target === "email") {
         row.email = raw.toLowerCase();
       } else if (target === "intent") {

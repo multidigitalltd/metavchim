@@ -55,8 +55,10 @@ describe("canReceiveWhatsapp", () => {
     expect(canReceiveWhatsapp("026543210")).toBe(false);
   });
 
-  it("מספר זר — לא", () => {
-    expect(canReceiveWhatsapp("+14155550100")).toBe(false);
+  it("מספר מחו״ל עם קידומת מדינה — כן; ריק או קצר — לא", () => {
+    expect(canReceiveWhatsapp("+14155550100")).toBe(true);
+    expect(canReceiveWhatsapp("0044 7700 900123")).toBe(true);
     expect(canReceiveWhatsapp("")).toBe(false);
+    expect(canReceiveWhatsapp("+1 555")).toBe(false);
   });
 });

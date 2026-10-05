@@ -14,7 +14,7 @@ import {
   type AgentHistoryRef,
   agentResultText,
   effectiveCapabilities,
-  normalizeIsraeliPhone,
+  normalizeValidPhone,
   roleLabel,
   decodeButtonId,
   historyRefs,
@@ -2563,7 +2563,7 @@ export class WhatsAppAssistantService {
           const searchTerm = state.proposal.fields.find((field) => field.key === "query");
           const byPhone =
             typeof searchTerm?.value === "string" &&
-            normalizeIsraeliPhone(searchTerm.value) !== undefined;
+            normalizeValidPhone(searchTerm.value) !== undefined;
           const scope = scopeNote(state.proposal.actionId, byPhone);
           if (scope !== "") lines.push(scope);
           break;
@@ -3016,7 +3016,7 @@ function scopeNote(actionId: string, byPhone = false): string {
    * ‏תוצאות נקרא כעובדה על המשרד (ביקורת Codex).
    *
    * ‏הסייג על בעלי הנכסים מוצג **רק בחיפוש לפי טלפון**, לפי אותה
-   * ‏בדיקה עצמה שמנתבת את החיפוש (`normalizeIsraeliPhone`). חיפוש
+   * ‏בדיקה עצמה שמנתבת את החיפוש (`normalizeValidPhone`). חיפוש
    * ‏לפי כתובת אינו מסונן כך, וסייג עליו היה מהסוג שנפסל כאן קודם:
    * ‏נכון על ההרשאה, שקרי על התוצאה.
    */

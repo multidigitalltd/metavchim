@@ -25,7 +25,7 @@
  * וזה בדיוק ההבדל שהופך את הטופס לבטוח לשליחה.
  */
 
-import { normalizePhone } from "./contact-people.js";
+import { normalizePhone, VALID_PHONE } from "./contact-people.js";
 
 /** ימי תוקף לקישור. אחריהם הוא מפסיק לעבוד. */
 export const INTAKE_TTL_DAYS = 14;
@@ -86,7 +86,7 @@ export function intakeIdentityRejectionReason(input: {
    */
   const phone = normalizePhone(input.phone ?? "");
   if (phone === "") return "נא למלא מספר טלפון";
-  if (!/^\+972[2-9]\d{7,8}$/u.test(phone)) return "מספר הטלפון אינו תקין";
+  if (!VALID_PHONE.test(phone)) return "מספר הטלפון אינו תקין";
   return null;
 }
 

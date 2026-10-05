@@ -1,6 +1,6 @@
 import * as z from "../zod.js";
 import { normalizePhone } from "../logic/contact-people.js";
-import { PhoneSchema } from "./common.js";
+import { PHONE_HINT, PhoneSchema } from "./common.js";
 
 /**
  * ‎**הרשמה עצמית — סכימה אחת למסך ולשרת.**
@@ -75,7 +75,7 @@ export const OptionalPhoneInputSchema = z
    */
   .max(25, "מספר הטלפון ארוך מדי")
   .refine((raw) => raw === "" || PhoneSchema.safeParse(normalizePhone(raw)).success, {
-    message: "מספר טלפון ישראלי לא תקין — למשל 050-1234567",
+    message: PHONE_HINT,
   })
   .transform((raw) => (raw === "" ? "" : normalizePhone(raw)))
   .optional();

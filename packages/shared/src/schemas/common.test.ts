@@ -27,3 +27,32 @@ describe("PhoneInputSchema — הטלפון כפי שאדם מקליד", () => {
     expect(() => PhoneInputSchema.parse("לא מספר")).toThrow();
   });
 });
+
+/*
+ * ‎**מספר מחו״ל — קונים ומוכרים תושבי חוץ** (בקשת המשתמש).
+ * ‏הוא מגיע עם קידומת מדינה, ב-+ או ב-00, ונשמר ב-E.164 כמו כל מספר.
+ */
+describe("PhoneInputSchema — מספר מחו״ל", () => {
+  it.each([
+    ["+1 212 555 0100", "+12125550100"],
+    ["+44 7700 900123", "+447700900123"],
+    ["+33 6 12 34 56 78", "+33612345678"],
+    ["001 212 555 0100", "+12125550100"],
+    ["00972-50-414-3565", "+972504143565"],
+  ])("%s → %s", (typed, stored) => {
+    expect(PhoneInputSchema.parse(typed)).toBe(stored);
+  });
+
+  it("בלי קידומת מדינה — לא מנחשים מדינה", () => {
+    expect(() => PhoneInputSchema.parse("12125550100")).toThrow();
+  });
+
+  it("קידומת ישראלית עדיין נבדקת כישראלית", () => {
+    expect(() => PhoneInputSchema.parse("+972 1 234 5678")).toThrow();
+    expect(() => PhoneInputSchema.parse("+9720504143565")).toThrow();
+  });
+
+  it("ארוך מ-15 ספרות — נדחה", () => {
+    expect(() => PhoneInputSchema.parse("+1234567890123456")).toThrow();
+  });
+});
