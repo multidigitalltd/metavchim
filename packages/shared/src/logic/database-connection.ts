@@ -18,7 +18,9 @@
  * - ‏**הסכימה מהכתובת** (`?schema=`) — גם למתאם וגם כ-`search_path` של
  *   ‏החיבור, כמו ב-Prisma 6. המתאם מקדים את שם הסכימה רק לשאילתות שהוא בונה,
  *   ‏ושאילתת SQL ישירה (`DELETE FROM server_errors`) הייתה פונה ל-`public`
- *   ‏(ביקורת Codex). שם שאינו מזהה פשוט נדחה כאן — הוא נכנס לשורת האפשרויות.
+ *   ‏(ביקורת Codex). שם שאינו מזהה פשוט באותיות קטנות נדחה כאן: הוא נכנס
+ *   ‏לשורת האפשרויות, ושם עם אותיות גדולות היה מקופל שם לאותיות קטנות בעוד
+ *   ‏שהמתאם פונה לשם המדויק.
  * - ‏**כתובת חסרה נכשלת כאן, בשם שלה** — ולא כ-„Invalid URL” בשאילתה הראשונה.
  *
  * ‏הפונקציה מחזירה נתונים בלבד: החבילה נטענת גם בדפדפן, והמתאם עצמו
@@ -39,7 +41,7 @@ export function databaseConnection(
 } {
   if (url === undefined || url === "") throw new Error("כתובת המסד חסרה (DATABASE_URL)");
   const schema = decodeURIComponent(/[?&]schema=([^&#]+)/u.exec(url)?.[1] ?? "public");
-  if (!/^[A-Za-z_][A-Za-z0-9_]*$/u.test(schema)) throw new Error(`שם סכימה לא נתמך בכתובת המסד: ${schema}`);
+  if (!/^[a-z_][a-z0-9_]*$/u.test(schema)) throw new Error(`שם סכימה לא נתמך בכתובת המסד: ${schema}`);
   return {
     pool: {
       connectionString: url,

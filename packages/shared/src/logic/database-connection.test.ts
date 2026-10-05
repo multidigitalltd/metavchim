@@ -19,6 +19,8 @@ describe("databaseConnection", () => {
 
   it("שם סכימה שאינו מזהה פשוט — נדחה, ולא נכנס לשורת האפשרויות", () => {
     expect(() => databaseConnection("postgresql://u:p@db:5432/x?schema=a%20-c%20x%3Dy", 4)).toThrow("סכימה");
+    /* ‏אותיות גדולות היו מקופלות ב-search_path, והמתאם היה פונה לשם המדויק */
+    expect(() => databaseConnection("postgresql://u:p@db:5432/x?schema=TenantA", 4)).toThrow("סכימה");
   });
 
   it("כתובת חסרה — שגיאה שאומרת מה חסר", () => {
