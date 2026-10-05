@@ -755,6 +755,19 @@ export class PropertiesService {
           ...(occupancy === "owner" || occupancy === "vacant" || occupantCleared === true
             ? { leaseEndsAt: null, noticePeriodDays: null }
             : {}),
+          /*
+           * ‎**נכס שזז מאבד את החלקה שנגזרה מהמיקום הקודם** (docs/14).
+           *
+           * גוש-חלקה שהסבב גזר מהנקודה (`lookup`) נכון רק לנקודה
+           * ההיא, וגם „לא נמצאה חלקה” (`none`) נאמר עליה; סבב השוק
+           * יגזור מחדש מהחדשה. חלקה שאדם הקליד מנסח
+           * טאבו (`agent`, `tabu`) נשארת — הוא יודע יותר מהסיכה.
+           */
+          ...((existing.parcelSource === "lookup" || existing.parcelSource === "none") &&
+          ((fieldPatch.latitude !== undefined && fieldPatch.latitude !== existing.latitude) ||
+            (fieldPatch.longitude !== undefined && fieldPatch.longitude !== existing.longitude))
+            ? { gush: null, helka: null, subParcel: null, parcelSource: null, marketCheckedAt: null }
+            : {}),
           readinessScore: readiness.score,
         },
       });

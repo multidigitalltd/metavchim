@@ -21,6 +21,7 @@ import { SupportModule } from "./modules/support/support.module";
 import { PayoutsModule } from "./modules/payouts/payouts.module";
 import { CollaborationModule } from "./modules/collaboration/collaboration.module";
 import { MapsModule } from "./modules/maps/maps.module";
+import { MarketModule } from "./modules/market/market.module";
 import { ContactsModule } from "./modules/contacts/contacts.module";
 import { ExportModule } from "./modules/export/export.module";
 import { FeatureSignupsModule } from "./modules/feature-signups/feature-signups.module";
@@ -64,6 +65,7 @@ import { AgentModule } from "./modules/agent/agent.module";
     HealthModule,
     ContactsModule,
     PropertiesModule,
+    MarketModule,
     BuyersModule,
     MatchingModule,
     AgreementsModule,

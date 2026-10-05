@@ -23,7 +23,13 @@ backup_once() {
   # --- מסד הנתונים ---
   tmp="/backups/db_${stamp}.dump.tmp"
   out="/backups/db_${stamp}.dump"
-  if pg_dump -h postgres -U metavchim -d metavchim -Fc -f "$tmp"; then
+  #
+  # ‎`--exclude-table-data='market_*'` — נתוני השוק (docs/14) אינם נגבים.
+  # הם עסקאות ציבוריות של רשות המסים, כ-450MB, וכולם נבנים מחדש מהמקור.
+  # המבנה כן נשמר, ולכן אחרי שחזור הטבלאות ריקות, היישובים במצב
+  # ‎`pending`, והסנכרון מתחיל מאפס לבד. **כל** הטבלאות בתבנית ולא רק
+  # העסקאות: מצב הסנכרון בלי העסקאות היה אומר „הושלם” על טבלה ריקה.
+  if pg_dump -h postgres -U metavchim -d metavchim -Fc --exclude-table-data='market_*' -f "$tmp"; then
     mv "$tmp" "$out"
     echo "[backup] ✓ DB → ${out} ($(du -h "$out" | cut -f1))"
   else
