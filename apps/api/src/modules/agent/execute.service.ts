@@ -885,7 +885,17 @@ export class AgentExecuteService {
     try {
       if (!(await this.gemini.isConfigured())) return result;
       // קיצוץ קשיח: המודל צריך את ראש הרשימה, לא את כל המאגר
-      const compact = JSON.stringify(redactForInsight(result.data)).slice(0, 6000);
+      /*
+       * ‏‎**הסך והקיטום לפני השורות.** רשימה ארוכה נחתכת בשישה אלף תווים,
+       * ‏ו-`total` שאחרי המערך נחתך איתה — והמודל היה סופר את מה שנשאר
+       * ‏(ביקורת Codex). הם עוברים לראש האובייקט, לפני כל השאר.
+       */
+      const redacted = redactForInsight(result.data);
+      const compact = JSON.stringify(
+        typeof redacted === "object" && redacted !== null && !Array.isArray(redacted)
+          ? { ...countFirst(redacted as Record<string, unknown>), ...redacted }
+          : redacted,
+      ).slice(0, 6000);
       /*
        * ההצעה מוגבלת לפעולות שלמשתמש הזה יש הרשאה אליהן — הצעה
        * לפעולה חסומה הייתה מסתיימת ב"אין לך הרשאה" על משהו שהסוכן
@@ -4716,6 +4726,13 @@ function buildTitle(fields: PropertyFields): string | undefined {
  * הייתה מייצאת בשקט בדיוק את מה שהתמלול המקומי נבנה כדי לשמור
  * בתוך המכונה (ביקורת Codex).
  */
+/** ‏`total` ו-`hasMore` של רשימה — מה שהמודל חייב לראות גם כשהשורות נחתכות. */
+function countFirst(record: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(
+    (["total", "hasMore"] as const).filter((key) => key in record).map((key) => [key, record[key]]),
+  );
+}
+
 function redactForInsight(value: unknown): unknown {
   /*
    * ‏לפי מפתח לא מספיק: כותרת התראה („📵 שיחה שלא נענתה מ-050…”)

@@ -104,7 +104,10 @@ const TENS: Record<string, number> = {
 };
 
 const alt = (words: Record<string, number>): string => Object.keys(words).join("|");
-const BEFORE = "(?<![\\p{L}\\d])";
+// ‏גם לא אחרי מקף — „שנים-עשר” הוא מספר אחד, ו„עשר” שבסופו אינו ספירה לבדה
+const BEFORE = "(?<![\\p{L}\\d\\-־])";
+/** ‏בין חלקי המספר: רווח, מקף או מקף עברי („שנים-עשר”, „שלושה־עשר”). */
+const JOIN = "[\\s\\-־]+";
 const AFTER = "(?![\\p{L}\\d])";
 
 /*
@@ -113,7 +116,7 @@ const AFTER = "(?![\\p{L}\\d])";
  * ‏וחמישים”, „עשרים ושלושה”. מילים צמודות שאינן מספר אחד („ביום שני
  * ‏שלושה קונים”) אינן מתחברות — כל אחת נבדקת לבד.
  */
-const REST = `(?:${alt(TENS)})(?:\\s+ו(?:${alt(UNITS)}))?|(?:${alt(UNITS)})\\s+(?:${alt(TEN)})|${alt(UNITS)}|${alt(TEN)}`;
+const REST = `(?:${alt(TENS)})(?:\\s+ו(?:${alt(UNITS)}))?|(?:${alt(UNITS)})${JOIN}(?:${alt(TEN)})|${alt(UNITS)}|${alt(TEN)}`;
 const HUNDREDS = `(?:(?:${alt(UNITS)})\\s+)?מאות|מאתיים|מאה`;
 const THOUSANDS = `(?:(?:${REST})\\s+)?(?:אלפים|אלף)|אלפיים`;
 const NUMBER = `(?:${THOUSANDS})(?:\\s+ו?(?:${HUNDREDS}))?(?:\\s+ו?(?:${REST}))?|(?:${HUNDREDS})(?:\\s+ו?(?:${REST}))?|${REST}`;
@@ -122,7 +125,7 @@ const NUMBER = `(?:${THOUSANDS})(?:\\s+ו?(?:${HUNDREDS}))?(?:\\s+ו?(?:${REST})
 function wordsValue(phrase: string): number {
   let total = 0;
   let group = 0;
-  for (const raw of phrase.split(/\s+/u)) {
+  for (const raw of phrase.split(/[\s\-־]+/u)) {
     const word = raw.startsWith("ו") ? raw.slice(1) : raw;
     if (word === "אלף" || word === "אלפים") {
       total += (group === 0 ? (word === "אלף" ? 1 : 2) : group) * 1000;
