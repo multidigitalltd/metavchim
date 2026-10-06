@@ -64,8 +64,13 @@ const TEN: Record<string, number> = { עשר: 10, עשרה: 10, עשרת: 10 };
 const TENS: Record<string, number> = {
   עשרים: 20, שלושים: 30, ארבעים: 40, חמישים: 50, שישים: 60, שבעים: 70, שמונים: 80, תשעים: 90,
 };
-/** ‏מאות ואלפים — הסך הוא „לפחות” הערך, וזה מה שנבדק. */
-const HUNDREDS: Record<string, number> = { מאה: 100, מאתיים: 200, מאות: 300, אלף: 1000, אלפים: 2000 };
+/** ‏מאה, מאתיים, אלף, אלפיים — ערך שלם בפני עצמו. */
+const SCALE: Record<string, number> = { מאה: 100, מאתיים: 200, אלף: 1000, אלפיים: 2000 };
+/**
+ * ‏„מאות”, „אלפים” — כופלים את היחידה שלפניהם („תשע מאות” = 900,
+ * ‏„שלושת אלפים” = 3,000). בלי יחידה — לפחות שתיים, וזה מה שנבדק.
+ */
+const SCALES: Record<string, number> = { מאות: 100, אלפים: 1000 };
 
 const PLURAL_NOUNS =
   "קונים|קונות|נכסים|דירות|בתים|לידים|פניות|משימות|פגישות|סיורים|הצעות|שיחות|התראות|עסקאות|לקוחות|ממתינים|התאמות|ביקושים|מיילים|הערות|בלעדיות|תוצאות|רשומות";
@@ -78,21 +83,24 @@ const AFTER = "(?![\\p{L}\\d])";
 
 /*
  * ‏הצורות, לפי הסדר שבו הן נבדקות באותו מקום בטקסט: „עשרים ושלושה”,
- * ‏„שלושה עשר”, „מאה”/„שלוש מאות”, ואז יחידה, עשר וספרות — כולן לפני
+ * ‏„שלושה עשר”, „שלוש מאות”/„מאה”, ואז יחידה, עשר וספרות — כולן לפני
  * ‏שם עצם ברבים. ו„קונה אחד” — היחיד לפני „אחד”. „דירות 4 חדרים” אינה
  * ‏ספירה, ולכן אין „שם עצם ואחריו ספרה”.
  */
 const PLURAL_CLAIM = new RegExp(
-  `${BEFORE}(?:(${alt(TENS)})(?:\\s+ו(${alt(UNITS)}))?|(${alt(UNITS)})\\s+(${alt(TEN)})|(?:(?:${alt(UNITS)})\\s+)?(${alt(HUNDREDS)})|(${alt(UNITS)}|${alt(TEN)})|(\\d+))\\s+(?:${PLURAL_NOUNS})${AFTER}`,
+  `${BEFORE}(?:(${alt(TENS)})(?:\\s+ו(${alt(UNITS)}))?|(${alt(UNITS)})\\s+(${alt(TEN)})|(?:(${alt(UNITS)}|${alt(TEN)})\\s+)?(${alt(SCALES)})|(${alt(SCALE)})|(${alt(UNITS)}|${alt(TEN)})|(\\d+))\\s+(?:${PLURAL_NOUNS})${AFTER}`,
   "gu",
 );
 const SINGULAR_CLAIM = new RegExp(`${BEFORE}(?:${SINGULAR_NOUNS})\\s+(?:אחד|אחת)${AFTER}`, "u");
 
 function claimValue(match: RegExpMatchArray): number {
-  const [, tens, tensUnit, teenUnit, teen, hundreds, single, digits] = match;
+  const [, tens, tensUnit, teenUnit, teen, times, scales, scale, single, digits] = match;
   if (tens !== undefined) return TENS[tens]! + (tensUnit === undefined ? 0 : UNITS[tensUnit]!);
   if (teenUnit !== undefined && teen !== undefined) return UNITS[teenUnit]! + 10;
-  if (hundreds !== undefined) return HUNDREDS[hundreds]!;
+  if (scales !== undefined) {
+    return (times === undefined ? 2 : (UNITS[times] ?? TEN[times]!)) * SCALES[scales]!;
+  }
+  if (scale !== undefined) return SCALE[scale]!;
   if (single !== undefined) return UNITS[single] ?? TEN[single]!;
   return Number(digits);
 }

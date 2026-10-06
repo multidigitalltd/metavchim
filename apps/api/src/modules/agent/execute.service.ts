@@ -1954,13 +1954,19 @@ export class AgentExecuteService {
     }
 
     const rows = rankCallbacks(candidates, now);
+    /*
+     * ‏סך מוצהר רק כשאף מקור לא נחתך. השיחות חסומות בחלון ולא
+     * ‏בתקרה; לידים ומשימות שהגיעו לתקרה — ייתכן שיש עוד, והספירה
+     * ‏בניסוח לא נבדקת מול מספר שאינו הסך (ביקורת Codex).
+     */
+    const complete = waiting.length < CALLBACK_LEAD_SCAN && tasks.length < CALLBACK_TASK_SCAN;
     return {
       href: "/leads",
       message:
         rows.length === 0
           ? "אין כרגע אף אחד שממתין לחזרה"
           : `${rows.length} ממתינים לחזרה — הדחוף ביותר: ${rows[0]?.name}`,
-      data: { callbacks: rows },
+      data: { callbacks: rows, ...(complete ? { total: rows.length } : {}) },
     };
   }
 

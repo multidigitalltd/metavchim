@@ -240,16 +240,13 @@ export function rankCallbacks(
         ? { detail: strongest.detail }
         : {}),
       alsoCount: group.length - 1,
-      ...((): { leadId?: string } => {
-        /*
-         * ‏הליד של הסיבה המוצגת; ואם אין לה — רק ליד **יחיד** של האדם.
-         * ‏לאדם עם שני לידים פתוחים אין „הליד שלו”, ובחירה בראשון הייתה
-         * ‏כותבת לרשומה אקראית (ביקורת Codex, P1).
-         */
-        const leads = new Set(group.flatMap((c) => (c.leadId === undefined ? [] : [c.leadId])));
-        const leadId = strongest.leadId ?? (leads.size === 1 ? [...leads][0] : undefined);
-        return leadId === undefined ? {} : { leadId };
-      })(),
+      /*
+       * ‏הליד של הסיבה המוצגת — ורק הוא. לשיחה שלא נענתה אין ליד:
+       * ‏ליד שנראה בקבוצה אינו בהכרח היחיד של האדם (מקורות אחרים
+       * ‏מוגבלים, מקור המשימות תלוי ביכולת), ו„הליד שלו” היה כותב
+       * ‏לרשומה שהמתווך לא ראה (ביקורת Codex, P1).
+       */
+      ...(strongest.leadId !== undefined ? { leadId: strongest.leadId } : {}),
     });
   }
 

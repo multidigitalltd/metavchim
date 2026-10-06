@@ -88,4 +88,15 @@ describe("countsWithin — מספרים במילים מעל עשר", () => {
     expect(countsWithin("מאה הצעות", 50)).toBe(false);
     expect(countsWithin("שלוש מאות הצעות", 150)).toBe(false);
   });
+
+  // ‏היחידה שלפני „מאות”/„אלפים” כופלת אותן (ביקורת Codex)
+  it("„תשע מאות”, „שלושת אלפים” — היחידה כופלת", () => {
+    expect(countsWithin("תשע מאות הצעות", 500)).toBe(false);
+    expect(countsWithin("תשע מאות הצעות", 900)).toBe(true);
+    expect(countsWithin("שלושת אלפים קונים", 2500)).toBe(false);
+    expect(countsWithin("עשרת אלפים קונים", 9999)).toBe(false);
+    expect(countsWithin("אלפיים קונים", 1999)).toBe(false);
+    expect(countsWithin("מאות הצעות", 250)).toBe(true);
+    expect(countsWithin("מאות הצעות", 150)).toBe(false);
+  });
 });
