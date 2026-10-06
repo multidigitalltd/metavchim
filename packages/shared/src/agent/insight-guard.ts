@@ -35,3 +35,44 @@ export function groundedNumbers(text: string, sources: readonly string[]): boole
     return (token.match(/\d+/gu) ?? []).every((run) => raw.includes(run));
   });
 }
+
+/**
+ * ‎**ספירה שנאמרה — לא יותר ממה שחזר.**
+ *
+ * ‏„כמה קונים יש לי?” נענה במשפט הראשון בספירה, ומודל שכותב אותה
+ * ‏במילים („שבעה קונים”) עוקף את בדיקת הספרות. ובספרות הבדיקה חלשה
+ * ‏במספרים קטנים: „7” נמצא כמעט בכל JSON, ולו רק במזהה (ביקורת Codex).
+ *
+ * ‏לכן ספירה — מספר (בספרות או במילים) שצמוד לשם עצם של רשומות —
+ * ‏נבדקת מול גודל הרשימה: לא יותר ממה שחזר. תת-ספירה („שניים מהם
+ * ‏חמים”, „2 קונים חמים”) קטנה ממנו ועוברת; ספירה מומצאת גדולה ממנו
+ * ‏ונפסלת עם המשפט כולו.
+ */
+const COUNT_WORDS: Record<string, number> = {
+  שני: 2, שתי: 2, שניים: 2, שתיים: 2,
+  שלושה: 3, שלוש: 3, שלושת: 3,
+  ארבעה: 4, ארבע: 4, ארבעת: 4,
+  חמישה: 5, חמש: 5, חמשת: 5,
+  שישה: 6, שש: 6, ששת: 6,
+  שבעה: 7, שבע: 7, שבעת: 7,
+  שמונה: 8, שמונת: 8,
+  תשעה: 9, תשע: 9, תשעת: 9,
+  עשרה: 10, עשר: 10, עשרת: 10,
+};
+
+const RECORD_NOUNS =
+  "קונים|קונות|נכסים|דירות|בתים|לידים|פניות|משימות|פגישות|סיורים|הצעות|שיחות|התראות|עסקאות|לקוחות|ממתינים|התאמות|ביקושים|מיילים|הערות|בלעדיות|תוצאות|רשומות";
+
+const COUNT_CLAIM = new RegExp(
+  `(?<![\\p{L}\\d])(\\d+|${Object.keys(COUNT_WORDS).join("|")})\\s+(?:${RECORD_NOUNS})(?![\\p{L}])`,
+  "gu",
+);
+
+export function countsWithin(text: string, total: number): boolean {
+  for (const match of text.matchAll(COUNT_CLAIM)) {
+    const said = match[1]!;
+    const value = /^\d+$/u.test(said) ? Number(said) : COUNT_WORDS[said];
+    if (value !== undefined && value > total) return false;
+  }
+  return true;
+}

@@ -1,4 +1,4 @@
-import { formatCallbacksForWhatsApp, type CallbackRow } from "@metavchim/shared";
+import { AGENT_RESULT_ROWS, formatCallbacksForWhatsApp, type CallbackRow } from "@metavchim/shared";
 
 /**
  * רשימת „למי לחזור” כפי שהיא נקראת בוואטסאפ.
@@ -22,8 +22,12 @@ import { formatCallbacksForWhatsApp, type CallbackRow } from "@metavchim/shared"
  * שתחזיר רשימת חזרות תקבל את אותו ניסוח בלי לגעת כאן.
  */
 
-/** תקרה שמרנית להודעת וואטסאפ אחת — מעבר לזה הנמען מקבל טקסט קטוע. */
-const WHATSAPP_ROWS = 10;
+/**
+ * ‏התקרה של כל רשימה שהסוכן מציג — גם במסך, וגם מה ש-⟪תוצאה N⟫ יכול
+ * ‏לבחור ממנו (`agentResultSlots`). שורה תשיעית שמוצגת ואי אפשר לבחור
+ * ‏בה הייתה נכשלת ב„אין שורה 9” (ביקורת Codex).
+ */
+const WHATSAPP_ROWS = AGENT_RESULT_ROWS;
 
 function isCallbackRow(value: unknown): value is CallbackRow {
   if (typeof value !== "object" || value === null) return false;

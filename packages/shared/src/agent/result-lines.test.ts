@@ -1259,3 +1259,23 @@ describe("agentResultSlots — המקום שבו השורה הוצגה", () => {
     expect(agentResultSlots({ ok: true })).toEqual([]);
   });
 });
+
+describe("„למי לחזור” בטקסט הפשוט — מה שהאפליקציה מציגה", () => {
+  it("באותו סדר, עם הסיבה והטלפון, ובתקרה המשותפת", () => {
+    const callbacks = Array.from({ length: 10 }, (_, i) => ({
+      contactId: `c${i}`,
+      name: `לקוח ${i}`,
+      phone: `050000000${i}`,
+      reason: "missed_call",
+      reasonText: "התקשר ולא נענה",
+      waitedText: "ממתין שעה",
+      alsoCount: i === 0 ? 1 : 0,
+    }));
+    const text = agentResultText({ callbacks })!;
+    const lines = text.split("\n");
+    expect(lines[0]).toBe("• לקוח 0 — התקשר ולא נענה · ממתין שעה (+1 בכרטיס) — 0500000000");
+    expect(text).toContain("לקוח 7");
+    expect(text).not.toContain("לקוח 8");
+    expect(lines.at(-1)).toBe("ועוד 2 ממתינים לחזרה");
+  });
+});

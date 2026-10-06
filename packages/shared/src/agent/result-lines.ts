@@ -31,7 +31,9 @@ import { LEAD_STATUS_LABELS } from "../schemas/lead.js";
  *
  * הכרטיס המלא (`show_card`) ורשימת „למי לחזור” (`show_callbacks`)
  * — לשניהם כבר יש מנסח ייעודי בצד וואטסאפ, ומנסח שני היה הופך את
- * זה לשלושה מקומות במקום אחד.
+ * זה לשלושה מקומות במקום אחד. היוצא מן הכלל: הטקסט הפשוט של „למי
+ * לחזור” ב-`agentResultText`, כי האפליקציה מרנדרת רק אותו — ושרשור
+ * „ותוסיף משימה לראשון” נבחר מהרשימה הזו (ביקורת Codex).
  */
 
 /** סוג הפגישה כפי שהיא נקראת למתווך. */
@@ -850,7 +852,8 @@ export function agentResultList(data: unknown): AgentResultList | null {
  */
 export function agentResultText(data: unknown): string | null {
   const list = agentResultList(data);
-  if (list === null || list.rows.length === 0) return null;
+  if (list === null) return callbacksText(data);
+  if (list.rows.length === 0) return null;
 
   const shown = list.rows.slice(0, AGENT_RESULT_ROWS);
   const lines = shown.map((row) =>
@@ -872,6 +875,26 @@ export function agentResultText(data: unknown): string | null {
   const beyond = list.hasMore ? " — ויש עוד מעבר להם" : "";
   if (hidden > 0) lines.push(`ועוד ${hidden} ${list.noun}${beyond}`);
   else if (list.hasMore) lines.push(`מוצגים ${shown.length} ה${list.noun} הראשונים — יש עוד`);
+  return lines.join("\n");
+}
+
+/**
+ * ‏‎„למי לחזור” כטקסט פשוט — באותו סדר ובאותה תקרה כמו בשאר הערוצים,
+ * ‏ולכן ⟪תוצאה N⟫ מצביע על השורה ה-N שהמתווך רואה. `null` — לא רשימה כזו.
+ */
+function callbacksText(data: unknown): string | null {
+  if (typeof data !== "object" || data === null) return null;
+  const rows = rowsOf((data as Record<string, unknown>)["callbacks"]);
+  if (rows.length === 0) return null;
+  const shown = rows.slice(0, AGENT_RESULT_ROWS);
+  const lines = shown.map((row) => {
+    const also = typeof row["alsoCount"] === "number" && row["alsoCount"] > 0 ? ` (+${row["alsoCount"]} בכרטיס)` : "";
+    const reason = join([text(row["reasonText"]), text(row["waitedText"])]);
+    return [`• ${text(row["name"]) ?? "לקוח"}`, reason === "" ? null : `${reason}${also}`, phoneOf(row)]
+      .filter((part): part is string => part !== null && part !== "")
+      .join(" — ");
+  });
+  if (rows.length > shown.length) lines.push(`ועוד ${rows.length - shown.length} ממתינים לחזרה`);
   return lines.join("\n");
 }
 

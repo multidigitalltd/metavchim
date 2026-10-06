@@ -55,18 +55,18 @@ describe("formatCallbacks", () => {
   });
 
   /*
-   * ההבדל מ-`summarizeData`, שחותך בחמש שורות בלי לומר זאת:
-   * כאן התקרה גבוהה יותר וגם מוכרזת.
+   * ‏התקרה מוכרזת, והיא התקרה המשותפת של כל רשימה בסוכן — כל שורה
+   * ‏שמוצגת היא שורה ש-⟪תוצאה N⟫ יכול לבחור בה.
    */
-  it("מעבר לתקרה — נשמרות עשר שורות ונאמר כמה נחתכו", () => {
+  it("מעבר לתקרה — נשמרות שמונה שורות ונאמר כמה נחתכו", () => {
     const many = Array.from({ length: 14 }, (_, index) =>
       row({ contactId: `c${index}`, name: `לקוח ${index}`, phone: `05000000${index}` }),
     );
     const text = formatCallbacks({ callbacks: many });
     expect(text).toContain("14 ממתינים לחזרה");
-    expect(text).toContain("לקוח 9");
-    expect(text).not.toContain("לקוח 10");
-    expect(text).toContain("ועוד 4");
+    expect(text).toContain("לקוח 7");
+    expect(text).not.toContain("לקוח 8");
+    expect(text).toContain("ועוד 6");
   });
 
   it("שורה שאינה בצורת חזרה מוותרת על הניסוח כולו", () => {

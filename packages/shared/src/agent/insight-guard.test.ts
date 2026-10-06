@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { groundedNumbers } from "./insight-guard.js";
+import { countsWithin, groundedNumbers } from "./insight-guard.js";
 
 const SOURCE = JSON.stringify([
   { name: "משה כהן", city: "גבעתיים", rooms: 4, price: 2450000 },
@@ -44,5 +44,25 @@ describe("groundedNumbers — מספר שלא נשלף אינו נאמר", () =>
      * יצטט. מי שמצפה כאן ל-false משנה את אופי השומר, לא מתקן אותו.
      */
     expect(groundedNumbers("אולי שווה לחפש גם 5 חדרים.", [SOURCE])).toBe(true);
+  });
+});
+
+describe("countsWithin — ספירה שנאמרה אינה גדולה ממה שחזר", () => {
+  it("ספירה במילים שגדולה מהרשימה — נפסלת", () => {
+    expect(countsWithin("יש לך שבעה קונים ברמת גן", 2)).toBe(false);
+  });
+
+  it("ספירה בספרות שגדולה מהרשימה — נפסלת", () => {
+    expect(countsWithin("נמצאו 7 קונים", 2)).toBe(false);
+  });
+
+  it("הספירה הנכונה ותת-ספירה — עוברות", () => {
+    expect(countsWithin("יש לך שני קונים, ו-1 קונים חמים מהם", 2)).toBe(true);
+    expect(countsWithin("שלושה לידים חדשים, ושני לידים מהם חמים", 3)).toBe(true);
+  });
+
+  it("מספר שאינו ספירה של רשומות — אינו נבדק כאן", () => {
+    expect(countsWithin("הפגישה ביום שני בשעה 10", 1)).toBe(true);
+    expect(countsWithin("דירה של 5 חדרים", 1)).toBe(true);
   });
 });

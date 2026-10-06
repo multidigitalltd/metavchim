@@ -17,6 +17,8 @@ import {
   MARKETING_ACTION_KINDS,
   MARKETING_ACTION_LABEL,
   agentNextSteps,
+  agentResultList,
+  countsWithin,
   groundedNumbers,
   LEAD_STATUS_LABELS,
   type LeadStatus,
@@ -890,8 +892,15 @@ export class AgentExecuteService {
         typeof (raw as { suggestion?: unknown })?.suggestion === "string"
           ? ((raw as { suggestion: string }).suggestion ?? "").trim()
           : "";
-      // ספרה שלא נשלפה ולא נשאלה — המשפט כולו נפסל, לא מתוקן
-      const grounded = (text: string): boolean => groundedNumbers(text, [compact, transcript]);
+      /*
+       * ‏ספרה שלא נשלפה ולא נשאלה — המשפט כולו נפסל, לא מתוקן. וספירה
+       * ‏(„שבעה קונים”) אינה גדולה ממה שחזר — כשהרשימה שלמה; ברשימה
+       * ‏קטומה הסך האמיתי גדול ממנה, ושם נשארת בדיקת הספרות בלבד.
+       */
+      const list = agentResultList(result.data);
+      const grounded = (text: string): boolean =>
+        groundedNumbers(text, [compact, transcript]) &&
+        (list === null || list.hasMore || countsWithin(text, list.rows.length));
       return {
         ...result,
         ...(insight !== "" && insight.length <= 500 && grounded(insight) ? { insight } : {}),
