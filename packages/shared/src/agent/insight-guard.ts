@@ -49,6 +49,7 @@ export function groundedNumbers(text: string, sources: readonly string[]): boole
  * ‏ונפסלת עם המשפט כולו.
  */
 const COUNT_WORDS: Record<string, number> = {
+  אחד: 1, אחת: 1,
   שני: 2, שתי: 2, שניים: 2, שתיים: 2,
   שלושה: 3, שלוש: 3, שלושת: 3,
   ארבעה: 4, ארבע: 4, ארבעת: 4,
@@ -60,19 +61,32 @@ const COUNT_WORDS: Record<string, number> = {
   עשרה: 10, עשר: 10, עשרת: 10,
 };
 
-const RECORD_NOUNS =
+const PLURAL_NOUNS =
   "קונים|קונות|נכסים|דירות|בתים|לידים|פניות|משימות|פגישות|סיורים|הצעות|שיחות|התראות|עסקאות|לקוחות|ממתינים|התאמות|ביקושים|מיילים|הערות|בלעדיות|תוצאות|רשומות";
+const SINGULAR_NOUNS =
+  "קונה|נכס|דירה|בית|ליד|פנייה|משימה|פגישה|סיור|הצעה|שיחה|התראה|עסקה|לקוח|ממתין|התאמה|ביקוש|מייל|הערה|תוצאה|רשומה";
 
-const COUNT_CLAIM = new RegExp(
-  `(?<![\\p{L}\\d])(\\d+|${Object.keys(COUNT_WORDS).join("|")})\\s+(?:${RECORD_NOUNS})(?![\\p{L}])`,
-  "gu",
-);
+const PLURAL_COUNT = `\\d+|${Object.keys(COUNT_WORDS).filter((word) => COUNT_WORDS[word]! > 1).join("|")}`;
+const NOT_LETTER_BEFORE = "(?<![\\p{L}\\d])";
+const NOT_LETTER_AFTER = "(?![\\p{L}\\d])";
+
+/*
+ * ‏שתי צורות בלבד, ובכוונה: „7 קונים” / „שבעה קונים” (המספר לפני
+ * ‏הרבים), ו„קונה אחד” / „משימה אחת” (היחיד לפני „אחד”). „דירות 4
+ * ‏חדרים” אינה ספירה — ולכן אין „שם עצם ואחריו ספרה”.
+ */
+const COUNT_CLAIMS = [
+  new RegExp(`${NOT_LETTER_BEFORE}(${PLURAL_COUNT})\\s+(?:${PLURAL_NOUNS})${NOT_LETTER_AFTER}`, "gu"),
+  new RegExp(`${NOT_LETTER_BEFORE}(?:${SINGULAR_NOUNS})\\s+(אחד|אחת)${NOT_LETTER_AFTER}`, "gu"),
+];
 
 export function countsWithin(text: string, total: number): boolean {
-  for (const match of text.matchAll(COUNT_CLAIM)) {
-    const said = match[1]!;
-    const value = /^\d+$/u.test(said) ? Number(said) : COUNT_WORDS[said];
-    if (value !== undefined && value > total) return false;
+  for (const pattern of COUNT_CLAIMS) {
+    for (const match of text.matchAll(pattern)) {
+      const said = match[1]!;
+      const value = /^\d+$/u.test(said) ? Number(said) : COUNT_WORDS[said];
+      if (value !== undefined && value > total) return false;
+    }
   }
   return true;
 }

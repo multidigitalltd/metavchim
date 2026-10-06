@@ -26,6 +26,18 @@ function candidate(over: Partial<CallbackCandidate> = {}): CallbackCandidate {
 }
 
 describe("rankCallbacks", () => {
+  it("לאדם עם שני לידים ושיחה כסיבה — אין קשירה לליד אקראי", () => {
+    const rows = rankCallbacks(
+      [
+        candidate({ contactId: "c1", reason: "missed_call", since: hoursAgo(1) }),
+        candidate({ contactId: "c1", reason: "task", since: hoursAgo(5), leadId: "lead-1" }),
+        candidate({ contactId: "c1", reason: "waiting_lead", since: hoursAgo(6), leadId: "lead-2" }),
+      ],
+      NOW,
+    );
+    expect(rows[0]?.leadId).toBeUndefined();
+  });
+
   it("הליד של האדם נשמר על השורה — גם כשהסיבה החזקה היא שיחה", () => {
     const rows = rankCallbacks(
       [

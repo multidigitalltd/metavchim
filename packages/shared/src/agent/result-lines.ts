@@ -1131,9 +1131,11 @@ export function agentResultSlots(data: unknown): (AgentHistoryRef | null)[] {
  * ‏„למי לחזור” — שומר הספירה של התובנה נשען עליה (ביקורת Codex).
  */
 export function agentResultCount(data: unknown): number | null {
+  if (typeof data !== "object" || data === null) return null;
+  // ‏דוח המשרד מוצג כשורות מדדים — שש שורות אינן „שישה לידים”
+  if (typeof (data as Record<string, unknown>)["report"] === "object") return null;
   const list = agentResultList(data);
   if (list !== null) return list.hasMore ? null : list.rows.length;
-  if (typeof data !== "object" || data === null) return null;
   const callbacks = (data as Record<string, unknown>)["callbacks"];
   return Array.isArray(callbacks) ? callbacks.length : null;
 }

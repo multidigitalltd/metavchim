@@ -66,3 +66,14 @@ describe("countsWithin — ספירה שנאמרה אינה גדולה ממה ש
     expect(countsWithin("דירה של 5 חדרים", 1)).toBe(true);
   });
 });
+
+describe("countsWithin — יחיד, ומה שאינו ספירה", () => {
+  it("„קונה אחד” כשלא חזר אף קונה — נפסל; כשחזר — עובר", () => {
+    expect(countsWithin("יש לך קונה אחד ברמת גן", 0)).toBe(false);
+    expect(countsWithin("יש לך קונה אחד ברמת גן", 1)).toBe(true);
+  });
+
+  it("„דירות 4 חדרים” אינה ספירה של רשומות", () => {
+    expect(countsWithin("שתיהן דירות 4 חדרים", 2)).toBe(true);
+  });
+});

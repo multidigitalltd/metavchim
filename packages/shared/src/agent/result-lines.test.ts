@@ -1287,5 +1287,7 @@ describe("agentResultCount — כמה שורות חזרו ברשימה שלמה"
     expect(agentResultCount({ callbacks: [{ name: "יוסי" }, { name: "דנה" }] })).toBe(2);
     expect(agentResultCount({ buyers: [{ id: "b1", name: "משה" }], hasMore: true })).toBeNull();
     expect(agentResultCount({ ok: true })).toBeNull();
+    // ‏דוח המשרד מוצג כשורות מדדים — אינן רשומות
+    expect(agentResultCount({ report: { leads: { open: 12 } } })).toBeNull();
   });
 });

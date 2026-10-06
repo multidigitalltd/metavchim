@@ -79,8 +79,8 @@ export interface CallbackRow {
    */
   alsoCount: number;
   /**
-   * ‏הליד של האדם, אם יש לו — מכל סיבה שלו, לא רק החזקה. ‏„תוסיף משימה
-   * ‏לראשון” אחרי הרשימה נקשר אליו (`agentResultSlots`).
+   * ‏הליד של הסיבה המוצגת, או הליד היחיד של האדם. ‏„תוסיף משימה לראשון”
+   * ‏אחרי הרשימה נקשר אליו (`agentResultSlots`); כמה לידים — אין קשירה.
    */
   leadId?: string;
 }
@@ -241,7 +241,13 @@ export function rankCallbacks(
         : {}),
       alsoCount: group.length - 1,
       ...((): { leadId?: string } => {
-        const leadId = strongest.leadId ?? group.find((c) => c.leadId !== undefined)?.leadId;
+        /*
+         * ‏הליד של הסיבה המוצגת; ואם אין לה — רק ליד **יחיד** של האדם.
+         * ‏לאדם עם שני לידים פתוחים אין „הליד שלו”, ובחירה בראשון הייתה
+         * ‏כותבת לרשומה אקראית (ביקורת Codex, P1).
+         */
+        const leads = new Set(group.flatMap((c) => (c.leadId === undefined ? [] : [c.leadId])));
+        const leadId = strongest.leadId ?? (leads.size === 1 ? [...leads][0] : undefined);
         return leadId === undefined ? {} : { leadId };
       })(),
     });
