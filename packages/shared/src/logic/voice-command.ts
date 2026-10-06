@@ -98,6 +98,24 @@ export interface VoiceCommand {
   query?: string;
 }
 
+/*
+ * ‏שמות הנכס — מאוצר סוגי הנכס של הקטלוג ולא רשימה מקבילה, כדי ש„המחסן
+ * ‏בהרצל” ו„הסטודיו בפלורנטין” יזוהו כמו „הדירה” (ביקורת Codex). הארוך
+ * ‏קודם: „דירת גן” לפני „דירה”.
+ */
+const PROPERTY_NOUNS = [
+  ...Object.entries(PROPERTY_TYPE_LABELS)
+    .filter(([type]) => type !== "other" && type !== "commercial")
+    .map(([, label]) => label),
+  "נכס",
+  "בית",
+  "דירת",
+  "וילה",
+  "קוטג'",
+]
+  .sort((a, b) => b.length - a.length)
+  .map((noun) => noun.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"))
+  .join("|");
 const RULES: {
   action: VoiceAction;
   pattern: RegExp;
@@ -409,7 +427,11 @@ const RULES: {
   {
     action: "show_bids",
     pattern:
-      /ה?הצעות\s+(?:ה?מחיר\s+)?(?:יש\s+)?על\s+ה?(?:דירה|נכס|בית|פנטהאוז)|ה?מו["״]?מ\s+(?:על|ב)|ה?הצעה\s+(?:ה?הכי\s+)?ה?גבוהה/u,
+      // ‏כל סוג נכס מהקטלוג — „הצעות על המחסן” הוא מו״מ, לא ההצעות שנשלחו (ביקורת Codex)
+      new RegExp(
+        `ה?הצעות\\s+(?:ה?מחיר\\s+)?(?:יש\\s+)?על\\s+ה?(?:${PROPERTY_NOUNS})|ה?מו["״]?מ\\s+(?:על|ב)|ה?הצעה\\s+(?:ה?הכי\\s+)?ה?גבוהה`,
+        "u",
+      ),
     confidence: "high",
   },
   {
@@ -758,24 +780,6 @@ export function mentorQuestionFromTranscript(transcript: string): string {
  * ‏(„המו״מ בהרב שך”), ונחתך במילות השאלה שאחריו („מתומחרת נכון”, „יקרה
  * ‏מדי”, „למי להציע שוב”). לא נמצא — `undefined`, והכרטיס ישאל.
  */
-/*
- * ‏שמות הנכס — מאוצר סוגי הנכס של הקטלוג ולא רשימה מקבילה, כדי ש„המחסן
- * ‏בהרצל” ו„הסטודיו בפלורנטין” יזוהו כמו „הדירה” (ביקורת Codex). הארוך
- * ‏קודם: „דירת גן” לפני „דירה”.
- */
-const PROPERTY_NOUNS = [
-  ...Object.entries(PROPERTY_TYPE_LABELS)
-    .filter(([type]) => type !== "other" && type !== "commercial")
-    .map(([, label]) => label),
-  "נכס",
-  "בית",
-  "דירת",
-  "וילה",
-  "קוטג'",
-]
-  .sort((a, b) => b.length - a.length)
-  .map((noun) => noun.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"))
-  .join("|");
 const PROPERTY_NOUN = new RegExp(
   `(?:^|[\\s"'״])[בלשו]?(ה?(?:${PROPERTY_NOUNS})(?![א-ת]).*)$`,
   "u",

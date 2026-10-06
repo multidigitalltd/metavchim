@@ -26,6 +26,7 @@ function serviceWith(stub: Record<string, unknown>): AgentExecuteService {
     resolveForExecution: async () => ({ ok: true as const }),
     record: async () => undefined,
     generateStructured: async () => null,
+    tenantHasFeature: async () => true,
     ...stub,
   };
   const deps = Array.from({ length: 80 }, () => shared as unknown);
@@ -326,5 +327,21 @@ describe("הצעות מחיר על נכס — סריקה שנחתכה", () => {
       run(() => serviceWith({ list, decide }).execute("decide_bid", { propertyId: PROPERTY, bidDecision: "accepted" })),
     ).rejects.toThrow("אמרו של איזה קונה");
     expect(decide).not.toHaveBeenCalled();
+  });
+});
+
+describe("בית פתוח — מסלול בלי עמודי נחיתה", () => {
+  // ‏קישור ההרשמה הוא עמוד נחיתה; בלי הפיצ'ר האירוע היה נקבע עם קישור מת (ביקורת Codex)
+  it("נחסם לפני היצירה", async () => {
+    const create = vi.fn();
+    await expect(
+      run(() =>
+        serviceWith({ create, tenantHasFeature: async () => false }).execute("schedule_open_house", {
+          propertyId: PROPERTY,
+          startsAt: "2026-12-04T08:00:00.000Z",
+        }),
+      ),
+    ).rejects.toThrow();
+    expect(create).not.toHaveBeenCalled();
   });
 });

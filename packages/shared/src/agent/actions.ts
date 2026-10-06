@@ -2579,6 +2579,11 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
       "בית פתוח בפנטהאוז בנתניה ביום שלישי בשש, כל חצי שעה קבוצה",
     ],
     capability: "properties.edit",
+    /*
+     * ‏קישור ההרשמה הוא עמוד נחיתה ציבורי — בלי הפיצ'ר במסלול הוא נדחה,
+     * ‏והאירוע היה נקבע עם קישור מת (ביקורת Codex).
+     */
+    feature: "landing_pages",
     risk: "create",
     fields: [
       F_PROPERTY_PHRASE,
