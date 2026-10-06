@@ -101,6 +101,7 @@ describe("countsWithin — רק שמות העצם של הרשימה", () => {
     expect(countsWithin("יש לך שבע משימות פתוחות", { section: "tasks", total: 0 })).toBe(false);
     expect(countsWithin("שלוש פגישות היום", { section: "appointments", total: 3 })).toBe(true);
     expect(countsWithin("ארבעה סיורים היום", { section: "appointments", total: 3 })).toBe(false);
+    expect(countsWithin("יש שבע התראות חדשות", { section: "notifications", total: 2 })).toBe(false);
   });
 
   it("רשימה שאין לה שמות עצם מוכרים — אינה נבדקת", () => {

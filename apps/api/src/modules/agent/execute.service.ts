@@ -1120,6 +1120,8 @@ export class AgentExecuteService {
           startsAt: a.startsAt,
           status: a.status,
         })),
+        // ‏בתקרה — ייתכן שיש עוד, וזה נאמר (ביקורת Codex)
+        hasMore: appointments.length >= APPOINTMENT_LIST_SCAN,
         ...(appointments.length < APPOINTMENT_LIST_SCAN ? { total: appointments.length } : {}),
       },
     };
@@ -1153,6 +1155,7 @@ export class AgentExecuteService {
           ...(t.dueAt !== undefined && t.dueAt !== null ? { dueAt: t.dueAt } : {}),
           ...(t.entityLabel !== undefined ? { entityLabel: t.entityLabel } : {}),
         })),
+        hasMore: tasks.length >= TASK_LIST_SCAN,
         ...(tasks.length < TASK_LIST_SCAN ? { total: tasks.length } : {}),
       },
     };
@@ -1423,6 +1426,9 @@ export class AgentExecuteService {
           ...(item.body === undefined ? {} : { body: item.body }),
           createdAt: item.createdAt,
         })),
+        // ‏הספירה במסד, באותו תנאי ראות — הסך המדויק של מה שלא נקרא
+        hasMore: unreadCount > items.length,
+        total: unreadCount,
       },
     };
   }

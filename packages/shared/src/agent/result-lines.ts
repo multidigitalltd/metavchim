@@ -612,12 +612,12 @@ const SECTION_ROWS: Record<string, (value: unknown) => AgentResultRow[]> = {
 /**
  * שם הרשימה — למקטע שעומד לבדו.
  *
- * `counted` מבדיל בין „נחתך בשרת” לבין „זה הכול”: שאילתות החיפוש
- * מחזירות עמוד ומדווחות `hasMore`, ורשימות היום אינן.
+ * `counted` מבדיל בין „נחתך בשרת” לבין „זה הכול”: מקטע שמפיקו מדווח
+ * `hasMore` כשהגיע לתקרה — שאילתות החיפוש, וגם משימות, פגישות והתראות.
  */
 const SECTION_META: Record<string, { noun: string; counted: boolean }> = {
-  appointments: { noun: "פגישות", counted: false },
-  tasks: { noun: "משימות פתוחות", counted: false },
+  appointments: { noun: "פגישות", counted: true },
+  tasks: { noun: "משימות פתוחות", counted: true },
   calls: { noun: "שיחות אחרונות", counted: false },
   deals: { noun: "עסקאות משותפות", counted: false },
   buyers: { noun: "קונים", counted: true },
@@ -629,7 +629,7 @@ const SECTION_META: Record<string, { noun: string; counted: boolean }> = {
   agreements: { noun: "ממתינים לחתימה", counted: true },
   offers: { noun: "הצעות", counted: true },
   demands: { noun: "ביקושים ברשת", counted: true },
-  notifications: { noun: "התראות", counted: false },
+  notifications: { noun: "התראות", counted: true },
   emails: { noun: "שיחות מייל", counted: true },
   callbacks: { noun: "ממתינים לחזרה", counted: true },
 };
