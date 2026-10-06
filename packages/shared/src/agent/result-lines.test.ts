@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   AGENT_RESULT_LABEL_MAX,
+  AGENT_RESULT_SUMMARY_MAX,
   agentHistorySummary,
   agentResultList,
   agentResultRefs,
@@ -663,7 +664,9 @@ describe("הזיכרון לתור הבא — גזירה אחת לשני המסכ
   });
 
   it("נחתך לתקרת השדה בסכימת הנתיב", () => {
-    expect(agentHistorySummary("א".repeat(900), undefined)).toHaveLength(600);
+    expect(agentHistorySummary("א".repeat(AGENT_RESULT_SUMMARY_MAX + 300), undefined)).toHaveLength(
+      AGENT_RESULT_SUMMARY_MAX,
+    );
   });
 
   /*
@@ -697,7 +700,7 @@ describe("הזיכרון לתור הבא — גזירה אחת לשני המסכ
       cities: [],
     }));
     const summary = agentHistorySummary("נמצאו 8 קונים", { buyers });
-    expect(summary.length).toBeLessThan(600);
+    expect(summary.length).toBeLessThan(AGENT_RESULT_SUMMARY_MAX);
     expect(summary.split(", ")).toHaveLength(8);
   });
 
@@ -713,8 +716,8 @@ describe("הזיכרון לתור הבא — גזירה אחת לשני המסכ
       name: `קונה מספר ${i}`,
       cities: [],
     }));
-    const summary = agentHistorySummary("א".repeat(900), { buyers });
-    expect(summary).toHaveLength(600);
+    const summary = agentHistorySummary("א".repeat(AGENT_RESULT_SUMMARY_MAX + 300), { buyers });
+    expect(summary).toHaveLength(AGENT_RESULT_SUMMARY_MAX);
     expect(summary.endsWith("קונה מספר 7")).toBe(true);
   });
 });
@@ -834,7 +837,8 @@ describe("שני לקוחות באותו שם", () => {
   });
 
   it("וגם הזיכרון נושא את אותן תוויות", () => {
-    expect(agentHistorySummary("נמצאו 2 קונים", twins)).toContain("משה כהן 1, משה כהן 2");
+    // ‏אותן תוויות ממוספרות, באותו סדר — המאפיינים נזכרים לצידן
+    expect(agentHistorySummary("נמצאו 2 קונים", twins)).toMatch(/משה כהן 1 \([^)]*\), משה כהן 2/u);
   });
 
   it("לקוח יחיד אינו ממוספר", () => {
@@ -1104,5 +1108,76 @@ describe("מקטעי התשובה החדשים", () => {
     })!;
     expect(line).toContain("דנה לוי ממתינה 3 שעות");
     expect(line).toContain("ליד חדש");
+  });
+});
+
+/*
+ * ‎**הזיכרון זוכר מאפיינים — לא רק שמות** (בעל המוצר: „לא מבין
+ * ‏הקשרים”). „הזול מביניהם” ו„אלה שברמת גן” צריכים את המחיר והעיר
+ * ‏לצד כל שם — ושום תוכן חופשי, שעלול לשאת פרטים, אינו נוסע איתם.
+ */
+describe("הזיכרון לתור הבא — מאפיינים לצד השם", () => {
+  it("קונים נזכרים עם החדרים, הערים והתקציב", () => {
+    const summary = agentHistorySummary("נמצאו 2 קונים", {
+      buyers: [
+        { id: "b1", name: "משה כהן", roomsMin: 4, cities: ["רמת גן"], budgetMaxAgorot: 250_000_000, phone: "050-1234567" },
+        { id: "b2", name: "דנה לוי", roomsMin: 3, cities: ["גבעתיים"], budgetMaxAgorot: 180_000_000 },
+      ],
+    });
+    expect(summary).toMatch(/משה כהן \(4 חדרים · רמת גן · עד [^)]*2,500,000[^)]*\)/u);
+    expect(summary).toMatch(/דנה לוי \(3 חדרים · גבעתיים · עד [^)]*1,800,000[^)]*\)/u);
+    expect(summary).not.toContain("050-1234567");
+  });
+
+  it("נכסים נזכרים עם החדרים, העיר והמחיר", () => {
+    const summary = agentHistorySummary("נמצאו נכסים", {
+      properties: [{ id: "p1", title: "הרצל 5", rooms: 4, city: "רמת גן", priceAgorot: 230_000_000 }],
+    });
+    expect(summary).toMatch(/הרצל 5 \(4 חדרים · רמת גן · [^)]*2,300,000[^)]*\)/u);
+  });
+
+  it("תוכן חופשי אינו נזכר — תקציר שיחה, תוכן הערה, נושא מייל וגוף התראה", () => {
+    const summary = agentHistorySummary("תוצאות", {
+      calls: [{ id: "c1", contactName: "יוסי", direction: "inbound", outcome: "answered", summary: "סוד-תקציר" }],
+      notes: [{ id: "n1", entityLabel: "רונית", content: "סוד-הערה", buyerId: "b1" }],
+      emails: [{ contactName: "אבי", lastSubject: "סוד-נושא", unread: 2 }],
+      notifications: [{ title: "ליד חדש", body: "סוד-גוף" }],
+    });
+    for (const secret of ["סוד-תקציר", "סוד-הערה", "סוד-נושא", "סוד-גוף"]) {
+      expect(summary).not.toContain(secret);
+    }
+  });
+
+  it("מספר טלפון בכותרת התראה אינו נזכר — רק התצוגה נושאת אותו", () => {
+    const data = { notifications: [{ title: "📵 שיחה שלא נענתה מ-050-123-4567" }] };
+    expect(agentHistorySummary("התראות", data)).not.toMatch(/\d{3}-\d{3}-\d{4}/u);
+    expect(agentResultText(data)).toContain("050-123-4567");
+  });
+
+  /*
+   * ‏כרטיס שנפתח משיחה בלי שם נקרא בשם המספר, והמשימה שמקושרת אליו
+   * ‏נושאת אותו בפרטים — המסך מציג, הזיכרון לא (ביקורת Codex).
+   */
+  it("מספר טלפון בפרטי שורה אינו נזכר — גם כשהגיע כשם של כרטיס", () => {
+    const data = { tasks: [{ id: "t1", title: "לחזור ללקוח", entityLabel: "050-1234567", dueAt: "2026-08-27T07:00:00Z" }] };
+    const summary = agentHistorySummary("משימות", data);
+    expect(summary).toContain("לחזור ללקוח");
+    expect(summary).toContain("27.08.2026");
+    expect(summary).not.toContain("050-1234567");
+    expect(agentResultText(data)).toContain("050-1234567");
+  });
+
+  it("רשימה ארוכה מדי לתקרה — המאפיינים יורדים, השמות נשארים שלמים", () => {
+    const cities = ["רמת גן", "גבעתיים", "בני ברק", "תל אביב", "חולון", "בת ים", "פתח תקווה", "הרצליה"];
+    const buyers = Array.from({ length: 8 }, (_, i) => ({
+      id: String(i),
+      name: `קונה מספר ${i}`,
+      roomsMin: 4,
+      cities,
+      budgetMaxAgorot: 250_000_000,
+    }));
+    const summary = agentHistorySummary("נמצאו 8 קונים", { buyers });
+    expect(summary).not.toContain("חדרים");
+    expect(summary.endsWith("לפי הסדר: קונה מספר 0, קונה מספר 1, קונה מספר 2, קונה מספר 3, קונה מספר 4, קונה מספר 5, קונה מספר 6, קונה מספר 7")).toBe(true);
   });
 });

@@ -1,16 +1,20 @@
 import { describe, expect, it } from "vitest";
 import {
   AGENT_HISTORY_KEPT,
+  AGENT_NOTICE_TURNS_KEPT,
   AGENT_RESULT_ROWS,
   agentTurnRefs,
   assistantMemoryTurn,
   conversationLockKey,
+  currentSubject,
   historyRefs,
+  keepRecentTurns,
   matchHistoryRef,
   mergeStoredTurns,
   parseStoredTurns,
 } from "./history.js";
 import { buildInterpretPrompt, type AgentHistoryRef, type AgentHistoryTurn } from "./prompt.js";
+import { agentResultRefs, agentResultShowsMany } from "./result-lines.js";
 
 const LEAD_ID = "01J0000000000000000000LEAD";
 const PROP_ID = "01J0000000000000000000PROP";
@@ -64,10 +68,54 @@ describe("assistantMemoryTurn", () => {
     expect(turn?.refs).toBeUndefined();
   });
 
-  it("מתעלם מסוג התראה שאין לו ניסוח — ולא כותב תור ריק", () => {
-    expect(assistantMemoryTurn([{ type: "weekly_summary", entityType: null, entityId: null }])).toBe(
-      null,
-    );
+  /*
+   * ‏ליד ותזכורת באותה הודעה: הפניה אחת, אבל המתווך ראה שני דברים —
+   * ‏הליד אינו „הוא” של המשפט הבא (ביקורת Codex, P1).
+   */
+  it("כמה עדכונים בהודעה אחת — רשימה, גם כשרק לאחד יש הפניה", () => {
+    const turn = assistantMemoryTurn([
+      { type: "call_missed", entityType: "lead", entityId: LEAD_ID },
+      { type: "appointment_reminder", entityType: null, entityId: null },
+    ]);
+    expect(turn?.refs).toHaveLength(1);
+    expect(turn?.plural).toBe(true);
+    expect(currentSubject([turn!])).toBeNull();
+  });
+
+  it("גם עדכון מסוג שאינו נזכר נספר — הוא נשלח והמתווך קרא אותו", () => {
+    const turn = assistantMemoryTurn([
+      { type: "lead", entityType: "lead", entityId: LEAD_ID },
+      { type: "lead_requires_human", entityType: "lead", entityId: PROP_ID },
+    ]);
+    expect(turn?.refs).toHaveLength(1);
+    expect(turn?.plural).toBe(true);
+  });
+
+  it("עדכון יחיד — אינו רשימה, והליד הוא הנושא", () => {
+    const turn = assistantMemoryTurn([{ type: "call_missed", entityType: "lead", entityId: LEAD_ID }]);
+    expect(turn?.plural).toBeUndefined();
+    expect(currentSubject([turn!])).toEqual(expect.objectContaining({ entityId: LEAD_ID }));
+  });
+
+  /*
+   * ‏התראה מסוג שאין לו ניסוח נשלחה ונקראה. היא נזכרת כעדכון כללי בלי
+   * ‏הפניה — ולכן היא מסיימת את הנושא הקודם (ביקורת Codex, P1).
+   */
+  it("סוג התראה שאין לו ניסוח — תור כללי בלי הפניה, שמסיים את הנושא", () => {
+    const turn = assistantMemoryTurn([{ type: "lead_requires_human", entityType: "lead", entityId: LEAD_ID }]);
+    expect(turn?.transcript).toBe("שלחתי לך עדכון");
+    expect(turn?.refs).toBeUndefined();
+    const buyer: AgentHistoryTurn = {
+      transcript: "x",
+      action: "show_card",
+      params: {},
+      refs: [{ label: "משה כהן", entityType: "buyer", entityId: PROP_ID }],
+    };
+    expect(currentSubject([buyer, turn!])).toBeNull();
+  });
+
+  it("בלי התראות — אין תור", () => {
+    expect(assistantMemoryTurn([])).toBeNull();
   });
 });
 
@@ -282,14 +330,169 @@ describe("ליבת אחסון השיחה — פירוק ומיזוג", () => {
   });
 
   it("המיזוג מוסיף בסוף וחותך בתקרה אחת — הישן יוצא ראשון", () => {
-    const stored = [1, 2, 3, 4, 5, 6].map((n) => turn(String(n)));
-    const merged = mergeStoredTurns(stored, [turn("7")]);
+    const stored = Array.from({ length: AGENT_HISTORY_KEPT }, (_, i) => turn(String(i + 1)));
+    const merged = mergeStoredTurns(stored, [turn("new")]);
     expect(merged).toHaveLength(AGENT_HISTORY_KEPT);
     expect(merged[0]?.transcript).toBe("2");
-    expect(merged.at(-1)?.transcript).toBe("7");
+    expect(merged.at(-1)?.transcript).toBe("new");
   });
 
   it("מפתח המנעול זהה לכל הכותבים — נגזר מהמשרד והמשתמש", () => {
     expect(conversationLockKey("t1", "u1")).toBe("wa-chat:t1:u1");
+  });
+});
+
+/*
+ * ‎**חלון השיחה — עדכוני הסוכן אינם דוחקים את המתווך** (בעל המוצר:
+ * ‏„לא מבין הקשרים”). צרור התראות באמצע שיחה מחק קודם את מה שהמתווך
+ * ‏ביקש רגע לפניו, כי כל התראה היא תור.
+ */
+describe("keepRecentTurns — חלון השיחה", () => {
+  const said = (transcript: string): AgentHistoryTurn => ({
+    transcript,
+    action: "search",
+    params: {},
+  });
+  const notice = (transcript: string): AgentHistoryTurn => ({
+    transcript,
+    action: "notify",
+    params: {},
+    origin: "assistant",
+  });
+
+  it("צרור התראות אינו מוחק את מה שהמתווך אמר", () => {
+    const turns = [said("קונים בגבעתיים"), ...Array.from({ length: 20 }, (_, i) => notice(`עדכון ${i}`))];
+    const kept = keepRecentTurns(turns);
+    expect(kept[0]?.transcript).toBe("קונים בגבעתיים");
+    expect(kept.filter((t) => t.origin === "assistant")).toHaveLength(AGENT_NOTICE_TURNS_KEPT);
+    // ‏נשמרים העדכונים **האחרונים**, לפי הסדר
+    expect(kept.at(-1)?.transcript).toBe("עדכון 19");
+  });
+
+  it("הסדר המקורי נשמר — גם כשתורות התערבבו", () => {
+    const turns = [said("א"), notice("1"), said("ב"), notice("2"), said("ג")];
+    expect(keepRecentTurns(turns).map((t) => t.transcript)).toEqual(["א", "1", "ב", "2", "ג"]);
+  });
+
+  it("התקרה הכוללת נשמרת — הישן ביותר יוצא", () => {
+    const turns = Array.from({ length: AGENT_HISTORY_KEPT + 5 }, (_, i) => said(String(i)));
+    const kept = keepRecentTurns(turns);
+    expect(kept).toHaveLength(AGENT_HISTORY_KEPT);
+    expect(kept[0]?.transcript).toBe("5");
+  });
+});
+
+/*
+ * ‎**הנושא — הרשומה היחידה שהתור האחרון נגע בה.** „תוסיף לו הערה”
+ * ‏אחרי כרטיס הוא הכרטיס; אחרי רשימה של חמישה — אין „הוא” אחד.
+ */
+describe("currentSubject — הרשומה שעליה מדברים עכשיו", () => {
+  const buyer: AgentHistoryRef = { label: "משה כהן", entityType: "buyer", entityId: LEAD_ID };
+  const property: AgentHistoryRef = { label: "הרצל 5", entityType: "property", entityId: PROP_ID };
+  const with_ = (refs: AgentHistoryRef[]): AgentHistoryTurn => ({
+    transcript: "x",
+    action: "show_card",
+    params: {},
+    refs,
+  });
+  const chat = (): AgentHistoryTurn => ({ transcript: "תודה", action: "unknown", params: {}, reply: "בשמחה" });
+
+  it("כרטיס שנפתח — הוא הנושא, גם אחרי שיחה חופשית", () => {
+    expect(currentSubject([with_([buyer]), chat()])).toEqual(buyer);
+  });
+
+  it("רשימה אחרי הכרטיס — אין נושא אחד, ואין חזרה לכרטיס הישן", () => {
+    expect(currentSubject([with_([buyer]), with_([buyer, property])])).toBeNull();
+  });
+
+  it("רשומה חדשה מחליפה את הנושא", () => {
+    expect(currentSubject([with_([buyer]), with_([property])])).toEqual(property);
+  });
+
+  it("שיחה בלי רשומות — אין נושא", () => {
+    expect(currentSubject([chat()])).toBeNull();
+  });
+
+  /*
+   * ‏רשימת שיחות או פגישות — שורות בלי הפניה. היא אינה „שיחה”, ולכן אינה
+   * ‏שקופה: „תוסיף לו הערה” אחריה אינו על הקונה שנפתח לפניה (ביקורת Codex).
+   */
+  it("רשימה בלי הפניות אחרי הכרטיס — אין נושא, ולא חזרה לכרטיס", () => {
+    const calls: AgentHistoryTurn = { transcript: "שיחות אחרונות", action: "show_calls", params: {} };
+    expect(currentSubject([with_([buyer]), calls])).toBeNull();
+  });
+
+  /*
+   * ‏במסך, עדכון מההתראות מצורף לסוף בלי חותמת זמן. קונה שנפתח בפאנל
+   * ‏אחרי ההתראה לא יהפוך את הליד מההתראה ל„הוא” (ביקורת Codex, P1).
+   */
+  it("תור שמקומו מנוחש — אין נושא מפורש", () => {
+    const lead: AgentHistoryRef = { label: "הליד מהעדכון", entityType: "lead", entityId: PROP_ID };
+    const guessed: AgentHistoryTurn = {
+      transcript: "עדכנתי אותך על ליד חדש",
+      action: "notify",
+      params: {},
+      origin: "assistant",
+      refs: [lead],
+      unordered: true,
+    };
+    expect(currentSubject([with_([buyer]), guessed])).toBeNull();
+  });
+
+  /*
+   * ‏רשימת מיילים של שלושה, שרק לאחד מהם יש כרטיס קונה: הפניה אחת,
+   * ‏אבל המתווך ראה שלושה — „תוסיף לו הערה” אינו על אף אחד מהם (ביקורת Codex, P1).
+   */
+  it("רשימה שרק לשורה אחת בה יש הפניה — אינה נושא", () => {
+    const data = {
+      emails: [
+        { contactName: "דנה", buyerId: LEAD_ID, unread: 1 },
+        { contactName: "ספק", unread: 0 },
+        { contactName: "עורך דין", unread: 2 },
+      ],
+    };
+    const refs = agentResultRefs(data);
+    expect(refs).toHaveLength(1);
+    expect(agentResultShowsMany(data)).toBe(true);
+    const emails: AgentHistoryTurn = { transcript: "המיילים", action: "show_emails", params: {}, refs, plural: true };
+    expect(currentSubject([with_([property]), emails])).toBeNull();
+  });
+
+  it("תוצאה של שורה אחת — אינה רשימה, והיא הנושא", () => {
+    const data = { buyers: [{ id: LEAD_ID, name: "משה כהן" }] };
+    expect(agentResultShowsMany(data)).toBe(false);
+    expect(currentSubject([with_(agentResultRefs(data))])).toEqual(
+      expect.objectContaining({ entityId: LEAD_ID }),
+    );
+  });
+
+  it("עדכון של הסוכן בלי רשומה — גם הוא מכריע", () => {
+    const brief: AgentHistoryTurn = {
+      transcript: 'שלחתי לך את דו"ח הבוקר',
+      action: "notify",
+      params: {},
+      origin: "assistant",
+    };
+    expect(currentSubject([with_([buyer]), brief])).toBeNull();
+  });
+
+  it("הנושא מופיע בפרומפט עם הסימון, וסוג הרשומה בלי שום פרט שלה", () => {
+    const prompt = buildInterpretPrompt("תוסיף לו הערה", {
+      nowText: "יום שני",
+      allowedActions: ["add_note"],
+      history: [with_([buyer])],
+    });
+    expect(prompt).toContain("## הרשומה שעליה מדברים עכשיו");
+    expect(prompt).toContain("⟪משה כהן⟫ — קונה.");
+    expect(prompt).not.toContain(LEAD_ID);
+  });
+
+  it("בלי נושא — בלי הקטע", () => {
+    const prompt = buildInterpretPrompt("תוסיף לו הערה", {
+      nowText: "יום שני",
+      allowedActions: ["add_note"],
+      history: [with_([buyer, property])],
+    });
+    expect(prompt).not.toContain("## הרשומה שעליה מדברים עכשיו");
   });
 });

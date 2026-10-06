@@ -6,10 +6,12 @@ import {
   AGENT_RESULT_LABEL_MAX,
   AGENT_RESULT_ROWS,
   AGENT_REPLY_MAX,
+  AGENT_HISTORY_KEPT,
   AGENT_RESULT_SUMMARY_MAX,
   agentAction,
   agentHelpGroups,
   agentWelcomeExamples,
+  keepRecentTurns,
   historyRefs,
   type AgentHelpGroup,
   type AgentHistoryTurn,
@@ -94,6 +96,11 @@ const TurnSchema = z
       )
       .max(AGENT_RESULT_ROWS)
       .optional(),
+    /*
+     * ‏התור הציג רשימה (`AgentHistoryTurn.plural`). מהדפדפן הוא יכול רק
+     * ‏**לבטל** נושא — לעולם לא ליצור אחד — ולכן אין בו מה לנצל.
+     */
+    plural: z.literal(true).optional(),
   })
   .strict();
 
@@ -109,10 +116,10 @@ const InterpretSchema = z
       .optional(),
     /**
      * התורות האחרונות בשיחה — למשפטי המשך ("ומה עם רמת גן?").
-     * המסך שולח את מה שבוצע בפועל, לא את מה שרק הוצע; שישה תורות
-     * מספיקים לשיחה ומונעים פרומפט שמתנפח בלי סוף.
+     * המסך שולח את מה שבוצע בפועל, לא את מה שרק הוצע — באותו חלון
+     * שהשיחה השמורה נחתכת אליו, כדי ששני הערוצים יזכרו אותו דבר.
      */
-    history: z.array(TurnSchema).max(6).optional(),
+    history: z.array(TurnSchema).max(AGENT_HISTORY_KEPT).optional(),
     /**
      * הפעולה שהמתווך בחר מתוך „אולי התכוונת”, אחרי „לא הבנתי”.
      *
@@ -225,12 +232,16 @@ export class AgentController {
      * (הדפדפן שולח אותם כמערך), ולכן אי אפשר למזג את שני המקורות
      * לפי סדר אמיתי. בהיעדר חותמת, „מה שזה עתה קפץ למסך” הוא
      * הניחוש הטוב יותר למה שהמתווך מתכוון אליו כשהוא אומר „אליו”.
+     *
+     * ‎**ולכן הוא מסומן `unordered`.** ניחוש מספיק להקשר — המודל רואה
+     * ‏את העדכון ומחליט — אבל לא ל„נושא הנוכחי” המפורש: קונה שנפתח
+     * ‏בפאנל *אחרי* ההתראה היה מפנה לליד מההתראה (ביקורת Codex, P1).
      */
     const memory = await this.memory.recentTurn();
-    const history = [
+    const history = keepRecentTurns([
       ...((body.history ?? []) as AgentHistoryTurn[]),
-      ...(memory ? [memory] : []),
-    ];
+      ...(memory ? [{ ...memory, unordered: true as const }] : []),
+    ]);
     const interpretation = await this.interpret.interpret(
       body.transcript,
       body.prior as { action: string; params: Record<string, unknown> } | undefined,

@@ -29,8 +29,72 @@ import type { AgentHistoryRef, AgentHistoryTurn } from "./prompt.js";
  * כאן ולא בשירות, כי **שני** כותבים נוגעים באותו שדה: מענה הסוכן
  * ב-API וסבב ההתראות ב-Worker. שני מספרים היו נחתכים זה את זה —
  * הצד עם החלון הקטן היה מוחק בכל כתיבה את מה שהצד השני שמר.
+ *
+ * ‎**שש היו מעט מדי** (בעל המוצר: „לא מבין הקשרים”). שיחת עבודה
+ * ‏אמיתית — חיפוש, כרטיס, תיקון, עוד שאלה על אותו לקוח — חוצה שש
+ * ‏תורות תוך דקות, ושלוש התראות באמצע דחקו את מה שהמתווך אמר רגע
+ * ‏קודם. הפרומפט נשאר בגבולות סבירים: הקטלוג הוא רובו, והוא קבוע.
  */
-export const AGENT_HISTORY_KEPT = 6;
+export const AGENT_HISTORY_KEPT = 16;
+
+/**
+ * ‎**כמה עדכונים של הסוכן נשמרים בתוך החלון — לא יותר.**
+ *
+ * ‏התראות מגיעות בצרורות (שיחה שלא נענתה, ליד, תזכורת), וכל אחת
+ * ‏היא תור. בלי תקרה משלהן הן דוחקות את מה שהמתווך עצמו ביקש —
+ * ‏כלומר את ההקשר שהוא באמת ממשיך. ארבע מספיקות ל„אליו” על
+ * ‏העדכונים האחרונים; ישנות יותר כבר אינן „הוא” של אף משפט.
+ */
+export const AGENT_NOTICE_TURNS_KEPT = 4;
+
+/**
+ * ‎**חלון השיחה — פונקציה אחת לכל מי שחותך.**
+ *
+ * ‏מהחדש לישן: תורות של המתווך נשמרים עד התקרה, ועדכונים של הסוכן
+ * ‏(`origin: "assistant"`) רק עד `AGENT_NOTICE_TURNS_KEPT` האחרונים.
+ * ‏הסדר המקורי נשמר — זו שיחה, וההמשך שלה תלוי בסדר.
+ */
+export function keepRecentTurns(turns: readonly AgentHistoryTurn[]): AgentHistoryTurn[] {
+  const kept: AgentHistoryTurn[] = [];
+  let notices = 0;
+  for (let i = turns.length - 1; i >= 0 && kept.length < AGENT_HISTORY_KEPT; i -= 1) {
+    const turn = turns[i]!;
+    if (turn.origin === "assistant") {
+      if (notices >= AGENT_NOTICE_TURNS_KEPT) continue;
+      notices += 1;
+    }
+    kept.push(turn);
+  }
+  return kept.reverse();
+}
+
+/**
+ * ‎**הרשומה שעליה מדברים עכשיו** — או `null` כשאין אחת כזו.
+ *
+ * ‏„תוסיף לו הערה”, „תקבע לה סיור”, „כמה הנכס הזה עולה” — בלי שם.
+ * ‏התשובה היא הרשומה היחידה שהתור האחרון שנגע ברשומות הציג או שינה:
+ * ‏כרטיס שנפתח, קונה שנוצר, ליד מהעדכון. תור שהציג **רשימה** אינו
+ * ‏נושא — „לו” אחרי חמישה קונים הוא שאלה, לא תשובה — ולכן החיפוש
+ * ‏נעצר שם ואינו ממשיך אחורה לנושא ישן יותר.
+ *
+ * ‏רק תור **שיחתי** (תשובה חופשית, „תודה” — `action: "unknown"`) אינו
+ * ‏מחליף נושא, והחיפוש ממשיך מעליו אחורה. כל תור אחר מכריע — גם רשימה
+ * ‏שלשורות שלה אין הפניה (שיחות, פגישות, הצעות): „תוסיף לו הערה” אחרי
+ * ‏רשימת שיחות אינו מדבר על הקונה שנפתח לפניה, והחזרתו כנושא הייתה
+ * ‏מכוונת כתיבה לרשומה הלא נכונה (ביקורת Codex, P1).
+ */
+export function currentSubject(history: readonly AgentHistoryTurn[]): AgentHistoryRef | null {
+  for (let i = history.length - 1; i >= 0; i -= 1) {
+    const turn = history[i]!;
+    // ‏סדר מנוחש — אין לדעת מה קדם למה, ולכן אין נושא מפורש
+    if (turn.unordered === true) return null;
+    if (turn.action === "unknown") continue;
+    const refs = turn.refs ?? [];
+    // ‏רשימה שרק אחת משורותיה ניתנת להפניה היא עדיין רשימה
+    return refs.length === 1 && turn.plural !== true ? refs[0]! : null;
+  }
+  return null;
+}
 
 /**
  * ‎**ליבת האחסון של שיחת הסוכן — פעם אחת, לשלושת הכותבים.**
@@ -79,7 +143,7 @@ export function mergeStoredTurns(
   stored: readonly AgentHistoryTurn[],
   added: readonly AgentHistoryTurn[],
 ): AgentHistoryTurn[] {
-  return [...stored, ...added].slice(-AGENT_HISTORY_KEPT);
+  return keepRecentTurns([...stored, ...added]);
 }
 
 /**
@@ -173,10 +237,18 @@ export function assistantMemoryTurn(
   const refs: AgentHistoryRef[] = [];
   const seenRefs = new Set<string>();
   const seenTexts = new Set<string>();
+  /*
+   * ‏עדכונים בלי רשומה — גם הם חלק ממה שהמתווך ראה (`plural`). כולל
+   * ‏סוג שאין לו ניסוח בזיכרון: הוא נשלח ונקרא, גם אם לא נזכר.
+   */
+  let unreferenced = 0;
 
   for (const item of items) {
     const text = NOTIFY_MEMORY[item.type];
-    if (text === undefined) continue;
+    if (text === undefined) {
+      unreferenced += 1;
+      continue;
+    }
     // אותו סוג פעמיים באותה הודעה — משפט אחד, לא חזרה
     if (!seenTexts.has(text)) {
       seenTexts.add(text);
@@ -185,11 +257,12 @@ export function assistantMemoryTurn(
     if (
       item.entityId === null ||
       item.entityType === null ||
-      !REF_ENTITY_TYPES.has(item.entityType) ||
-      seenRefs.has(item.entityId)
+      !REF_ENTITY_TYPES.has(item.entityType)
     ) {
+      unreferenced += 1;
       continue;
     }
+    if (seenRefs.has(item.entityId)) continue;
     seenRefs.add(item.entityId);
     /*
      * מספור רק כשיש יותר מאחד. „הליד מהעדכון 1” כשיש אחד בלבד הוא
@@ -202,14 +275,25 @@ export function assistantMemoryTurn(
     });
   }
 
-  if (texts.length === 0) return null;
+  if (items.length === 0) return null;
   return {
-    transcript: texts.join(", "),
+    /*
+     * ‏‎**גם עדכון בלי ניסוח בזיכרון הוא תור.** „ליד דורש טיפול” לבדו
+     * ‏נשלח ונקרא; בלי תור, `currentSubject` היה מדלג עליו ומחזיר כרטיס
+     * ‏ישן כ„הוא” (ביקורת Codex, P1). משפט כללי, בלי הפניה — כמו כל
+     * ‏עדכון בלי רשומה, הוא מסיים את הנושא ואינו ממציא חדש.
+     */
+    transcript: texts.length === 0 ? "שלחתי לך עדכון" : texts.join(", "),
     // אין פעולה: הסוכן לא ביצע דבר, הוא דיווח
     action: "notify",
     params: {},
     origin: "assistant",
     ...(refs.length > 0 ? { refs: numberDuplicateLabels(refs) } : {}),
+    /*
+     * ‏ליד ותזכורת לפגישה באותה הודעה — הפניה אחת, אבל שני דברים.
+     * ‏„תוסיף לו הערה” אחרי הודעה כזו אינו על הליד (ביקורת Codex, P1).
+     */
+    ...(seenRefs.size + unreferenced > 1 ? { plural: true as const } : {}),
   };
 }
 

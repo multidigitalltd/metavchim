@@ -5,7 +5,11 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import {
   agentHistorySummary,
   agentReplyTurn,
+  agentResultRefs,
+  agentResultShowsMany,
   agentResultText,
+  keepRecentTurns,
+  agentTurnRefs,
   proposalRunsImmediately,
   type AgentHistoryRef,
 } from "@metavchim/shared";
@@ -128,7 +132,8 @@ export default function VoiceScreen() {
 
   /** ‏תור לזיכרון השיחה — המקומי והשמור, לשני סוגי התורות. */
   const keep = useCallback((turn: HistoryTurn) => {
-    history.current = [...history.current, turn].slice(-6);
+    // ‏אותו חלון כמו בשרת, בוואטסאפ ובמסך — פונקציה אחת לכל מי שחותך
+    history.current = keepRecentTurns([...history.current, turn]);
     // השיחה נשמרת גם בשרת — כדי שתימשך בוואטסאפ ובמחשב. בלי המתנה.
     void apiPost("/agent/conversation/turn", turn).catch(() => undefined);
   }, []);
@@ -155,6 +160,7 @@ export default function VoiceScreen() {
         params,
         resultSummary: agentHistorySummary(result.message, result.data),
         ...(refs.length > 0 ? { refs } : {}),
+        ...(agentResultShowsMany(result.data) ? { plural: true as const } : {}),
       });
     },
     [keep, push],
@@ -216,7 +222,8 @@ export default function VoiceScreen() {
             proposal.actionId,
             executed,
             params,
-            executed.ref ? [executed.ref] : [],
+            // ‏כמו במסך: גם השורות שהשאילתה החזירה, לא רק הרשומה שנגעו בה
+            agentTurnRefs([executed.ref], agentResultRefs(executed.data)),
           );
           return;
         }
