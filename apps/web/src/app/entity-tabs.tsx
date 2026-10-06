@@ -1,8 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
-import { useScrollAffordance } from "@/lib/use-scroll-affordance";
+import { scrollStripToward, useScrollAffordance } from "@/lib/use-scroll-affordance";
+
+import { IconChevronLeft, IconChevronRight } from "./icons";
 
 /**
  * לשוניות של כרטיס ישות — **הסדר שהיה חסר.**
@@ -69,29 +71,63 @@ export function EntityTabs({
    * הטעינה ומרחיב את הלשונית; בלי שהוא בחתימה, הגלישה שנולדת אינה
    * נמדדת והלשונית הפעילה נדחפת החוצה אחרי שהגלילה כבר רצה.
    */
-  const strip = useScrollAffordance<HTMLDivElement>(
+  const affordance = useScrollAffordance<HTMLDivElement>(
     `${active}|${tabs.map((tab) => `${tab.key}:${tab.label}:${tab.count ?? ""}`).join(",")}`,
+  );
+  const [stripEl, setStripEl] = useState<HTMLDivElement | null>(null);
+  const strip = useCallback(
+    (el: HTMLDivElement | null): void => {
+      affordance(el);
+      setStripEl(el);
+    },
+    [affordance],
+  );
+
+  /*
+   * ‎**חצים לעכבר** (דיווח משתמש: במחשב לא היה אפשר להגיע ללשונית
+   * ‏שמחוץ למסך). מוצגים רק במכשיר עם עכבר, ורק בצד שיש בו עוד
+   * ‏(`data-fade` של הסרגל — ראו `.mv-strip-arrow` ב-CSS). מחוץ לסדר
+   * ‏המקלדת ולקוראי המסך בכוונה: שם כל לשונית היא כפתור, ומעבר אליה
+   * ‏גולל אותה לתצוגה בעצמו.
+   */
+  const arrow = (toward: "start" | "end"): React.JSX.Element => (
+    <button
+      type="button"
+      className="mv-strip-arrow"
+      data-toward={toward}
+      tabIndex={-1}
+      aria-hidden="true"
+      onClick={() => {
+        if (stripEl !== null) scrollStripToward(stripEl, toward);
+      }}
+    >
+      {toward === "start" ? <IconChevronRight s={16} /> : <IconChevronLeft s={16} />}
+    </button>
   );
 
   return (
-    <div className="mv-entity-tabs" role="tablist" aria-label={label} ref={strip}>
-      {tabs.map((tab) => (
-        <button
-          key={tab.key}
-          type="button"
-          role="tab"
-          id={`${idPrefix}-${tab.key}`}
-          aria-selected={isActive === undefined ? active === tab.key : isActive(tab.key)}
-          aria-controls={`${panelPrefix}-${tab.key}`}
-          onClick={() => onSelect(tab.key)}
-        >
-          {tab.icon}
-          {tab.label}
-          {tab.count !== undefined && tab.count > 0 ? (
-            <span className="mv-tab-count">{tab.count}</span>
-          ) : null}
-        </button>
-      ))}
+    <div className="mv-entity-tabs-wrap">
+      {arrow("start")}
+      <div className="mv-entity-tabs" role="tablist" aria-label={label} ref={strip}>
+        {tabs.map((tab) => (
+          <button
+            key={tab.key}
+            type="button"
+            role="tab"
+            id={`${idPrefix}-${tab.key}`}
+            aria-selected={isActive === undefined ? active === tab.key : isActive(tab.key)}
+            aria-controls={`${panelPrefix}-${tab.key}`}
+            onClick={() => onSelect(tab.key)}
+          >
+            {tab.icon}
+            {tab.label}
+            {tab.count !== undefined && tab.count > 0 ? (
+              <span className="mv-tab-count">{tab.count}</span>
+            ) : null}
+          </button>
+        ))}
+      </div>
+      {arrow("end")}
     </div>
   );
 }

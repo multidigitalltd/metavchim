@@ -43,6 +43,20 @@ export const SCROLL_FADE_PX = 34;
  */
 const PAD = SCROLL_FADE_PX + 4;
 
+/** ‏כיוון הכתיבה של הסרגל: ב-RTL „קדימה” הוא שמאלה, כלומר `scrollLeft` יורד. */
+function isRtl(el: HTMLElement): boolean {
+  return getComputedStyle(el).direction === "rtl";
+}
+
+/**
+ * ‎**צעד אחד בסרגל — לחיצה על חץ.** כשלושה רבעים מהרוחב הנראה, כך
+ * ‏שהלשונית שהייתה על הקצה נשארת בתצוגה ומשמשת עוגן לעין.
+ */
+export function scrollStripToward(el: HTMLElement, toward: "start" | "end"): void {
+  const step = el.clientWidth * 0.75 * (toward === "end" ? 1 : -1);
+  el.scrollBy({ left: isRtl(el) ? -step : step, behavior: "smooth" });
+}
+
 export function useScrollAffordance<T extends HTMLElement>(
   /**
    * מחרוזת שמשתנה בכל דבר שמזיז את הגיאומטריה — תוויות, מונים,
@@ -85,6 +99,26 @@ export function useScrollAffordance<T extends HTMLElement>(
     measure();
     el.addEventListener("scroll", measure, { passive: true });
     /*
+     * ‎**גלגלת העכבר גוללת את הסרגל לרוחב** (דיווח משתמש: בכרטיס נכס
+     * ‏לא היה אפשר להגיע ללשונית שמחוץ למסך). פס הגלילה מוסתר, ועכבר
+     * ‏רגיל גולל רק אנכית — כלומר במחשב לא הייתה שום דרך להזיז את
+     * ‏הסרגל. משטח מגע ששולח תנועה אופקית נשאר כמו שהוא, ובקצה הסרגל
+     * ‏הגלגלת חוזרת לגלול את העמוד — כך שהסרגל אינו לוכד את העכבר.
+     */
+    const onWheel = (event: WheelEvent): void => {
+      if (Math.abs(event.deltaX) >= Math.abs(event.deltaY)) return;
+      const room = el.scrollWidth - el.clientWidth;
+      if (room <= 1) return;
+      const from = Math.abs(el.scrollLeft);
+      const forward = event.deltaY > 0;
+      if (forward ? from >= room - 1 : from <= 1) return;
+      event.preventDefault();
+      // ‏שורות (Firefox) ולא פיקסלים — שורה כ-16 פיקסלים
+      const delta = event.deltaY * (event.deltaMode === 1 ? 16 : 1);
+      el.scrollLeft += isRtl(el) ? -delta : delta;
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    /*
      * ‎`ResizeObserver` ולא אירוע `resize` של החלון: הסרגל צר
      * מהחלון ומשתנה גם כשהחלון אינו משתנה — סרגל צד שנפתח, מכשיר
      * שהסתובב, או לשונית שהתרחבה בגלל מונה.
@@ -94,6 +128,7 @@ export function useScrollAffordance<T extends HTMLElement>(
     for (const child of Array.from(el.children)) observer.observe(child);
     return () => {
       el.removeEventListener("scroll", measure);
+      el.removeEventListener("wheel", onWheel);
       observer.disconnect();
     };
   }, [node, measure, signature]);

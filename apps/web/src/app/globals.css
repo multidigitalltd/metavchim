@@ -3088,6 +3088,60 @@ button.mv-list-row:hover {
   );
 }
 
+/*
+ * ‎**חצי הסרגל — לעכבר בלבד, ובצד שיש בו עוד** (דיווח משתמש: בכרטיס
+ * ‏נכס לא הייתה דרך להגיע במחשב ללשונית שמחוץ למסך).
+ *
+ * ‏פס הגלילה מוסתר, ובמגע מחליקים — אבל עכבר לא הזיז דבר. החץ יושב
+ * ‏על אזור הדהייה, ומופיע רק כשההוק סימן שיש לאן לגלול (`data-fade`):
+ * ‎`end` — יש עוד לכיוון הסוף (שמאל), `start` — לכיוון ההתחלה, `both`.
+ * ‏במכשיר מגע הוא לעולם אינו מוצג: שם ההחלקה היא הדרך, וכפתור צף
+ * ‏מעל הלשוניות רק היה מסתיר אותן.
+ */
+.mv-entity-tabs-wrap {
+  position: relative;
+  /* ‏הריווח שהיה של הסרגל עובר למעטפת — החצים ממורכזים מול הסרגל בלבד */
+  margin-bottom: 18px;
+}
+.mv-entity-tabs-wrap > .mv-entity-tabs {
+  margin-bottom: 0;
+}
+.mv-strip-arrow {
+  display: none;
+  position: absolute;
+  top: 50%;
+  z-index: 1;
+  width: 32px;
+  height: 32px;
+  transform: translateY(-50%);
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  border: 1px solid var(--color-input-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+  box-shadow: var(--shadow-card);
+  cursor: pointer;
+}
+.mv-strip-arrow:hover {
+  background: var(--color-surface-sunken);
+  border-color: var(--color-border-hover);
+}
+.mv-strip-arrow[data-toward="start"] {
+  inset-inline-start: 0;
+}
+.mv-strip-arrow[data-toward="end"] {
+  inset-inline-end: 0;
+}
+@media (hover: hover) and (pointer: fine) {
+  .mv-entity-tabs-wrap:has(> .mv-entity-tabs:is([data-fade="start"], [data-fade="both"]))
+    > .mv-strip-arrow[data-toward="start"],
+  .mv-entity-tabs-wrap:has(> .mv-entity-tabs:is([data-fade="end"], [data-fade="both"]))
+    > .mv-strip-arrow[data-toward="end"] {
+    display: inline-flex;
+  }
+}
+
 .mv-entity-tabs > button {
   position: relative;
   min-height: 44px;
