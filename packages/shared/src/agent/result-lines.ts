@@ -1,5 +1,5 @@
 import { COOP_DEAL_STAGE_LABELS, type CoopDealStage } from "../logic/coop-deal.js";
-import { AGENT_RESULT_ROWS, numberedForms } from "./history.js";
+import { AGENT_RESULT_ROWS, agentTurnRefs, numberedForms } from "./history.js";
 import type { AgentResultCount } from "./insight-guard.js";
 import type { AgentHistoryRef, AgentHistoryTurn } from "./prompt.js";
 import { formatJerusalemDate, formatJerusalemTime } from "../logic/israel-time.js";
@@ -1151,6 +1151,33 @@ export function agentResultCount(data: unknown): AgentResultCount | null {
   if (typeof total !== "number" || !Number.isInteger(total) || total < 0) return null;
   const lists = Object.keys(record).filter((key) => Array.isArray(record[key]));
   return lists.length === 1 ? { section: lists[0]!, total } : null;
+}
+
+/** ‏מה שתור שבוצע משאיר בזיכרון לצד התמלול והתקציר. */
+export interface AgentTurnMemory {
+  refs: AgentHistoryRef[];
+  plural?: true;
+  focus?: true;
+}
+
+/**
+ * ‎**הזיכרון של תור שבוצע — פעם אחת, לשלושת הערוצים.**
+ *
+ * ‏‎`acted` — הרשומות שהפעולות נגעו בהן, מהמאוחרת לקדומה; `data` — מה
+ * ‏שהוצג (הרשימה של הראשית). רשומה אחת בדיוק שנגעו בה היא הנושא
+ * ‏(`focus`), גם כשלצדה הוצגה רשימה; אחרת רשימה של כמה היא „רבים”.
+ */
+export function agentTurnMemory(
+  acted: readonly (AgentHistoryRef | undefined)[],
+  data: unknown,
+): AgentTurnMemory {
+  const refs = agentTurnRefs(acted, agentResultRefs(data));
+  const touched = new Set(acted.flatMap((ref) => (ref === undefined ? [] : [ref.entityId])));
+  // ‏רק כשהיא נשארה ראשונה — תווית עמומה נמחקת, ואז אין נושא מפורש
+  if (touched.size === 1 && refs[0] !== undefined && touched.has(refs[0].entityId)) {
+    return { refs, focus: true };
+  }
+  return agentResultShowsMany(data) ? { refs, plural: true } : { refs };
 }
 
 /**

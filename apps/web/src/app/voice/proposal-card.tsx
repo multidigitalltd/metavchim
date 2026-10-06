@@ -6,10 +6,10 @@ import { ApiError, apiPost } from "@/lib/api";
 import {
   AGENT_CHOICE_PROMPT,
   agentAction,
-  agentResultRefs,
   agentResultSlots,
-  agentTurnRefs,
+  agentTurnMemory,
   type AgentHistoryRef,
+  type AgentTurnMemory,
 } from "@metavchim/shared";
 import { IconCheck, IconInfo, IconPin, IconX } from "../icons";
 import { Notice } from "../notice";
@@ -148,14 +148,14 @@ export function ProposalCard({
    * ידני של עיר או בחירת רשומה הם חלק ממה שבוצע (ביקורת Codex).
    */
   /**
-   * ‎`refs` נבנות **כאן** ולא אצל הקורא, כי רק כאן ידועות תוצאות
+   * ‎הזיכרון (`refs`, `focus`) נבנה **כאן** ולא אצל הקורא, כי רק כאן ידועות תוצאות
    * צעדי ההמשך: התוצאה המצטברת נושאת הודעה אחת, ובה כבר אין
    * ‎`ref`‎ ואין `data` של אף צעד (ביקורת Codex).
    */
   onDone: (
     result: ExecuteResult,
     executedParams?: Record<string, unknown>,
-    refs?: AgentHistoryRef[],
+    memory?: AgentTurnMemory,
   ) => void;
   /** תיקון בדיבור — „לא, 4 חדרים”. ההצעה הקודמת נשלחת כהקשר. */
   onRefine?: (params: Record<string, unknown>) => void;
@@ -230,9 +230,8 @@ export function ProposalCard({
        * שורות התוצאה נלקחות מהראשית בלבד — הן מה שהמתווך **ראה**.
        * לצעד המשך יש הודעה בתוך ההודעה המצטברת, לא רשימה על המסך.
        */
-      const shown = agentResultRefs(primary.data);
       if (followUps.length === 0) {
-        onDone(primary, sent, agentTurnRefs([primary.ref], shown));
+        onDone(primary, sent, agentTurnMemory([primary.ref], primary.data));
         return;
       }
       /*
@@ -257,7 +256,7 @@ export function ProposalCard({
       let link: string | undefined = primary.link;
       /*
        * מהמאוחר לקדום: „תוסיף קונה דנה ותזכיר לי להתקשר אליה” ואז
-       * „תסגור אותה” מתכוון למשימה, לא לקונה. `agentTurnRefs` שומרת
+       * „תסגור אותה” מתכוון למשימה, לא לקונה. `agentTurnMemory` שומרת
        * על הסדר, ו-`matchHistoryRef` בוחרת את הראשון.
        */
       const acted: (AgentHistoryRef | undefined)[] = [primary.ref];
@@ -310,7 +309,7 @@ export function ProposalCard({
           ...(primary.insight === undefined ? {} : { insight: primary.insight }),
         },
         sent,
-        agentTurnRefs(acted, shown),
+        agentTurnMemory(acted, primary.data),
       );
     } catch (err: unknown) {
       setError(err instanceof ApiError ? err.message : "הפעולה נכשלה");

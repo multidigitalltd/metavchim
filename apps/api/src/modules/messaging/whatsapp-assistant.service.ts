@@ -9,11 +9,9 @@ import {
   agentReplyTurn,
   agentReplySegments,
   externalLinkLabel,
-  agentResultRefs,
   agentResultSlots,
-  agentResultShowsMany,
   proposalRunsImmediately,
-  agentTurnRefs,
+  agentTurnMemory,
   type AgentHistoryRef,
   agentResultText,
   effectiveCapabilities,
@@ -2713,7 +2711,7 @@ export class WhatsAppAssistantService {
      * שורות התוצאה נלקחות מהראשית בלבד — הן מה שנשלח למתווך
      * כרשימה. לצעד המשך יש שורת הודעה, לא רשימה.
      */
-    const refs = agentTurnRefs(acted, agentResultRefs(primary.data));
+    const memory = agentTurnMemory(acted, primary.data);
     const turn: AgentHistoryTurn = {
       transcript: state.transcript,
       action: state.proposal.actionId,
@@ -2733,12 +2731,16 @@ export class WhatsAppAssistantService {
        * אינו בין אלף אנשי הקשר האחרונים אינה נמצאת בשום מסלול.
        * ההפניה פותרת את הביטוי לפני החיפוש (ביקורת Codex).
        *
-       * ‎`agentTurnRefs` מוסיפה את הרשומה של הפעולה עצמה — הכרטיס
+       * ‎`agentTurnMemory` מוסיפה את הרשומה של הפעולה עצמה — הכרטיס
        * שנפתח, הקונה שנוצר — שאינה רשימה ולכן לא הותירה עקבה.
        */
-      ...(refs.length === 0 ? {} : { refs }),
-      // ‏רשימה של כמה — גם כשרק לאחת יש הפניה, היא אינה „הוא”
-      ...(agentResultShowsMany(primary.data) ? { plural: true as const } : {}),
+      ...(memory.refs.length === 0 ? {} : { refs: memory.refs }),
+      /*
+       * ‏רשימה של כמה — גם כשרק לאחת יש הפניה, היא אינה „הוא”; ורשומה אחת
+       * ‏שהצעדים פעלו עליה היא הנושא גם לצד הרשימה (`focus`).
+       */
+      ...(memory.plural === undefined ? {} : { plural: memory.plural }),
+      ...(memory.focus === undefined ? {} : { focus: memory.focus }),
       ...(offer === undefined ? {} : { offer }),
     };
     this.remember(chat, turn);

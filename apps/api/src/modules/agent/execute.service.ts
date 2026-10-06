@@ -1366,11 +1366,17 @@ export class AgentExecuteService {
         : feed;
     const where = cities.length > 0 ? ` ב${cities.join(" / ")}` : "";
     if (rows.length === 0) {
+      /*
+       * ‏אפס הוא הסך רק כשהפיד לא נקטע לפני הסינון. פיד שהגיע לתקרה
+       * ‏אומר על מה נבדק, ולא „אין” מוחלט (ביקורת Codex).
+       */
+      const capped = feed.length >= DEMANDS_FEED_SCAN;
       return {
         href: "/collaboration",
-        message: `אין ביקושים פעילים ברשת${where}`,
-        // ‏אפס הוא הסך רק כשהפיד לא נקטע לפני הסינון
-        data: { demands: [], ...(feed.length < DEMANDS_FEED_SCAN ? { total: 0 } : {}) },
+        message: capped
+          ? `אין ביקושים${where} בין ${DEMANDS_FEED_SCAN} האחרונים ברשת — ייתכנו ותיקים יותר`
+          : `אין ביקושים פעילים ברשת${where}`,
+        data: { demands: [], ...(capped ? { hasMore: true } : { total: 0 }) },
       };
     }
     /*
@@ -1988,8 +1994,9 @@ export class AgentExecuteService {
       message:
         rows.length === 0
           ? "אין כרגע אף אחד שממתין לחזרה"
-          : `${rows.length} ממתינים לחזרה — הדחוף ביותר: ${rows[0]?.name}`,
-      data: { callbacks: rows, ...(complete ? { total: rows.length } : {}) },
+          : `${complete ? "" : "לפחות "}${rows.length} ממתינים לחזרה — הדחוף ביותר: ${rows[0]?.name}`,
+      // ‏סריקה שנחתכה — הסך אינו ידוע, וזה נאמר (ביקורת Codex)
+      data: { callbacks: rows, ...(complete ? { total: rows.length } : { hasMore: true }) },
     };
   }
 

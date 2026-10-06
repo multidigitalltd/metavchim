@@ -103,6 +103,11 @@ const TurnSchema = z
      * ‏**לבטל** נושא — לעולם לא ליצור אחד — ולכן אין בו מה לנצל.
      */
     plural: z.literal(true).optional(),
+    /*
+     * ‏הראשונה ב-`refs` היא מה שהתור פעל עליו (`AgentHistoryTurn.focus`).
+     * ‏הוא בוחר רק מתוך הפניות שהדפדפן שולח ממילא; הבעלות נאכפת בביצוע.
+     */
+    focus: z.literal(true).optional(),
   })
   .strict();
 

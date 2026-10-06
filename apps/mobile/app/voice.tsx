@@ -5,13 +5,11 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import {
   agentTurnSummary,
   agentReplyTurn,
-  agentResultRefs,
-  agentResultShowsMany,
   agentResultText,
+  agentTurnMemory,
   keepRecentTurns,
-  agentTurnRefs,
   proposalRunsImmediately,
-  type AgentHistoryRef,
+  type AgentTurnMemory,
 } from "@metavchim/shared";
 import { apiGet, apiPost, ApiError, errorMessage } from "@/lib/api";
 import type {
@@ -145,7 +143,7 @@ export default function VoiceScreen() {
       action: string,
       result: ExecuteResult,
       params: Record<string, unknown>,
-      refs: AgentHistoryRef[],
+      memory: AgentTurnMemory,
     ) => {
       successFeedback();
       push({
@@ -159,8 +157,9 @@ export default function VoiceScreen() {
         action,
         params,
         resultSummary: agentTurnSummary(result),
-        ...(refs.length > 0 ? { refs } : {}),
-        ...(agentResultShowsMany(result.data) ? { plural: true as const } : {}),
+        ...(memory.refs.length > 0 ? { refs: memory.refs } : {}),
+        ...(memory.plural === undefined ? {} : { plural: memory.plural }),
+        ...(memory.focus === undefined ? {} : { focus: memory.focus }),
       });
     },
     [keep, push],
@@ -223,7 +222,7 @@ export default function VoiceScreen() {
             executed,
             params,
             // ‏כמו במסך: גם השורות שהשאילתה החזירה, לא רק הרשומה שנגעו בה
-            agentTurnRefs([executed.ref], agentResultRefs(executed.data)),
+            agentTurnMemory([executed.ref], executed.data),
           );
           return;
         }
@@ -379,14 +378,14 @@ export default function VoiceScreen() {
                   proposal={item.proposal}
                   transcript={item.transcript}
                   onCancel={() => settleProposal(item.id, "cancelled")}
-                  onDone={(result, params, refs) => {
+                  onDone={(result, params, memory) => {
                     settleProposal(item.id, "done");
                     settle(
                       item.transcript,
                       item.proposal.actionId,
                       result,
                       params,
-                      refs,
+                      memory,
                     );
                   }}
                 />

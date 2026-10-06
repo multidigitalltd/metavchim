@@ -5,13 +5,11 @@ import {
   agentTurnSummary,
   agentReplySegments,
   agentReplyTurn,
-  agentResultRefs,
-  agentResultShowsMany,
-  agentTurnRefs,
+  agentTurnMemory,
   keepRecentTurns,
   proposalRunsImmediately,
-  type AgentHistoryRef,
   type AgentHistoryTurn,
+  type AgentTurnMemory,
 } from "@metavchim/shared";
 import { Button } from "@metavchim/ui";
 import { apiGet, apiList, apiPost, ApiError } from "@/lib/api";
@@ -305,7 +303,7 @@ export default function AgentPage(): React.JSX.Element {
    * תור שבוצע נכנס לזיכרון, עם הפרמטרים **שנשלחו בפועל** — כולל
    * עריכות ובחירת מועמד (ביקורת Codex). התקציר והשמות לפי הסדר הם
    * מה שמאפשר "תתקשר לראשון מהם" בתור הבא — אותה גזירה משותפת
-   * כמו בוואטסאפ (`agentTurnSummary`, `agentTurnRefs`).
+   * כמו בוואטסאפ (`agentTurnSummary`, `agentTurnMemory`).
    */
   const remember = useCallback(
     (
@@ -313,15 +311,14 @@ export default function AgentPage(): React.JSX.Element {
       actionId: string,
       executedParams: Record<string, unknown>,
       executed: ExecuteResult,
-      refs: AgentHistoryRef[],
+      memory: AgentTurnMemory,
     ): void => {
       keep({
         transcript: said,
         action: actionId,
         params: executedParams,
         resultSummary: agentTurnSummary(executed),
-        refs,
-        ...(agentResultShowsMany(executed.data) ? { plural: true as const } : {}),
+        ...memory,
       });
     },
     [keep],
@@ -334,11 +331,11 @@ export default function AgentPage(): React.JSX.Element {
       actionId: string,
       executed: ExecuteResult,
       executedParams?: Record<string, unknown>,
-      refs?: AgentHistoryRef[],
+      memory?: AgentTurnMemory,
     ): void => {
       if (executed.message === "") return; // בוטל — הסימון נעשה אצל הקורא
       if (actionId !== "unknown" && executedParams !== undefined) {
-        remember(said, actionId, executedParams, executed, refs ?? []);
+        remember(said, actionId, executedParams, executed, memory ?? { refs: [] });
       }
       push({ role: "agent", kind: "reply", result: executed });
       // ההקראה: המסקנה והתובנה, לא רשימת הנתונים כולה
@@ -483,7 +480,7 @@ export default function AgentPage(): React.JSX.Element {
             proposal.actionId,
             executed,
             params,
-            agentTurnRefs([executed.ref], agentResultRefs(executed.data)),
+            agentTurnMemory([executed.ref], executed.data),
           );
           return;
         }
@@ -803,13 +800,13 @@ export default function AgentPage(): React.JSX.Element {
                 <ProposalCard
                   proposal={item.proposal}
                   transcript={item.transcript}
-                  onDone={(executed, executedParams, refs) => {
+                  onDone={(executed, executedParams, memory) => {
                     if (executed.message === "") {
                       markSettled(item.id, "cancelled");
                       return;
                     }
                     markSettled(item.id, "confirmed");
-                    settle(item.transcript, item.proposal.actionId, executed, executedParams, refs);
+                    settle(item.transcript, item.proposal.actionId, executed, executedParams, memory);
                   }}
                   onRefine={(params) => {
                     setPriorForRefine({ action: item.proposal.actionId, params });

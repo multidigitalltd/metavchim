@@ -2,10 +2,10 @@ import { useMemo, useState } from "react";
 import { View } from "react-native";
 import {
   AGENT_CHOICE_PROMPT,
-  agentResultRefs,
   agentResultSlots,
-  agentTurnRefs,
+  agentTurnMemory,
   type AgentHistoryRef,
+  type AgentTurnMemory,
 } from "@metavchim/shared";
 import { ApiError, apiPost } from "@/lib/api";
 import type { ExecuteResult, Proposal } from "@/lib/agent";
@@ -47,7 +47,7 @@ export function ProposalCard({
   onDone: (
     result: ExecuteResult,
     params: Record<string, unknown>,
-    refs: AgentHistoryRef[],
+    memory: AgentTurnMemory,
   ) => void;
   onCancel: () => void;
 }) {
@@ -91,9 +91,8 @@ export function ProposalCard({
         ...(transcript.trim() !== "" ? { transcript: transcript.trim() } : {}),
       });
       const followUps = proposal.followUps ?? [];
-      const shown = agentResultRefs(primary.data);
       if (followUps.length === 0) {
-        onDone(primary, sent, agentTurnRefs([primary.ref], shown));
+        onDone(primary, sent, agentTurnMemory([primary.ref], primary.data));
         return;
       }
       const messages = [primary.message];
@@ -137,7 +136,7 @@ export function ProposalCard({
           ...(primary.insight === undefined ? {} : { insight: primary.insight }),
         },
         sent,
-        agentTurnRefs(acted, shown),
+        agentTurnMemory(acted, primary.data),
       );
     } catch (err: unknown) {
       setError(err instanceof ApiError ? err.message : "הפעולה נכשלה");
