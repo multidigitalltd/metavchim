@@ -470,7 +470,7 @@ export class AgentExecuteService {
      * ‏שורות התוצאה של הצעד הקודם באותו משפט — מה ש-⟪תוצאה N⟫ נקשר
      * ‏אליו (`resolveForExecution`). בלי צעד קודם — חסר.
      */
-    previous?: readonly AgentHistoryRef[],
+    previous?: readonly (AgentHistoryRef | null)[],
   ): Promise<ExecuteResult> {
     const action = agentAction(actionId);
     if (!action) throw new BadRequestException("פעולה לא מוכרת");

@@ -7,6 +7,7 @@ import {
   AGENT_CHOICE_PROMPT,
   agentAction,
   agentResultRefs,
+  agentResultSlots,
   agentTurnRefs,
   type AgentHistoryRef,
 } from "@metavchim/shared";
@@ -260,8 +261,8 @@ export function ProposalCard({
        * על הסדר, ו-`matchHistoryRef` בוחרת את הראשון.
        */
       const acted: (AgentHistoryRef | undefined)[] = [primary.ref];
-      // ‏מה ש-⟪תוצאה N⟫ נקשר אליו — התוצאה האחרונה שהייתה בה רשימה
-      let previous = shown;
+      // ‏מה ש-⟪תוצאה N⟫ נקשר אליו — התוצאה האחרונה שהייתה בה רשימה, לפי המקום שבו הוצגה
+      let previous = agentResultSlots(primary.data);
       let failure: string | null = null;
       for (const step of followUps) {
         try {
@@ -272,7 +273,7 @@ export function ProposalCard({
             params: stepParams,
             ...(previous.length > 0 ? { previous } : {}),
           });
-          const listed = agentResultRefs(done.data);
+          const listed = agentResultSlots(done.data);
           if (listed.length > 0) previous = listed;
           messages.push(done.message);
           link ??= done.link;

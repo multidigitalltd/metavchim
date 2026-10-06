@@ -59,15 +59,12 @@ import { AgentResolveService } from "./resolve.service";
  * ‏הפניות לרשומות — תווית ומזהה. אותה צורה לזיכרון השיחה ולשורות
  * ‏התוצאה של צעד קודם (`ExecuteSchema.previous`).
  */
-const RefsSchema = z
-  .array(
-    z.object({
-      label: z.string().trim().min(1).max(AGENT_RESULT_LABEL_MAX),
-      entityType: z.enum(["lead", "buyer", "property", "task"]),
-      entityId: IdSchema,
-    }),
-  )
-  .max(AGENT_RESULT_ROWS);
+const RefSchema = z.object({
+  label: z.string().trim().min(1).max(AGENT_RESULT_LABEL_MAX),
+  entityType: z.enum(["lead", "buyer", "property", "task"]),
+  entityId: IdSchema,
+});
+const RefsSchema = z.array(RefSchema).max(AGENT_RESULT_ROWS);
 
 /**
  * תור אחד בשיחה — הצורה המשותפת לשני השימושים: פריט ברשימת
@@ -152,7 +149,8 @@ const ExecuteSchema = z
      * ‏**אינו מרחיב דבר**: אלה מזהים כמו כל מזהה שהמסך שולח ממילא,
      * ‏והבעלות נאכפת בביצוע.
      */
-    previous: RefsSchema.optional(),
+    // ‏לפי המקום שבו הוצגו — `null` הוא שורה בלי רשומה (`agentResultSlots`)
+    previous: z.array(RefSchema.nullable()).max(AGENT_RESULT_ROWS).optional(),
   })
   .strict();
 

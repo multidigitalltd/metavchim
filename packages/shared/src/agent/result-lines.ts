@@ -1085,6 +1085,24 @@ export function agentResultRefs(data: unknown): AgentHistoryRef[] {
 }
 
 /**
+ * ‏‎**שורות התוצאה לפי המקום שבו הוצגו** — מה ש-⟪תוצאה N⟫ סופר.
+ *
+ * ‏‎`agentResultRefs` משמיטה שורה שאין לה רשומה, ולכן האינדקס שלה אינו
+ * ‏האינדקס שהמתווך ראה: בחיפוש כללי שורת הזהות קודמת לכרטיסים, ו„השני”
+ * ‏היה נקשר לשלישי (ביקורת Codex, P1). כאן כל שורה מוצגת שומרת על
+ * ‏מקומה, ושורה בלי רשומה היא `null` — הקישור אליה נעצר ונאמר.
+ */
+export function agentResultSlots(data: unknown): (AgentHistoryRef | null)[] {
+  const list = agentResultList(data);
+  if (list === null) return [];
+  return list.rows.slice(0, AGENT_RESULT_ROWS).map((row) =>
+    row.ref === undefined || row.ref.entityId === ""
+      ? null
+      : { label: row.memoryLabel ?? row.label, ...row.ref },
+  );
+}
+
+/**
  * ‏‎**האם התוצאה הציגה יותר משורה אחת** — הסימון `plural` של התור.
  * ‏נספרות כל השורות, גם אלה שאין להן הפניה: זה מה שהמתווך ראה.
  */

@@ -50,6 +50,27 @@ describe("קשירה לתוצאה בזמן הביצוע", () => {
     expect(params["taskId"]).toBeUndefined();
   });
 
+  /*
+   * ‏בחיפוש כללי שורת הזהות קודמת לכרטיסים ואין לה רשומה. „השנייה”
+   * ‏היא השורה השנייה שהוצגה — לא ההפניה השנייה (ביקורת Codex, P1).
+   */
+  it("המספר הוא המקום שבו השורה הוצגה — גם כשלשורה קודמת אין רשומה", async () => {
+    const shown = [null, TASKS[0]!, TASKS[1]!];
+    const params: Record<string, unknown> = { taskPhrase: "⟪תוצאה 2⟫" };
+    expect(await service().resolveForExecution("complete_task", params, shown)).toEqual({ ok: true });
+    expect(params["taskId"]).toBe(TASKS[0]!.entityId);
+  });
+
+  it("שורה שהוצגה בלי רשומה — נעצר ונאמר", async () => {
+    const params: Record<string, unknown> = { taskPhrase: "⟪תוצאה 1⟫" };
+    const result = await service().resolveForExecution("complete_task", params, [null, TASKS[0]!]);
+    expect(result).toEqual({
+      ok: false,
+      message: "השורה ה-1 בתוצאה של הצעד הקודם אינה רשומה שאפשר לפעול עליה",
+    });
+    expect(params["taskId"]).toBeUndefined();
+  });
+
   it("מקום שאין בתוצאה — נאמר, לא מנוחש", async () => {
     const result = await service().resolveForExecution(
       "complete_task",

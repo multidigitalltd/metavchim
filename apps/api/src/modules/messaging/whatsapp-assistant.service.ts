@@ -10,6 +10,7 @@ import {
   agentReplySegments,
   externalLinkLabel,
   agentResultRefs,
+  agentResultSlots,
   agentResultShowsMany,
   proposalRunsImmediately,
   agentTurnRefs,
@@ -2628,7 +2629,7 @@ export class WhatsAppAssistantService {
      * ‏מה ש-⟪תוצאה N⟫ בצעד הבא נקשר אליו: השורות של התוצאה האחרונה
      * ‏שהייתה בה רשימה — הראשית, או צעד המשך שהחזיר רשימה משלו.
      */
-    let previous = agentResultRefs(primary.data);
+    let previous = agentResultSlots(primary.data);
     for (const followUp of state.proposal.followUps ?? []) {
       const stepParams = this.narrow(
         followUp.actionId,
@@ -2642,7 +2643,7 @@ export class WhatsAppAssistantService {
           "whatsapp",
           previous,
         );
-        const listed = agentResultRefs(result.data);
+        const listed = agentResultSlots(result.data);
         if (listed.length > 0) previous = listed;
         lines.push(`· ${result.message}`);
         /*

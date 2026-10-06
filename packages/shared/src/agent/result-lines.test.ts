@@ -7,6 +7,7 @@ import {
   withoutPhoneNumbers,
   agentResultList,
   agentResultRefs,
+  agentResultSlots,
   agentResultRows,
   agentResultText,
   officeReportStats,
@@ -1219,5 +1220,29 @@ describe("agentTurnSummary — התשובה שנוסחה נזכרת", () => {
 
   it("בלי תובנה — בדיוק כמו קודם", () => {
     expect(agentTurnSummary({ message: "הקונה נוצר" })).toBe("הקונה נוצר");
+  });
+});
+
+describe("agentResultSlots — המקום שבו השורה הוצגה", () => {
+  it("שורה בלי רשומה שומרת על מקומה, וההפניות אחריה לא זזות", () => {
+    const data = {
+      calls: [{ id: "c1", contactName: "יוסי", direction: "inbound", outcome: "answered" }],
+      buyers: [
+        { id: "01J000000000000000000BUYR1", name: "משה כהן" },
+        { id: "01J000000000000000000BUYR2", name: "דנה לוי" },
+      ],
+    };
+    const shown = agentResultList(data)!.rows.map((row) => row.label);
+    const slots = agentResultSlots(data);
+    expect(slots).toHaveLength(shown.length);
+    const second = shown.indexOf("דנה לוי");
+    expect(slots[second]?.entityId).toBe("01J000000000000000000BUYR2");
+    expect(slots[shown.indexOf("יוסי")]).toBeNull();
+    // ‏ההפניות לבדן מדלגות על השיחה — ולכן אינן מתאימות לספירה
+    expect(agentResultRefs(data)).toHaveLength(slots.length - 1);
+  });
+
+  it("צורה שאינה רשימה — אין שורות", () => {
+    expect(agentResultSlots({ ok: true })).toEqual([]);
   });
 });

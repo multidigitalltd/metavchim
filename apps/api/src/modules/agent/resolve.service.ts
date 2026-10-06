@@ -309,9 +309,10 @@ export class AgentResolveService {
     params: Record<string, unknown>,
     /**
      * ‏שורות התוצאה של הצעד הקודם באותו משפט — מה ש-⟪תוצאה N⟫ נקשר
-     * ‏אליו. רק מזהים ותוויות; הבעלות נאכפת בביצוע עצמו, כמו לכל מזהה.
+     * ‏אליו, לפי המקום שבו הוצגו (`null` = שורה בלי רשומה). רק מזהים
+     * ‏ותוויות; הבעלות נאכפת בביצוע עצמו, כמו לכל מזהה.
      */
-    previous?: readonly AgentHistoryRef[],
+    previous?: readonly (AgentHistoryRef | null)[],
   ): Promise<{ ok: true } | { ok: false; message: string }> {
     const spec = ENTITY_LOOKUP[actionId];
     if (spec === undefined) return { ok: true };
@@ -351,7 +352,7 @@ export class AgentResolveService {
     actionId: string,
     spec: LookupSpec,
     params: Record<string, unknown>,
-    previous?: readonly AgentHistoryRef[],
+    previous?: readonly (AgentHistoryRef | null)[],
   ): Promise<{ ok: true } | { ok: false; message: string }> {
     if (typeof params[spec.idKey] === "string") return { ok: true };
     const phrase = params[spec.key];
@@ -371,7 +372,7 @@ export class AgentResolveService {
     const index = resultRefIndex(phrase);
     if (index !== null) {
       const ref = previous?.[index - 1];
-      const id = ref === undefined ? null : entityRefId(spec.kind, ref);
+      const id = ref === undefined || ref === null ? null : entityRefId(spec.kind, ref);
       if (id === null) {
         return {
           ok: false,
@@ -380,7 +381,9 @@ export class AgentResolveService {
               ? "לא הייתה תוצאה קודמת לבחור ממנה"
               : ref === undefined
                 ? `בתוצאה של הצעד הקודם אין שורה ${index}`
-                : `השורה ה-${index} בתוצאה של הצעד הקודם אינה מתאימה לפעולה הזו`,
+                : ref === null
+                  ? `השורה ה-${index} בתוצאה של הצעד הקודם אינה רשומה שאפשר לפעול עליה`
+                  : `השורה ה-${index} בתוצאה של הצעד הקודם אינה מתאימה לפעולה הזו`,
         };
       }
       params[spec.idKey] = id;
