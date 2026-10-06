@@ -202,7 +202,8 @@ export function ProposalCard({
     for (const missing of proposal.missing) {
       const raw = merged[missing.key];
       if (typeof raw !== "string") continue;
-      const value = looseValue(missing.key, raw);
+      const spec = agentAction(proposal.actionId)?.fields.find((field) => field.key === missing.key);
+      const value = looseValue(missing.key, raw, spec?.type === "number" || spec?.type === "integer");
       if (value === undefined) delete merged[missing.key];
       else merged[missing.key] = value;
     }
@@ -603,18 +604,19 @@ const NUMERIC_KEY =
  * השלמה ידנית של שדה חסר ⟵ הטיפוס שהשרת מצפה לו.
  *
  * אין כאן `field.value` ללמוד ממנו את הטיפוס — השדה לא זוהה בכלל.
- * ההכרעה לפי שם המפתח: מפתח רשימה מתפרק בפסיקים, מפתח מספרי מומר
+ * ההכרעה לפי הקטלוג (`numeric` — שדה שהוגדר מספרי, כמו משך בית פתוח)
+ * או לפי שם המפתח: מפתח רשימה מתפרק בפסיקים, מפתח מספרי מומר
  * ל-number ("2,300,000" כולל פסיקי אלפים), וכל השאר מחרוזת. ריק
  * אינו נשלח — שדה שלא הושלם נשאר חסר, בדיוק כמו קודם.
  */
-function looseValue(key: string, raw: string): unknown {
+function looseValue(key: string, raw: string, numeric = false): unknown {
   const trimmed = raw.trim();
   if (trimmed === "") return undefined;
   if (LIST_KEYS.has(key)) {
     const items = trimmed.split(",").map((item) => item.trim()).filter((item) => item !== "");
     return items.length > 0 ? items : undefined;
   }
-  if (NUMERIC_KEY.test(key)) {
+  if (numeric || NUMERIC_KEY.test(key)) {
     const parsed = Number(trimmed.replace(/[^\d.-]/gu, ""));
     return Number.isFinite(parsed) ? parsed : undefined;
   }
