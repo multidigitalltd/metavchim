@@ -173,6 +173,9 @@ export class AgreementFieldsMissingError extends BadRequestException {
   }
 }
 
+/** ‏כמה הסכמים ממתינים נסרקים — מעבר לזה הרשימה קטומה (`hasMore` בסוכן). */
+export const PENDING_AGREEMENTS_SCAN = 200;
+
 @Injectable()
 export class AgreementsService {
   constructor(
@@ -1477,7 +1480,7 @@ export class AgreementsService {
         tokenExpires: true,
         publicToken: true,
       },
-      take: 200,
+      take: PENDING_AGREEMENTS_SCAN,
     });
     if (rows.length === 0) return [];
 

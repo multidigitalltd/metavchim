@@ -13,7 +13,7 @@ import { describe, expect, it } from "vitest";
  * הבלעדיות פוקעת **בדין**.
  *
  * ‏מה שקל לשבור כאן הוא לא החישוב אלא **מקום** הסינון: אותה רשימה
- * מוגשת לשני צרכנים (המסך והסוכן הקולי), והיא נחתכת ב-`LIMIT 200`.
+ * מוגשת לשני צרכנים (המסך והסוכן הקולי), והיא נחתכת ב-`LIMIT ${EXCLUSIVITY_LIST_SCAN}` (200).
  * סינון אחרי החיתוך נראה נכון בכל בדיקה על משרד קטן, ומתחיל לבלוע
  * שורות אמיתיות בדיוק במשרד הגדול שבגללו הוא נכתב.
  */
@@ -88,7 +88,7 @@ describe("היקף הבלעדיויות — השאילתה", () => {
    */
   it("הסינון בשאילתה עצמה, ולא על התוצאה", () => {
     expect(list).toContain("AND ${ownedPropertyScope(tenantId)}");
-    expect(list.indexOf("ownedPropertyScope")).toBeLessThan(list.indexOf("LIMIT 200"));
+    expect(list.indexOf("ownedPropertyScope")).toBeLessThan(list.indexOf("LIMIT ${EXCLUSIVITY_LIST_SCAN}"));
   });
 
   /* עותק ידני של הכלל הוא בדיוק הדרך שבה הוא נשחק במקום השני */

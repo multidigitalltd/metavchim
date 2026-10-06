@@ -17,6 +17,8 @@ import {
   MARKETING_ACTION_KINDS,
   MARKETING_ACTION_LABEL,
   agentNextSteps,
+  agentResultCount,
+  countsWithin,
   groundedNumbers,
   LEAD_STATUS_LABELS,
   type LeadStatus,
@@ -73,6 +75,7 @@ import {
   formatMarketIls,
   marketRoomBucket,
   marketRoomBucketLabel,
+  withoutPhoneNumbers,
 } from "@metavchim/shared";
 import { isCardAccessible,
   assertContactAccess,
@@ -100,24 +103,24 @@ import {
   renewalLinkText,
   subscriptionStatusText,
 } from "@metavchim/shared";
-import { AgreementsService } from "../agreements/agreements.service";
-import { ExclusivityService } from "../exclusivity/exclusivity.service";
+import { AgreementsService, PENDING_AGREEMENTS_SCAN } from "../agreements/agreements.service";
+import { EXCLUSIVITY_LIST_SCAN, ExclusivityService } from "../exclusivity/exclusivity.service";
 import { ContactsService } from "../contacts/contacts.service";
-import { EmailInboxService } from "../email-inbox/email-inbox.service";
+import { EMAIL_THREADS_SCAN, EmailInboxService } from "../email-inbox/email-inbox.service";
 import { AgentPrefsService } from "./agent-prefs.service";
 import { MessagingService } from "../messaging/messaging.service";
 import { SupportService } from "../support/support.service";
 import { AnalyticsService, type ReportWindowDays } from "../analytics/analytics.service";
 import { AgentResolveService } from "./resolve.service";
 import { BuyersService } from "../buyers/buyers.service";
-import { CalendarService } from "../calendar/calendar.service";
+import { APPOINTMENT_LIST_SCAN, CalendarService } from "../calendar/calendar.service";
 import type { Readable } from "node:stream";
 import { CallsService, type CallDto } from "../calls/calls.service";
 import { OfficeSettingsService } from "../settings/office-settings.service";
 import { TeamService } from "../settings/team.service";
 import { PasswordResetService } from "../auth/password-reset.service";
 import { AuthService } from "../auth/auth.service";
-import { CollaborationService } from "../collaboration/collaboration.service";
+import { CollaborationService, DEMANDS_FEED_SCAN } from "../collaboration/collaboration.service";
 import { BillingService } from "../billing/billing.service";
 import { RecruitmentService } from "../recruitment/recruitment.service";
 import { ListingsService } from "../collaboration/listings.service";
@@ -139,7 +142,7 @@ import { NotificationsService } from "../notifications/notifications.service";
 import { OffersService } from "../offers/offers.service";
 import { PropertiesService } from "../properties/properties.service";
 import { SearchService } from "../search/search.service";
-import { TasksService } from "../tasks/tasks.service";
+import { TASK_LIST_SCAN, TasksService } from "../tasks/tasks.service";
 import { MarketService } from "../market/market.service";
 
 /**
@@ -356,26 +359,39 @@ const OFFICE_MIN_SCORE = 50;
  *
  * כיוון אי-הדיוק שנשאר מכוון: שורה מיושנת נספרת ואינה מוצגת, ולכן
  * התשובה עלולה לומר „יש עוד” כשאין — ולעולם לא „זה הכול” כשיש.
+ *
+ * ‏ומאותה סיבה הספירה אינה סך מדויק: היא מוצהרת כ-`total` רק כשהיא
+ * ‏שווה למה שחזר — אין שורות מיושנות ואין קיטום (ביקורת Codex).
  */
-function page<T>(rows: T[], total: number, limit: number): { matches: T[]; hasMore: boolean } {
-  return { matches: rows.slice(0, limit), hasMore: total > limit };
+function page<T>(
+  rows: T[],
+  total: number,
+  limit: number,
+): { matches: T[]; hasMore: boolean; total?: number } {
+  return {
+    matches: rows.slice(0, limit),
+    hasMore: total > limit,
+    ...(rows.length === total ? { total } : {}),
+  };
 }
 
 /**
  * שורת בלעדיות כפי שהיא מוצגת — **שדות שכבר קיימים, בשם אחד.**
  *
  * ‎`list()` מחזירה `ExclusivityListItem` ו-`current()` מחזירה DTO
- * מלא. שתיהן נושאות את אותם ארבעה דברים שהתשובה צריכה, ובלי
+ * מלא. שתיהן נושאות את אותם חמישה דברים שהתשובה צריכה, ובלי
  * הצמצום כאן כל ערוץ היה בורר מהן בעצמו — וזו בדיוק הכפילות
  * ש-`result-lines` קיים כדי למנוע.
  */
 function exclusivityRow(item: {
+  propertyId: string;
   propertyTitle?: string;
   daysLeft: number;
   missing: number;
   summary: string;
 }): Record<string, unknown> {
   return {
+    propertyId: item.propertyId,
     ...(item.propertyTitle === undefined ? {} : { propertyTitle: item.propertyTitle }),
     daysLeft: item.daysLeft,
     missing: item.missing,
@@ -465,6 +481,11 @@ export class AgentExecuteService {
     transcript?: string,
     /** מאיפה הפקודה הגיעה — ליומן המשימות של הסוכן בלבד */
     channel: "web" | "whatsapp" = "web",
+    /**
+     * ‏שורות התוצאה של הצעד הקודם באותו משפט — מה ש-⟪תוצאה N⟫ נקשר
+     * ‏אליו (`resolveForExecution`). בלי צעד קודם — חסר.
+     */
+    previous?: readonly (AgentHistoryRef | null)[],
   ): Promise<ExecuteResult> {
     const action = agentAction(actionId);
     if (!action) throw new BadRequestException("פעולה לא מוכרת");
@@ -522,11 +543,11 @@ export class AgentExecuteService {
      * את הרשומה שהצעד הקודם יצר זה עתה. ריבוי התאמות או היעדר —
      * שגיאה ברורה, לא ניחוש.
      */
-    const resolution = await this.resolver.resolveForExecution(actionId, params);
+    const resolution = await this.resolver.resolveForExecution(actionId, params, previous);
     if (!resolution.ok) throw new BadRequestException(resolution.message);
 
     const result = await this.dispatch(actionId, params, channel, transcript);
-    const final = await this.withInsight(actionId, transcript, result);
+    const final = await this.withInsight(actionId, transcript, result, channel);
     /*
      * ‎**הצעד הנגזר גובר על זה שנוסח.**
      *
@@ -813,6 +834,7 @@ export class AgentExecuteService {
     actionId: string,
     transcript: string | undefined,
     result: ExecuteResult,
+    channel: "web" | "whatsapp",
   ): Promise<ExecuteResult> {
     if (!INSIGHT_ACTIONS.has(actionId)) return result;
     if (result.data === undefined || transcript === undefined) return result;
@@ -858,7 +880,13 @@ export class AgentExecuteService {
           "אלו התוצאות שהמערכת שלפה (JSON, ייתכן קטוע):",
           compact,
           "",
-          "כתוב ב-insight עד שני משפטים בעברית טבעית שעונים למתווך כמו בשיחה: מה נמצא, מה בולט או דורש תשומת לב, ומה היית ממליץ לעשות עכשיו. דבר אליו ישירות, בלי פתיחות רובוטיות כמו \"להלן\" או \"נמצאו X רשומות\", ובלי לחזור על הרשימה — היא מוצגת ממילא. אל תמציא נתונים שאינם ב-JSON. אם באמת אין מה להוסיף מעבר לרשימה — החזר insight ריק.",
+          /*
+           * ‎**שאלה מקבלת קודם תשובה.** „כמה קונים יש לי ברמת גן?” נענה
+           * ‏עד כה ב„מה בולט” — והמספר שנשאל עליו נשאר לספירה של המתווך
+           * ‏מתוך הרשימה (בעל המוצר: „לא מבין”). הספירה עצמה עדיין נאכפת
+           * ‏ב-`groundedNumbers`: ספרה שאינה בנתונים פוסלת את המשפט.
+           */
+          "כתוב ב-insight עד שלושה משפטים בעברית טבעית שעונים למתווך כמו בשיחה. אם הוא שאל שאלה (כמה, מי, האם, איזה, מה הכי) — המשפט הראשון הוא התשובה הישירה לשאלה, מתוך התוצאות בלבד; ספירה — רק של מה שמופיע ב-JSON, ואם הוא קטוע אמור \"לפחות\". אחר כך, אם יש: מה בולט או דורש תשומת לב, ומה היית ממליץ לעשות עכשיו. דבר אליו ישירות, בלי פתיחות רובוטיות כמו \"להלן\" או \"נמצאו X רשומות\", ובלי לחזור על הרשימה — היא מוצגת ממילא. אל תמציא נתונים שאינם ב-JSON. אם באמת אין מה להוסיף מעבר לרשימה — החזר insight ריק.",
           "",
           `בנוסף, אם מתבקש צעד המשך טבעי — כתוב ב-suggestion משפט פקודה קצר אחד שהמתווך יכול לומר לך עכשיו (למשל "קבע סיור לרות כהן מחר"), מבוסס רק על מה שבתוצאות ומהסוגים האלה: ${allowedTitles}. אם אין המשך מתבקש — השאר ריק.`,
         ].join("\n"),
@@ -866,6 +894,8 @@ export class AgentExecuteService {
           type: "object",
           properties: { insight: { type: "string" }, suggestion: { type: "string" } },
         },
+        // ‏אותה הכרעה כמו בפירוש — בוואטסאפ ההקשר הוא כל העניין
+        channel === "whatsapp" ? { thinkingLevel: "medium" } : {},
       );
       const insight =
         typeof (raw as { insight?: unknown })?.insight === "string"
@@ -875,8 +905,15 @@ export class AgentExecuteService {
         typeof (raw as { suggestion?: unknown })?.suggestion === "string"
           ? ((raw as { suggestion: string }).suggestion ?? "").trim()
           : "";
-      // ספרה שלא נשלפה ולא נשאלה — המשפט כולו נפסל, לא מתוקן
-      const grounded = (text: string): boolean => groundedNumbers(text, [compact, transcript]);
+      /*
+       * ‏ספרה שלא נשלפה ולא נשאלה — המשפט כולו נפסל, לא מתוקן. וספירה
+       * ‏(„שבעה קונים”) אינה גדולה ממה שחזר — כשהרשימה שלמה; ברשימה
+       * ‏קטומה הסך האמיתי גדול ממנה, ושם נשארת בדיקת הספרות בלבד.
+       */
+      const count = agentResultCount(result.data);
+      const grounded = (text: string): boolean =>
+        groundedNumbers(text, [compact, transcript]) &&
+        (count === null || countsWithin(text, count));
       return {
         ...result,
         ...(insight !== "" && insight.length <= 500 && grounded(insight) ? { insight } : {}),
@@ -940,6 +977,7 @@ export class AgentExecuteService {
           : `נמצאו ${page.items.length} קונים`,
       data: {
         hasMore: page.nextCursor !== null,
+        ...(page.nextCursor === null ? { total: page.items.length } : {}),
         buyers: page.items.map((buyer) => ({
           id: buyer.id,
           name: buyer.contact.name,
@@ -998,6 +1036,7 @@ export class AgentExecuteService {
       message: items.length === 0 ? "אין נכסים שעונים על התנאים" : `נמצאו ${items.length} נכסים`,
       data: {
         hasMore: page.nextCursor !== null,
+        ...(page.nextCursor === null ? { total: items.length } : {}),
         properties: items.map((p) => ({
           id: p.id,
           title: p.marketingTitle ?? [p.street, p.city].filter(Boolean).join(", "),
@@ -1081,6 +1120,9 @@ export class AgentExecuteService {
           startsAt: a.startsAt,
           status: a.status,
         })),
+        // ‏בתקרה — ייתכן שיש עוד, וזה נאמר (ביקורת Codex)
+        hasMore: appointments.length >= APPOINTMENT_LIST_SCAN,
+        ...(appointments.length < APPOINTMENT_LIST_SCAN ? { total: appointments.length } : {}),
       },
     };
   }
@@ -1113,6 +1155,8 @@ export class AgentExecuteService {
           ...(t.dueAt !== undefined && t.dueAt !== null ? { dueAt: t.dueAt } : {}),
           ...(t.entityLabel !== undefined ? { entityLabel: t.entityLabel } : {}),
         })),
+        hasMore: tasks.length >= TASK_LIST_SCAN,
+        ...(tasks.length < TASK_LIST_SCAN ? { total: tasks.length } : {}),
       },
     };
   }
@@ -1160,6 +1204,7 @@ export class AgentExecuteService {
           requiresHuman: lead.requiresHuman,
         })),
         hasMore: page.nextCursor !== null,
+        ...(page.nextCursor === null ? { total: page.items.length } : {}),
       },
     };
   }
@@ -1180,7 +1225,12 @@ export class AgentExecuteService {
       this.agreements.listPending(tx, new Date()),
     );
     if (rows.length === 0) {
-      return { href: "/offers", message: "כל מי שנשלח אליו הסכם — חתם", data: { agreements: [] } };
+      // ‏ריק ומלא — סך אפס, כדי ש„שבעה ממתינים” בניסוח ייפסל (ביקורת Codex)
+      return {
+        href: "/offers",
+        message: "כל מי שנשלח אליו הסכם — חתם",
+        data: { agreements: [], total: 0 },
+      };
     }
     const byState = new Map<PendingAgreementState, number>();
     for (const row of rows) byState.set(row.state, (byState.get(row.state) ?? 0) + 1);
@@ -1203,6 +1253,9 @@ export class AgentExecuteService {
           ...(row.daysWaiting === null ? {} : { daysWaiting: row.daysWaiting }),
           ...(row.url === null ? {} : { url: row.url }),
         })),
+        // ‏הסריקה נעצרת במאתיים — מעבר לזה זו אינה הרשימה כולה
+        hasMore: rows.length >= PENDING_AGREEMENTS_SCAN,
+        ...(rows.length < PENDING_AGREEMENTS_SCAN ? { total: rows.length } : {}),
       },
     };
   }
@@ -1236,7 +1289,7 @@ export class AgentExecuteService {
     const counts = await this.offers.statusCounts();
     const total = [...counts.values()].reduce((sum, n) => sum + n, 0);
     if (total === 0) {
-      return { href: "/offers", message: "לא נשלחו הצעות", data: { offers: [] } };
+      return { href: "/offers", message: "לא נשלחו הצעות", data: { offers: [], total: 0 } };
     }
     const inBucket = (id: OfferBucket): number =>
       OFFER_BUCKETS[id].statuses.reduce(
@@ -1258,6 +1311,11 @@ export class AgentExecuteService {
       limit: MATCH_LIST_LIMIT,
       ...(spec === undefined ? {} : { status: spec.statuses }),
     });
+    // ‏כמה יש באמת במצב שנשאל — העמוד קטום ל-MATCH_LIST_LIMIT
+    const expected =
+      spec === undefined
+        ? total
+        : spec.statuses.reduce((sum: number, status: string) => sum + (counts.get(status) ?? 0), 0);
 
     return {
       href: "/offers",
@@ -1274,6 +1332,9 @@ export class AgentExecuteService {
           openCount: row.openCount,
           ...(row.sentAt === undefined ? {} : { sentAt: row.sentAt }),
         })),
+        // ‏עמוד של 50 מתוך 150 אינו „50 הצעות”
+        hasMore: expected > rows.length,
+        total: expected,
       },
     };
   }
@@ -1305,10 +1366,17 @@ export class AgentExecuteService {
         : feed;
     const where = cities.length > 0 ? ` ב${cities.join(" / ")}` : "";
     if (rows.length === 0) {
+      /*
+       * ‏אפס הוא הסך רק כשהפיד לא נקטע לפני הסינון. פיד שהגיע לתקרה
+       * ‏אומר על מה נבדק, ולא „אין” מוחלט (ביקורת Codex).
+       */
+      const capped = feed.length >= DEMANDS_FEED_SCAN;
       return {
         href: "/collaboration",
-        message: `אין ביקושים פעילים ברשת${where}`,
-        data: { demands: [] },
+        message: capped
+          ? `אין ביקושים${where} בין ${DEMANDS_FEED_SCAN} האחרונים ברשת — ייתכנו ותיקים יותר`
+          : `אין ביקושים פעילים ברשת${where}`,
+        data: { demands: [], ...(capped ? { hasMore: true } : { total: 0 }) },
       };
     }
     /*
@@ -1345,6 +1413,9 @@ export class AgentExecuteService {
               : { budgetMaxAgorot: row.budgetMaxAgorot }),
             matchCount: count(row),
           })),
+        // ‏הפיד עצמו קטום בשרת — מה שחזר אינו הסך כשהגיע לתקרה
+        hasMore: feed.length >= DEMANDS_FEED_SCAN || rows.length > MATCH_LIST_LIMIT,
+        ...(feed.length < DEMANDS_FEED_SCAN && rows.length <= MATCH_LIST_LIMIT ? { total: rows.length } : {}),
       },
     };
   }
@@ -1361,6 +1432,9 @@ export class AgentExecuteService {
           ...(item.body === undefined ? {} : { body: item.body }),
           createdAt: item.createdAt,
         })),
+        // ‏הספירה במסד, באותו תנאי ראות — הסך המדויק של מה שלא נקרא
+        hasMore: unreadCount > items.length,
+        total: unreadCount,
       },
     };
   }
@@ -1664,7 +1738,11 @@ export class AgentExecuteService {
         items.length === 0
           ? `אין בלעדיות פעילות ${scope}`
           : `${items.length} בלעדיות ${scope} — לפי דחיפות`,
-      data: { exclusivity: items.map(exclusivityRow) },
+      data: {
+        exclusivity: items.map(exclusivityRow),
+        hasMore: items.length >= EXCLUSIVITY_LIST_SCAN,
+        ...(items.length < EXCLUSIVITY_LIST_SCAN ? { total: items.length } : {}),
+      },
     };
   }
 
@@ -1856,6 +1934,7 @@ export class AgentExecuteService {
         reason: "waiting_lead",
         since: lead.createdAt,
         href: `/leads/${lead.id}`,
+        leadId: lead.id,
         ...(lead.summary !== undefined ? { detail: lead.summary } : {}),
       });
     }
@@ -1898,18 +1977,26 @@ export class AgentExecuteService {
          */
         since: task.dueAt ?? task.createdAt,
         href: `/leads/${lead.id}`,
+        leadId: lead.id,
         detail: task.title,
       });
     }
 
     const rows = rankCallbacks(candidates, now);
+    /*
+     * ‏סך מוצהר רק כשאף מקור לא נחתך. השיחות חסומות בחלון ולא
+     * ‏בתקרה; לידים ומשימות שהגיעו לתקרה — ייתכן שיש עוד, והספירה
+     * ‏בניסוח לא נבדקת מול מספר שאינו הסך (ביקורת Codex).
+     */
+    const complete = waiting.length < CALLBACK_LEAD_SCAN && tasks.length < CALLBACK_TASK_SCAN;
     return {
       href: "/leads",
       message:
         rows.length === 0
           ? "אין כרגע אף אחד שממתין לחזרה"
-          : `${rows.length} ממתינים לחזרה — הדחוף ביותר: ${rows[0]?.name}`,
-      data: { callbacks: rows },
+          : `${complete ? "" : "לפחות "}${rows.length} ממתינים לחזרה — הדחוף ביותר: ${rows[0]?.name}`,
+      // ‏סריקה שנחתכה — הסך אינו ידוע, וזה נאמר (ביקורת Codex)
+      data: { callbacks: rows, ...(complete ? { total: rows.length } : { hasMore: true }) },
     };
   }
 
@@ -2366,6 +2453,9 @@ export class AgentExecuteService {
           unread: thread.unread,
           ...(thread.buyerId === undefined ? {} : { buyerId: thread.buyerId }),
         })),
+        // ‏הקיטום נאמר — עשר שורות אינן „עשר שיחות” כשיש ארבע-עשרה
+        hasMore: threads.length > 10,
+        ...(threads.length < EMAIL_THREADS_SCAN ? { total: threads.length } : {}),
       },
     };
   }
@@ -4398,6 +4488,11 @@ function buildTitle(fields: PropertyFields): string | undefined {
  * בתוך המכונה (ביקורת Codex).
  */
 function redactForInsight(value: unknown): unknown {
+  /*
+   * ‏לפי מפתח לא מספיק: כותרת התראה („📵 שיחה שלא נענתה מ-050…”)
+   * ‏נושאת את המספר בתוך `title`, שאינו נראה כמו שדה טלפון.
+   */
+  if (typeof value === "string") return withoutPhoneNumbers(value);
   if (Array.isArray(value)) return value.map(redactForInsight);
   if (typeof value === "object" && value !== null) {
     const out: Record<string, unknown> = {};

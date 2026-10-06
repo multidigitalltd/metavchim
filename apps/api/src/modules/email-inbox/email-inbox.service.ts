@@ -194,6 +194,9 @@ export function inboundNotificationAnchor(
     : { entityType: "lead", entityId: parent.leadId };
 }
 
+/** ‏כמה שיחות מייל נשלפות לתיבה — מעבר לזה הרשימה קטומה. */
+export const EMAIL_THREADS_SCAN = 100;
+
 @Injectable()
 export class EmailInboxService {
   private readonly logger = new Logger(EmailInboxService.name);
@@ -758,7 +761,7 @@ export class EmailInboxService {
         where: { tenantId, ...scope },
         orderBy: { createdAt: "desc" },
         distinct: ["contactId"],
-        take: 100,
+        take: EMAIL_THREADS_SCAN,
         select: {
           contactId: true,
           subject: true,

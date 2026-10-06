@@ -98,6 +98,9 @@ type ActionRow = {
   performedAt: Date;
 };
 
+/** ‏כמה בלעדיות פתוחות נשלפות לרשימה — מעבר לזה היא קטומה. */
+export const EXCLUSIVITY_LIST_SCAN = 200;
+
 @Injectable()
 export class ExclusivityService {
   private readonly logger = new Logger(ExclusivityService.name);
@@ -348,7 +351,7 @@ export class ExclusivityService {
            AND ended_at IS NULL
            AND ${ownedPropertyScope(tenantId)}
          ORDER BY LEAST(ends_at, starts_at + ((ends_at - starts_at) / 3)) ASC
-         LIMIT 200
+         LIMIT ${EXCLUSIVITY_LIST_SCAN}
       `;
       if (ordered.length === 0) return [];
       const rows = await tx.propertyExclusivity.findMany({

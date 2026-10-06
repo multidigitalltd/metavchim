@@ -56,6 +56,17 @@ import { AgentResolveService } from "./resolve.service";
  */
 
 /**
+ * ‏הפניות לרשומות — תווית ומזהה. אותה צורה לזיכרון השיחה ולשורות
+ * ‏התוצאה של צעד קודם (`ExecuteSchema.previous`).
+ */
+const RefSchema = z.object({
+  label: z.string().trim().min(1).max(AGENT_RESULT_LABEL_MAX),
+  entityType: z.enum(["lead", "buyer", "property", "task"]),
+  entityId: IdSchema,
+});
+const RefsSchema = z.array(RefSchema).max(AGENT_RESULT_ROWS);
+
+/**
  * תור אחד בשיחה — הצורה המשותפת לשני השימושים: פריט ברשימת
  * ה-history של `interpret`, והגוף של `POST conversation/turn`.
  * הצהרה אחת, כדי שמה שהמסך שומר לשיחה יהיה בדיוק מה שהוא רשאי
@@ -86,21 +97,17 @@ const TurnSchema = z
      * שהוא כן עושה הוא לפתור „הראשון מהם” בלי חיפוש טקסט —
      * ולכן גם כשהתווית היא רישא של שם ארוך (ביקורת Codex).
      */
-    refs: z
-      .array(
-        z.object({
-          label: z.string().trim().min(1).max(AGENT_RESULT_LABEL_MAX),
-          entityType: z.enum(["lead", "buyer", "property", "task"]),
-          entityId: IdSchema,
-        }),
-      )
-      .max(AGENT_RESULT_ROWS)
-      .optional(),
+    refs: RefsSchema.optional(),
     /*
      * ‏התור הציג רשימה (`AgentHistoryTurn.plural`). מהדפדפן הוא יכול רק
      * ‏**לבטל** נושא — לעולם לא ליצור אחד — ולכן אין בו מה לנצל.
      */
     plural: z.literal(true).optional(),
+    /*
+     * ‏הראשונה ב-`refs` היא מה שהתור פעל עליו (`AgentHistoryTurn.focus`).
+     * ‏הוא בוחר רק מתוך הפניות שהדפדפן שולח ממילא; הבעלות נאכפת בביצוע.
+     */
+    focus: z.literal(true).optional(),
   })
   .strict();
 
@@ -142,6 +149,13 @@ const ExecuteSchema = z
      */
     params: z.record(z.string(), z.unknown()),
     transcript: z.string().trim().max(4000).optional(),
+    /*
+     * ‏שורות התוצאה של הצעד הקודם בשרשור — מה ש-⟪תוצאה N⟫ נקשר אליו.
+     * ‏**אינו מרחיב דבר**: אלה מזהים כמו כל מזהה שהמסך שולח ממילא,
+     * ‏והבעלות נאכפת בביצוע.
+     */
+    // ‏לפי המקום שבו הוצגו — `null` הוא שורה בלי רשומה (`agentResultSlots`)
+    previous: z.array(RefSchema.nullable()).max(AGENT_RESULT_ROWS).optional(),
   })
   .strict();
 
@@ -304,6 +318,6 @@ export class AgentController {
     for (const key of AGENT_ID_KEYS) {
       if (typeof body.params[key] === "string") params[key] = body.params[key];
     }
-    return this.executor.execute(body.action, params, body.transcript);
+    return this.executor.execute(body.action, params, body.transcript, "web", body.previous);
   }
 }

@@ -69,6 +69,46 @@ export function keepRecentTurns(turns: readonly AgentHistoryTurn[]): AgentHistor
 }
 
 /**
+ * ‎**⟪תוצאה N⟫ — רשומה מתוך מה שהצעד הקודם באותו משפט מצא.**
+ *
+ * ‏„תמצא קונים להרצל ותקבע סיור לראשון מהם” הוא אישור אחד ושני צעדים,
+ * ‏והקונה של הצעד השני עוד לא ידוע כשהכרטיס מוצג — הוא יוולד מהחיפוש.
+ * ‏הסימון נשאר בשדה הביטוי עד רגע הביצוע, ושם נקשר לשורה ה-N של
+ * ‏התוצאה שחזרה (`resolveForExecution`). המספר הוא לפי הסדר שהוצג.
+ */
+const RESULT_REF = /^⟪תוצאה (\d{1,2})⟫$/u;
+
+/** ‏המקום בתוצאה (מ-1), או `null` כשהביטוי אינו סימון כזה. */
+export function resultRefIndex(phrase: unknown): number | null {
+  if (typeof phrase !== "string") return null;
+  const match = RESULT_REF.exec(phrase.trim());
+  if (match === null) return null;
+  const index = Number(match[1]);
+  return index >= 1 ? index : null;
+}
+
+/**
+ * ‏‎**הרשומה שצעד נקשר אליה ב-⟪תוצאה N⟫** — מה שהוא פעל עליו, גם כשהביצוע
+ * ‏לא החזיר `ref` (עדכון משימה, סטטוס ליד). בלעדיה הצעד נספר כאילו לא נגע
+ * ‏בדבר, והנושא של התור הבא אבד (ביקורת Codex). `undefined` — בלי סימון.
+ */
+export function agentBoundRef(
+  params: Record<string, unknown>,
+  previous: readonly (AgentHistoryRef | null)[],
+): AgentHistoryRef | undefined {
+  for (const value of Object.values(params)) {
+    const index = resultRefIndex(value);
+    if (index !== null) return previous[index - 1] ?? undefined;
+  }
+  return undefined;
+}
+
+/** ‏איך הסימון מוצג בכרטיס האישור — בלי הסוגריים ובלי המנגנון. */
+export function resultRefDisplay(index: number): string {
+  return index === 1 ? "הראשון בתוצאה של הצעד הקודם" : `מספר ${index} בתוצאה של הצעד הקודם`;
+}
+
+/**
  * ‎**הרשומה שעליה מדברים עכשיו** — או `null` כשאין אחת כזו.
  *
  * ‏„תוסיף לו הערה”, „תקבע לה סיור”, „כמה הנכס הזה עולה” — בלי שם.
@@ -90,6 +130,8 @@ export function currentSubject(history: readonly AgentHistoryTurn[]): AgentHisto
     if (turn.unordered === true) return null;
     if (turn.action === "unknown") continue;
     const refs = turn.refs ?? [];
+    // ‏התור פעל על רשומה אחת — היא הנושא, גם כשהציג רשימה לצדה
+    if (turn.focus === true) return refs[0] ?? null;
     // ‏רשימה שרק אחת משורותיה ניתנת להפניה היא עדיין רשימה
     return refs.length === 1 && turn.plural !== true ? refs[0]! : null;
   }

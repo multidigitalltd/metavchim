@@ -46,6 +46,8 @@ export interface CallbackCandidate {
   href: string;
   /** כותרת המשימה, או סיכום השיחה — מה שהופך את השורה למובנת */
   detail?: string;
+  /** ‏הליד שהסיבה שייכת לו — כשיש. שיחה שלא נענתה מאיש קשר בלבד — בלי. */
+  leadId?: string;
 }
 
 export interface CallbackRow {
@@ -76,6 +78,11 @@ export interface CallbackRow {
    * שיחה **אחת**. המספר קיים כדי שהמתווך יידע שיש עוד הקשר בכרטיס.
    */
   alsoCount: number;
+  /**
+   * ‏הליד של הסיבה המוצגת, או הליד היחיד של האדם. ‏„תוסיף משימה לראשון”
+   * ‏אחרי הרשימה נקשר אליו (`agentResultSlots`); כמה לידים — אין קשירה.
+   */
+  leadId?: string;
 }
 
 /** שיחה כפי שהיא מגיעה מיומן השיחות — רק מה שדרוש להכרעה. */
@@ -233,6 +240,13 @@ export function rankCallbacks(
         ? { detail: strongest.detail }
         : {}),
       alsoCount: group.length - 1,
+      /*
+       * ‏הליד של הסיבה המוצגת — ורק הוא. לשיחה שלא נענתה אין ליד:
+       * ‏ליד שנראה בקבוצה אינו בהכרח היחיד של האדם (מקורות אחרים
+       * ‏מוגבלים, מקור המשימות תלוי ביכולת), ו„הליד שלו” היה כותב
+       * ‏לרשומה שהמתווך לא ראה (ביקורת Codex, P1).
+       */
+      ...(strongest.leadId !== undefined ? { leadId: strongest.leadId } : {}),
     });
   }
 

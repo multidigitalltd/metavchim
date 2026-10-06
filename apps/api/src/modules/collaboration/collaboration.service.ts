@@ -558,6 +558,9 @@ export interface ReferralTermsDto {
   };
 }
 
+/** ‏כמה ביקושים פעילים נשלפים לפיד — מעבר לזה הפיד קטום. */
+export const DEMANDS_FEED_SCAN = 100;
+
 @Injectable()
 export class CollaborationService {
   constructor(
@@ -1100,7 +1103,7 @@ export class CollaborationService {
       tx.sharedDemand.findMany({
         where: { status: "active", ...where },
         orderBy: { createdAt: "desc" },
-        take: 100,
+        take: DEMANDS_FEED_SCAN,
       }),
     );
 

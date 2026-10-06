@@ -47,6 +47,7 @@ import {
 import type { Capability } from "../rbac.js";
 import type { PlanFeature } from "../logic/plans.js";
 import type { AgentFieldSpec } from "./field-spec.js";
+import type { AgentHistoryRef } from "./prompt.js";
 import {
   PROPERTY_CONDITION_LABELS,
   PROPERTY_CONDITIONS,
@@ -240,6 +241,13 @@ export interface AgentActionDef {
    */
   feature?: PlanFeature;
   risk: AgentRisk;
+  /**
+   * ‏‎**מה אפשר לבחור מהרשימה שהיא מציגה** — סוגי הרשומות ששורות התוצאה
+   * ‏שלה נושאות, ולכן צעד המשך נקשר אליהן ב-⟪תוצאה N⟫. בלי השדה אין ממה
+   * ‏לבחור (פגישות, שיחות, דוחות, פעולות כתיבה), וצעד כזה יורד מהשרשור
+   * ‏לפני האישור ולא נכשל אחריו (ביקורת Codex).
+   */
+  chainable?: readonly AgentHistoryRef["entityType"][];
   fields: readonly AgentFieldSpec[];
   /**
    * שדות שהמודל **אינו** ממלא ובכל זאת שייכים לפעולה: תאריכים,
@@ -877,6 +885,7 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
     ],
     capability: "properties.view",
     risk: "read",
+    chainable: ["buyer", "lead", "property", "task"],
     fields: [
       { key: "query", label: "מה לחפש", type: "string", maxLength: 200 },
     ],
@@ -893,6 +902,7 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
     ],
     capability: "buyers.view_own",
     risk: "read",
+    chainable: ["buyer"],
     fields: [
       F_CITIES,
       F_PROPERTY_TYPES,
@@ -914,6 +924,7 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
     ],
     capability: "properties.view",
     risk: "read",
+    chainable: ["property"],
     fields: [
       F_CITIES,
       F_PROPERTY_TYPES,
@@ -949,6 +960,7 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
     ],
     capability: "matches.view",
     risk: "read",
+    chainable: ["buyer", "property"],
     fields: [
       F_PROPERTY_PHRASE,
       F_BUYER_PHRASE,
@@ -982,6 +994,7 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
     ],
     capability: "calendar.manage",
     risk: "read",
+    chainable: ["task"],
     fields: [
       /*
        * ‎**„מה המשימות של דנה” — למי שרואה את לוח המשרד.**
@@ -1021,6 +1034,7 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
     ],
     capability: "leads.view_own",
     risk: "read",
+    chainable: ["lead"],
     fields: [],
   },
   {
@@ -1086,6 +1100,7 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
     ],
     capability: "leads.view_own",
     risk: "read",
+    chainable: ["lead"],
     fields: [F_LEAD_STATUS],
   },
   {
@@ -2360,6 +2375,7 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
     ],
     capability: "properties.view",
     risk: "read",
+    chainable: ["property"],
     fields: [F_PROPERTY_PHRASE],
   },
   /*
@@ -2629,6 +2645,7 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
     // אותו שער כמו נתיבי תיבת הדואר עצמם
     capability: "buyers.view_own",
     risk: "read",
+    chainable: ["buyer"],
     fields: [],
   },
 

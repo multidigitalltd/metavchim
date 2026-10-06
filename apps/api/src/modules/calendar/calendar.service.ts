@@ -34,6 +34,9 @@ const OUTCOME_LABELS: Record<string, string> = {
   needs_other: "צריך נכס אחר",
 };
 
+/** ‏תקרת הפגישות בטווח — מתחתיה הרשימה שלמה, ובה ייתכן שיש עוד. */
+export const APPOINTMENT_LIST_SCAN = 200;
+
 @Injectable()
 export class CalendarService {
   constructor(
@@ -443,7 +446,7 @@ export class CalendarService {
           startsAt: { gte: query.from, lte: query.to },
         },
         orderBy: { startsAt: "asc" },
-        take: 200,
+        take: APPOINTMENT_LIST_SCAN,
       });
       return rows.map(toDto);
     });

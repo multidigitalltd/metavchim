@@ -26,6 +26,34 @@ function candidate(over: Partial<CallbackCandidate> = {}): CallbackCandidate {
 }
 
 describe("rankCallbacks", () => {
+  /*
+   * ‏הליד נקשר רק לסיבה המוצגת. גם ליד יחיד בקבוצה אינו „הליד של
+   * ‏האדם”: ייתכנו לו לידים פתוחים שלא נסרקו (ביקורת Codex, P1).
+   */
+  it("שיחה כסיבה — השורה אינה נקשרת לליד, גם כשנראה רק אחד", () => {
+    const rows = rankCallbacks(
+      [
+        candidate({ contactId: "c1", reason: "missed_call", since: hoursAgo(1) }),
+        candidate({ contactId: "c1", reason: "task", since: hoursAgo(5), leadId: "lead-1" }),
+        candidate({ contactId: "c2", reason: "missed_call", since: hoursAgo(2) }),
+      ],
+      NOW,
+    );
+    expect(rows.find((r) => r.contactId === "c1")?.leadId).toBeUndefined();
+    expect(rows.find((r) => r.contactId === "c2")?.leadId).toBeUndefined();
+  });
+
+  it("ליד ממתין כסיבה — השורה נקשרת לליד שלו", () => {
+    const rows = rankCallbacks(
+      [
+        candidate({ contactId: "c1", reason: "task", since: hoursAgo(5), leadId: "lead-1" }),
+        candidate({ contactId: "c1", reason: "waiting_lead", since: hoursAgo(6), leadId: "lead-2" }),
+      ],
+      NOW,
+    );
+    expect(rows[0]?.leadId).toBe("lead-2");
+  });
+
   it("שיחה שלא נענתה קודמת לליד ממתין, וזה קודם למשימה", () => {
     /*
      * מי שהרים טלפון וקיבל דלת סגורה דוחק יותר ממשימה שנפתחה

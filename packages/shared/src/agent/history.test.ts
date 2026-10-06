@@ -9,12 +9,15 @@ import {
   currentSubject,
   historyRefs,
   keepRecentTurns,
+  resultRefDisplay,
+  resultRefIndex,
   matchHistoryRef,
   mergeStoredTurns,
   parseStoredTurns,
+  agentBoundRef,
 } from "./history.js";
 import { buildInterpretPrompt, type AgentHistoryRef, type AgentHistoryTurn } from "./prompt.js";
-import { agentResultRefs, agentResultShowsMany } from "./result-lines.js";
+import { agentResultRefs, agentResultShowsMany, agentTurnMemory } from "./result-lines.js";
 
 const LEAD_ID = "01J0000000000000000000LEAD";
 const PROP_ID = "01J0000000000000000000PROP";
@@ -494,5 +497,93 @@ describe("currentSubject — הרשומה שעליה מדברים עכשיו", (
       history: [with_([buyer, property])],
     });
     expect(prompt).not.toContain("## הרשומה שעליה מדברים עכשיו");
+  });
+});
+
+describe("⟪תוצאה N⟫ — סימון לשורה בתוצאה של הצעד הקודם", () => {
+  it.each([
+    ["⟪תוצאה 1⟫", 1],
+    [" ⟪תוצאה 12⟫ ", 12],
+    ["⟪תוצאה 0⟫", null],
+    ["תוצאה 1", null],
+    ["⟪הליד מהעדכון⟫", null],
+    ["משה כהן", null],
+    [undefined, null],
+  ])("%s ⟵ %s", (phrase, expected) => {
+    expect(resultRefIndex(phrase)).toBe(expected);
+  });
+
+  it("מוצג בעברית, בלי הסוגריים", () => {
+    expect(resultRefDisplay(1)).toBe("הראשון בתוצאה של הצעד הקודם");
+    expect(resultRefDisplay(3)).toBe("מספר 3 בתוצאה של הצעד הקודם");
+  });
+
+  it("הכלל מופיע בפרומפט — רק לצעדי המשך", () => {
+    const prompt = buildInterpretPrompt("x", { nowText: "יום שני", allowedActions: ["complete_task"] });
+    expect(prompt).toContain("⟪תוצאה 1⟫");
+  });
+});
+
+/*
+ * ‏„תראה את המשימות ותסגור את השנייה” — התור מציג רשימה ופועל על משימה
+ * ‏אחת. „תעדכן אותה” בתור הבא מדבר עליה, והרשימה נשארת להפניה (ביקורת
+ * ‏Codex).
+ */
+describe("agentTurnMemory — הנושא אחרי שרשור על רשימה", () => {
+  const tasks = {
+    tasks: [
+      { id: "01J00000000000000000000T01", title: "להתקשר לדנה" },
+      { id: "01J00000000000000000000T02", title: "לשלוח חוזה" },
+      { id: "01J00000000000000000000T03", title: "לצלם דירה" },
+    ],
+  };
+  const closed: AgentHistoryRef = {
+    label: "לשלוח חוזה",
+    entityType: "task",
+    entityId: "01J00000000000000000000T02",
+  };
+  const turn = (memory: ReturnType<typeof agentTurnMemory>): AgentHistoryTurn => ({
+    transcript: "תראה את המשימות ותסגור את השנייה",
+    action: "show_tasks",
+    params: {},
+    resultSummary: "3 משימות פתוחות",
+    ...memory,
+  });
+
+  it("רשומה אחת שנגעו בה — היא הנושא, והרשימה נשארת", () => {
+    const memory = agentTurnMemory([closed, undefined], tasks);
+    expect(memory.focus).toBe(true);
+    expect(memory.plural).toBeUndefined();
+    expect(memory.refs).toHaveLength(3);
+    expect(currentSubject([turn(memory)])).toEqual(closed);
+  });
+
+  it("בלי פעולה על רשומה — רשימה של כמה היא רבים, בלי נושא", () => {
+    const memory = agentTurnMemory([undefined], tasks);
+    expect(memory.plural).toBe(true);
+    expect(currentSubject([turn(memory)])).toBeNull();
+  });
+
+  it("שתי רשומות שנגעו בהן — אין נושא אחד", () => {
+    const other: AgentHistoryRef = { label: "לצלם דירה", entityType: "task", entityId: "01J00000000000000000000T03" };
+    const memory = agentTurnMemory([closed, other], tasks);
+    expect(memory.focus).toBeUndefined();
+    expect(currentSubject([turn(memory)])).toBeNull();
+  });
+});
+
+describe("agentBoundRef — מה שצעד נקשר אליו", () => {
+  const slots: (AgentHistoryRef | null)[] = [
+    null,
+    { label: "לשלוח חוזה", entityType: "task", entityId: "01J00000000000000000000T02" },
+  ];
+
+  it("⟪תוצאה N⟫ ⟵ השורה ה-N, גם כשהביצוע לא החזיר הפניה", () => {
+    expect(agentBoundRef({ taskPhrase: "⟪תוצאה 2⟫", status: "done" }, slots)).toEqual(slots[1]);
+  });
+
+  it("שורה בלי רשומה, או צעד בלי סימון — אין", () => {
+    expect(agentBoundRef({ taskPhrase: "⟪תוצאה 1⟫" }, slots)).toBeUndefined();
+    expect(agentBoundRef({ taskPhrase: "לשלוח חוזה" }, slots)).toBeUndefined();
   });
 });

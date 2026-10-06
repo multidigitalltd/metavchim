@@ -104,6 +104,9 @@ interface TaskRow {
  */
 export const SUGGESTION_PREFIX = "suggestion:";
 
+/** ‏תקרת הרשימה לסטטוס — מתחתיה הרשימה שלמה, ובה ייתכן שיש עוד. */
+export const TASK_LIST_SCAN = 200;
+
 @Injectable()
 export class TasksService {
   constructor(
@@ -592,14 +595,14 @@ export class TasksService {
         ? await tx.task.findMany({
             where: { ...base, status: query.status },
             orderBy: { dueAt: { sort: "asc", nulls: "last" } },
-            take: 200,
+            take: TASK_LIST_SCAN,
           })
         : (
             await Promise.all([
               tx.task.findMany({
                 where: { ...base, status: "open" },
                 orderBy: { dueAt: { sort: "asc", nulls: "last" } },
-                take: 200,
+                take: TASK_LIST_SCAN,
               }),
               tx.task.findMany({
                 where: { ...base, status: "done" },

@@ -1,5 +1,6 @@
 import { COOP_DEAL_STAGE_LABELS, type CoopDealStage } from "../logic/coop-deal.js";
-import { AGENT_RESULT_ROWS, numberedForms } from "./history.js";
+import { AGENT_RESULT_ROWS, agentTurnRefs, numberedForms } from "./history.js";
+import type { AgentResultCount } from "./insight-guard.js";
 import type { AgentHistoryRef, AgentHistoryTurn } from "./prompt.js";
 import { formatJerusalemDate, formatJerusalemTime } from "../logic/israel-time.js";
 import { CALL_OUTCOME_LABELS } from "../schemas/labels.js";
@@ -31,7 +32,9 @@ import { LEAD_STATUS_LABELS } from "../schemas/lead.js";
  *
  * הכרטיס המלא (`show_card`) ורשימת „למי לחזור” (`show_callbacks`)
  * — לשניהם כבר יש מנסח ייעודי בצד וואטסאפ, ומנסח שני היה הופך את
- * זה לשלושה מקומות במקום אחד.
+ * זה לשלושה מקומות במקום אחד. היוצא מן הכלל: הטקסט הפשוט של „למי
+ * לחזור” ב-`agentResultText`, כי האפליקציה מרנדרת רק אותו — ושרשור
+ * „ותוסיף משימה לראשון” נבחר מהרשימה הזו (ביקורת Codex).
  */
 
 /** סוג הפגישה כפי שהיא נקראת למתווך. */
@@ -481,12 +484,39 @@ const SECTION_ROWS: Record<string, (value: unknown) => AgentResultRow[]> = {
    * ומחזיר „3 בלעדיות” בלי אף אחת מהן — בדיוק הכשל שהקובץ הזה נכתב
    * כדי לסגור, ושחזר כאן בפעולה חדשה.
    */
+  /*
+   * ‎**„למי לחזור” — האדם, הסיבה וכמה זמן הוא ממתין.** השורה נקשרת לליד
+   * ‏של הסיבה המוצגת בלבד; שיחה שלא נענתה — בלי הפניה. כמקטע רגיל היא
+   * ‏עוברת באותו מסלול של הטקסט, ההפניות, הזיכרון והקשירה לתוצאה
+   * ‏(ביקורת Codex).
+   */
+  callbacks: (value) =>
+    rowsOf(value).map((row) => {
+      const also = typeof row["alsoCount"] === "number" && row["alsoCount"] > 0 ? ` (+${row["alsoCount"]} בכרטיס)` : "";
+      const reason = join([text(row["reasonText"]), text(row["waitedText"])]);
+      const leadId = text(row["leadId"]);
+      return factsRow({
+        label: text(row["name"]) ?? "לקוח",
+        detail: reason === "" ? "" : `${reason}${also}`,
+        ...(phoneOf(row) !== null ? { phone: phoneOf(row)! } : {}),
+        ...(text(row["href"]) !== null ? { href: text(row["href"])! } : {}),
+        ...(leadId !== null ? { ref: { entityType: "lead" as const, entityId: leadId } } : {}),
+      });
+    }),
   exclusivity: (value) =>
     rowsOf(value).map((row) => {
       const days = typeof row["daysLeft"] === "number" ? row["daysLeft"] : null;
       const missing = typeof row["missing"] === "number" ? row["missing"] : null;
+      const propertyId = text(row["propertyId"]);
       return {
         label: text(row["propertyTitle"]) ?? "בלעדיות",
+        // ‏השורה היא נכס — „תרשום פעולה לראשון” ממשיך ממנה (ביקורת Codex)
+        ...(propertyId !== null
+          ? {
+              href: `/properties/${propertyId}`,
+              ref: { entityType: "property" as const, entityId: propertyId },
+            }
+          : {}),
         memoryDetail: join([
           days === null ? null : `נותרו ${days} ימים`,
           missing !== null && missing > 0 ? `חסרות ${missing} פעולות שיווק` : null,
@@ -582,12 +612,12 @@ const SECTION_ROWS: Record<string, (value: unknown) => AgentResultRow[]> = {
 /**
  * שם הרשימה — למקטע שעומד לבדו.
  *
- * `counted` מבדיל בין „נחתך בשרת” לבין „זה הכול”: שאילתות החיפוש
- * מחזירות עמוד ומדווחות `hasMore`, ורשימות היום אינן.
+ * `counted` מבדיל בין „נחתך בשרת” לבין „זה הכול”: מקטע שמפיקו מדווח
+ * `hasMore` כשהגיע לתקרה — שאילתות החיפוש, וגם משימות, פגישות והתראות.
  */
 const SECTION_META: Record<string, { noun: string; counted: boolean }> = {
-  appointments: { noun: "פגישות", counted: false },
-  tasks: { noun: "משימות פתוחות", counted: false },
+  appointments: { noun: "פגישות", counted: true },
+  tasks: { noun: "משימות פתוחות", counted: true },
   calls: { noun: "שיחות אחרונות", counted: false },
   deals: { noun: "עסקאות משותפות", counted: false },
   buyers: { noun: "קונים", counted: true },
@@ -599,8 +629,9 @@ const SECTION_META: Record<string, { noun: string; counted: boolean }> = {
   agreements: { noun: "ממתינים לחתימה", counted: true },
   offers: { noun: "הצעות", counted: true },
   demands: { noun: "ביקושים ברשת", counted: true },
-  notifications: { noun: "התראות", counted: false },
-  emails: { noun: "שיחות מייל", counted: false },
+  notifications: { noun: "התראות", counted: true },
+  emails: { noun: "שיחות מייל", counted: true },
+  callbacks: { noun: "ממתינים לחזרה", counted: true },
 };
 
 /** הסדר קובע מה מוצג ראשון בתוצאת חיפוש כללי. */
@@ -1012,6 +1043,26 @@ export function agentHistorySummary(message: string, data: unknown): string {
 }
 
 /**
+ * ‎**מה שנזכר מתוצאת פעולה — כולל התשובה שנוסחה עליה.**
+ *
+ * ‏„כמה קונים יש לי ברמת גן?” נענה בתובנה („שבעה, ושניים מהם חמים”),
+ * ‏והיא — לא שורת המצב — מה שהמתווך המשיך ממנו: „ולמה רק שניים?”.
+ * ‏בלי התובנה בזיכרון השאלה הבאה נשאלה על תשובה שהמודל לא ראה.
+ * ‏פונקציה אחת לשני הערוצים, כמו `agentHistorySummary` שמתחתיה.
+ */
+export function agentTurnSummary(result: {
+  message: string;
+  insight?: string;
+  data?: unknown;
+}): string {
+  const head =
+    result.insight === undefined || result.insight === ""
+      ? result.message
+      : `${result.message} — ${result.insight}`;
+  return agentHistorySummary(head, result.data);
+}
+
+/**
  * ‎**תור שיחתי לזיכרון** — המשפט והתשובה החופשית שניתנה עליו.
  *
  * אחד לכל הערוצים, כמו `agentHistorySummary`: הוואטסאפ, המסך
@@ -1062,6 +1113,71 @@ export function agentResultRefs(data: unknown): AgentHistoryRef[] {
     refs.push({ label: row.memoryLabel ?? row.label, ...row.ref });
   }
   return refs;
+}
+
+/**
+ * ‏‎**שורות התוצאה לפי המקום שבו הוצגו** — מה ש-⟪תוצאה N⟫ סופר.
+ *
+ * ‏‎`agentResultRefs` משמיטה שורה שאין לה רשומה, ולכן האינדקס שלה אינו
+ * ‏האינדקס שהמתווך ראה: בחיפוש כללי שורת הזהות קודמת לכרטיסים, ו„השני”
+ * ‏היה נקשר לשלישי (ביקורת Codex, P1). כאן כל שורה מוצגת שומרת על
+ * ‏מקומה, ושורה בלי רשומה היא `null` — הקישור אליה נעצר ונאמר.
+ */
+export function agentResultSlots(data: unknown): (AgentHistoryRef | null)[] {
+  const list = agentResultList(data);
+  if (list === null) return [];
+  return list.rows.slice(0, AGENT_RESULT_ROWS).map((row) =>
+    row.ref === undefined || row.ref.entityId === ""
+      ? null
+      : { label: row.memoryLabel ?? row.label, ...row.ref },
+  );
+}
+
+/**
+ * ‏‎**הסך המדויק — רק כשהמפיק אמר אותו במפורש** (`total` בנתונים).
+ *
+ * ‏אורך הרשימה אינו הסך: מפיק שחותך בשרת, סורק עד תקרה או מסנן אחריה
+ * ‏— הכול „נראה שלם”, ושומר הספירה היה מאשר ספירה שגויה (סדרת ביקורות
+ * ‏Codex). לכן ההנחה הפוכה: רשימה נספרת רק כשהמפיק יודע שהיא שלמה
+ * ‏ומצהיר על `total`. בלי הצהרה — `null`, והספירה אינה נבדקת.
+ *
+ * ‏הסך שייך לרשימה שלצדו — המפתח היחיד בנתונים שערכו מערך — כדי
+ * ‏שייבדק רק מול ספירה של השורות שלה.
+ */
+export function agentResultCount(data: unknown): AgentResultCount | null {
+  if (typeof data !== "object" || data === null) return null;
+  const record = data as Record<string, unknown>;
+  const total = record["total"];
+  if (typeof total !== "number" || !Number.isInteger(total) || total < 0) return null;
+  const lists = Object.keys(record).filter((key) => Array.isArray(record[key]));
+  return lists.length === 1 ? { section: lists[0]!, total } : null;
+}
+
+/** ‏מה שתור שבוצע משאיר בזיכרון לצד התמלול והתקציר. */
+export interface AgentTurnMemory {
+  refs: AgentHistoryRef[];
+  plural?: true;
+  focus?: true;
+}
+
+/**
+ * ‎**הזיכרון של תור שבוצע — פעם אחת, לשלושת הערוצים.**
+ *
+ * ‏‎`acted` — הרשומות שהפעולות נגעו בהן, מהמאוחרת לקדומה; `data` — מה
+ * ‏שהוצג (הרשימה של הראשית). רשומה אחת בדיוק שנגעו בה היא הנושא
+ * ‏(`focus`), גם כשלצדה הוצגה רשימה; אחרת רשימה של כמה היא „רבים”.
+ */
+export function agentTurnMemory(
+  acted: readonly (AgentHistoryRef | undefined)[],
+  data: unknown,
+): AgentTurnMemory {
+  const refs = agentTurnRefs(acted, agentResultRefs(data));
+  const touched = new Set(acted.flatMap((ref) => (ref === undefined ? [] : [ref.entityId])));
+  // ‏רק כשהיא נשארה ראשונה — תווית עמומה נמחקת, ואז אין נושא מפורש
+  if (touched.size === 1 && refs[0] !== undefined && touched.has(refs[0].entityId)) {
+    return { refs, focus: true };
+  }
+  return agentResultShowsMany(data) ? { refs, plural: true } : { refs };
 }
 
 /**

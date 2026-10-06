@@ -3,9 +3,14 @@ import {
   AGENT_RESULT_LABEL_MAX,
   AGENT_RESULT_SUMMARY_MAX,
   agentHistorySummary,
+  agentTurnSummary,
+  withoutPhoneNumbers,
+  agentResultCount,
   agentResultList,
   agentResultRefs,
+  agentResultSlots,
   agentResultRows,
+  agentResultShowsMany,
   agentResultText,
   officeReportStats,
 } from "./result-lines.js";
@@ -1179,5 +1184,150 @@ describe("הזיכרון לתור הבא — מאפיינים לצד השם", ()
     const summary = agentHistorySummary("נמצאו 8 קונים", { buyers });
     expect(summary).not.toContain("חדרים");
     expect(summary.endsWith("לפי הסדר: קונה מספר 0, קונה מספר 1, קונה מספר 2, קונה מספר 3, קונה מספר 4, קונה מספר 5, קונה מספר 6, קונה מספר 7")).toBe(true);
+  });
+});
+
+describe("withoutPhoneNumbers — טלפון יוצא, תאריך ומחיר נשארים", () => {
+  it.each([
+    ["📵 שיחה שלא נענתה מ-050-123-4567", "📵 שיחה שלא נענתה מ-…"],
+    ["דנה — 0501234567", "דנה — …"],
+    ["+972 50 123 4567 התקשר", "… התקשר"],
+    ["+1 212 555 1234", "…"],
+  ])("%s", (input, expected) => {
+    expect(withoutPhoneNumbers(input)).toBe(expected);
+  });
+
+  /*
+   * ‏התובנה שולחת למודל גם מועדים ומחירים. דפוס רחב מדי היה מוחק את
+   * ‏התאריך ושובר בדיוק את התשובה על „מתי הפגישה”.
+   */
+  it.each(["2026-08-27T10:00:00.000Z", "14:30 · 27.08.2026", "2,300,000", "קומה 0, 4 חדרים"])(
+    "%s נשאר כמו שהוא",
+    (input) => {
+      expect(withoutPhoneNumbers(input)).toBe(input);
+    },
+  );
+});
+
+describe("agentTurnSummary — התשובה שנוסחה נזכרת", () => {
+  it("התובנה נכנסת לזיכרון לצד שורת המצב והשמות", () => {
+    const summary = agentTurnSummary({
+      message: "נמצאו 2 קונים",
+      insight: "שניים, ומשה כהן חם",
+      data: { buyers: [{ id: "b1", name: "משה כהן" }, { id: "b2", name: "דנה לוי" }] },
+    });
+    expect(summary).toContain("נמצאו 2 קונים — שניים, ומשה כהן חם");
+    expect(summary).toContain("משה כהן, דנה לוי");
+  });
+
+  it("בלי תובנה — בדיוק כמו קודם", () => {
+    expect(agentTurnSummary({ message: "הקונה נוצר" })).toBe("הקונה נוצר");
+  });
+});
+
+describe("agentResultSlots — המקום שבו השורה הוצגה", () => {
+  it("שורה בלי רשומה שומרת על מקומה, וההפניות אחריה לא זזות", () => {
+    const data = {
+      calls: [{ id: "c1", contactName: "יוסי", direction: "inbound", outcome: "answered" }],
+      buyers: [
+        { id: "01J000000000000000000BUYR1", name: "משה כהן" },
+        { id: "01J000000000000000000BUYR2", name: "דנה לוי" },
+      ],
+    };
+    const shown = agentResultList(data)!.rows.map((row) => row.label);
+    const slots = agentResultSlots(data);
+    expect(slots).toHaveLength(shown.length);
+    const second = shown.indexOf("דנה לוי");
+    expect(slots[second]?.entityId).toBe("01J000000000000000000BUYR2");
+    expect(slots[shown.indexOf("יוסי")]).toBeNull();
+    // ‏ההפניות לבדן מדלגות על השיחה — ולכן אינן מתאימות לספירה
+    expect(agentResultRefs(data)).toHaveLength(slots.length - 1);
+  });
+
+  it("„למי לחזור” — באותו סדר שמוצג; שורה בלי ליד היא null", () => {
+    const slots = agentResultSlots({
+      callbacks: [
+        { contactId: "c1", name: "יוסי", phone: null, reason: "missed_call" },
+        { contactId: "c2", name: "דנה לוי", phone: null, reason: "waiting_lead", leadId: "01J0000000000000000000LEAD" },
+      ],
+    });
+    expect(slots).toEqual([
+      null,
+      { label: "דנה לוי", entityType: "lead", entityId: "01J0000000000000000000LEAD" },
+    ]);
+  });
+
+  /*
+   * ‏„למי לחזור” כמקטע רגיל: ההפניות והסימון `plural` של התור נגזרים
+   * ‏מאותה רשימה, ולכן „תוסיף משימה לראשון” בתור הבא נקשר לליד ולא
+   * ‏לחיפוש שם (ביקורת Codex).
+   */
+  it("„למי לחזור” — הפניות לליד ונספר כרבים, גם בתור הבא", () => {
+    const data = {
+      callbacks: [
+        { contactId: "c1", name: "דנה לוי", phone: null, reason: "waiting_lead", leadId: "01J0000000000000000000LEAD" },
+        { contactId: "c2", name: "יוסי", phone: null, reason: "missed_call" },
+      ],
+    };
+    expect(agentResultRefs(data)).toEqual([
+      { label: "דנה לוי", entityType: "lead", entityId: "01J0000000000000000000LEAD" },
+    ]);
+    expect(agentResultShowsMany(data)).toBe(true);
+  });
+
+  it("בלעדיות — השורה היא נכס, ואפשר להמשיך ממנה", () => {
+    const slots = agentResultSlots({
+      exclusivity: [{ propertyId: "01J00000000000000000000P01", propertyTitle: "הרצל 5", daysLeft: 12, missing: 1, summary: "" }],
+    });
+    expect(slots).toEqual([{ label: "הרצל 5", entityType: "property", entityId: "01J00000000000000000000P01" }]);
+  });
+
+  it("צורה שאינה רשימה — אין שורות", () => {
+    expect(agentResultSlots({ ok: true })).toEqual([]);
+  });
+});
+
+describe("„למי לחזור” בטקסט הפשוט — מה שהאפליקציה מציגה", () => {
+  it("באותו סדר, עם הסיבה והטלפון, ובתקרה המשותפת", () => {
+    const callbacks = Array.from({ length: 10 }, (_, i) => ({
+      contactId: `c${i}`,
+      name: `לקוח ${i}`,
+      phone: `050000000${i}`,
+      reason: "missed_call",
+      reasonText: "התקשר ולא נענה",
+      waitedText: "ממתין שעה",
+      alsoCount: i === 0 ? 1 : 0,
+    }));
+    const text = agentResultText({ callbacks })!;
+    const lines = text.split("\n");
+    expect(lines[0]).toBe("• לקוח 0 — התקשר ולא נענה · ממתין שעה (+1 בכרטיס) — 0500000000");
+    expect(text).toContain("לקוח 7");
+    expect(text).not.toContain("לקוח 8");
+    expect(lines.at(-1)).toBe("ועוד 2 ממתינים לחזרה");
+  });
+});
+
+describe("agentResultCount — רק סך שהמפיק הצהיר עליו", () => {
+  it("בלי `total` — אין סך, גם כשהרשימה נראית שלמה", () => {
+    expect(agentResultCount({ buyers: [{ id: "b1", name: "משה" }] })).toBeNull();
+    expect(agentResultCount({ callbacks: [{ name: "יוסי" }] })).toBeNull();
+    expect(agentResultCount({ report: { leads: { open: 12 } } })).toBeNull();
+    expect(agentResultCount({ ok: true })).toBeNull();
+  });
+
+  it("עם `total` — הוא הסך, גם כשמוצג רק חלק", () => {
+    expect(agentResultCount({ buyers: [{ id: "b1", name: "משה" }], total: 1 })).toEqual({
+      section: "buyers",
+      total: 1,
+    });
+    expect(agentResultCount({ offers: [], total: 150, hasMore: true })).toEqual({
+      section: "offers",
+      total: 150,
+    });
+  });
+
+  it("סך שאין לו רשימה אחת לצדו — אינו של אף רשימה", () => {
+    expect(agentResultCount({ total: 3 })).toBeNull();
+    expect(agentResultCount({ buyers: [], leads: [], total: 3 })).toBeNull();
   });
 });

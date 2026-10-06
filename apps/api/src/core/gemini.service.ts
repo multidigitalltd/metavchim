@@ -211,7 +211,7 @@ export class GeminiService {
   async generateStructured(
     prompt: string,
     responseSchema: Record<string, unknown>,
-    options: { maxOutputTokens?: number; timeoutMs?: number; image?: GeminiImage } = {},
+    options: Omit<CallOptions, "responseSchema"> = {},
   ): Promise<unknown | null> {
     return (await this.generateStructuredDetailed(prompt, responseSchema, options)).value;
   }

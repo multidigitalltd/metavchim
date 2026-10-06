@@ -2,9 +2,11 @@ import { useMemo, useState } from "react";
 import { View } from "react-native";
 import {
   AGENT_CHOICE_PROMPT,
-  agentResultRefs,
-  agentTurnRefs,
+  agentBoundRef,
+  agentResultSlots,
+  agentTurnMemory,
   type AgentHistoryRef,
+  type AgentTurnMemory,
 } from "@metavchim/shared";
 import { ApiError, apiPost } from "@/lib/api";
 import type { ExecuteResult, Proposal } from "@/lib/agent";
@@ -46,7 +48,7 @@ export function ProposalCard({
   onDone: (
     result: ExecuteResult,
     params: Record<string, unknown>,
-    refs: AgentHistoryRef[],
+    memory: AgentTurnMemory,
   ) => void;
   onCancel: () => void;
 }) {
@@ -90,14 +92,18 @@ export function ProposalCard({
         ...(transcript.trim() !== "" ? { transcript: transcript.trim() } : {}),
       });
       const followUps = proposal.followUps ?? [];
-      const shown = agentResultRefs(primary.data);
       if (followUps.length === 0) {
-        onDone(primary, sent, agentTurnRefs([primary.ref], shown));
+        onDone(primary, sent, agentTurnMemory([primary.ref], primary.data));
         return;
       }
       const messages = [primary.message];
       let link: string | undefined = primary.link;
       const acted: (AgentHistoryRef | undefined)[] = [primary.ref];
+      /*
+       * ‏מה ש-⟪תוצאה N⟫ נקשר אליו — הרשימה של הראשית, לפי המקום שבו הוצגה.
+       * ‏רק היא מוצגת למתווך; רשימה של צעד ביניים הייתה בוחרת שורה שלא ראה.
+       */
+      const previous = agentResultSlots(primary.data);
       let failure: string | null = null;
       for (const step of followUps) {
         try {
@@ -106,10 +112,11 @@ export function ProposalCard({
           const done = await apiPost<ExecuteResult>("/agent/execute", {
             action: step.actionId,
             params: stepParams,
+            ...(previous.length > 0 ? { previous } : {}),
           });
           messages.push(done.message);
           link ??= done.link;
-          acted.unshift(done.ref);
+          acted.unshift(done.ref ?? agentBoundRef(stepParams, previous));
         } catch (err: unknown) {
           failure = `„${step.title}” לא בוצע: ${err instanceof ApiError ? err.message : "שגיאה"}`;
           break;
@@ -125,9 +132,12 @@ export function ProposalCard({
             ? { href: primary.href }
             : {}),
           ...(link === undefined ? {} : { link }),
+          // ‏הרשימה של הראשית — שעליה נקשרו הצעדים; כמו במסך ובוואטסאפ
+          ...(primary.data === undefined ? {} : { data: primary.data }),
+          ...(primary.insight === undefined ? {} : { insight: primary.insight }),
         },
         sent,
-        agentTurnRefs(acted, shown),
+        agentTurnMemory(acted, primary.data),
       );
     } catch (err: unknown) {
       setError(err instanceof ApiError ? err.message : "הפעולה נכשלה");

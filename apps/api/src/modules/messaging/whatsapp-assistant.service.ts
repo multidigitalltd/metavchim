@@ -5,14 +5,14 @@ import {
   firstNameOf,
   agentAction,
   AGENT_DEGRADED_REASON,
-  agentHistorySummary,
+  agentTurnSummary,
   agentReplyTurn,
   agentReplySegments,
   externalLinkLabel,
-  agentResultRefs,
-  agentResultShowsMany,
+  agentBoundRef,
+  agentResultSlots,
   proposalRunsImmediately,
-  agentTurnRefs,
+  agentTurnMemory,
   type AgentHistoryRef,
   agentResultText,
   effectiveCapabilities,
@@ -2624,6 +2624,11 @@ export class WhatsAppAssistantService {
      * שבוצע.
      */
     const acted: (AgentHistoryRef | undefined)[] = [primary.ref];
+    /*
+     * ‏מה ש-⟪תוצאה N⟫ בצעדים נקשר אליו: הרשימה של הראשית — זו שנשלחת
+     * ‏למתווך. רשימה של צעד ביניים אינה מוצגת, ובחירה ממנה הייתה בעיוורון.
+     */
+    const previous = agentResultSlots(primary.data);
     for (const followUp of state.proposal.followUps ?? []) {
       const stepParams = this.narrow(
         followUp.actionId,
@@ -2635,6 +2640,7 @@ export class WhatsAppAssistantService {
           stepParams,
           undefined,
           "whatsapp",
+          previous,
         );
         lines.push(`· ${result.message}`);
         /*
@@ -2653,7 +2659,7 @@ export class WhatsAppAssistantService {
           });
         }
         // רק צעד שהצליח — הפניה לרשומה שלא נוצרה היא שיוך לכלום
-        acted.unshift(result.ref);
+        acted.unshift(result.ref ?? agentBoundRef(stepParams, previous));
       } catch (error) {
         lines.push(`· „${followUp.title}” לא בוצע: ${errorMessage(error)}`);
         break;
@@ -2706,7 +2712,7 @@ export class WhatsAppAssistantService {
      * שורות התוצאה נלקחות מהראשית בלבד — הן מה שנשלח למתווך
      * כרשימה. לצעד המשך יש שורת הודעה, לא רשימה.
      */
-    const refs = agentTurnRefs(acted, agentResultRefs(primary.data));
+    const memory = agentTurnMemory(acted, primary.data);
     const turn: AgentHistoryTurn = {
       transcript: state.transcript,
       action: state.proposal.actionId,
@@ -2717,7 +2723,7 @@ export class WhatsAppAssistantService {
        * בלי טלפונים, אימיילים, הערות ותקצירי שיחות. `agentHistorySummary`
        * מסביר למה בדיוק כך ולא פחות ולא יותר.
        */
-      resultSummary: agentHistorySummary(primary.message, primary.data),
+      resultSummary: agentTurnSummary(primary),
       /*
        * המזהים של מה שהוצג ושל מה שהפעולה נגעה בו — **בצד שלנו, לא
        * בפרומפט.**
@@ -2726,12 +2732,16 @@ export class WhatsAppAssistantService {
        * אינו בין אלף אנשי הקשר האחרונים אינה נמצאת בשום מסלול.
        * ההפניה פותרת את הביטוי לפני החיפוש (ביקורת Codex).
        *
-       * ‎`agentTurnRefs` מוסיפה את הרשומה של הפעולה עצמה — הכרטיס
+       * ‎`agentTurnMemory` מוסיפה את הרשומה של הפעולה עצמה — הכרטיס
        * שנפתח, הקונה שנוצר — שאינה רשימה ולכן לא הותירה עקבה.
        */
-      ...(refs.length === 0 ? {} : { refs }),
-      // ‏רשימה של כמה — גם כשרק לאחת יש הפניה, היא אינה „הוא”
-      ...(agentResultShowsMany(primary.data) ? { plural: true as const } : {}),
+      ...(memory.refs.length === 0 ? {} : { refs: memory.refs }),
+      /*
+       * ‏רשימה של כמה — גם כשרק לאחת יש הפניה, היא אינה „הוא”; ורשומה אחת
+       * ‏שהצעדים פעלו עליה היא הנושא גם לצד הרשימה (`focus`).
+       */
+      ...(memory.plural === undefined ? {} : { plural: memory.plural }),
+      ...(memory.focus === undefined ? {} : { focus: memory.focus }),
       ...(offer === undefined ? {} : { offer }),
     };
     this.remember(chat, turn);
