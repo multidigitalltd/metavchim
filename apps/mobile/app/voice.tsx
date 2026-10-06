@@ -5,9 +5,11 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import {
   agentHistorySummary,
   agentReplyTurn,
+  agentResultRefs,
   agentResultShowsMany,
   agentResultText,
   keepRecentTurns,
+  agentTurnRefs,
   proposalRunsImmediately,
   type AgentHistoryRef,
 } from "@metavchim/shared";
@@ -220,7 +222,8 @@ export default function VoiceScreen() {
             proposal.actionId,
             executed,
             params,
-            executed.ref ? [executed.ref] : [],
+            // ‏כמו במסך: גם השורות שהשאילתה החזירה, לא רק הרשומה שנגעו בה
+            agentTurnRefs([executed.ref], agentResultRefs(executed.data)),
           );
           return;
         }
