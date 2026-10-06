@@ -69,9 +69,13 @@ describe("‏שאילתת המפתחות אינה חורגת ממה שמותר �
    * ‏מכריע, תו כזה הוא הרחבה אמיתית של הכלל.
    */
   it("‏ותווי ה-LIKE מוברחים", () => {
-    const builder = SOURCE.slice(
-      SOURCE.indexOf("export function neighborhoodKeyMatchSql("),
-      SOURCE.indexOf("export function requirementColumns("),
+    const vocabulary = readFileSync(
+      join(__dirname, "..", "suggest", "neighborhood-vocabulary.ts"),
+      "utf8",
+    );
+    const builder = vocabulary.slice(
+      vocabulary.indexOf("export function neighborhoodKeyMatchSql("),
+      vocabulary.indexOf("export async function neighborhoodVocabulary("),
     );
     expect(builder).toContain('replace(/([!%_])/gu, "!$1")');
     expect(builder.split("ESCAPE '!'").length - 1).toBe(2);

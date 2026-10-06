@@ -1,5 +1,9 @@
 import { Prisma } from "@prisma/client";
-import type { NeighborhoodUse } from "@metavchim/shared";
+import {
+  neighborhoodKey,
+  neighborhoodKeyMatches,
+  type NeighborhoodUse,
+} from "@metavchim/shared";
 
 /**
  * ‎**השכונות שכבר נכתבו אצל הדייר — השאילתה עצמה.**
@@ -81,6 +85,43 @@ export function foldedNeighborhood(expr: Prisma.Sql): Prisma.Sql {
     ${QUOTES}, '', 'g'),
     ${DASHES}, ' ', 'g'),
     ${WHITESPACE}, ' ', 'g')))`;
+}
+
+/**
+ * ‎**הכלל עצמו בשפת המסד — ולמה הוא חייב להיות מדויק.**
+ *
+ * ## מה היה קודם
+ *
+ * ‏המסד עשה תת-מחרוזת רחבה (`LIKE '%q%'`) תחת תקרה, והכלל
+ * ‏המשותף הכריע אחריה. אבל התקרה חתכה **לפני** ההכרעה
+ * ‏ובלי סדר: במשרד שבו יותר מ-200 מפתחות מכילים את מה
+ * ‏שהוקלד, התאמות אמיתיות נדחקו החוצה בידי התאמות באמצע
+ * ‏מילה שהכלל היה פוסל בלאו הכי — כלומר קונים שנעלמים
+ * ‏מהסינון בלי שום סימן (ביקורת Codex, P1).
+ *
+ * ## הכלל, מילה במילה
+ *
+ * ‏`neighborhoodKeyMatches` הוא שתי בדיקות על מפתח מקופל: תחילית
+ * ‏המפתח, או תחילית אחד מההיסטים שאחרי רווח. ב-SQL אלה בדיוק
+ * ‏שני ה-`LIKE` שלמטה. השקילות נבדקת מול מסד אמיתי ב-
+ * ‏`neighborhood-match.int.test.ts`, בדיוק כמו שהקיפול נבדק.
+ *
+ * ## ולמה הבריחה נדרשת עכשיו ולא קודם
+ *
+ * ‏כשהמסד רק הרחיב, `%` או `_` שהוקלדו בשדה לא הזיקו —
+ * ‏הקוד צימצם אחריהם. עכשיו המסד מכריע, ותו כזה היה מרחיב
+ * ‏את ההתאמה מעבר לכלל. `!` כתו בריחה מפורש ולא הלוכסן
+ * ‏המרמז, כדי שלא ניתלה במוסכמות מילוט של הספרייה.
+ *
+ * ## שני הסינונים, כלל אחד
+ *
+ * ‏סינון הקונים וסינון הנכסים לפי שכונה שניהם עוברים כאן, ולכן
+ * ‏הביטוי יושב לצד הקיפול ולא באחד מהם: שני עותקים היו נפרדים
+ * ‏ביום שאחד מהם יתוקן. המפתח המקופל נקרא תמיד `k` בשאילתה.
+ */
+export function neighborhoodKeyMatchSql(queryKey: string): Prisma.Sql {
+  const escaped = queryKey.replace(/([!%_])/gu, "!$1");
+  return Prisma.sql`(k LIKE ${`${escaped}%`} ESCAPE '!' OR k LIKE ${`% ${escaped}%`} ESCAPE '!')`;
 }
 
 /**
@@ -243,4 +284,40 @@ export async function neighborhoodVocabulary(
   `;
   /* `bigint` מ-COUNT — JSON אינו יודע לסדר אותו, והמונה קטן ממילא. */
   return rows.map((row) => ({ name: row.name, count: Number(row.count) }));
+}
+
+/**
+ * ‎**הכתיבים של שכונות הנכסים שתואמים את מה שהוקלד — לסינון הרשימה.**
+ *
+ * ‏אצל הקונה יש עמודת מפתחות מקופלים; אצל הנכס השכונה היא הטקסט
+ * ‏כפי שנכתב, ולכן הקיפול רץ כאן על העמודה עצמה. מה שחוזר הוא
+ * ‏הכתיבים **כפי שנשמרו** — בדיוק מה ש-`neighborhood: { in }`
+ * ‏יודע להשוות, כך ש„שיכון ג'” מוצא גם נכס שנכתב בו „שכונת שיכון ג”.
+ *
+ * ‏המסד מכריע לפי הכלל, והכלל המשותף נשאר בדרך אחריו — כמו בסינון
+ * ‏הקונים: הוא הסמכות, וכל סטייה עתידית תיפול לכיוון הצר. ובלי
+ * ‏תקרה, מאותה סיבה: התוצאה היא שמות שכונות שמתחילות באותן אותיות,
+ * ‏ותקרה הייתה חותכת דווקא התאמות נכונות.
+ *
+ * ‎**חייב לרוץ בתוך `withTenant`** — כמו האוצר שלמעלה, RLS על
+ * ‏`properties` הוא מה שמגביל למשרד.
+ */
+export async function matchingPropertyNeighborhoods(
+  tx: Prisma.TransactionClient,
+  queryKey: string,
+): Promise<string[]> {
+  const rows = await tx.$queryRaw<{ name: string }[]>`
+    SELECT DISTINCT name
+      FROM (
+        SELECT p.neighborhood AS name,
+               ${foldedNeighborhood(Prisma.raw("p.neighborhood"))} AS k
+          FROM properties p
+         WHERE p.neighborhood IS NOT NULL
+           AND p.deleted_at IS NULL
+      ) AS folded
+     WHERE ${neighborhoodKeyMatchSql(queryKey)}
+  `;
+  return rows
+    .map((row) => row.name)
+    .filter((name) => neighborhoodKeyMatches(neighborhoodKey(name), queryKey));
 }

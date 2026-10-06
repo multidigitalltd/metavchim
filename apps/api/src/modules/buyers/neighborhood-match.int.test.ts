@@ -1,7 +1,7 @@
 import { PrismaClient } from "@prisma/client";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { neighborhoodKey, neighborhoodKeyMatches } from "@metavchim/shared";
-import { neighborhoodKeyMatchSql } from "./buyers.service";
+import { neighborhoodKeyMatchSql } from "../suggest/neighborhood-vocabulary";
 import { prismaAdapter } from "../../core/prisma-adapter";
 
 /**
