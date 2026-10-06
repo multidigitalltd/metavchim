@@ -602,7 +602,7 @@ const SECTION_META: Record<string, { noun: string; counted: boolean }> = {
   offers: { noun: "הצעות", counted: true },
   demands: { noun: "ביקושים ברשת", counted: true },
   notifications: { noun: "התראות", counted: false },
-  emails: { noun: "שיחות מייל", counted: false },
+  emails: { noun: "שיחות מייל", counted: true },
 };
 
 /** הסדר קובע מה מוצג ראשון בתוצאת חיפוש כללי. */
@@ -1132,12 +1132,19 @@ export function agentResultSlots(data: unknown): (AgentHistoryRef | null)[] {
  */
 export function agentResultCount(data: unknown): number | null {
   if (typeof data !== "object" || data === null) return null;
-  // ‏דוח המשרד מוצג כשורות מדדים — שש שורות אינן „שישה לידים”
-  if (typeof (data as Record<string, unknown>)["report"] === "object") return null;
+  const payload = data as Record<string, unknown>;
+  const callbacks = payload["callbacks"];
+  if (Array.isArray(callbacks)) return callbacks.length;
+  /*
+   * ‏‎**רק רשימה שהשלמות שלה ידועה.** מקטע `counted` מדווח `hasMore`
+   * ‏כשנקטם; מקטע אחר עשוי להיות „האחרונות” בלבד, ושם מה שהוצג אינו
+   * ‏הסך (ביקורת Codex). חיפוש כללי ודוח המשרד — גם הם לא: הראשון
+   * ‏מאחד סוגים, והשני הוא שורות מדדים ולא רשומות.
+   */
+  const sections = SECTION_KEYS.filter((key) => Array.isArray(payload[key]));
+  if (sections.length !== 1 || SECTION_META[sections[0]!]?.counted !== true) return null;
   const list = agentResultList(data);
-  if (list !== null) return list.hasMore ? null : list.rows.length;
-  const callbacks = (data as Record<string, unknown>)["callbacks"];
-  return Array.isArray(callbacks) ? callbacks.length : null;
+  return list === null || list.hasMore ? null : list.rows.length;
 }
 
 /**

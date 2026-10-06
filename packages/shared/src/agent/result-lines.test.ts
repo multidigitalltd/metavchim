@@ -1285,6 +1285,11 @@ describe("agentResultCount — כמה שורות חזרו ברשימה שלמה"
   it("רשימה רגילה, „למי לחזור”, רשימה קטומה וצורה אחרת", () => {
     expect(agentResultCount({ buyers: [{ id: "b1", name: "משה" }, { id: "b2", name: "דנה" }] })).toBe(2);
     expect(agentResultCount({ callbacks: [{ name: "יוסי" }, { name: "דנה" }] })).toBe(2);
+    // ‏מיילים שנקטמו — הסך אינו מה שהוצג
+    expect(agentResultCount({ emails: [{ contactName: "דנה" }], hasMore: true })).toBeNull();
+    expect(agentResultCount({ emails: [{ contactName: "דנה" }] })).toBe(1);
+    // ‏„שיחות אחרונות” — רשימה שאינה מדווחת קיטום, ולכן שלמותה אינה ידועה
+    expect(agentResultCount({ calls: [{ contactName: "יוסי" }] })).toBeNull();
     expect(agentResultCount({ buyers: [{ id: "b1", name: "משה" }], hasMore: true })).toBeNull();
     expect(agentResultCount({ ok: true })).toBeNull();
     // ‏דוח המשרד מוצג כשורות מדדים — אינן רשומות

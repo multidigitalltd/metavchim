@@ -1369,6 +1369,7 @@ export class AgentExecuteService {
               : { budgetMaxAgorot: row.budgetMaxAgorot }),
             matchCount: count(row),
           })),
+        hasMore: rows.length > MATCH_LIST_LIMIT,
       },
     };
   }
@@ -2392,6 +2393,8 @@ export class AgentExecuteService {
           unread: thread.unread,
           ...(thread.buyerId === undefined ? {} : { buyerId: thread.buyerId }),
         })),
+        // ‏הקיטום נאמר — עשר שורות אינן „עשר שיחות” כשיש ארבע-עשרה
+        hasMore: threads.length > 10,
       },
     };
   }
