@@ -1828,7 +1828,8 @@ export class AgentExecuteService {
     if (bids.threads.length === 0) return { href, message: "אין עדיין הצעות מחיר על הנכס" };
     return {
       href,
-      message: bids.sentences.join(" "),
+      // ‏סריקה שנחתכה — המשפטים נכונים לצעדים האחרונים בלבד, וזה נאמר
+      message: `${bids.complete ? "" : "לפי הצעדים האחרונים במו״מ: "}${bids.sentences.join(" ")}`,
       // ‏כל השרשורים — הסך המדויק לשומר הספירה; סריקה שנחתכה — „יש עוד”
       data: {
         bids: bids.threads.map(bidRow),
@@ -1873,21 +1874,31 @@ export class AgentExecuteService {
     if (!BID_DECISIONS.includes(decision as BidDecision)) {
       throw new BadRequestException("לא ברור מה הוחלט — ההצעה התקבלה, נדחתה או נמשכה?");
     }
-    const open = (await this.bids.list(propertyId)).threads.filter((thread) => thread.open !== null);
+    const bids = await this.bids.list(propertyId);
+    const open = bids.threads.filter((thread) => thread.open !== null);
     const buyerId = str(params["buyerId"]);
+    /*
+     * ‏‎**סריקה שנחתכה אינה „ההצעה היחידה”.** הצעה פתוחה ותיקה יותר עלולה
+     * ‏להיות מחוץ לתקרה, ובחירה אוטומטית הייתה מכריעה על השרשור הלא נכון
+     * ‏(ביקורת Codex, P1). שם, בלי שם קונה — שואלים.
+     */
     const thread =
       buyerId !== undefined
         ? open.find((candidate) => candidate.buyer.id === buyerId)
-        : open.length === 1
+        : open.length === 1 && bids.complete
           ? open[0]
           : undefined;
     if (thread === undefined || thread.open === null) {
       throw new BadRequestException(
         buyerId !== undefined
-          ? "אין הצעה פתוחה של הקונה הזה על הנכס"
-          : open.length === 0
-            ? "אין הצעה פתוחה על הנכס"
-            : `יש ${open.length} הצעות פתוחות על הנכס — אמרו של איזה קונה`,
+          ? bids.complete
+            ? "אין הצעה פתוחה של הקונה הזה על הנכס"
+            : "לא נמצאה הצעה פתוחה של הקונה הזה בין הצעדים האחרונים — הכריעו בלשונית ההצעות בכרטיס"
+          : !bids.complete
+            ? "למו״מ על הנכס היסטוריה ארוכה — אמרו של איזה קונה ההצעה"
+            : open.length === 0
+              ? "אין הצעה פתוחה על הנכס"
+              : `יש ${open.length} הצעות פתוחות על הנכס — אמרו של איזה קונה`,
       );
     }
     const result = await this.bids.decide(propertyId, thread.open.id, decision as BidDecision);

@@ -300,5 +300,16 @@ describe("הצעות מחיר על נכס — סריקה שנחתכה", () => {
     const result = await run(() => serviceWith({ list }).execute("show_bids", { propertyId: PROPERTY }));
     expect(result.data).toEqual(expect.objectContaining({ hasMore: true }));
     expect(result.data).not.toHaveProperty("total");
+    expect(result.message).toContain("לפי הצעדים האחרונים");
+  });
+
+  // ‏הצעה פתוחה יחידה בסריקה שנחתכה אינה בהכרח היחידה — שואלים (ביקורת Codex, P1)
+  it("הכרעה בלי שם קונה — לא נבחרת אוטומטית", async () => {
+    const decide = vi.fn();
+    const list = async () => bidsDto([thread(BUYER, "משה כהן", { id: "BID1", amountAgorot: 230_000_000 })], false);
+    await expect(
+      run(() => serviceWith({ list, decide }).execute("decide_bid", { propertyId: PROPERTY, bidDecision: "accepted" })),
+    ).rejects.toThrow("אמרו של איזה קונה");
+    expect(decide).not.toHaveBeenCalled();
   });
 });
