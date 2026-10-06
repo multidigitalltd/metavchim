@@ -300,6 +300,13 @@ export function ProposalCard({
            * שקישור מצטרף אליה.
            */
           ...(link === undefined ? {} : { link }),
+          /*
+           * ‏‎**הרשימה של הראשית — גם כשיש צעדים.** „תראה את המשימות ותסגור
+           * ‏את השנייה” נקשר לסדר שבה; בלעדיה המתווך לא רואה על מה נסגרה
+           * ‏המשימה (ביקורת Codex). כמו בוואטסאפ, שמציג את הרשימה של הראשית.
+           */
+          ...(primary.data === undefined ? {} : { data: primary.data }),
+          ...(primary.insight === undefined ? {} : { insight: primary.insight }),
         },
         sent,
         agentTurnRefs(acted, shown),

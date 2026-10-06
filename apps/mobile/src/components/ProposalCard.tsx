@@ -131,6 +131,9 @@ export function ProposalCard({
             ? { href: primary.href }
             : {}),
           ...(link === undefined ? {} : { link }),
+          // ‏הרשימה של הראשית — שעליה נקשרו הצעדים; כמו במסך ובוואטסאפ
+          ...(primary.data === undefined ? {} : { data: primary.data }),
+          ...(primary.insight === undefined ? {} : { insight: primary.insight }),
         },
         sent,
         agentTurnRefs(acted, shown),
