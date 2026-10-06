@@ -98,6 +98,8 @@ export function ProposalCard({
       const messages = [primary.message];
       let link: string | undefined = primary.link;
       const acted: (AgentHistoryRef | undefined)[] = [primary.ref];
+      // ‏מה ש-⟪תוצאה N⟫ נקשר אליו — התוצאה האחרונה שהייתה בה רשימה
+      let previous = shown;
       let failure: string | null = null;
       for (const step of followUps) {
         try {
@@ -106,7 +108,10 @@ export function ProposalCard({
           const done = await apiPost<ExecuteResult>("/agent/execute", {
             action: step.actionId,
             params: stepParams,
+            ...(previous.length > 0 ? { previous } : {}),
           });
+          const listed = agentResultRefs(done.data);
+          if (listed.length > 0) previous = listed;
           messages.push(done.message);
           link ??= done.link;
           acted.unshift(done.ref);

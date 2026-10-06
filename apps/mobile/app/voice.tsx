@@ -3,7 +3,7 @@ import { Alert, Linking, ScrollView, View } from "react-native";
 import { useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import {
-  agentHistorySummary,
+  agentTurnSummary,
   agentReplyTurn,
   agentResultRefs,
   agentResultShowsMany,
@@ -158,7 +158,7 @@ export default function VoiceScreen() {
         transcript,
         action,
         params,
-        resultSummary: agentHistorySummary(result.message, result.data),
+        resultSummary: agentTurnSummary(result),
         ...(refs.length > 0 ? { refs } : {}),
         ...(agentResultShowsMany(result.data) ? { plural: true as const } : {}),
       });
