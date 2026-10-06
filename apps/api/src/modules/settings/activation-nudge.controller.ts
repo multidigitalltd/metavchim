@@ -1,5 +1,4 @@
 import { Controller, HttpCode, NotFoundException, Param, Post } from "@nestjs/common";
-import { Throttle } from "@nestjs/throttler";
 import { z } from "zod";
 
 import { Public } from "../../common/auth.decorators";
@@ -32,14 +31,21 @@ const TokenSchema = z.string().min(20).max(64).regex(/^[A-Za-z0-9_-]+$/u);
  * קישור במייל נפתח גם בידי סורקי אבטחה של ארגונים. `GET` שמסיר
  * היה מסיר אנשים שמעולם לא לחצו. אותה הכרעה בדיוק כמו בהסרה
  * מהצעות הנכסים.
+ *
+ * ## ובלי תקרה משלו (ביקורת Codex)
+ *
+ * ‏הנתיב הזה הוא גם יעד כפתור „ביטול הרשמה” של ספק הדואר
+ * ‏(`List-Unsubscribe-Post`), ושם הבקשות מגיעות מהתשתית המשותפת של
+ * ‏הספק — הרבה נמענים מאותה כתובת. תקרה של עשרים לדקה לכל כתובת
+ * ‏הייתה מחזירה 429 להסרות אמיתיות ומשאירה אנשים ברשימה בניגוד
+ * ‏לבקשתם. התקרה הכללית לכל כתובת נשארת, כמו בשני נתיבי ההסרה
+ * ‏האחרים; ניחוש של טוקן בן 32 בתים אקראיים אינו מעשי בכל קצב.
  */
 @Controller()
 export class ActivationNudgeController {
   constructor(private readonly prisma: PrismaService) {}
 
   @Public()
-  // מגבלת קצב על נתיב ציבורי שכותב — ניחוש טוקנים אינו זול
-  @Throttle({ default: { limit: 20, ttl: 60_000 } })
   @Post("public/nudge/:token/optout")
   @HttpCode(200)
   async optOut(
