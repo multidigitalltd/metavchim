@@ -275,9 +275,15 @@ export function assistantMemoryTurn(
     });
   }
 
-  if (texts.length === 0) return null;
+  if (items.length === 0) return null;
   return {
-    transcript: texts.join(", "),
+    /*
+     * ‏‎**גם עדכון בלי ניסוח בזיכרון הוא תור.** „ליד דורש טיפול” לבדו
+     * ‏נשלח ונקרא; בלי תור, `currentSubject` היה מדלג עליו ומחזיר כרטיס
+     * ‏ישן כ„הוא” (ביקורת Codex, P1). משפט כללי, בלי הפניה — כמו כל
+     * ‏עדכון בלי רשומה, הוא מסיים את הנושא ואינו ממציא חדש.
+     */
+    transcript: texts.length === 0 ? "שלחתי לך עדכון" : texts.join(", "),
     // אין פעולה: הסוכן לא ביצע דבר, הוא דיווח
     action: "notify",
     params: {},

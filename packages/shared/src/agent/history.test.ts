@@ -97,10 +97,25 @@ describe("assistantMemoryTurn", () => {
     expect(currentSubject([turn!])).toEqual(expect.objectContaining({ entityId: LEAD_ID }));
   });
 
-  it("מתעלם מסוג התראה שאין לו ניסוח — ולא כותב תור ריק", () => {
-    expect(assistantMemoryTurn([{ type: "weekly_summary", entityType: null, entityId: null }])).toBe(
-      null,
-    );
+  /*
+   * ‏התראה מסוג שאין לו ניסוח נשלחה ונקראה. היא נזכרת כעדכון כללי בלי
+   * ‏הפניה — ולכן היא מסיימת את הנושא הקודם (ביקורת Codex, P1).
+   */
+  it("סוג התראה שאין לו ניסוח — תור כללי בלי הפניה, שמסיים את הנושא", () => {
+    const turn = assistantMemoryTurn([{ type: "lead_requires_human", entityType: "lead", entityId: LEAD_ID }]);
+    expect(turn?.transcript).toBe("שלחתי לך עדכון");
+    expect(turn?.refs).toBeUndefined();
+    const buyer: AgentHistoryTurn = {
+      transcript: "x",
+      action: "show_card",
+      params: {},
+      refs: [{ label: "משה כהן", entityType: "buyer", entityId: PROP_ID }],
+    };
+    expect(currentSubject([buyer, turn!])).toBeNull();
+  });
+
+  it("בלי התראות — אין תור", () => {
+    expect(assistantMemoryTurn([])).toBeNull();
   });
 });
 
