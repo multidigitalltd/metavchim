@@ -55,37 +55,7 @@ import { OutboxService } from "../../core/outbox.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import { lockContact, shareTenantRow } from "../../common/locks";
 import { ContactErasureService } from "../contacts/contact-erasure.service";
-
-/**
- * ‎**הכלל עצמו בשפת המסד — ולמה הוא חייב להיות מדויק.**
- *
- * ## מה היה קודם
- *
- * ‏המסד עשה תת-מחרוזת רחבה (`LIKE '%q%'`) תחת תקרה, והכלל
- * ‏המשותף הכריע אחריה. אבל התקרה חתכה **לפני** ההכרעה
- * ‏ובלי סדר: במשרד שבו יותר מ-200 מפתחות מכילים את מה
- * ‏שהוקלד, התאמות אמיתיות נדחקו החוצה בידי התאמות באמצע
- * ‏מילה שהכלל היה פוסל בלאו הכי — כלומר קונים שנעלמים
- * ‏מהסינון בלי שום סימן (ביקורת Codex, P1).
- *
- * ## הכלל, מילה במילה
- *
- * ‏`neighborhoodKeyMatches` הוא שתי בדיקות על מפתח מקופל: תחילית
- * ‏המפתח, או תחילית אחד מההיסטים שאחרי רווח. ב-SQL אלה בדיוק
- * ‏שני ה-`LIKE` שלמטה. השקילות נבדקת מול מסד אמיתי ב-
- * ‏`neighborhood-match.int.test.ts`, בדיוק כמו שהקיפול נבדק.
- *
- * ## ולמה הבריחה נדרשת עכשיו ולא קודם
- *
- * ‏כשהמסד רק הרחיב, `%` או `_` שהוקלדו בשדה לא הזיקו —
- * ‏הקוד צימצם אחריהם. עכשיו המסד מכריע, ותו כזה היה מרחיב
- * ‏את ההתאמה מעבר לכלל. `!` כתו בריחה מפורש ולא הלוכסן
- * ‏המרמז, כדי שלא ניתלה במוסכמות מילוט של הספרייה.
- */
-export function neighborhoodKeyMatchSql(queryKey: string): Prisma.Sql {
-  const escaped = queryKey.replace(/([!%_])/gu, "!$1");
-  return Prisma.sql`(k LIKE ${`${escaped}%`} ESCAPE '!' OR k LIKE ${`% ${escaped}%`} ESCAPE '!')`;
-}
+import { neighborhoodKeyMatchSql } from "../suggest/neighborhood-vocabulary";
 
 /**
  * ‎**העמודות החמות שנגזרות מ-`requirements` — במקום אחד.**

@@ -208,6 +208,11 @@ const ListQuerySchema = z
       .enum(["true", "false"])
       .transform((value) => value === "true")
       .optional(),
+    /**
+     * ‎שכונה — טקסט חופשי, כמו בסינון הקונים ובאותה תקרה: הבורר
+     * ‏במסך מציע את מה שכבר הוזן במשרד ומרשה להקליד גם משהו אחר.
+     */
+    neighborhood: z.string().max(80).optional(),
     cursor: z.string().max(30).optional(),
     /* התקרה מהקבוע המשותף — כדי שמסך לא יבקש יותר ממה שהשער מקבל */
     limit: z.coerce.number().int().min(1).max(PAGE_LIMIT_MAX).default(50),

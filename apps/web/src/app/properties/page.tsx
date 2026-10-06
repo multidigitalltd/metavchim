@@ -39,6 +39,7 @@ import {
   type ListFilterValues,
 } from "../list-filters";
 import { AgentTag } from "../agent-tag";
+import { NeighborhoodFilter } from "../neighborhood-filter";
 import { IconAction } from "../icon-action";
 import { Notice } from "../notice";
 import { MarketChip } from "../market/market-parts";
@@ -138,12 +139,27 @@ const SHARED_TABU_FILTER_OPTIONS: [string, string][] = [
   ["false", "רישום נפרד"],
 ];
 
-/*
- * ‏מחרוזות מפורשות ולא `Boolean(value)`: השרת דוחה כל דבר שאינו
- * ‏"true"/"false", ומחרוזת ריקה פשוט אינה מוסיפה פרמטר.
+/**
+ * ‎**כתובת הרשימה — אחת לשתי הטעינות** (הראשונה, והרענון אחרי הסרה).
+ *
+ * ‏שני עותקים היו נפרדים ביום שנוסף מסנן שרת, והרענון היה מחזיר
+ * ‏רשימה שאינה מסוננת לפי מה שעל המסך.
+ *
+ * ‏הטאבו במחרוזות מפורשות ולא `Boolean(value)`: השרת דוחה כל דבר
+ * ‏שאינו "true"/"false", ומחרוזת ריקה פשוט אינה מוסיפה פרמטר.
  */
-function sharedTabuQuery(value: string): string {
-  return value === "" ? "" : `&sharedTabu=${value}`;
+function propertiesListUrl(
+  filters: ListFilterValues,
+  sharedTabu: string,
+  neighborhood: string,
+): string {
+  return (
+    `/properties?limit=100${filtersToQuery(filters)}` +
+    (sharedTabu === "" ? "" : `&sharedTabu=${sharedTabu}`) +
+    (neighborhood.trim() === ""
+      ? ""
+      : `&neighborhood=${encodeURIComponent(neighborhood.trim())}`)
+  );
 }
 
 const SORTS: [string, string][] = [
@@ -451,6 +467,11 @@ export default function PropertiesPage() {
    * ‏משותף” למשרד שיש לו כמה, וזו תשובה גרועה משתיקה.
    */
   const [sharedTabu, setSharedTabu] = useState("");
+  /*
+   * ‏השכונה מסוננת בשרת מאותה סיבה: נכס בשכונה שאינו בין המאה
+   * ‏הראשונים היה מדווח כ„לא קיים”.
+   */
+  const [neighborhood, setNeighborhood] = useState("");
   /** ‏„גלול לרשימה ברגע שהיא שוב על המסך” — ראו `onShowDrafts`. */
   const [scrollToList, setScrollToList] = useState(false);
   const [filters, setFilters] = useState<ListFilterValues>(EMPTY_FILTERS);
@@ -475,15 +496,29 @@ export default function PropertiesPage() {
   useEffect(() => {
     if (authLoading) return;
     setItems(null);
+    /*
+     * ‏תשובה של בקשה שכבר הוחלפה אינה נכתבת: שדה השכונה מתחיל בקשה
+     * ‏בכל הפסקה בהקלדה, והראשונה עלולה לחזור אחרונה — רשימה של
+     * ‏שכונה אחת מתחת לשדה שמציג אחרת. כמו ברשימת הקונים.
+     */
+    let live = true;
     apiGet<{ items: PropertyRow[]; nextCursor?: string | null }>(
-      `/properties?limit=100${filtersToQuery(filters)}${sharedTabuQuery(sharedTabu)}`,
+      propertiesListUrl(filters, sharedTabu, neighborhood),
     )
       .then((res) => {
+        if (!live) return;
         setItems(apiList(res.items, "items"));
         setTruncated(res.nextCursor !== undefined && res.nextCursor !== null);
+        /* ‏כשל קודם אינו נשאר על המסך אחרי טעינה שהצליחה */
+        setError(null);
       })
-      .catch(() => setError("טעינת הנכסים נכשלה"));
-  }, [authLoading, filters, sharedTabu]);
+      .catch(() => {
+        if (live) setError("טעינת הנכסים נכשלה");
+      });
+    return () => {
+      live = false;
+    };
+  }, [authLoading, filters, sharedTabu, neighborhood]);
 
   useEffect(() => {
     if (!scrollToList || items === null) return;
@@ -643,7 +678,7 @@ export default function PropertiesPage() {
     setItems(null);
     try {
       const fresh = await apiGet<{ items: PropertyRow[]; nextCursor?: string | null }>(
-        `/properties?limit=100${filtersToQuery(filters)}${sharedTabuQuery(sharedTabu)}`,
+        propertiesListUrl(filters, sharedTabu, neighborhood),
       );
       setItems(apiList(fresh.items, "items"));
       setTruncated(fresh.nextCursor !== undefined && fresh.nextCursor !== null);
@@ -660,6 +695,7 @@ export default function PropertiesPage() {
     status !== "" ||
     type !== "" ||
     sharedTabu !== "" ||
+    neighborhood.trim() !== "" ||
     sort !== "newest";
 
   /*
@@ -679,6 +715,7 @@ export default function PropertiesPage() {
     setStatus("");
     setType("");
     setSharedTabu("");
+    setNeighborhood("");
     setSort("newest");
   }
 
@@ -888,7 +925,10 @@ export default function PropertiesPage() {
         <Notice tone="danger">{error}</Notice>
       ) : items === null ? (
         <p aria-live="polite">טוען נכסים…</p>
-      ) : items.length === 0 && !hasActiveFilters(filters) && sharedTabu === "" ? (
+      ) : items.length === 0 &&
+        !hasActiveFilters(filters) &&
+        sharedTabu === "" &&
+        neighborhood.trim() === "" ? (
         /*
          * **מצב „אין נכסים בכלל” יושב כאן, ולא בתוך הרשימה.**
          *
@@ -1137,6 +1177,7 @@ export default function PropertiesPage() {
                 allLabel="כל סוגי הרישום"
                 options={SHARED_TABU_FILTER_OPTIONS}
               />
+              <NeighborhoodFilter value={neighborhood} onChange={setNeighborhood} />
               <SortSelect value={sort} onChange={setSort} options={SORTS} />
               {/*
                 ‎**ניקוי הסינון נשאר**, אף שאינו בצילום: בלעדיו

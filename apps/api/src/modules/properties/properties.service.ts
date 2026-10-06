@@ -22,6 +22,7 @@ import {
   PARTNER_REJECTION_MESSAGES,
   DEAL_STATUSES,
   averagePerSqmAgorot,
+  neighborhoodKey,
   neighborhoodSame,
   normalizeLocationName,
   pricePerSqmAgorot,
@@ -67,6 +68,7 @@ import { ContactErasureService } from "../contacts/contact-erasure.service";
 import { ContactsService } from "../contacts/contacts.service";
 import { ListingsService } from "../collaboration/listings.service";
 import { cityForNeighborhood } from "../suggest/neighborhood-city";
+import { matchingPropertyNeighborhoods } from "../suggest/neighborhood-vocabulary";
 import {
   MatchingService,
   type MatchTrigger,
@@ -1851,6 +1853,11 @@ export class PropertiesService {
      * ‏שסירב. `undefined` בלבד אינו מוסיף תנאי.
      */
     sharedTabu?: boolean;
+    /**
+     * ‎שכונה — מה שהוקלד, ולא כתיב מסוים: ההתאמה היא על המפתח
+     * ‏המקופל ומגבול מילה, כמו בבורר שמציע אותה ובסינון הקונים.
+     */
+    neighborhood?: string;
     cursor?: string;
     /**
      * סדר התוצאות — „תמיד תציג מהזול ליקר” של הסוכן. עמוד ראשון
@@ -1863,13 +1870,31 @@ export class PropertiesService {
     const price = priceRangeAgorot(query.minPrice, query.maxPrice);
     const rooms = normalizeRange(query.minRooms, query.maxRooms);
     const terms = freeTextTerms(query.q);
+    /* מפתח ריק — רווחים או סימני פיסוק בלבד — אינו שכונה ואינו מסנן */
+    const neighborhoodQueryKey = neighborhoodKey(query.neighborhood ?? "");
 
     return this.prisma.withTenant(async (tx) => {
+      /*
+       * ‎**השכונה — מה שהוקלד מתורגם לכתיבים שקיימים במשרד.**
+       *
+       * ‏אף כתיב לא תואם ⟵ אף נכס. היציאה מפורשת ולא `in: []`,
+       * ‏מאותה סיבה כמו אצל הקונים: התשובה זהה, אבל היא היתה
+       * ‏תלויה במשמעות שאיש אינו בודק.
+       */
+      const neighborhoods =
+        neighborhoodQueryKey === ""
+          ? null
+          : await matchingPropertyNeighborhoods(tx, neighborhoodQueryKey);
+      if (neighborhoods !== null && neighborhoods.length === 0) {
+        return { items: [], nextCursor: null };
+      }
+
       const rows = await tx.property.findMany({
         where: {
           tenantId: TenantContext.current().tenantId,
           deletedAt: null,
           ...(query.status ? { status: query.status } : {}),
+          ...(neighborhoods !== null ? { neighborhood: { in: neighborhoods } } : {}),
           ...(query.city ? { city: query.city } : {}),
           ...(query.cities && query.cities.length > 0
             ? { city: { in: query.cities } }

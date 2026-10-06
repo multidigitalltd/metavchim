@@ -569,11 +569,18 @@ if (!/childrenActive=\{city !== "הכל"\}/u.test(PROPERTIES)) {
  * ‏נכס שלא יכולות להיות לו.
  * ========================================================================== */
 
-if (!/&sharedTabu=\$\{value\}/u.test(PROPERTIES)) {
+if (!/&sharedTabu=\$\{sharedTabu\}/u.test(PROPERTIES)) {
   problems.push("סינון „טאבו משותף” בעמוד הנכסים אינו נשלח לשרת — הוא מסנן רק את מה שנטען");
 }
-if (!/\}, \[authLoading, filters, sharedTabu\]\);/u.test(PROPERTIES)) {
-  problems.push("‎`sharedTabu` אינו בתלויות הטעינה בעמוד הנכסים — הסינון נבחר ואינו טוען מחדש");
+/*
+ * ‏גם השכונה מסוננת בשרת, מאותה סיבה — ולכן גם היא חייבת להיות
+ * ‏בתלויות: אחרת השדה מתמלא והרשימה אינה זזה.
+ */
+const loadDeps = /\}, \[authLoading, filters, ([\w, ]+)\]\);/u.exec(PROPERTIES)?.[1]?.split(", ") ?? [];
+for (const dep of ["sharedTabu", "neighborhood"]) {
+  if (!loadDeps.includes(dep)) {
+    problems.push(`‎\`${dep}\` אינו בתלויות הטעינה בעמוד הנכסים — הסינון נבחר ואינו טוען מחדש`);
+  }
 }
 if (!/options=\{SHARED_TABU_FILTER_OPTIONS\}/u.test(PROPERTIES)) {
   problems.push("בורר „סינון לפי רישום” נעלם מעמוד הנכסים");

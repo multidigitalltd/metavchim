@@ -28,7 +28,7 @@ import {
 import { AgentTag } from "../agent-tag";
 import { Notice } from "../notice";
 import { useOfficeStatuses } from "../use-office-statuses";
-import { NeighborhoodFilter } from "./neighborhood-filter";
+import { NeighborhoodFilter } from "../neighborhood-filter";
 import { OpenIntakePanel } from "./open-intake-panel";
 
 /**
