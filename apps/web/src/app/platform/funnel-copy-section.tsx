@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "@metavchim/ui";
 import {
+  ADVERTISEMENT_LABEL,
   FUNNEL_PLACEHOLDERS,
   formatIsraeliNumber,
   unknownFunnelPlaceholders,
@@ -390,6 +391,10 @@ export function FunnelCopySection() {
                             maxLength={200}
                             onChange={(e) => setDraft({ ...draft, emailSubject: e.target.value })}
                           />
+                          {/* ‏הקידומת נוספת בשליחה (`advertisementSubject`) — כדי שלא יכתבו אותה שוב */}
+                          <span className="text-sm" style={{ color: "var(--color-text-muted)" }}>
+                            בשליחה יתווסף „{ADVERTISEMENT_LABEL}:” בתחילת הנושא — חובה לפי חוק התקשורת.
+                          </span>
                         </label>
                         <label className="flex flex-col gap-1 text-sm">
                           <span style={{ color: "var(--color-text-muted)" }}>כותרת בגוף</span>

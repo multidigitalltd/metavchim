@@ -22,6 +22,11 @@ import { PlatformSettingsService } from "../../core/platform-settings.service";
 import { PrismaService } from "../../core/prisma.service";
 import { FunnelStageService, type FunnelStageCopy } from "../funnel/funnel-stage.service";
 import { FunnelReportService, type FunnelStats } from "../funnel-send/funnel-report.service";
+import { funnelSender } from "../funnel-send/funnel-send.service";
+import { SupportInboxService } from "../support/support-inbox.service";
+
+/** ‏טוקן שאינו קיים — קישור ההסרה במייל הבדיקה מוצג, ואינו מסיר איש. */
+const TEST_OPT_OUT_TOKEN = "preview-only-not-a-real-token";
 
 /**
  * ‎**עריכת נוסחי מסלול ההמרה — לבעל הפלטפורמה בלבד.**
@@ -71,6 +76,7 @@ export class FunnelCopyController {
     private readonly email: EmailService,
     private readonly settings: PlatformSettingsService,
     private readonly report: FunnelReportService,
+    private readonly support: SupportInboxService,
   ) {}
 
   @Get("funnel-copy")
@@ -149,10 +155,17 @@ export class FunnelCopyController {
       select: { email: true, name: true, tenant: { select: { name: true } } },
     });
     if (!user) throw new BadRequestException("משתמש לא נמצא");
+    const origin = loadEnv().WEB_ORIGIN;
     const email = funnelEmail(
       stage,
       { שם_פרטי: firstNameOf(user.name), שם_המשרד: user.tenant.name },
-      loadEnv().WEB_ORIGIN,
+      origin,
+      /*
+       * ‏שורת ההסרה מופיעה כמו אצל הלקוח, אבל בלי טוקן אמיתי ובלי
+       * ‏כותרת הלחיצה האחת: לבדיקה אין נמען ברשימת התפוצה, ולחיצה
+       * ‏עליה אינה מסירה איש.
+       */
+      { url: `${origin}/nudge-optout/${TEST_OPT_OUT_TOKEN}` },
     );
     if (email === null) throw new BadRequestException("לשלב הזה אין עדיין נושא וגוף למייל");
     if (!(await this.email.isConfigured())) {
@@ -163,10 +176,17 @@ export class FunnelCopyController {
       `[בדיקה] ${email.subject}`,
       {
         ...email.content,
-        footnote: `הודעת בדיקה של השלב „${stage.title}” ממסך נוסחי ההמרה. נשלחה רק אליך.`,
+        footnote:
+          `הודעת בדיקה של השלב „${stage.title}” ממסך נוסחי ההמרה. נשלחה רק אליך, ` +
+          "וקישור ההסרה שבה אינו פעיל.",
       },
-      // ‏„שלחו שוב” הוא בדיוק מה שמבקשים בבדיקה, ובלי ספק אין מה לבדוק
-      { idempotency: null, required: true },
+      {
+        // ‏„שלחו שוב” הוא בדיוק מה שמבקשים בבדיקה, ובלי ספק אין מה לבדוק
+        idempotency: null,
+        required: true,
+        // ‏אותו שולח ואותה כתובת תשובה כמו בשליחה האמיתית
+        ...funnelSender(await this.support.outgoing()),
+      },
     );
     return { sentTo: user.email };
   }

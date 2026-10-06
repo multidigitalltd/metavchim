@@ -15,6 +15,7 @@ import {
   trialAnchorOf,
   type FunnelFacts,
   type FunnelStageDef,
+  nudgeOptOutLinks,
 } from "@metavchim/shared";
 import { loadEnv } from "../../config/env";
 import { ActivationNudgeService } from "../../core/activation-nudge.service";
@@ -95,6 +96,35 @@ type Settlement = { status: "sent" | "failed" | "rejected"; sentAt?: Date; error
 /** ‏משרד שמקבל דיוור שיווקי: בניסיון או פעיל — לא מושהה ולא סגור. */
 function isMarketable(status: string): boolean {
   return status === "trial" || status === "active";
+}
+
+/** ‏מה שתיבת התמיכה מציעה להודעה יוצאת — שולח וכתובת לתשובה. */
+type SupportOutgoing = Awaited<ReturnType<SupportInboxService["outgoing"]>>;
+
+/**
+ * ‎**ממי מייל ההמרה יוצא ולאן התשובה חוזרת — תיבת התמיכה.**
+ *
+ * ‏„מאת” הוא כתובת התמיכה (כשהיא מאומתת אצל הספק), ו-`Reply-To` הוא
+ * ‏כתובת הקליטה של התיבה — תשובה נפתחת כפנייה במסך התמיכה. קודם יצא
+ * ‏רק `Reply-To`, ובבדיקה אף לא הוא: ההודעה הגיעה מהשולח הכללי,
+ * ‏כלומר הודעה שאי אפשר להשיב עליה ושאינה מהתמיכה (בעל המוצר).
+ *
+ * ‎**הטוקן של שרת התמיכה אינו עובר.** השרת הנפרד שומר על המוניטין של
+ * ‏התשובות לפניות; דיוור שהיה יוצא דרכו היה חולק איתן את סטטיסטיקת
+ * ‏הדחיות והתלונות. הכתובת מאומתת ברמת החשבון אצל הספק, ולכן היא
+ * ‏שמישה גם מהשרת הכללי.
+ *
+ * ‏מיוצאת כי גם שליחת הבדיקה עוברת כאן — מה שבעל הפלטפורמה רואה
+ * ‏בתיבה שלו הוא מה שהלקוח יקבל.
+ */
+export function funnelSender(outgoing: SupportOutgoing): {
+  sender?: { from: string };
+  replyTo?: string;
+} {
+  return {
+    ...(outgoing.sender === null ? {} : { sender: { from: outgoing.sender.from } }),
+    ...(outgoing.replyTo === null ? {} : { replyTo: outgoing.replyTo }),
+  };
 }
 
 /** ‏עובדות שאינן משנות דבר — לסינון המוקדם, כשהשלבים בלי תנאי קהל. */
@@ -210,14 +240,8 @@ export class FunnelSendService {
     );
     /* ‏בלי תנאי קהל — לשאלה הזולה „יש בכלל שלב שהגיע זמנו?” */
     const unconditioned = live.map((stage) => ({ ...stage, audience: [] }));
-    /*
-     * ‎**תשובה למייל מגיעה לתמיכה** (ביקורת Codex). חלק מהנוסחים אומרים
-     * ‏„תענו למייל הזה, הוא מגיע לאדם” — ובלי `Reply-To` התשובה הייתה
-     * ‏נוחתת בכתובת השולח הכללית, שאיש אינו קורא. כתובת הקליטה של תיבת
-     * ‏התמיכה פותחת פנייה במסך התמיכה, כמו כל מייל שמגיע אליה.
-     */
-    const { replyTo } = await this.support.outgoing();
-    if (replyTo === null) {
+    const outgoing = await this.support.outgoing();
+    if (outgoing.replyTo === null && outgoing.sender === null) {
       this.logger.warn("תיבת התמיכה לא הוגדרה — תשובות למיילי המסלול לא יגיעו לאיש");
     }
 
@@ -391,7 +415,7 @@ export class FunnelSendService {
             const copy = copies.get(retry.key);
             // ‏ניסיון חוזר הוא משרד שנגענו בו — נספר בתקרה כמו כל אחר
             if (copy !== undefined) {
-              tally(await this.sendStage(row, tenant.name, retry, copy, now, recipients, replyTo));
+              tally(await this.sendStage(row, tenant.name, retry, copy, now, recipients, outgoing));
             }
             continue;
           }
@@ -413,7 +437,7 @@ export class FunnelSendService {
           const copy = copies.get(stage.key);
           if (copy === undefined || !stage.channels.includes("email")) continue;
           if (await this.leftAudienceNow(row.tenantId, now)) continue;
-          tally(await this.sendStage(row, tenant.name, stage, copy, now, recipients, replyTo));
+          tally(await this.sendStage(row, tenant.name, stage, copy, now, recipients, outgoing));
         } catch (error: unknown) {
           // ‏משרד אחד שנכשל אינו עוצר את השאר — זו סריקה, לא עסקה
           this.logger.warn(`מסלול ההמרה למשרד ${row.tenantId} נכשל: ${String(error)}`);
@@ -468,7 +492,7 @@ export class FunnelSendService {
     copy: FunnelStageCopy,
     now: Date,
     recipients: Awaited<ReturnType<ActivationNudgeService["recipients"]>>,
-    replyTo: string | null,
+    outgoing: SupportOutgoing,
   ): Promise<Reach> {
     const origin = loadEnv().WEB_ORIGIN;
     const tracked = `${origin}/api/v1/public/funnel`;
@@ -492,10 +516,10 @@ export class FunnelSendService {
         copy,
         { שם_פרטי: firstNameOf(owner.name), שם_המשרד: tenantName },
         origin,
+        nudgeOptOutLinks(origin, owner.token),
         {
           clickUrl: `${tracked}/c/${message.token}`,
           pixelUrl: `${tracked}/o/${message.token}`,
-          optOutUrl: `${origin}/nudge-optout/${owner.token}`,
         },
       );
       let outcome: Settlement;
@@ -508,7 +532,7 @@ export class FunnelSendService {
             purpose: "funnel",
           },
           required: true,
-          ...(replyTo === null ? {} : { replyTo }),
+          ...funnelSender(outgoing),
         });
         outcome = { status: "sent", sentAt: now, error: null };
       } catch (error: unknown) {

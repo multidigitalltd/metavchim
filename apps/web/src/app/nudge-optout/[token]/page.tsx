@@ -6,8 +6,9 @@ import { apiPost } from "@/lib/api";
 import { Notice } from "../../notice";
 
 /**
- * דף ההסרה מתזכורות ההפעלה — היעד של הקישור שבתחתית כל תזכורת
- * (חוק התקשורת §30א).
+ * דף ההסרה מתזכורות ההפעלה ומהודעות ההמרה — היעד של הקישור שבתחתית
+ * כל אחת מהן (חוק התקשורת §30א). שני המסלולים חולקים את אותה הסרה,
+ * ולכן הנוסח כאן מדבר על שניהם.
  *
  * ‎**דף אישור ולא הסרה מיידית.** קישור במייל נפתח גם בידי סורקי
  * אבטחה של ארגונים, ו-`GET` שמסיר היה מסיר אנשים שמעולם לא לחצו.
@@ -37,10 +38,10 @@ export default function NudgeOptOutPage({ params }: { params: Promise<{ token: s
       dir="rtl"
       className="mx-auto flex min-h-screen max-w-lg flex-col items-center justify-center gap-4 px-4 text-center"
     >
-      <h1 className="text-xl font-bold">הפסקת תזכורות ההפעלה</h1>
+      <h1 className="text-xl font-bold">הפסקת ההודעות במייל</h1>
       {state === "done" ? (
         <Notice tone="success">
-          לא נשלח אליכם עוד תזכורות בנושא הפעלת החשבון. הנתונים שלכם נשארים
+          לא נשלח אליכם עוד תזכורות והודעות על החשבון. הנתונים שלכם נשארים
           במקומם, ואפשר להפעיל את החשבון בכל עת ממסך המנוי.
         </Notice>
       ) : state === "error" ? (
@@ -48,12 +49,12 @@ export default function NudgeOptOutPage({ params }: { params: Promise<{ token: s
       ) : (
         <>
           <p style={{ color: "var(--color-text-muted)" }}>
-            לחיצה על הכפתור תפסיק את התזכורות על הפעלת החשבון. זה לא סוגר את
-            החשבון ולא מוחק דבר — הנכסים, הקונים וההתאמות שלכם נשארים כפי
-            שהם.
+            לחיצה על הכפתור תפסיק את התזכורות וההודעות שאנחנו שולחים על
+            החשבון. זה לא סוגר את החשבון ולא מוחק דבר — הנכסים, הקונים
+            וההתאמות שלכם נשארים כפי שהם.
           </p>
           <Button onClick={() => void optOut()} disabled={state === "submitting"}>
-            {state === "submitting" ? "מסירים…" : "הפסיקו לשלוח לי תזכורות"}
+            {state === "submitting" ? "מסירים…" : "הפסיקו לשלוח לי הודעות"}
           </Button>
         </>
       )}

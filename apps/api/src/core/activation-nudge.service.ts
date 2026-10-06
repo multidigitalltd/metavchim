@@ -9,6 +9,7 @@ import {
   dueActivationNudge,
   hasValidCard,
   type ActivationNudgeStage,
+  nudgeOptOutLinks,
 } from "@metavchim/shared";
 
 import { loadEnv } from "../config/env";
@@ -293,7 +294,7 @@ export class ActivationNudgeService {
           planName: plan?.name ?? "המסלול שבחרתם",
           partnerPlanName: partner?.name,
           billingUrl: `${origin}/settings/billing`,
-          optOutUrl: `${origin}/nudge-optout/${owner.token}`,
+          optOut: nudgeOptOutLinks(origin, owner.token),
         });
         /*
          * ‎`required: true` כמו בהזמנה לשיחת ההיכרות: הסימון נתפס

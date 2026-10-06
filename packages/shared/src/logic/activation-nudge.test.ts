@@ -7,6 +7,7 @@ import {
   activationNudgeEmail,
   dueActivationNudge,
   hasValidCard,
+  nudgeOptOutLinks,
   type ActivationNudgeStage,
 } from "./activation-nudge.js";
 
@@ -126,7 +127,7 @@ describe("נוסח התזכורות", () => {
     planName: "מקצועי",
     partnerPlanName: "שותפים",
     billingUrl: "https://app.example.test/billing",
-    optOutUrl: "https://app.example.test/nudge-optout/tok",
+    optOut: nudgeOptOutLinks("https://app.example.test", "tok"),
   };
 
   /*
@@ -136,7 +137,10 @@ describe("נוסח התזכורות", () => {
   it("כל שלוש נושאות את קישור ההסרה", () => {
     for (const stage of ACTIVATION_NUDGE_STAGES) {
       const { content } = activationNudgeEmail({ ...base, stage });
-      expect(content.footnote, stage).toContain(base.optOutUrl);
+      expect(content.unsubscribe, stage).toMatchObject({
+        url: "https://app.example.test/nudge-optout/tok",
+        oneClickUrl: "https://app.example.test/api/v1/public/nudge/tok/optout",
+      });
     }
   });
 

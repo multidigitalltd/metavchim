@@ -6,6 +6,7 @@ import type { PlatformSettingsService } from "../../core/platform-settings.servi
 import type { PrismaService } from "../../core/prisma.service";
 import type { FunnelStageCopy, FunnelStageService } from "../funnel/funnel-stage.service";
 import type { FunnelReportService } from "../funnel-send/funnel-report.service";
+import type { SupportInboxService } from "../support/support-inbox.service";
 import { FunnelCopyController } from "./funnel-copy.controller";
 
 /**
@@ -53,6 +54,13 @@ function setup(stage: FunnelStageCopy | null = STAGE) {
     { send, isConfigured: vi.fn(() => Promise.resolve(true)) } as unknown as EmailService,
     {} as PlatformSettingsService,
     {} as FunnelReportService,
+    {
+      outgoing: () =>
+        Promise.resolve({
+          sender: { from: "תמיכה מתווכים <support@example.test>", token: "support-server-token" },
+          replyTo: "inbox@inbound.example.test",
+        }),
+    } as unknown as SupportInboxService,
   );
   const run = <T>(fn: () => Promise<T>): Promise<T> =>
     TenantContext.run(
@@ -70,16 +78,34 @@ describe("שליחת בדיקה של שלב", () => {
       expect.objectContaining({ where: { id: "01USERAAAAAAAAAAAAAAAAAAAA" } }),
     );
     expect(send).toHaveBeenCalledTimes(1);
-    const [to, subject, content] = send.mock.calls[0] as unknown as [
+    const [to, subject, content, options] = send.mock.calls[0] as unknown as [
       string,
       string,
-      { paragraphs: string[]; button: { url: string }; footnote: string },
+      {
+        paragraphs: string[];
+        button: { url: string };
+        footnote: string;
+        unsubscribe: { url: string; oneClickUrl?: string };
+      },
+      Record<string, unknown>,
     ];
     expect(to).toBe("owner@example.test");
-    expect(subject).toBe("[בדיקה] דנה, הנכס הראשון");
+    expect(subject).toBe("[בדיקה] פרסומת: דנה, הנכס הראשון");
     expect(content.paragraphs).toEqual(["שלום דנה מתיווך השרון"]);
     expect(content.button.url).toBe("https://app.example.test/properties/new");
     expect(content.footnote).toContain("נשלחה רק אליך");
+    /*
+     * ‏מה שהלקוח יקבל: מכתובת התמיכה, תשובה לתיבה, ושורת הסרה — אבל
+     * ‏בלי טוקן אמיתי ובלי כותרת הלחיצה האחת, כי לבדיקה אין נמען ברשימה.
+     */
+    expect(options).toMatchObject({
+      sender: { from: "תמיכה מתווכים <support@example.test>" },
+      replyTo: "inbox@inbound.example.test",
+    });
+    expect(content.unsubscribe.url).toBe(
+      "https://app.example.test/nudge-optout/preview-only-not-a-real-token",
+    );
+    expect(content.unsubscribe.oneClickUrl).toBeUndefined();
   });
 
   it("שלב שאינו קיים — 404, בלי שליחה", async () => {

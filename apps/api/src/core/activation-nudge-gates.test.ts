@@ -30,8 +30,9 @@ const SERVICE = code("activation-nudge.service.ts");
 
 describe("תזכורות ההפעלה", () => {
   it("כל תזכורת נושאת קישור הסרה שנבנה מהטוקן של הנמען", () => {
-    expect(SERVICE, "אין קישור הסרה").toContain("optOutUrl:");
-    expect(SERVICE, "הקישור אינו מצביע לדף ההסרה").toMatch(/nudge-optout\/\$\{owner\.token\}/u);
+    expect(SERVICE, "הקישור אינו נבנה מהטוקן של הנמען").toContain(
+      "optOut: nudgeOptOutLinks(origin, owner.token),",
+    );
   });
 
   /*

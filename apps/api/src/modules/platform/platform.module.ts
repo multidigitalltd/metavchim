@@ -6,6 +6,7 @@ import { EmailInboxModule } from "../email-inbox/email-inbox.module";
 import { FunnelModule } from "../funnel/funnel.module";
 import { FunnelSendModule } from "../funnel-send/funnel-send.module";
 import { MessagingModule } from "../messaging/messaging.module";
+import { SupportModule } from "../support/support.module";
 import { TelephonyModule } from "../telephony/telephony.module";
 import { WebhookLogModule } from "../webhook-log/webhook-log.module";
 import { OfficeSettingsService } from "../settings/office-settings.service";
@@ -48,6 +49,8 @@ import { ServiceVersionsService } from "./service-versions.service";
     BillingModule,
     FunnelModule,
     FunnelSendModule,
+    // ‏תיבת התמיכה — השולח וכתובת התשובה של מייל הבדיקה במסך נוסחי ההמרה
+    SupportModule,
     WebhookLogModule,
     EmailInboxModule,
   ],

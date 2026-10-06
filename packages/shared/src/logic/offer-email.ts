@@ -1,4 +1,4 @@
-import type { EmailContent } from "./email-template.js";
+import type { EmailContent, EmailOptOutLinks } from "./email-template.js";
 import { formatIsraeliNumber } from "./israel-time.js";
 import { MATCH_THRESHOLDS } from "../schemas/match.js";
 
@@ -40,7 +40,15 @@ export interface OfferEmailInput {
   buyerName: string;
   offers: readonly OfferEmailItem[];
   /** קישור ההסרה — חובה בכל דיוור אוטומטי (חוק התקשורת §30א). */
-  optOutUrl: string;
+  optOut: EmailOptOutLinks;
+}
+
+/** ‏כתובות ההסרה מקבלת הצעות — לפי טוקן ההצעה (`offerOptOut` בשרת). */
+export function offerOptOutLinks(origin: string, token: string): EmailOptOutLinks {
+  return {
+    url: `${origin}/offer-optout/${token}`,
+    oneClickUrl: `${origin}/api/v1/public/offers/${token}/email-optout`,
+  };
 }
 
 /** כותרת ההצעה בשורה — עם המחיר כשידוע, בפורמט ישראלי. */
@@ -79,9 +87,11 @@ export function buildOfferEmail(input: OfferEmailInput): {
         label: offerEmailLineLabel(offer),
         url: offer.url,
       })),
-      footnote:
-        `ההודעה נשלחה אוטומטית על ידי ${input.officeName} כי ביקשתם מאיתנו לחפש עבורכם נכס. ` +
-        `להסרה מקבלת הצעות במייל: ${input.optOutUrl}`,
+      unsubscribe: {
+        reason: `ההודעה נשלחה אוטומטית על ידי ${input.officeName} כי ביקשתם מאיתנו לחפש עבורכם נכס.`,
+        label: "להסרה מקבלת הצעות במייל",
+        ...input.optOut,
+      },
     },
   };
 }

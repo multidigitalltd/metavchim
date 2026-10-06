@@ -1,4 +1,4 @@
-import type { EmailContent } from "./email-template.js";
+import type { EmailContent, EmailOptOutLinks } from "./email-template.js";
 import { formatIsraeliNumber } from "./israel-time.js";
 
 /**
@@ -43,7 +43,15 @@ export interface PropertyPitchInput {
   buyerName: string;
   properties: readonly PitchProperty[];
   /** ‏קישור ההסרה — חובה בכל דיוור שיווקי (חוק התקשורת §30א). */
-  optOutUrl: string;
+  optOut: EmailOptOutLinks;
+}
+
+/** ‏כתובות ההסרה מדיוור לפי הכרטיס — לפי טוקן איש הקשר. */
+export function contactOptOutLinks(origin: string, token: string): EmailOptOutLinks {
+  return {
+    url: `${origin}/contact-optout/${token}`,
+    oneClickUrl: `${origin}/api/v1/public/contacts/${token}/email-optout`,
+  };
 }
 
 /**
@@ -112,9 +120,11 @@ export function buildPropertyPitchEmail(input: PropertyPitchInput): {
        * ‏אמירה לא נכונה כאן, ודווקא בשדה שנועד להסביר ללקוח למה
        * ‏הוא קיבל את ההודעה.
        */
-      footnote:
-        `ההודעה נשלחה אליכם על ידי ${input.officeName}. ` +
-        `להסרה מקבלת הצעות במייל: ${input.optOutUrl}`,
+      unsubscribe: {
+        reason: `ההודעה נשלחה אליכם על ידי ${input.officeName}.`,
+        label: "להסרה מקבלת הצעות במייל",
+        ...input.optOut,
+      },
     },
   };
 }

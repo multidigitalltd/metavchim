@@ -21,6 +21,10 @@ import type { OnboardingFacts } from "./onboarding.js";
 
 const VALUES = { שם_פרטי: "דנה", שם_המשרד: "תיווך השרון" };
 const ORIGIN = "https://app.example.test";
+const OPT_OUT = {
+  url: "https://app.example.test/nudge-optout/OPT",
+  oneClickUrl: "https://app.example.test/api/v1/public/nudge/OPT/optout",
+};
 
 const COPY: FunnelEmailCopy = {
   emailSubject: "{{שם_פרטי}}, הנכס הראשון מחכה",
@@ -42,25 +46,36 @@ describe("fillFunnelPlaceholders", () => {
 
 describe("funnelEmail", () => {
   it("נושא, כותרת, פסקאות וכפתור — כפי שהנמען יראה", () => {
-    expect(funnelEmail(COPY, VALUES, ORIGIN)).toEqual({
-      subject: "דנה, הנכס הראשון מחכה",
+    expect(funnelEmail(COPY, VALUES, ORIGIN, OPT_OUT)).toEqual({
+      // ‏דבר פרסומת — „פרסומת” בתחילת הנושא (חוק התקשורת §30א)
+      subject: "פרסומת: דנה, הנכס הראשון מחכה",
       content: {
-        // ‏בלי כותרת נפרדת — הנושא הוא הכותרת
+        // ‏בלי כותרת נפרדת — הנושא הוא הכותרת, בלי הקידומת
         heading: "דנה, הנכס הראשון מחכה",
         paragraphs: ["שלום דנה,", "בתיווך השרון עוד אין נכסים.", "כדאי להתחיל."],
         button: { label: "להוספת נכס", url: "https://app.example.test/properties/new" },
+        unsubscribe: {
+          reason: "קיבלתם את ההודעה כי פתחתם חשבון ניסיון במתווכים.",
+          label: "להפסקת ההודעות",
+          ...OPT_OUT,
+        },
       },
     });
   });
 
+  it("נושא שכבר נפתח ב„פרסומת” אינו מקבל אותה פעמיים", () => {
+    const labeled = { ...COPY, emailSubject: "פרסומת | {{שם_פרטי}}, הנכס הראשון" };
+    expect(funnelEmail(labeled, VALUES, ORIGIN, OPT_OUT)?.subject).toBe("פרסומת | דנה, הנכס הראשון");
+  });
+
   it("בלי תווית או בלי נתיב — בלי כפתור", () => {
-    expect(funnelEmail({ ...COPY, ctaPath: "" }, VALUES, ORIGIN)?.content.button).toBeUndefined();
-    expect(funnelEmail({ ...COPY, ctaLabel: " " }, VALUES, ORIGIN)?.content.button).toBeUndefined();
+    expect(funnelEmail({ ...COPY, ctaPath: "" }, VALUES, ORIGIN, OPT_OUT)?.content.button).toBeUndefined();
+    expect(funnelEmail({ ...COPY, ctaLabel: " " }, VALUES, ORIGIN, OPT_OUT)?.content.button).toBeUndefined();
   });
 
   it("בלי נושא או בלי גוף — אין מייל לשלוח", () => {
-    expect(funnelEmail({ ...COPY, emailSubject: " " }, VALUES, ORIGIN)).toBeNull();
-    expect(funnelEmail({ ...COPY, emailBody: "\n\n" }, VALUES, ORIGIN)).toBeNull();
+    expect(funnelEmail({ ...COPY, emailSubject: " " }, VALUES, ORIGIN, OPT_OUT)).toBeNull();
+    expect(funnelEmail({ ...COPY, emailBody: "\n\n" }, VALUES, ORIGIN, OPT_OUT)).toBeNull();
   });
 });
 
@@ -68,20 +83,23 @@ describe("funnelEmail — עם מעקב", () => {
   const tracking = {
     clickUrl: "https://app.example.test/api/v1/public/funnel/c/TOKEN",
     pixelUrl: "https://app.example.test/api/v1/public/funnel/o/TOKEN",
-    optOutUrl: "https://app.example.test/nudge-optout/OPT",
   };
 
   it("הכפתור עובר דרך כתובת הלחיצה, ויש פיקסל וקישור הסרה", () => {
-    const email = funnelEmail(COPY, VALUES, ORIGIN, tracking)!;
+    const email = funnelEmail(COPY, VALUES, ORIGIN, OPT_OUT, tracking)!;
     expect(email.content.button?.url).toBe(tracking.clickUrl);
     expect(email.content.pixel).toBe(tracking.pixelUrl);
-    expect(email.content.footnote).toContain(tracking.optOutUrl);
+    expect(email.content.unsubscribe).toMatchObject(OPT_OUT);
   });
 
-  it("בלי מעקב (הבדיקה למנהל) — אין פיקסל ואין קישור הסרה", () => {
-    const email = funnelEmail(COPY, VALUES, ORIGIN)!;
+  /*
+   * ‏קישור ההסרה ישב קודם בתוך המעקב, ולכן מייל הבדיקה יצא בלעדיו —
+   * ‏ובעל הפלטפורמה ראה הודעה שונה ממה שהלקוח יקבל.
+   */
+  it("בלי מעקב (הבדיקה למנהל) — אין פיקסל, וקישור ההסרה נשאר", () => {
+    const email = funnelEmail(COPY, VALUES, ORIGIN, OPT_OUT)!;
     expect(email.content.pixel).toBeUndefined();
-    expect(email.content.footnote).toBeUndefined();
+    expect(email.content.unsubscribe?.url).toBe(OPT_OUT.url);
   });
 });
 

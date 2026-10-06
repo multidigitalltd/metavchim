@@ -69,6 +69,53 @@ export interface EmailDetail {
   value: string;
 }
 
+/**
+ * ‎**קישור ההסרה מדיוור — חוק התקשורת §30א.**
+ *
+ * ‏שדה משלו ולא עוד משפט בהערת השוליים: שם הכתובת הוצגה כטקסט
+ * ‏גולמי, ובחלק מלקוחות הדואר היא לא הייתה לחיצה כלל — כלומר
+ * ‏„דרך פשוטה להודיע על סירוב” שבפועל דורשת להעתיק כתובת ארוכה.
+ * ‏כאן היא קישור אמיתי, ו-`oneClickUrl` נוסע גם בכותרת
+ * ‏`List-Unsubscribe` — מה שמציג את כפתור „ביטול הרשמה” המובנה של
+ * ‏Gmail ו-Outlook.
+ */
+export interface EmailUnsubscribe {
+  /** ‏למה הנמען קיבל את ההודעה — המשפט שלפני הקישור. */
+  reason: string;
+  /** ‏תווית הקישור: „להפסקת ההודעות”. */
+  label: string;
+  /** ‏דף האישור — לשם מוביל הקישור בגוף ההודעה. */
+  url: string;
+  /**
+   * ‏נתיב ה-POST שמסיר בלחיצה אחת (RFC 8058) — לכותרת בלבד.
+   *
+   * ‏בגוף ההודעה הקישור מוביל לדף אישור ולא מסיר מיד, כי סורקי
+   * ‏אבטחה פותחים קישורים במיילים. ספק הדואר, לעומתם, שולח POST רק
+   * ‏כשאדם לחץ על הכפתור שלו. חסר = בלי כותרת (מייל בדיקה).
+   */
+  oneClickUrl?: string;
+}
+
+/** ‏המילה שחוק התקשורת §30א(ה) מחייב בתחילת נושא של דבר פרסומת. */
+export const ADVERTISEMENT_LABEL = "פרסומת";
+
+/** ‏המילה כמילה שלמה — „פרסומת:”, „פרסומת |”, ולא „פרסומתי”. */
+const LABELED = new RegExp(String.raw`^${ADVERTISEMENT_LABEL}(?=$|[\s:|\-–—])`, "u");
+
+/**
+ * ‎**„פרסומת” בתחילת הנושא — חוק התקשורת §30א(ה).**
+ *
+ * ‏כלל אחד ולא קידומת שכל בונה מוסיף בעצמו: נוסח שכבר נפתח במילה
+ * ‏(מי שכתב אותה ידנית במסך הנוסחים) אינו מקבל אותה פעמיים.
+ */
+export function advertisementSubject(subject: string): string {
+  const trimmed = subject.trim();
+  return LABELED.test(trimmed) ? trimmed : `${ADVERTISEMENT_LABEL}: ${trimmed}`;
+}
+
+/** ‏שתי הכתובות של הסרה — מה שהקורא בונה מהטוקן, והבונה מוסיף לו את הנוסח. */
+export type EmailOptOutLinks = Pick<EmailUnsubscribe, "url" | "oneClickUrl">;
+
 export interface EmailContent {
   /** כותרת בגוף ההודעה. לרוב זהה לנושא, ולא חייבת. */
   heading?: string;
@@ -87,6 +134,8 @@ export interface EmailContent {
    * מוצגת קטנה ומעומעמת, מתחת לקו.
    */
   footnote?: string;
+  /** ‏קישור ההסרה — בתחתית, אחרי הערת השוליים. ראו `EmailUnsubscribe`. */
+  unsubscribe?: EmailUnsubscribe;
   /**
    * ‏תג מצב מעל הכותרת. ראו `EmailBadge`.
    */
@@ -195,6 +244,10 @@ export function renderEmailText(content: EmailContent): string {
     lines.push("");
   }
   if (content.footnote) lines.push(content.footnote);
+  if (content.unsubscribe) {
+    const { reason, label, url } = content.unsubscribe;
+    lines.push(`${reason} ${label}: ${url}`);
+  }
   return lines.join("\n").trimEnd();
 }
 
@@ -328,6 +381,19 @@ export function renderEmailHtml(content: EmailContent, productName = PRODUCT_NAM
     parts.push(
       `<p style="margin:22px 0 0;padding-top:14px;border-top:1px solid ${BRAND.border};` +
         `font-size:14px;line-height:1.6;color:${BRAND.muted};">${escapeHtml(content.footnote)}</p>`,
+    );
+  }
+
+  if (content.unsubscribe) {
+    const { reason, label, url } = content.unsubscribe;
+    /* ‏הקו המפריד פעם אחת — מעל ההערה כשיש, ואחרת מעל השורה הזו */
+    const top = content.footnote
+      ? "margin:8px 0 0;"
+      : `margin:22px 0 0;padding-top:14px;border-top:1px solid ${BRAND.border};`;
+    parts.push(
+      `<p style="${top}font-size:14px;line-height:1.6;color:${BRAND.muted};">` +
+        `${escapeHtml(reason)} <a href="${escapeHtml(url)}" ` +
+        `style="color:${BRAND.muted};text-decoration:underline;">${escapeHtml(label)}</a></p>`,
     );
   }
 
