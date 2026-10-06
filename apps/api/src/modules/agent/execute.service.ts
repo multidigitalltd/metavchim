@@ -379,17 +379,19 @@ function page<T>(
  * שורת בלעדיות כפי שהיא מוצגת — **שדות שכבר קיימים, בשם אחד.**
  *
  * ‎`list()` מחזירה `ExclusivityListItem` ו-`current()` מחזירה DTO
- * מלא. שתיהן נושאות את אותם ארבעה דברים שהתשובה צריכה, ובלי
+ * מלא. שתיהן נושאות את אותם חמישה דברים שהתשובה צריכה, ובלי
  * הצמצום כאן כל ערוץ היה בורר מהן בעצמו — וזו בדיוק הכפילות
  * ש-`result-lines` קיים כדי למנוע.
  */
 function exclusivityRow(item: {
+  propertyId: string;
   propertyTitle?: string;
   daysLeft: number;
   missing: number;
   summary: string;
 }): Record<string, unknown> {
   return {
+    propertyId: item.propertyId,
     ...(item.propertyTitle === undefined ? {} : { propertyTitle: item.propertyTitle }),
     daysLeft: item.daysLeft,
     missing: item.missing,

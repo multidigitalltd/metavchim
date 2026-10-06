@@ -484,12 +484,39 @@ const SECTION_ROWS: Record<string, (value: unknown) => AgentResultRow[]> = {
    * ומחזיר „3 בלעדיות” בלי אף אחת מהן — בדיוק הכשל שהקובץ הזה נכתב
    * כדי לסגור, ושחזר כאן בפעולה חדשה.
    */
+  /*
+   * ‎**„למי לחזור” — האדם, הסיבה וכמה זמן הוא ממתין.** השורה נקשרת לליד
+   * ‏של הסיבה המוצגת בלבד; שיחה שלא נענתה — בלי הפניה. כמקטע רגיל היא
+   * ‏עוברת באותו מסלול של הטקסט, ההפניות, הזיכרון והקשירה לתוצאה
+   * ‏(ביקורת Codex).
+   */
+  callbacks: (value) =>
+    rowsOf(value).map((row) => {
+      const also = typeof row["alsoCount"] === "number" && row["alsoCount"] > 0 ? ` (+${row["alsoCount"]} בכרטיס)` : "";
+      const reason = join([text(row["reasonText"]), text(row["waitedText"])]);
+      const leadId = text(row["leadId"]);
+      return factsRow({
+        label: text(row["name"]) ?? "לקוח",
+        detail: reason === "" ? "" : `${reason}${also}`,
+        ...(phoneOf(row) !== null ? { phone: phoneOf(row)! } : {}),
+        ...(text(row["href"]) !== null ? { href: text(row["href"])! } : {}),
+        ...(leadId !== null ? { ref: { entityType: "lead" as const, entityId: leadId } } : {}),
+      });
+    }),
   exclusivity: (value) =>
     rowsOf(value).map((row) => {
       const days = typeof row["daysLeft"] === "number" ? row["daysLeft"] : null;
       const missing = typeof row["missing"] === "number" ? row["missing"] : null;
+      const propertyId = text(row["propertyId"]);
       return {
         label: text(row["propertyTitle"]) ?? "בלעדיות",
+        // ‏השורה היא נכס — „תרשום פעולה לראשון” ממשיך ממנה (ביקורת Codex)
+        ...(propertyId !== null
+          ? {
+              href: `/properties/${propertyId}`,
+              ref: { entityType: "property" as const, entityId: propertyId },
+            }
+          : {}),
         memoryDetail: join([
           days === null ? null : `נותרו ${days} ימים`,
           missing !== null && missing > 0 ? `חסרות ${missing} פעולות שיווק` : null,
@@ -604,6 +631,7 @@ const SECTION_META: Record<string, { noun: string; counted: boolean }> = {
   demands: { noun: "ביקושים ברשת", counted: true },
   notifications: { noun: "התראות", counted: false },
   emails: { noun: "שיחות מייל", counted: true },
+  callbacks: { noun: "ממתינים לחזרה", counted: true },
 };
 
 /** הסדר קובע מה מוצג ראשון בתוצאת חיפוש כללי. */
@@ -853,8 +881,7 @@ export function agentResultList(data: unknown): AgentResultList | null {
  */
 export function agentResultText(data: unknown): string | null {
   const list = agentResultList(data);
-  if (list === null) return callbacksText(data);
-  if (list.rows.length === 0) return null;
+  if (list === null || list.rows.length === 0) return null;
 
   const shown = list.rows.slice(0, AGENT_RESULT_ROWS);
   const lines = shown.map((row) =>
@@ -876,26 +903,6 @@ export function agentResultText(data: unknown): string | null {
   const beyond = list.hasMore ? " — ויש עוד מעבר להם" : "";
   if (hidden > 0) lines.push(`ועוד ${hidden} ${list.noun}${beyond}`);
   else if (list.hasMore) lines.push(`מוצגים ${shown.length} ה${list.noun} הראשונים — יש עוד`);
-  return lines.join("\n");
-}
-
-/**
- * ‏‎„למי לחזור” כטקסט פשוט — באותו סדר ובאותה תקרה כמו בשאר הערוצים,
- * ‏ולכן ⟪תוצאה N⟫ מצביע על השורה ה-N שהמתווך רואה. `null` — לא רשימה כזו.
- */
-function callbacksText(data: unknown): string | null {
-  if (typeof data !== "object" || data === null) return null;
-  const rows = rowsOf((data as Record<string, unknown>)["callbacks"]);
-  if (rows.length === 0) return null;
-  const shown = rows.slice(0, AGENT_RESULT_ROWS);
-  const lines = shown.map((row) => {
-    const also = typeof row["alsoCount"] === "number" && row["alsoCount"] > 0 ? ` (+${row["alsoCount"]} בכרטיס)` : "";
-    const reason = join([text(row["reasonText"]), text(row["waitedText"])]);
-    return [`• ${text(row["name"]) ?? "לקוח"}`, reason === "" ? null : `${reason}${also}`, phoneOf(row)]
-      .filter((part): part is string => part !== null && part !== "")
-      .join(" — ");
-  });
-  if (rows.length > shown.length) lines.push(`ועוד ${rows.length - shown.length} ממתינים לחזרה`);
   return lines.join("\n");
 }
 
@@ -1118,7 +1125,7 @@ export function agentResultRefs(data: unknown): AgentHistoryRef[] {
  */
 export function agentResultSlots(data: unknown): (AgentHistoryRef | null)[] {
   const list = agentResultList(data);
-  if (list === null) return callbackSlots(data);
+  if (list === null) return [];
   return list.rows.slice(0, AGENT_RESULT_ROWS).map((row) =>
     row.ref === undefined || row.ref.entityId === ""
       ? null
@@ -1144,23 +1151,6 @@ export function agentResultCount(data: unknown): AgentResultCount | null {
   if (typeof total !== "number" || !Number.isInteger(total) || total < 0) return null;
   const lists = Object.keys(record).filter((key) => Array.isArray(record[key]));
   return lists.length === 1 ? { section: lists[0]!, total } : null;
-}
-
-/**
- * ‏‎**„למי לחזור” — רשימה בצורה משלה, באותו סדר שמוצג.** השורה נקשרת
- * ‏לליד של האדם; שיחה שלא נענתה מאיש קשר בלי ליד היא `null`.
- */
-function callbackSlots(data: unknown): (AgentHistoryRef | null)[] {
-  if (typeof data !== "object" || data === null) return [];
-  return rowsOf((data as Record<string, unknown>)["callbacks"])
-    .slice(0, AGENT_RESULT_ROWS)
-    .map((row) => {
-      const leadId = text(row["leadId"]);
-      const name = text(row["name"]);
-      return leadId === null || name === null
-        ? null
-        : { label: name.slice(0, AGENT_RESULT_LABEL_MAX), entityType: "lead" as const, entityId: leadId };
-    });
 }
 
 /**

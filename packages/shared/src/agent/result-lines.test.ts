@@ -10,6 +10,7 @@ import {
   agentResultRefs,
   agentResultSlots,
   agentResultRows,
+  agentResultShowsMany,
   agentResultText,
   officeReportStats,
 } from "./result-lines.js";
@@ -1254,6 +1255,31 @@ describe("agentResultSlots — המקום שבו השורה הוצגה", () => {
       null,
       { label: "דנה לוי", entityType: "lead", entityId: "01J0000000000000000000LEAD" },
     ]);
+  });
+
+  /*
+   * ‏„למי לחזור” כמקטע רגיל: ההפניות והסימון `plural` של התור נגזרים
+   * ‏מאותה רשימה, ולכן „תוסיף משימה לראשון” בתור הבא נקשר לליד ולא
+   * ‏לחיפוש שם (ביקורת Codex).
+   */
+  it("„למי לחזור” — הפניות לליד ונספר כרבים, גם בתור הבא", () => {
+    const data = {
+      callbacks: [
+        { contactId: "c1", name: "דנה לוי", phone: null, reason: "waiting_lead", leadId: "01J0000000000000000000LEAD" },
+        { contactId: "c2", name: "יוסי", phone: null, reason: "missed_call" },
+      ],
+    };
+    expect(agentResultRefs(data)).toEqual([
+      { label: "דנה לוי", entityType: "lead", entityId: "01J0000000000000000000LEAD" },
+    ]);
+    expect(agentResultShowsMany(data)).toBe(true);
+  });
+
+  it("בלעדיות — השורה היא נכס, ואפשר להמשיך ממנה", () => {
+    const slots = agentResultSlots({
+      exclusivity: [{ propertyId: "01J00000000000000000000P01", propertyTitle: "הרצל 5", daysLeft: 12, missing: 1, summary: "" }],
+    });
+    expect(slots).toEqual([{ label: "הרצל 5", entityType: "property", entityId: "01J00000000000000000000P01" }]);
   });
 
   it("צורה שאינה רשימה — אין שורות", () => {
