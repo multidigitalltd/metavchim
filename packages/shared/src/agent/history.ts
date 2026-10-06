@@ -87,6 +87,22 @@ export function resultRefIndex(phrase: unknown): number | null {
   return index >= 1 ? index : null;
 }
 
+/**
+ * ‏‎**הרשומה שצעד נקשר אליה ב-⟪תוצאה N⟫** — מה שהוא פעל עליו, גם כשהביצוע
+ * ‏לא החזיר `ref` (עדכון משימה, סטטוס ליד). בלעדיה הצעד נספר כאילו לא נגע
+ * ‏בדבר, והנושא של התור הבא אבד (ביקורת Codex). `undefined` — בלי סימון.
+ */
+export function agentBoundRef(
+  params: Record<string, unknown>,
+  previous: readonly (AgentHistoryRef | null)[],
+): AgentHistoryRef | undefined {
+  for (const value of Object.values(params)) {
+    const index = resultRefIndex(value);
+    if (index !== null) return previous[index - 1] ?? undefined;
+  }
+  return undefined;
+}
+
 /** ‏איך הסימון מוצג בכרטיס האישור — בלי הסוגריים ובלי המנגנון. */
 export function resultRefDisplay(index: number): string {
   return index === 1 ? "הראשון בתוצאה של הצעד הקודם" : `מספר ${index} בתוצאה של הצעד הקודם`;

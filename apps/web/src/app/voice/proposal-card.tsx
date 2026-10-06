@@ -6,6 +6,7 @@ import { ApiError, apiPost } from "@/lib/api";
 import {
   AGENT_CHOICE_PROMPT,
   agentAction,
+  agentBoundRef,
   agentResultSlots,
   agentTurnMemory,
   type AgentHistoryRef,
@@ -278,7 +279,7 @@ export function ProposalCard({
           messages.push(done.message);
           link ??= done.link;
           // רק צעד שהצליח — הפניה לרשומה שלא נוצרה היא שיוך לכלום
-          acted.unshift(done.ref);
+          acted.unshift(done.ref ?? agentBoundRef(stepParams, previous));
         } catch (err: unknown) {
           failure = `„${step.title}” לא בוצע: ${
             err instanceof ApiError ? err.message : "שגיאה"

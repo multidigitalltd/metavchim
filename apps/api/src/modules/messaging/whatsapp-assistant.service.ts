@@ -9,6 +9,7 @@ import {
   agentReplyTurn,
   agentReplySegments,
   externalLinkLabel,
+  agentBoundRef,
   agentResultSlots,
   proposalRunsImmediately,
   agentTurnMemory,
@@ -2658,7 +2659,7 @@ export class WhatsAppAssistantService {
           });
         }
         // רק צעד שהצליח — הפניה לרשומה שלא נוצרה היא שיוך לכלום
-        acted.unshift(result.ref);
+        acted.unshift(result.ref ?? agentBoundRef(stepParams, previous));
       } catch (error) {
         lines.push(`· „${followUp.title}” לא בוצע: ${errorMessage(error)}`);
         break;

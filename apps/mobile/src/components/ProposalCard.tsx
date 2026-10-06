@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { View } from "react-native";
 import {
   AGENT_CHOICE_PROMPT,
+  agentBoundRef,
   agentResultSlots,
   agentTurnMemory,
   type AgentHistoryRef,
@@ -115,7 +116,7 @@ export function ProposalCard({
           });
           messages.push(done.message);
           link ??= done.link;
-          acted.unshift(done.ref);
+          acted.unshift(done.ref ?? agentBoundRef(stepParams, previous));
         } catch (err: unknown) {
           failure = `„${step.title}” לא בוצע: ${err instanceof ApiError ? err.message : "שגיאה"}`;
           break;

@@ -14,6 +14,7 @@ import {
   matchHistoryRef,
   mergeStoredTurns,
   parseStoredTurns,
+  agentBoundRef,
 } from "./history.js";
 import { buildInterpretPrompt, type AgentHistoryRef, type AgentHistoryTurn } from "./prompt.js";
 import { agentResultRefs, agentResultShowsMany, agentTurnMemory } from "./result-lines.js";
@@ -568,5 +569,21 @@ describe("agentTurnMemory — הנושא אחרי שרשור על רשימה", (
     const memory = agentTurnMemory([closed, other], tasks);
     expect(memory.focus).toBeUndefined();
     expect(currentSubject([turn(memory)])).toBeNull();
+  });
+});
+
+describe("agentBoundRef — מה שצעד נקשר אליו", () => {
+  const slots: (AgentHistoryRef | null)[] = [
+    null,
+    { label: "לשלוח חוזה", entityType: "task", entityId: "01J00000000000000000000T02" },
+  ];
+
+  it("⟪תוצאה N⟫ ⟵ השורה ה-N, גם כשהביצוע לא החזיר הפניה", () => {
+    expect(agentBoundRef({ taskPhrase: "⟪תוצאה 2⟫", status: "done" }, slots)).toEqual(slots[1]);
+  });
+
+  it("שורה בלי רשומה, או צעד בלי סימון — אין", () => {
+    expect(agentBoundRef({ taskPhrase: "⟪תוצאה 1⟫" }, slots)).toBeUndefined();
+    expect(agentBoundRef({ taskPhrase: "לשלוח חוזה" }, slots)).toBeUndefined();
   });
 });
