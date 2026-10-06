@@ -5,6 +5,7 @@ import {
   agentHistorySummary,
   agentTurnSummary,
   withoutPhoneNumbers,
+  agentResultCount,
   agentResultList,
   agentResultRefs,
   agentResultSlots,
@@ -1277,5 +1278,14 @@ describe("„למי לחזור” בטקסט הפשוט — מה שהאפליק�
     expect(text).toContain("לקוח 7");
     expect(text).not.toContain("לקוח 8");
     expect(lines.at(-1)).toBe("ועוד 2 ממתינים לחזרה");
+  });
+});
+
+describe("agentResultCount — כמה שורות חזרו ברשימה שלמה", () => {
+  it("רשימה רגילה, „למי לחזור”, רשימה קטומה וצורה אחרת", () => {
+    expect(agentResultCount({ buyers: [{ id: "b1", name: "משה" }, { id: "b2", name: "דנה" }] })).toBe(2);
+    expect(agentResultCount({ callbacks: [{ name: "יוסי" }, { name: "דנה" }] })).toBe(2);
+    expect(agentResultCount({ buyers: [{ id: "b1", name: "משה" }], hasMore: true })).toBeNull();
+    expect(agentResultCount({ ok: true })).toBeNull();
   });
 });

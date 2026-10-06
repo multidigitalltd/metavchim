@@ -17,7 +17,7 @@ import {
   MARKETING_ACTION_KINDS,
   MARKETING_ACTION_LABEL,
   agentNextSteps,
-  agentResultList,
+  agentResultCount,
   countsWithin,
   groundedNumbers,
   LEAD_STATUS_LABELS,
@@ -897,10 +897,10 @@ export class AgentExecuteService {
        * ‏(„שבעה קונים”) אינה גדולה ממה שחזר — כשהרשימה שלמה; ברשימה
        * ‏קטומה הסך האמיתי גדול ממנה, ושם נשארת בדיקת הספרות בלבד.
        */
-      const list = agentResultList(result.data);
+      const total = agentResultCount(result.data);
       const grounded = (text: string): boolean =>
         groundedNumbers(text, [compact, transcript]) &&
-        (list === null || list.hasMore || countsWithin(text, list.rows.length));
+        (total === null || countsWithin(text, total));
       return {
         ...result,
         ...(insight !== "" && insight.length <= 500 && grounded(insight) ? { insight } : {}),

@@ -1126,6 +1126,19 @@ export function agentResultSlots(data: unknown): (AgentHistoryRef | null)[] {
 }
 
 /**
+ * ‏‎**כמה שורות חזרו — כשזו רשימה שלמה.** `null` כשאינה רשימה, או
+ * ‏כשהשרת קטם אותה (אז הסך האמיתי גדול ממנה). אחת לכל הצורות, כולל
+ * ‏„למי לחזור” — שומר הספירה של התובנה נשען עליה (ביקורת Codex).
+ */
+export function agentResultCount(data: unknown): number | null {
+  const list = agentResultList(data);
+  if (list !== null) return list.hasMore ? null : list.rows.length;
+  if (typeof data !== "object" || data === null) return null;
+  const callbacks = (data as Record<string, unknown>)["callbacks"];
+  return Array.isArray(callbacks) ? callbacks.length : null;
+}
+
+/**
  * ‏‎**„למי לחזור” — רשימה בצורה משלה, באותו סדר שמוצג.** השורה נקשרת
  * ‏לליד של האדם; שיחה שלא נענתה מאיש קשר בלי ליד היא `null`.
  */

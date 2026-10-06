@@ -35,7 +35,7 @@ describe("הניסוח הטבעי של הסוכן", () => {
     expect(EXECUTE).toMatch(/insight\.length <= 500 && grounded\(insight\)/u);
     expect(EXECUTE).toMatch(/suggestion\.length <= 200 && grounded\(suggestion\)/u);
     // ‏ספירה במילים או בספרות — לא יותר ממה שחזר, כשהרשימה שלמה
-    expect(EXECUTE).toMatch(/list\.hasMore \|\| countsWithin\(text, list\.rows\.length\)/u);
+    expect(EXECUTE).toMatch(/total === null \|\| countsWithin\(text, total\)/u);
   });
 
   /*
