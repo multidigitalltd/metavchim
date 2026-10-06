@@ -1,5 +1,6 @@
 import { COOP_DEAL_STAGE_LABELS, type CoopDealStage } from "../logic/coop-deal.js";
 import { AGENT_RESULT_ROWS, numberedForms } from "./history.js";
+import type { AgentResultCount } from "./insight-guard.js";
 import type { AgentHistoryRef, AgentHistoryTurn } from "./prompt.js";
 import { formatJerusalemDate, formatJerusalemTime } from "../logic/israel-time.js";
 import { CALL_OUTCOME_LABELS } from "../schemas/labels.js";
@@ -1132,11 +1133,17 @@ export function agentResultSlots(data: unknown): (AgentHistoryRef | null)[] {
  * ‏— הכול „נראה שלם”, ושומר הספירה היה מאשר ספירה שגויה (סדרת ביקורות
  * ‏Codex). לכן ההנחה הפוכה: רשימה נספרת רק כשהמפיק יודע שהיא שלמה
  * ‏ומצהיר על `total`. בלי הצהרה — `null`, והספירה אינה נבדקת.
+ *
+ * ‏הסך שייך לרשימה שלצדו — המפתח היחיד בנתונים שערכו מערך — כדי
+ * ‏שייבדק רק מול ספירה של השורות שלה.
  */
-export function agentResultCount(data: unknown): number | null {
+export function agentResultCount(data: unknown): AgentResultCount | null {
   if (typeof data !== "object" || data === null) return null;
-  const total = (data as Record<string, unknown>)["total"];
-  return typeof total === "number" && Number.isInteger(total) && total >= 0 ? total : null;
+  const record = data as Record<string, unknown>;
+  const total = record["total"];
+  if (typeof total !== "number" || !Number.isInteger(total) || total < 0) return null;
+  const lists = Object.keys(record).filter((key) => Array.isArray(record[key]));
+  return lists.length === 1 ? { section: lists[0]!, total } : null;
 }
 
 /**

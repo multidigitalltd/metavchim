@@ -43,11 +43,40 @@ export function groundedNumbers(text: string, sources: readonly string[]): boole
  * ‏במילים („שבעה קונים”) עוקף את בדיקת הספרות. ובספרות הבדיקה חלשה
  * ‏במספרים קטנים: „7” נמצא כמעט בכל JSON, ולו רק במזהה (ביקורת Codex).
  *
- * ‏לכן ספירה — מספר (בספרות או במילים) שצמוד לשם עצם של רשומות —
- * ‏נבדקת מול גודל הרשימה: לא יותר ממה שחזר. תת-ספירה („שניים מהם
- * ‏חמים”, „2 קונים חמים”) קטנה ממנו ועוברת; ספירה מומצאת גדולה ממנו
- * ‏ונפסלת עם המשפט כולו.
+ * ‏לכן ספירה — מספר (בספרות או במילים) שצמוד לשם עצם של **השורות
+ * ‏ברשימה** — נבדקת מול הסך שהמפיק הצהיר עליו: לא יותר ממנו. תת-ספירה
+ * ‏(„שניים מהם חמים”) קטנה ממנו ועוברת; ספירה מומצאת גדולה ממנו ונפסלת
+ * ‏עם המשפט כולו.
+ *
+ * ‏שם העצם הוא של **הרשימה**, לא כל שם עצם: „חמישה מיילים שלא נקראו”
+ * ‏בשתי שיחות מייל, או „שלושה נכסים מתאימים” לביקוש — הם מדדים בתוך
+ * ‏שורה, לא ספירה של השורות, ואינם נבדקים מול הסך (ביקורת Codex).
  */
+export interface AgentResultCount {
+  /** ‏המפתח של הרשימה בנתונים — `buyers`, `emails`, `callbacks`… */
+  readonly section: string;
+  readonly total: number;
+}
+
+/** ‏לכל רשימה — שמות העצם שספירה שלהם היא ספירה של השורות שלה. */
+const SECTION_NOUNS: Record<string, { plural: string; singular: string }> = {
+  buyers: { plural: "קונים|קונות|לקוחות", singular: "קונה|לקוח|לקוחה" },
+  leads: { plural: "לידים|פניות", singular: "ליד|פנייה" },
+  properties: { plural: "נכסים|דירות|בתים", singular: "נכס|דירה|בית" },
+  // ‏התאמות לקונה הן נכסים, ולנכס — קונים
+  matches: {
+    plural: "התאמות|קונים|קונות|לקוחות|נכסים|דירות|בתים",
+    singular: "התאמה|קונה|לקוח|נכס|דירה|בית",
+  },
+  exclusivity: { plural: "בלעדיות|נכסים|דירות", singular: "בלעדיות|נכס|דירה" },
+  agreements: { plural: "הסכמים|מסמכים|ממתינים", singular: "הסכם|מסמך" },
+  offers: { plural: "הצעות", singular: "הצעה" },
+  demands: { plural: "ביקושים", singular: "ביקוש" },
+  // ‏הסך הוא של שיחות המייל; מיילים בתוכן הם מדד בתוך שורה
+  emails: { plural: "שיחות|שרשורים|התכתבויות", singular: "שיחה|שרשור|התכתבות" },
+  callbacks: { plural: "ממתינים|אנשים|לקוחות", singular: "ממתין|אדם|לקוח" },
+};
+
 /** ‏יחידות — כל הצורות: זכר, נקבה, נסמך, וצורת „שנים/שתים” של י״א–י״ט. */
 const UNITS: Record<string, number> = {
   אחד: 1, אחת: 1,
@@ -64,51 +93,62 @@ const TEN: Record<string, number> = { עשר: 10, עשרה: 10, עשרת: 10 };
 const TENS: Record<string, number> = {
   עשרים: 20, שלושים: 30, ארבעים: 40, חמישים: 50, שישים: 60, שבעים: 70, שמונים: 80, תשעים: 90,
 };
-/** ‏מאה, מאתיים, אלף, אלפיים — ערך שלם בפני עצמו. */
-const SCALE: Record<string, number> = { מאה: 100, מאתיים: 200, אלף: 1000, אלפיים: 2000 };
-/**
- * ‏„מאות”, „אלפים” — כופלים את היחידה שלפניהם („תשע מאות” = 900,
- * ‏„שלושת אלפים” = 3,000). בלי יחידה — לפחות שתיים, וזה מה שנבדק.
- */
-const SCALES: Record<string, number> = { מאות: 100, אלפים: 1000 };
-
-const PLURAL_NOUNS =
-  "קונים|קונות|נכסים|דירות|בתים|לידים|פניות|משימות|פגישות|סיורים|הצעות|שיחות|התראות|עסקאות|לקוחות|ממתינים|התאמות|ביקושים|מיילים|הערות|בלעדיות|תוצאות|רשומות";
-const SINGULAR_NOUNS =
-  "קונה|נכס|דירה|בית|ליד|פנייה|משימה|פגישה|סיור|הצעה|שיחה|התראה|עסקה|לקוח|ממתין|התאמה|ביקוש|מייל|הערה|תוצאה|רשומה";
 
 const alt = (words: Record<string, number>): string => Object.keys(words).join("|");
 const BEFORE = "(?<![\\p{L}\\d])";
 const AFTER = "(?![\\p{L}\\d])";
 
 /*
- * ‏הצורות, לפי הסדר שבו הן נבדקות באותו מקום בטקסט: „עשרים ושלושה”,
- * ‏„שלושה עשר”, „שלוש מאות”/„מאה”, ואז יחידה, עשר וספרות — כולן לפני
- * ‏שם עצם ברבים. ו„קונה אחד” — היחיד לפני „אחד”. „דירות 4 חדרים” אינה
- * ‏ספירה, ולכן אין „שם עצם ואחריו ספרה”.
+ * ‏מספר במילים — לפי הדקדוק, לא צורה-צורה: אלפים, אחריהם מאות, ואחריהן
+ * ‏השארית, כל חלק אפשר עם „ו”. „שלושת אלפים ומאתיים וחמישים”, „מאה
+ * ‏וחמישים”, „עשרים ושלושה”. מילים צמודות שאינן מספר אחד („ביום שני
+ * ‏שלושה קונים”) אינן מתחברות — כל אחת נבדקת לבד.
  */
-const PLURAL_CLAIM = new RegExp(
-  `${BEFORE}(?:(${alt(TENS)})(?:\\s+ו(${alt(UNITS)}))?|(${alt(UNITS)})\\s+(${alt(TEN)})|(?:(${alt(UNITS)}|${alt(TEN)})\\s+)?(${alt(SCALES)})|(${alt(SCALE)})|(${alt(UNITS)}|${alt(TEN)})|(\\d+))\\s+(?:${PLURAL_NOUNS})${AFTER}`,
-  "gu",
-);
-const SINGULAR_CLAIM = new RegExp(`${BEFORE}(?:${SINGULAR_NOUNS})\\s+(?:אחד|אחת)${AFTER}`, "u");
+const REST = `(?:${alt(TENS)})(?:\\s+ו(?:${alt(UNITS)}))?|(?:${alt(UNITS)})\\s+(?:${alt(TEN)})|${alt(UNITS)}|${alt(TEN)}`;
+const HUNDREDS = `(?:(?:${alt(UNITS)})\\s+)?מאות|מאתיים|מאה`;
+const THOUSANDS = `(?:(?:${REST})\\s+)?(?:אלפים|אלף)|אלפיים`;
+const NUMBER = `(?:${THOUSANDS})(?:\\s+ו?(?:${HUNDREDS}))?(?:\\s+ו?(?:${REST}))?|(?:${HUNDREDS})(?:\\s+ו?(?:${REST}))?|${REST}`;
 
-function claimValue(match: RegExpMatchArray): number {
-  const [, tens, tensUnit, teenUnit, teen, times, scales, scale, single, digits] = match;
-  if (tens !== undefined) return TENS[tens]! + (tensUnit === undefined ? 0 : UNITS[tensUnit]!);
-  if (teenUnit !== undefined && teen !== undefined) return UNITS[teenUnit]! + 10;
-  if (scales !== undefined) {
-    return (times === undefined ? 2 : (UNITS[times] ?? TEN[times]!)) * SCALES[scales]!;
+/** ‏הערך של מספר במילים שהדקדוק כבר אישר. */
+function wordsValue(phrase: string): number {
+  let total = 0;
+  let group = 0;
+  for (const raw of phrase.split(/\s+/u)) {
+    const word = raw.startsWith("ו") ? raw.slice(1) : raw;
+    if (word === "אלף" || word === "אלפים") {
+      total += (group === 0 ? (word === "אלף" ? 1 : 2) : group) * 1000;
+      group = 0;
+    } else if (word === "אלפיים") total += 2000;
+    else if (word === "מאות") group = (group === 0 ? 2 : group) * 100;
+    else if (word === "מאה") group += 100;
+    else if (word === "מאתיים") group += 200;
+    else group += UNITS[word] ?? TEN[word] ?? TENS[word] ?? 0;
   }
-  if (scale !== undefined) return SCALE[scale]!;
-  if (single !== undefined) return UNITS[single] ?? TEN[single]!;
-  return Number(digits);
+  return total + group;
 }
 
-export function countsWithin(text: string, total: number): boolean {
-  for (const match of text.matchAll(PLURAL_CLAIM)) {
-    if (claimValue(match) > total) return false;
+const claims = new Map<string, { plural: RegExp; singular: RegExp }>();
+function claimsOf(section: string): { plural: RegExp; singular: RegExp } | undefined {
+  const nouns = SECTION_NOUNS[section];
+  if (nouns === undefined) return undefined;
+  let built = claims.get(section);
+  if (built === undefined) {
+    built = {
+      plural: new RegExp(`${BEFORE}ו?(?:(${NUMBER})|(\\d[\\d,]*))\\s+(?:${nouns.plural})${AFTER}`, "gu"),
+      singular: new RegExp(`${BEFORE}(?:${nouns.singular})\\s+(?:אחד|אחת)${AFTER}`, "u"),
+    };
+    claims.set(section, built);
+  }
+  return built;
+}
+
+export function countsWithin(text: string, count: AgentResultCount): boolean {
+  const claim = claimsOf(count.section);
+  if (claim === undefined) return true;
+  for (const [, words, digits] of text.matchAll(claim.plural)) {
+    const value = words !== undefined ? wordsValue(words) : Number(digits!.replaceAll(",", ""));
+    if (value > count.total) return false;
   }
   // ‏„קונה אחד” — יחיד; נפסל רק כשלא חזר אף אחד
-  return total >= 1 || text.search(SINGULAR_CLAIM) === -1;
+  return count.total >= 1 || text.search(claim.singular) === -1;
 }

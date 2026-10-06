@@ -1290,7 +1290,18 @@ describe("agentResultCount — רק סך שהמפיק הצהיר עליו", () =
   });
 
   it("עם `total` — הוא הסך, גם כשמוצג רק חלק", () => {
-    expect(agentResultCount({ buyers: [{ id: "b1", name: "משה" }], total: 1 })).toBe(1);
-    expect(agentResultCount({ offers: [], total: 150, hasMore: true })).toBe(150);
+    expect(agentResultCount({ buyers: [{ id: "b1", name: "משה" }], total: 1 })).toEqual({
+      section: "buyers",
+      total: 1,
+    });
+    expect(agentResultCount({ offers: [], total: 150, hasMore: true })).toEqual({
+      section: "offers",
+      total: 150,
+    });
+  });
+
+  it("סך שאין לו רשימה אחת לצדו — אינו של אף רשימה", () => {
+    expect(agentResultCount({ total: 3 })).toBeNull();
+    expect(agentResultCount({ buyers: [], leads: [], total: 3 })).toBeNull();
   });
 });

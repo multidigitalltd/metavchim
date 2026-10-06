@@ -901,10 +901,10 @@ export class AgentExecuteService {
        * ‏(„שבעה קונים”) אינה גדולה ממה שחזר — כשהרשימה שלמה; ברשימה
        * ‏קטומה הסך האמיתי גדול ממנה, ושם נשארת בדיקת הספרות בלבד.
        */
-      const total = agentResultCount(result.data);
+      const count = agentResultCount(result.data);
       const grounded = (text: string): boolean =>
         groundedNumbers(text, [compact, transcript]) &&
-        (total === null || countsWithin(text, total));
+        (count === null || countsWithin(text, count));
       return {
         ...result,
         ...(insight !== "" && insight.length <= 500 && grounded(insight) ? { insight } : {}),
