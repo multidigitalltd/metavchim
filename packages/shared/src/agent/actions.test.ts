@@ -60,14 +60,31 @@ describe("קטלוג הפעולות — שלמות מבנית", () => {
    * שאין לו כלום. פעולה בלי `capabilityAlt` חייבת להישאר סגורה על
    * יכולת אחת בדיוק.
    */
+  /*
+   * ‏‎`alsoRequires` — כולן נדרשות בנוסף לשער. „למי להציע שוב” בלי מודול
+   * ‏הנכסים הייתה מוצעת ונכשלת תמיד (ביקורת Codex).
+   */
+  it("יכולת נוספת שנדרשת — בלעדיה הפעולה סגורה", () => {
+    const reoffer = AGENT_ACTIONS.find((a) => a.id === "show_reoffer")!;
+    expect(mayUseAction(reoffer, new Set(["buyers.view_own"]))).toBe(false);
+    expect(mayUseAction(reoffer, new Set(["buyers.view_own", "properties.view"]))).toBe(true);
+    expect(mayUseAction(reoffer, new Set(["buyers.view_all", "properties.view"]))).toBe(true);
+    for (const action of AGENT_ACTIONS) {
+      for (const needed of action.alsoRequires ?? []) {
+        expect(CAPABILITIES, action.id).toContain(needed);
+      }
+    }
+  });
+
   it("היכולת החלופית פותחת את הפעולה — ורק אותה", () => {
     const cardActions = AGENT_ACTIONS.filter((a) => (a.capabilityAlts ?? []).length > 0);
     expect(cardActions.length).toBeGreaterThan(0);
     for (const action of cardActions) {
-      expect(mayUseAction(action, new Set([action.capability])), action.id).toBe(true);
+      const also = action.alsoRequires ?? [];
+      expect(mayUseAction(action, new Set([action.capability, ...also])), action.id).toBe(true);
       // **כל** חלופה פותחת, לא רק הראשונה
       for (const alt of action.capabilityAlts!) {
-        expect(mayUseAction(action, new Set([alt])), `${action.id}/${alt}`).toBe(true);
+        expect(mayUseAction(action, new Set([alt, ...also])), `${action.id}/${alt}`).toBe(true);
       }
       expect(mayUseAction(action, new Set()), action.id).toBe(false);
     }

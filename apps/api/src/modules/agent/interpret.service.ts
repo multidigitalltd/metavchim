@@ -17,6 +17,7 @@ import {
   taskTitleFromTranscript,
   type AgentActionDef,
   mentorQuestionFromTranscript,
+  propertyPhraseFromTranscript,
 } from "@metavchim/shared";
 import { TenantContext } from "../../common/tenant-context";
 import { GeminiService, type GeminiUsage } from "../../core/gemini.service";
@@ -483,6 +484,12 @@ export class AgentInterpretService {
         priceAgorot: undefined,
         ...(marketingDescription === undefined ? {} : { marketingDescription }),
       };
+    }
+
+    // ‏שאלה על נכס אחד — הנכס הוא כל מה שהפעולה צריכה
+    if (actionId === "show_bids" || actionId === "price_check" || actionId === "show_reoffer") {
+      const propertyPhrase = propertyPhraseFromTranscript(transcript);
+      return propertyPhrase === undefined ? {} : { propertyPhrase };
     }
 
     // שאלות קריאה בלי שדות — אין מה לחלץ; התאריך נפתר בשלב הבא

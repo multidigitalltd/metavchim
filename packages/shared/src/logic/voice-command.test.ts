@@ -5,6 +5,7 @@ import {
   routeVoiceCommand,
   stripCommandPrefix,
   taskTitleFromTranscript,
+  propertyPhraseFromTranscript,
 } from "./voice-command.js";
 import { agentAction } from "../agent/actions.js";
 import { RULE_ACTION_MAP } from "../agent/rules-fallback.js";
@@ -566,5 +567,24 @@ describe("„המר ללקוח” ברצפה הדטרמיניסטית", () => {
     ]) {
       expect(routeVoiceCommand(said).action, said).not.toBe("convert_call");
     }
+  });
+});
+
+describe("propertyPhraseFromTranscript — הנכס שהשאלה עליו", () => {
+  it.each([
+    ["מה ההצעות על הדירה ברמת גן?", "הדירה ברמת גן"],
+    ["איפה עומד המו״מ בהרב שך", "הרב שך"],
+    ["הדירה ברמת גן מתומחרת נכון?", "הדירה ברמת גן"],
+    ["כמה עולה מטר בנכס בהרב שך לעומת השכונה", "נכס בהרב שך"],
+    ["הפנטהאוז בנתניה יקר מדי?", "הפנטהאוז בנתניה"],
+    ["הורדנו מחיר בדירה ברמת גן — למי להציע שוב?", "דירה ברמת גן"],
+    ["מי אמר שהדירה בהרב שך יקרה מדי", "הדירה בהרב שך"],
+    ["למי לחזור על הפנטהאוז אחרי ההורדה", "הפנטהאוז"],
+  ])("„%s” ⟵ „%s”", (said, phrase) => {
+    expect(propertyPhraseFromTranscript(said)).toBe(phrase);
+  });
+
+  it("בלי נכס — אין ניחוש", () => {
+    expect(propertyPhraseFromTranscript("מה ההצעה הכי גבוהה")).toBeUndefined();
   });
 });

@@ -747,6 +747,28 @@ export function mentorQuestionFromTranscript(transcript: string): string {
   return stripped === "" ? transcript.trim() : stripped;
 }
 
+/**
+ * ‏‎**הנכס שהשאלה מדברת עליו** — לרצפה הדטרמיניסטית של שאלות על נכס אחד
+ * ‏(הצעות מחיר, תמחור, הצעה חוזרת). בלי מודל אין מי שימלא `propertyPhrase`,
+ * ‏והפעולה נתקעת על „איזה נכס” (ביקורת Codex, P1).
+ *
+ * ‏מעוגן בשם עצם של נכס („הדירה ברמת גן”, „בפנטהאוז בנתניה”) או במו״מ
+ * ‏(„המו״מ בהרב שך”), ונחתך במילות השאלה שאחריו („מתומחרת נכון”, „יקרה
+ * ‏מדי”, „למי להציע שוב”). לא נמצא — `undefined`, והכרטיס ישאל.
+ */
+const PROPERTY_NOUN =
+  /(?:^|[\s"'״])[בלשו]?(ה?(?:דירה|דירת|נכס|בית|פנטהאוז|דופלקס|וילה|קוטג'|מגרש|משרד|חנות)(?![א-ת]).*)$/u;
+const NEGOTIATION_ON = /מו["״]?מ\s+(?:על\s+|ב)(.+)$/u;
+const PROPERTY_PHRASE_END =
+  /\s+(?:מתומחר|יקר|זול|לעומת|מול|למי|להציע|לחזור|להתקשר|שוב|מחדש|אחרי)|\s*[?!.,—–]/u;
+
+export function propertyPhraseFromTranscript(transcript: string): string | undefined {
+  const text = transcript.replace(/\s+/gu, " ").trim();
+  const tail = PROPERTY_NOUN.exec(text)?.[1] ?? NEGOTIATION_ON.exec(text)?.[1];
+  const phrase = tail?.split(PROPERTY_PHRASE_END)[0]?.trim();
+  return phrase !== undefined && phrase.length >= 2 ? phrase : undefined;
+}
+
 export function stripCommandPrefix(transcript: string): string {
   return transcript
     .replace(/\s+/gu, " ")

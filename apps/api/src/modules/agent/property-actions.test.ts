@@ -183,7 +183,7 @@ describe("מחיר למ״ר מול השכונה", () => {
 
 describe("ירד המחיר — למי להציע שוב", () => {
   it("בלי הורדה טרייה — אומר זאת על הנכס", async () => {
-    const candidates = async () => ({ drop: null, propertyLabel: "הרצל 5", candidates: [] });
+    const candidates = async () => ({ drop: null, propertyLabel: "הרצל 5", candidates: [], complete: true });
     const result = await run(() => serviceWith({ candidates }).execute("show_reoffer", { propertyId: PROPERTY }));
     expect(result.message).toBe("המחיר של הרצל 5 לא ירד ב-30 הימים האחרונים — אין למי להציע שוב");
   });
@@ -203,13 +203,38 @@ describe("ירד המחיר — למי להציע שוב", () => {
           contactedAt: null,
         },
       ],
+      complete: true,
     });
     const result = await run(() => serviceWith({ candidates }).execute("show_reoffer", { propertyId: PROPERTY }));
     expect(result.message).toContain("המחיר ירד מ-2,500,000 ₪ ל-2,300,000 ₪. קונה אחד אמר");
+    expect(result.data).toEqual(expect.objectContaining({ total: 1 }));
     const text = agentResultText(result.data);
     expect(text).toContain("משה כהן");
     expect(text).toContain("050-1234567");
     expect(text).toContain("טרם פנית");
+  });
+
+  // ‏מקור שהגיע לתקרה — „לפחות”, ובלי סך מדויק (ביקורת Codex)
+  it("סריקה שנחתכה — „לפחות”, ויש עוד", async () => {
+    const candidates = async () => ({
+      drop: { fromAgorot: 250_000_000, toAgorot: 230_000_000, changedAt: "2026-10-01T00:00:00.000Z" },
+      propertyLabel: "הרצל 5",
+      candidates: [
+        {
+          buyerId: BUYER,
+          name: "משה כהן",
+          reasons: ["said_price_high"],
+          reasonLabels: ["אמר בסיור שהמחיר גבוה"],
+          lastViewingAt: null,
+          contactedAt: null,
+        },
+      ],
+      complete: false,
+    });
+    const result = await run(() => serviceWith({ candidates }).execute("show_reoffer", { propertyId: PROPERTY }));
+    expect(result.message).toContain("לפחות 1 קונים אמרו");
+    expect(result.data).toEqual(expect.objectContaining({ hasMore: true }));
+    expect(result.data).not.toHaveProperty("total");
   });
 });
 

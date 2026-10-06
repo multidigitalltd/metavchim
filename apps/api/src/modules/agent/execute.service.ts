@@ -1967,10 +1967,18 @@ export class AgentExecuteService {
     if (result.candidates.length === 0) {
       return { href, message: `${drop}, ואף קונה לא אמר לפני ההורדה שהנכס יקר` };
     }
+    // ‏מקור שהגיע לתקרה — „לפחות”, ובלי סך מדויק לשומר הספירה (ביקורת Codex)
+    const count = result.candidates.length;
     return {
       href,
-      message: `${drop}. ${result.candidates.length === 1 ? "קונה אחד אמר" : `${result.candidates.length} קונים אמרו`} שהנכס יקר — מי שטרם פנית אליו ראשון.`,
-      data: { reoffer: result.candidates, total: result.candidates.length },
+      message: `${drop}. ${
+        result.complete
+          ? count === 1
+            ? "קונה אחד אמר"
+            : `${count} קונים אמרו`
+          : `לפחות ${count} קונים אמרו`
+      } שהנכס יקר — מי שטרם פנית אליו ראשון.`,
+      data: { reoffer: result.candidates, ...(result.complete ? { total: count } : { hasMore: true }) },
     };
   }
 

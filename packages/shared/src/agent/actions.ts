@@ -241,6 +241,13 @@ export interface AgentActionDef {
    */
   capabilityAlts?: readonly Capability[];
   /**
+   * ‎**יכולות שנדרשות בנוסף — כולן.** לפעולה שנשענת על שני מודולים:
+   * ‏„למי להציע שוב” קוראת גם נכס וגם קונים, והשירות דורש את שניהם.
+   * ‏בלי השדה הפעולה הייתה מוצעת למי שחסר לו אחד מהם, ונכשלת תמיד
+   * ‏(ביקורת Codex).
+   */
+  alsoRequires?: readonly Capability[];
+  /**
    * ‎**פיצ'ר המסלול שהפעולה דורשת** — הזכאות המסחרית, לא ההרשאה.
    *
    * הבקרים אוכפים אותה ב-`@RequireFeature`, והסוכן אינו עובר בהם:
@@ -2622,6 +2629,7 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
     ],
     capability: "buyers.view_own",
     capabilityAlts: ["buyers.view_all"],
+    alsoRequires: ["properties.view"],
     risk: "read",
     chainable: ["buyer"],
     fields: [F_PROPERTY_PHRASE],
@@ -3477,6 +3485,7 @@ export function mayUseAction(
 ): boolean {
   /* ‏פעולה על הרשומה של הקורא עצמו — ראו ההסבר על `capability` */
   if (action.capability === null) return true;
+  if (!(action.alsoRequires ?? []).every((needed) => capabilities.has(needed))) return false;
   if (capabilities.has(action.capability)) return true;
   return (action.capabilityAlts ?? []).some((alt) => capabilities.has(alt));
 }
