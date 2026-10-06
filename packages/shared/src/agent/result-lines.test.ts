@@ -3,6 +3,8 @@ import {
   AGENT_RESULT_LABEL_MAX,
   AGENT_RESULT_SUMMARY_MAX,
   agentHistorySummary,
+  agentTurnSummary,
+  withoutPhoneNumbers,
   agentResultList,
   agentResultRefs,
   agentResultRows,
@@ -1179,5 +1181,43 @@ describe("הזיכרון לתור הבא — מאפיינים לצד השם", ()
     const summary = agentHistorySummary("נמצאו 8 קונים", { buyers });
     expect(summary).not.toContain("חדרים");
     expect(summary.endsWith("לפי הסדר: קונה מספר 0, קונה מספר 1, קונה מספר 2, קונה מספר 3, קונה מספר 4, קונה מספר 5, קונה מספר 6, קונה מספר 7")).toBe(true);
+  });
+});
+
+describe("withoutPhoneNumbers — טלפון יוצא, תאריך ומחיר נשארים", () => {
+  it.each([
+    ["📵 שיחה שלא נענתה מ-050-123-4567", "📵 שיחה שלא נענתה מ-…"],
+    ["דנה — 0501234567", "דנה — …"],
+    ["+972 50 123 4567 התקשר", "… התקשר"],
+    ["+1 212 555 1234", "…"],
+  ])("%s", (input, expected) => {
+    expect(withoutPhoneNumbers(input)).toBe(expected);
+  });
+
+  /*
+   * ‏התובנה שולחת למודל גם מועדים ומחירים. דפוס רחב מדי היה מוחק את
+   * ‏התאריך ושובר בדיוק את התשובה על „מתי הפגישה”.
+   */
+  it.each(["2026-08-27T10:00:00.000Z", "14:30 · 27.08.2026", "2,300,000", "קומה 0, 4 חדרים"])(
+    "%s נשאר כמו שהוא",
+    (input) => {
+      expect(withoutPhoneNumbers(input)).toBe(input);
+    },
+  );
+});
+
+describe("agentTurnSummary — התשובה שנוסחה נזכרת", () => {
+  it("התובנה נכנסת לזיכרון לצד שורת המצב והשמות", () => {
+    const summary = agentTurnSummary({
+      message: "נמצאו 2 קונים",
+      insight: "שניים, ומשה כהן חם",
+      data: { buyers: [{ id: "b1", name: "משה כהן" }, { id: "b2", name: "דנה לוי" }] },
+    });
+    expect(summary).toContain("נמצאו 2 קונים — שניים, ומשה כהן חם");
+    expect(summary).toContain("משה כהן, דנה לוי");
+  });
+
+  it("בלי תובנה — בדיוק כמו קודם", () => {
+    expect(agentTurnSummary({ message: "הקונה נוצר" })).toBe("הקונה נוצר");
   });
 });

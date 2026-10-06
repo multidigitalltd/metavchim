@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  agentHistorySummary,
+  agentTurnSummary,
   agentReplySegments,
   agentReplyTurn,
   agentResultRefs,
@@ -305,7 +305,7 @@ export default function AgentPage(): React.JSX.Element {
    * תור שבוצע נכנס לזיכרון, עם הפרמטרים **שנשלחו בפועל** — כולל
    * עריכות ובחירת מועמד (ביקורת Codex). התקציר והשמות לפי הסדר הם
    * מה שמאפשר "תתקשר לראשון מהם" בתור הבא — אותה גזירה משותפת
-   * כמו בוואטסאפ (`agentHistorySummary`, `agentTurnRefs`).
+   * כמו בוואטסאפ (`agentTurnSummary`, `agentTurnRefs`).
    */
   const remember = useCallback(
     (
@@ -319,7 +319,7 @@ export default function AgentPage(): React.JSX.Element {
         transcript: said,
         action: actionId,
         params: executedParams,
-        resultSummary: agentHistorySummary(executed.message, executed.data),
+        resultSummary: agentTurnSummary(executed),
         refs,
         ...(agentResultShowsMany(executed.data) ? { plural: true as const } : {}),
       });

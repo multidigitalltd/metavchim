@@ -5,7 +5,7 @@ import {
   firstNameOf,
   agentAction,
   AGENT_DEGRADED_REASON,
-  agentHistorySummary,
+  agentTurnSummary,
   agentReplyTurn,
   agentReplySegments,
   externalLinkLabel,
@@ -2624,6 +2624,11 @@ export class WhatsAppAssistantService {
      * שבוצע.
      */
     const acted: (AgentHistoryRef | undefined)[] = [primary.ref];
+    /*
+     * ‏מה ש-⟪תוצאה N⟫ בצעד הבא נקשר אליו: השורות של התוצאה האחרונה
+     * ‏שהייתה בה רשימה — הראשית, או צעד המשך שהחזיר רשימה משלו.
+     */
+    let previous = agentResultRefs(primary.data);
     for (const followUp of state.proposal.followUps ?? []) {
       const stepParams = this.narrow(
         followUp.actionId,
@@ -2635,7 +2640,10 @@ export class WhatsAppAssistantService {
           stepParams,
           undefined,
           "whatsapp",
+          previous,
         );
+        const listed = agentResultRefs(result.data);
+        if (listed.length > 0) previous = listed;
         lines.push(`· ${result.message}`);
         /*
          * ‎**גם הקישור של צעד ההמשך, לא רק ההודעה שלו.**
@@ -2717,7 +2725,7 @@ export class WhatsAppAssistantService {
        * בלי טלפונים, אימיילים, הערות ותקצירי שיחות. `agentHistorySummary`
        * מסביר למה בדיוק כך ולא פחות ולא יותר.
        */
-      resultSummary: agentHistorySummary(primary.message, primary.data),
+      resultSummary: agentTurnSummary(primary),
       /*
        * המזהים של מה שהוצג ושל מה שהפעולה נגעה בו — **בצד שלנו, לא
        * בפרומפט.**

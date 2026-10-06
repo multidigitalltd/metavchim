@@ -73,6 +73,7 @@ import {
   formatMarketIls,
   marketRoomBucket,
   marketRoomBucketLabel,
+  withoutPhoneNumbers,
 } from "@metavchim/shared";
 import { isCardAccessible,
   assertContactAccess,
@@ -465,6 +466,11 @@ export class AgentExecuteService {
     transcript?: string,
     /** מאיפה הפקודה הגיעה — ליומן המשימות של הסוכן בלבד */
     channel: "web" | "whatsapp" = "web",
+    /**
+     * ‏שורות התוצאה של הצעד הקודם באותו משפט — מה ש-⟪תוצאה N⟫ נקשר
+     * ‏אליו (`resolveForExecution`). בלי צעד קודם — חסר.
+     */
+    previous?: readonly AgentHistoryRef[],
   ): Promise<ExecuteResult> {
     const action = agentAction(actionId);
     if (!action) throw new BadRequestException("פעולה לא מוכרת");
@@ -522,11 +528,11 @@ export class AgentExecuteService {
      * את הרשומה שהצעד הקודם יצר זה עתה. ריבוי התאמות או היעדר —
      * שגיאה ברורה, לא ניחוש.
      */
-    const resolution = await this.resolver.resolveForExecution(actionId, params);
+    const resolution = await this.resolver.resolveForExecution(actionId, params, previous);
     if (!resolution.ok) throw new BadRequestException(resolution.message);
 
     const result = await this.dispatch(actionId, params, channel, transcript);
-    const final = await this.withInsight(actionId, transcript, result);
+    const final = await this.withInsight(actionId, transcript, result, channel);
     /*
      * ‎**הצעד הנגזר גובר על זה שנוסח.**
      *
@@ -813,6 +819,7 @@ export class AgentExecuteService {
     actionId: string,
     transcript: string | undefined,
     result: ExecuteResult,
+    channel: "web" | "whatsapp",
   ): Promise<ExecuteResult> {
     if (!INSIGHT_ACTIONS.has(actionId)) return result;
     if (result.data === undefined || transcript === undefined) return result;
@@ -858,7 +865,13 @@ export class AgentExecuteService {
           "אלו התוצאות שהמערכת שלפה (JSON, ייתכן קטוע):",
           compact,
           "",
-          "כתוב ב-insight עד שני משפטים בעברית טבעית שעונים למתווך כמו בשיחה: מה נמצא, מה בולט או דורש תשומת לב, ומה היית ממליץ לעשות עכשיו. דבר אליו ישירות, בלי פתיחות רובוטיות כמו \"להלן\" או \"נמצאו X רשומות\", ובלי לחזור על הרשימה — היא מוצגת ממילא. אל תמציא נתונים שאינם ב-JSON. אם באמת אין מה להוסיף מעבר לרשימה — החזר insight ריק.",
+          /*
+           * ‎**שאלה מקבלת קודם תשובה.** „כמה קונים יש לי ברמת גן?” נענה
+           * ‏עד כה ב„מה בולט” — והמספר שנשאל עליו נשאר לספירה של המתווך
+           * ‏מתוך הרשימה (בעל המוצר: „לא מבין”). הספירה עצמה עדיין נאכפת
+           * ‏ב-`groundedNumbers`: ספרה שאינה בנתונים פוסלת את המשפט.
+           */
+          "כתוב ב-insight עד שלושה משפטים בעברית טבעית שעונים למתווך כמו בשיחה. אם הוא שאל שאלה (כמה, מי, האם, איזה, מה הכי) — המשפט הראשון הוא התשובה הישירה לשאלה, מתוך התוצאות בלבד; ספירה — רק של מה שמופיע ב-JSON, ואם הוא קטוע אמור \"לפחות\". אחר כך, אם יש: מה בולט או דורש תשומת לב, ומה היית ממליץ לעשות עכשיו. דבר אליו ישירות, בלי פתיחות רובוטיות כמו \"להלן\" או \"נמצאו X רשומות\", ובלי לחזור על הרשימה — היא מוצגת ממילא. אל תמציא נתונים שאינם ב-JSON. אם באמת אין מה להוסיף מעבר לרשימה — החזר insight ריק.",
           "",
           `בנוסף, אם מתבקש צעד המשך טבעי — כתוב ב-suggestion משפט פקודה קצר אחד שהמתווך יכול לומר לך עכשיו (למשל "קבע סיור לרות כהן מחר"), מבוסס רק על מה שבתוצאות ומהסוגים האלה: ${allowedTitles}. אם אין המשך מתבקש — השאר ריק.`,
         ].join("\n"),
@@ -866,6 +879,8 @@ export class AgentExecuteService {
           type: "object",
           properties: { insight: { type: "string" }, suggestion: { type: "string" } },
         },
+        // ‏אותה הכרעה כמו בפירוש — בוואטסאפ ההקשר הוא כל העניין
+        channel === "whatsapp" ? { thinkingLevel: "medium" } : {},
       );
       const insight =
         typeof (raw as { insight?: unknown })?.insight === "string"
@@ -4398,6 +4413,11 @@ function buildTitle(fields: PropertyFields): string | undefined {
  * בתוך המכונה (ביקורת Codex).
  */
 function redactForInsight(value: unknown): unknown {
+  /*
+   * ‏לפי מפתח לא מספיק: כותרת התראה („📵 שיחה שלא נענתה מ-050…”)
+   * ‏נושאת את המספר בתוך `title`, שאינו נראה כמו שדה טלפון.
+   */
+  if (typeof value === "string") return withoutPhoneNumbers(value);
   if (Array.isArray(value)) return value.map(redactForInsight);
   if (typeof value === "object" && value !== null) {
     const out: Record<string, unknown> = {};

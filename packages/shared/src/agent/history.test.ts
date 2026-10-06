@@ -9,6 +9,8 @@ import {
   currentSubject,
   historyRefs,
   keepRecentTurns,
+  resultRefDisplay,
+  resultRefIndex,
   matchHistoryRef,
   mergeStoredTurns,
   parseStoredTurns,
@@ -494,5 +496,29 @@ describe("currentSubject — הרשומה שעליה מדברים עכשיו", (
       history: [with_([buyer, property])],
     });
     expect(prompt).not.toContain("## הרשומה שעליה מדברים עכשיו");
+  });
+});
+
+describe("⟪תוצאה N⟫ — סימון לשורה בתוצאה של הצעד הקודם", () => {
+  it.each([
+    ["⟪תוצאה 1⟫", 1],
+    [" ⟪תוצאה 12⟫ ", 12],
+    ["⟪תוצאה 0⟫", null],
+    ["תוצאה 1", null],
+    ["⟪הליד מהעדכון⟫", null],
+    ["משה כהן", null],
+    [undefined, null],
+  ])("%s ⟵ %s", (phrase, expected) => {
+    expect(resultRefIndex(phrase)).toBe(expected);
+  });
+
+  it("מוצג בעברית, בלי הסוגריים", () => {
+    expect(resultRefDisplay(1)).toBe("הראשון בתוצאה של הצעד הקודם");
+    expect(resultRefDisplay(3)).toBe("מספר 3 בתוצאה של הצעד הקודם");
+  });
+
+  it("הכלל מופיע בפרומפט — רק לצעדי המשך", () => {
+    const prompt = buildInterpretPrompt("x", { nowText: "יום שני", allowedActions: ["complete_task"] });
+    expect(prompt).toContain("⟪תוצאה 1⟫");
   });
 });

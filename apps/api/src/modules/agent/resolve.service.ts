@@ -6,6 +6,8 @@ import {
   agentFieldLabel,
   formatFieldValue,
   matchHistoryRef,
+  resultRefDisplay,
+  resultRefIndex,
   mayUseAction,
   normalizePhone,
   parseHebrewDateTime,
@@ -227,6 +229,17 @@ export class AgentResolveService {
         );
         continue;
       }
+      /*
+       * ‎**פעולה שיוצאת ללקוח אינה נקשרת לתוצאה.** „תשלח לראשון מהם”
+       * ‏היה מגיע לאדם שהמתווך לא ראה ולא בחר — בדיוק מה ש-`alwaysChoose`
+       * ‏קיים כדי למנוע. היא יורדת מהשרשור עם אזהרה גלויה, כמו בחירה.
+       */
+      if (this.outboundToResult(step.actionId, step.params)) {
+        warnings.push(
+          `„${sub.title}” יוצאת ללקוח ודורשת בחירה מפורשת — הריצו אותה בנפרד אחרי שתראו את התוצאה`,
+        );
+        continue;
+      }
       followUps.push(sub);
     }
 
@@ -294,10 +307,15 @@ export class AgentResolveService {
   async resolveForExecution(
     actionId: string,
     params: Record<string, unknown>,
+    /**
+     * ‏שורות התוצאה של הצעד הקודם באותו משפט — מה ש-⟪תוצאה N⟫ נקשר
+     * ‏אליו. רק מזהים ותוויות; הבעלות נאכפת בביצוע עצמו, כמו לכל מזהה.
+     */
+    previous?: readonly AgentHistoryRef[],
   ): Promise<{ ok: true } | { ok: false; message: string }> {
     const spec = ENTITY_LOOKUP[actionId];
     if (spec === undefined) return { ok: true };
-    const primary = await this.resolveOneForExecution(actionId, spec, params);
+    const primary = await this.resolveOneForExecution(actionId, spec, params, previous);
     if (!primary.ok) return primary;
     /*
      * ‎**הרשומה השנייה נפתרת גם כאן, ולא רק במסלול ההצעה.**
@@ -314,16 +332,26 @@ export class AgentResolveService {
      * אישר (ביקורת Codex). כל רשומה שנייה מצהירה בעצמה אם היא רשות.
      */
     if (spec.also !== undefined) {
-      const second = await this.resolveOneForExecution(actionId, spec.also, params);
+      const second = await this.resolveOneForExecution(actionId, spec.also, params, previous);
       if (!second.ok) return second;
     }
     return { ok: true };
+  }
+
+  /** ‏האם פעולה שיוצאת ללקוח (`alwaysChoose`) מכוונת ל-⟪תוצאה N⟫. */
+  private outboundToResult(actionId: string, params: Record<string, unknown>): boolean {
+    const spec = ENTITY_LOOKUP[actionId];
+    if (spec === undefined) return false;
+    return [spec, spec.also].some(
+      (one) => one?.alwaysChoose === true && resultRefIndex(params[one.key]) !== null,
+    );
   }
 
   private async resolveOneForExecution(
     actionId: string,
     spec: LookupSpec,
     params: Record<string, unknown>,
+    previous?: readonly AgentHistoryRef[],
   ): Promise<{ ok: true } | { ok: false; message: string }> {
     if (typeof params[spec.idKey] === "string") return { ok: true };
     const phrase = params[spec.key];
@@ -333,6 +361,30 @@ export class AgentResolveService {
         ok: false,
         message: `„${agentAction(actionId)?.title ?? actionId}” דורשת בחירה מפורשת — פתחו את הפעולה בנפרד ובחרו את הרשומה`,
       };
+    }
+    /*
+     * ‎**⟪תוצאה N⟫ נקשר לשורה שחזרה — לא לחיפוש לפי טקסט.** הסימון
+     * ‏אינו שם של אף אחד, וחיפוש שלו היה נכשל תמיד. שורה מסוג אחר
+     * ‏(נכס כשהצעד מצפה לקונה) אינה נקשרת בכוח: זו טעות של הפירוש,
+     * ‏והיא נאמרת ולא מתבצעת על הרשומה הלא נכונה.
+     */
+    const index = resultRefIndex(phrase);
+    if (index !== null) {
+      const ref = previous?.[index - 1];
+      const id = ref === undefined ? null : entityRefId(spec.kind, ref);
+      if (id === null) {
+        return {
+          ok: false,
+          message:
+            previous === undefined || previous.length === 0
+              ? "לא הייתה תוצאה קודמת לבחור ממנה"
+              : ref === undefined
+                ? `בתוצאה של הצעד הקודם אין שורה ${index}`
+                : `השורה ה-${index} בתוצאה של הצעד הקודם אינה מתאימה לפעולה הזו`,
+        };
+      }
+      params[spec.idKey] = id;
+      return { ok: true };
     }
     const options = await this.candidatesFor(spec.kind, phrase.trim());
     if (options.length === 1) {
@@ -487,6 +539,8 @@ export class AgentResolveService {
     const spec = ENTITY_LOOKUP[actionId];
     if (spec === undefined) return {};
     const phrase = params[spec.key];
+    // ‏⟪תוצאה N⟫ — אין עדיין מה לחפש; נקשר בזמן הביצוע
+    if (resultRefIndex(phrase) !== null) return {};
     /*
      * „תראה לי את הכרטיס המלא” — פעולה שמכוונת לרשומה קיימת, בלי
      * לומר לאיזו. עד כה זה החזיר `{}`: בלי מועמדים ובלי שדה חסר,
@@ -619,6 +673,7 @@ export class AgentResolveService {
       // משפט תקין לגמרי שפשוט לא הזכיר נכס
       return {};
     }
+    if (resultRefIndex(phrase) !== null) return {};
 
     const options = await this.candidatesFor(spec.kind, phrase.trim());
     if (options.length === 1) {
@@ -877,7 +932,10 @@ export class AgentResolveService {
         key: spec.key,
         label: spec.label,
         value,
-        display: formatFieldValue(spec, value),
+        display:
+          resultRefIndex(value) !== null
+            ? resultRefDisplay(resultRefIndex(value)!)
+            : formatFieldValue(spec, value),
         source: resolved.has(spec.key)
           ? "resolved"
           : interpretation.fallback

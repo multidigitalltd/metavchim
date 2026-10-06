@@ -1012,6 +1012,26 @@ export function agentHistorySummary(message: string, data: unknown): string {
 }
 
 /**
+ * ‎**מה שנזכר מתוצאת פעולה — כולל התשובה שנוסחה עליה.**
+ *
+ * ‏„כמה קונים יש לי ברמת גן?” נענה בתובנה („שבעה, ושניים מהם חמים”),
+ * ‏והיא — לא שורת המצב — מה שהמתווך המשיך ממנו: „ולמה רק שניים?”.
+ * ‏בלי התובנה בזיכרון השאלה הבאה נשאלה על תשובה שהמודל לא ראה.
+ * ‏פונקציה אחת לשני הערוצים, כמו `agentHistorySummary` שמתחתיה.
+ */
+export function agentTurnSummary(result: {
+  message: string;
+  insight?: string;
+  data?: unknown;
+}): string {
+  const head =
+    result.insight === undefined || result.insight === ""
+      ? result.message
+      : `${result.message} — ${result.insight}`;
+  return agentHistorySummary(head, result.data);
+}
+
+/**
  * ‎**תור שיחתי לזיכרון** — המשפט והתשובה החופשית שניתנה עליו.
  *
  * אחד לכל הערוצים, כמו `agentHistorySummary`: הוואטסאפ, המסך
