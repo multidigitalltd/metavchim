@@ -1825,11 +1825,18 @@ export class AgentExecuteService {
     const propertyId = requiredProperty(params);
     const bids = await this.bids.list(propertyId);
     const href = `/properties/${propertyId}?tab=bids`;
-    if (bids.threads.length === 0) return { href, message: "אין עדיין הצעות מחיר על הנכס" };
+    if (bids.threads.length === 0) {
+      return {
+        href,
+        message: bids.complete
+          ? "אין עדיין הצעות מחיר על הנכס"
+          : "בצעדים האחרונים במו״מ אין הצעות של קונים פעילים — ייתכנו ותיקות יותר",
+        ...(bids.complete ? {} : { data: { bids: [], hasMore: true } }),
+      };
+    }
     return {
       href,
-      // ‏סריקה שנחתכה — המשפטים נכונים לצעדים האחרונים בלבד, וזה נאמר
-      message: `${bids.complete ? "" : "לפי הצעדים האחרונים במו״מ: "}${bids.sentences.join(" ")}`,
+      message: bidSummary(bids),
       // ‏כל השרשורים — הסך המדויק לשומר הספירה; סריקה שנחתכה — „יש עוד”
       data: {
         bids: bids.threads.map(bidRow),
@@ -1859,7 +1866,7 @@ export class AgentExecuteService {
     const who = result.threads.find((thread) => thread.buyer.id === buyerId)?.buyer.name ?? "הקונה";
     return {
       href: `/properties/${propertyId}?tab=bids`,
-      message: [`נרשמה ${BID_SIDE_LABELS[side]} — ${who}: ${shekelsLabel(amount)}.`, ...result.sentences].join(" "),
+      message: `נרשמה ${BID_SIDE_LABELS[side]} — ${who}: ${shekelsLabel(amount)}. ${bidSummary(result)}`.trim(),
       ...refOf(who, "buyer", buyerId),
     };
   }
@@ -1904,10 +1911,9 @@ export class AgentExecuteService {
     const result = await this.bids.decide(propertyId, thread.open.id, decision as BidDecision);
     return {
       href: `/properties/${propertyId}?tab=bids`,
-      message: [
-        `ההצעה של ${thread.buyer.name} (${shekelsLabel(thread.open.amountAgorot / 100)}) ${BID_STATUS_LABELS[decision as BidDecision]}.`,
-        ...result.sentences,
-      ].join(" "),
+      message: `ההצעה של ${thread.buyer.name} (${shekelsLabel(thread.open.amountAgorot / 100)}) ${
+        BID_STATUS_LABELS[decision as BidDecision]
+      }. ${bidSummary(result)}`.trim(),
       ...(thread.buyer.visible ? refOf(thread.buyer.name, "buyer", thread.buyer.id) : {}),
     };
   }
@@ -4640,6 +4646,15 @@ export class AgentExecuteService {
 }
 
 // --- קריאה בטוחה מ-`unknown` ---
+
+/**
+ * ‏‎**משפטי המו״מ — במקום אחד, לשלוש הפעולות.** סריקה שנחתכה מחזירה משפטים
+ * ‏על הצעדים האחרונים בלבד, ולכן הם נאמרים ככאלה ולא כמצב המלא (ביקורת Codex).
+ */
+function bidSummary(bids: { sentences: readonly string[]; complete: boolean }): string {
+  const text = bids.sentences.join(" ");
+  return bids.complete || text === "" ? text : `לפי הצעדים האחרונים במו״מ: ${text}`;
+}
 
 /** ‏הנכס שהפעולה מדברת עליו — חובה; בלעדיו אין על מה לרשום. */
 function requiredProperty(params: Record<string, unknown>): string {

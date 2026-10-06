@@ -303,6 +303,21 @@ describe("הצעות מחיר על נכס — סריקה שנחתכה", () => {
     expect(result.message).toContain("לפי הצעדים האחרונים");
   });
 
+  it("סריקה שנחתכה בלי שרשור חי — לא „אין הצעות” מוחלט", async () => {
+    const list = async () => bidsDto([], false);
+    const result = await run(() => serviceWith({ list }).execute("show_bids", { propertyId: PROPERTY }));
+    expect(result.message).toContain("ייתכנו ותיקות יותר");
+    expect(result.data).toEqual(expect.objectContaining({ hasMore: true }));
+  });
+
+  it("רישום הצעה בסריקה שנחתכה — הסיכום לפי הצעדים האחרונים", async () => {
+    const create = async () => bidsDto([thread(BUYER, "משה כהן", { id: "BID1", amountAgorot: 230_000_000 })], false);
+    const result = await run(() =>
+      serviceWith({ create }).execute("log_bid", { buyerId: BUYER, propertyId: PROPERTY, bidShekels: 2_300_000 }),
+    );
+    expect(result.message).toContain("לפי הצעדים האחרונים במו״מ:");
+  });
+
   // ‏הצעה פתוחה יחידה בסריקה שנחתכה אינה בהכרח היחידה — שואלים (ביקורת Codex, P1)
   it("הכרעה בלי שם קונה — לא נבחרת אוטומטית", async () => {
     const decide = vi.fn();
