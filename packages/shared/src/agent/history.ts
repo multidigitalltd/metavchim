@@ -90,7 +90,8 @@ export function currentSubject(history: readonly AgentHistoryTurn[]): AgentHisto
     if (turn.unordered === true) return null;
     if (turn.action === "unknown") continue;
     const refs = turn.refs ?? [];
-    return refs.length === 1 ? refs[0]! : null;
+    // ‏רשימה שרק אחת משורותיה ניתנת להפניה היא עדיין רשימה
+    return refs.length === 1 && turn.plural !== true ? refs[0]! : null;
   }
   return null;
 }

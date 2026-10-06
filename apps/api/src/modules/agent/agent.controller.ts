@@ -96,6 +96,11 @@ const TurnSchema = z
       )
       .max(AGENT_RESULT_ROWS)
       .optional(),
+    /*
+     * ‏התור הציג רשימה (`AgentHistoryTurn.plural`). מהדפדפן הוא יכול רק
+     * ‏**לבטל** נושא — לעולם לא ליצור אחד — ולכן אין בו מה לנצל.
+     */
+    plural: z.literal(true).optional(),
   })
   .strict();
 

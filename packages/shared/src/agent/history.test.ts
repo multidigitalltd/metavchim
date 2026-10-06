@@ -14,6 +14,7 @@ import {
   parseStoredTurns,
 } from "./history.js";
 import { buildInterpretPrompt, type AgentHistoryRef, type AgentHistoryTurn } from "./prompt.js";
+import { agentResultRefs, agentResultShowsMany } from "./result-lines.js";
 
 const LEAD_ID = "01J0000000000000000000LEAD";
 const PROP_ID = "01J0000000000000000000PROP";
@@ -392,6 +393,33 @@ describe("currentSubject — הרשומה שעליה מדברים עכשיו", (
       unordered: true,
     };
     expect(currentSubject([with_([buyer]), guessed])).toBeNull();
+  });
+
+  /*
+   * ‏רשימת מיילים של שלושה, שרק לאחד מהם יש כרטיס קונה: הפניה אחת,
+   * ‏אבל המתווך ראה שלושה — „תוסיף לו הערה” אינו על אף אחד מהם (ביקורת Codex, P1).
+   */
+  it("רשימה שרק לשורה אחת בה יש הפניה — אינה נושא", () => {
+    const data = {
+      emails: [
+        { contactName: "דנה", buyerId: LEAD_ID, unread: 1 },
+        { contactName: "ספק", unread: 0 },
+        { contactName: "עורך דין", unread: 2 },
+      ],
+    };
+    const refs = agentResultRefs(data);
+    expect(refs).toHaveLength(1);
+    expect(agentResultShowsMany(data)).toBe(true);
+    const emails: AgentHistoryTurn = { transcript: "המיילים", action: "show_emails", params: {}, refs, plural: true };
+    expect(currentSubject([with_([property]), emails])).toBeNull();
+  });
+
+  it("תוצאה של שורה אחת — אינה רשימה, והיא הנושא", () => {
+    const data = { buyers: [{ id: LEAD_ID, name: "משה כהן" }] };
+    expect(agentResultShowsMany(data)).toBe(false);
+    expect(currentSubject([with_(agentResultRefs(data))])).toEqual(
+      expect.objectContaining({ entityId: LEAD_ID }),
+    );
   });
 
   it("עדכון של הסוכן בלי רשומה — גם הוא מכריע", () => {

@@ -10,6 +10,7 @@ import {
   agentReplySegments,
   externalLinkLabel,
   agentResultRefs,
+  agentResultShowsMany,
   proposalRunsImmediately,
   agentTurnRefs,
   type AgentHistoryRef,
@@ -2729,6 +2730,8 @@ export class WhatsAppAssistantService {
        * שנפתח, הקונה שנוצר — שאינה רשימה ולכן לא הותירה עקבה.
        */
       ...(refs.length === 0 ? {} : { refs }),
+      // ‏רשימה של כמה — גם כשרק לאחת יש הפניה, היא אינה „הוא”
+      ...(agentResultShowsMany(primary.data) ? { plural: true as const } : {}),
       ...(offer === undefined ? {} : { offer }),
     };
     this.remember(chat, turn);

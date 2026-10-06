@@ -6,6 +6,7 @@ import {
   agentReplySegments,
   agentReplyTurn,
   agentResultRefs,
+  agentResultShowsMany,
   agentTurnRefs,
   keepRecentTurns,
   proposalRunsImmediately,
@@ -320,6 +321,7 @@ export default function AgentPage(): React.JSX.Element {
         params: executedParams,
         resultSummary: agentHistorySummary(executed.message, executed.data),
         refs,
+        ...(agentResultShowsMany(executed.data) ? { plural: true as const } : {}),
       });
     },
     [keep],

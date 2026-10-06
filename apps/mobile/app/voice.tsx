@@ -5,6 +5,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import {
   agentHistorySummary,
   agentReplyTurn,
+  agentResultShowsMany,
   agentResultText,
   keepRecentTurns,
   proposalRunsImmediately,
@@ -157,6 +158,7 @@ export default function VoiceScreen() {
         params,
         resultSummary: agentHistorySummary(result.message, result.data),
         ...(refs.length > 0 ? { refs } : {}),
+        ...(agentResultShowsMany(result.data) ? { plural: true as const } : {}),
       });
     },
     [keep, push],

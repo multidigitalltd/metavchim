@@ -1063,3 +1063,11 @@ export function agentResultRefs(data: unknown): AgentHistoryRef[] {
   }
   return refs;
 }
+
+/**
+ * ‏‎**האם התוצאה הציגה יותר משורה אחת** — הסימון `plural` של התור.
+ * ‏נספרות כל השורות, גם אלה שאין להן הפניה: זה מה שהמתווך ראה.
+ */
+export function agentResultShowsMany(data: unknown): boolean {
+  return (agentResultList(data)?.rows.length ?? 0) > 1;
+}
