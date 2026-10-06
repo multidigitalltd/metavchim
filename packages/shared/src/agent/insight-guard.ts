@@ -48,9 +48,10 @@ export function groundedNumbers(text: string, sources: readonly string[]): boole
  * ‏חמים”, „2 קונים חמים”) קטנה ממנו ועוברת; ספירה מומצאת גדולה ממנו
  * ‏ונפסלת עם המשפט כולו.
  */
-const COUNT_WORDS: Record<string, number> = {
+/** ‏יחידות — כל הצורות: זכר, נקבה, נסמך, וצורת „שנים/שתים” של י״א–י״ט. */
+const UNITS: Record<string, number> = {
   אחד: 1, אחת: 1,
-  שני: 2, שתי: 2, שניים: 2, שתיים: 2,
+  שני: 2, שתי: 2, שניים: 2, שתיים: 2, שנים: 2, שתים: 2,
   שלושה: 3, שלוש: 3, שלושת: 3,
   ארבעה: 4, ארבע: 4, ארבעת: 4,
   חמישה: 5, חמש: 5, חמשת: 5,
@@ -58,35 +59,48 @@ const COUNT_WORDS: Record<string, number> = {
   שבעה: 7, שבע: 7, שבעת: 7,
   שמונה: 8, שמונת: 8,
   תשעה: 9, תשע: 9, תשעת: 9,
-  עשרה: 10, עשר: 10, עשרת: 10,
 };
+const TEN: Record<string, number> = { עשר: 10, עשרה: 10, עשרת: 10 };
+const TENS: Record<string, number> = {
+  עשרים: 20, שלושים: 30, ארבעים: 40, חמישים: 50, שישים: 60, שבעים: 70, שמונים: 80, תשעים: 90,
+};
+/** ‏מאות ואלפים — הסך הוא „לפחות” הערך, וזה מה שנבדק. */
+const HUNDREDS: Record<string, number> = { מאה: 100, מאתיים: 200, מאות: 300, אלף: 1000, אלפים: 2000 };
 
 const PLURAL_NOUNS =
   "קונים|קונות|נכסים|דירות|בתים|לידים|פניות|משימות|פגישות|סיורים|הצעות|שיחות|התראות|עסקאות|לקוחות|ממתינים|התאמות|ביקושים|מיילים|הערות|בלעדיות|תוצאות|רשומות";
 const SINGULAR_NOUNS =
   "קונה|נכס|דירה|בית|ליד|פנייה|משימה|פגישה|סיור|הצעה|שיחה|התראה|עסקה|לקוח|ממתין|התאמה|ביקוש|מייל|הערה|תוצאה|רשומה";
 
-const PLURAL_COUNT = `\\d+|${Object.keys(COUNT_WORDS).filter((word) => COUNT_WORDS[word]! > 1).join("|")}`;
-const NOT_LETTER_BEFORE = "(?<![\\p{L}\\d])";
-const NOT_LETTER_AFTER = "(?![\\p{L}\\d])";
+const alt = (words: Record<string, number>): string => Object.keys(words).join("|");
+const BEFORE = "(?<![\\p{L}\\d])";
+const AFTER = "(?![\\p{L}\\d])";
 
 /*
- * ‏שתי צורות בלבד, ובכוונה: „7 קונים” / „שבעה קונים” (המספר לפני
- * ‏הרבים), ו„קונה אחד” / „משימה אחת” (היחיד לפני „אחד”). „דירות 4
- * ‏חדרים” אינה ספירה — ולכן אין „שם עצם ואחריו ספרה”.
+ * ‏הצורות, לפי הסדר שבו הן נבדקות באותו מקום בטקסט: „עשרים ושלושה”,
+ * ‏„שלושה עשר”, „מאה”/„שלוש מאות”, ואז יחידה, עשר וספרות — כולן לפני
+ * ‏שם עצם ברבים. ו„קונה אחד” — היחיד לפני „אחד”. „דירות 4 חדרים” אינה
+ * ‏ספירה, ולכן אין „שם עצם ואחריו ספרה”.
  */
-const COUNT_CLAIMS = [
-  new RegExp(`${NOT_LETTER_BEFORE}(${PLURAL_COUNT})\\s+(?:${PLURAL_NOUNS})${NOT_LETTER_AFTER}`, "gu"),
-  new RegExp(`${NOT_LETTER_BEFORE}(?:${SINGULAR_NOUNS})\\s+(אחד|אחת)${NOT_LETTER_AFTER}`, "gu"),
-];
+const PLURAL_CLAIM = new RegExp(
+  `${BEFORE}(?:(${alt(TENS)})(?:\\s+ו(${alt(UNITS)}))?|(${alt(UNITS)})\\s+(${alt(TEN)})|(?:(?:${alt(UNITS)})\\s+)?(${alt(HUNDREDS)})|(${alt(UNITS)}|${alt(TEN)})|(\\d+))\\s+(?:${PLURAL_NOUNS})${AFTER}`,
+  "gu",
+);
+const SINGULAR_CLAIM = new RegExp(`${BEFORE}(?:${SINGULAR_NOUNS})\\s+(?:אחד|אחת)${AFTER}`, "u");
+
+function claimValue(match: RegExpMatchArray): number {
+  const [, tens, tensUnit, teenUnit, teen, hundreds, single, digits] = match;
+  if (tens !== undefined) return TENS[tens]! + (tensUnit === undefined ? 0 : UNITS[tensUnit]!);
+  if (teenUnit !== undefined && teen !== undefined) return UNITS[teenUnit]! + 10;
+  if (hundreds !== undefined) return HUNDREDS[hundreds]!;
+  if (single !== undefined) return UNITS[single] ?? TEN[single]!;
+  return Number(digits);
+}
 
 export function countsWithin(text: string, total: number): boolean {
-  for (const pattern of COUNT_CLAIMS) {
-    for (const match of text.matchAll(pattern)) {
-      const said = match[1]!;
-      const value = /^\d+$/u.test(said) ? Number(said) : COUNT_WORDS[said];
-      if (value !== undefined && value > total) return false;
-    }
+  for (const match of text.matchAll(PLURAL_CLAIM)) {
+    if (claimValue(match) > total) return false;
   }
-  return true;
+  // ‏„קונה אחד” — יחיד; נפסל רק כשלא חזר אף אחד
+  return total >= 1 || text.search(SINGULAR_CLAIM) === -1;
 }

@@ -1281,18 +1281,16 @@ describe("„למי לחזור” בטקסט הפשוט — מה שהאפליק�
   });
 });
 
-describe("agentResultCount — כמה שורות חזרו ברשימה שלמה", () => {
-  it("רשימה רגילה, „למי לחזור”, רשימה קטומה וצורה אחרת", () => {
-    expect(agentResultCount({ buyers: [{ id: "b1", name: "משה" }, { id: "b2", name: "דנה" }] })).toBe(2);
-    expect(agentResultCount({ callbacks: [{ name: "יוסי" }, { name: "דנה" }] })).toBe(2);
-    // ‏מיילים שנקטמו — הסך אינו מה שהוצג
-    expect(agentResultCount({ emails: [{ contactName: "דנה" }], hasMore: true })).toBeNull();
-    expect(agentResultCount({ emails: [{ contactName: "דנה" }] })).toBe(1);
-    // ‏„שיחות אחרונות” — רשימה שאינה מדווחת קיטום, ולכן שלמותה אינה ידועה
-    expect(agentResultCount({ calls: [{ contactName: "יוסי" }] })).toBeNull();
-    expect(agentResultCount({ buyers: [{ id: "b1", name: "משה" }], hasMore: true })).toBeNull();
-    expect(agentResultCount({ ok: true })).toBeNull();
-    // ‏דוח המשרד מוצג כשורות מדדים — אינן רשומות
+describe("agentResultCount — רק סך שהמפיק הצהיר עליו", () => {
+  it("בלי `total` — אין סך, גם כשהרשימה נראית שלמה", () => {
+    expect(agentResultCount({ buyers: [{ id: "b1", name: "משה" }] })).toBeNull();
+    expect(agentResultCount({ callbacks: [{ name: "יוסי" }] })).toBeNull();
     expect(agentResultCount({ report: { leads: { open: 12 } } })).toBeNull();
+    expect(agentResultCount({ ok: true })).toBeNull();
+  });
+
+  it("עם `total` — הוא הסך, גם כשמוצג רק חלק", () => {
+    expect(agentResultCount({ buyers: [{ id: "b1", name: "משה" }], total: 1 })).toBe(1);
+    expect(agentResultCount({ offers: [], total: 150, hasMore: true })).toBe(150);
   });
 });

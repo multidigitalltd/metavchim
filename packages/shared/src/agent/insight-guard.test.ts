@@ -77,3 +77,15 @@ describe("countsWithin — יחיד, ומה שאינו ספירה", () => {
     expect(countsWithin("שתיהן דירות 4 חדרים", 2)).toBe(true);
   });
 });
+
+describe("countsWithin — מספרים במילים מעל עשר", () => {
+  it("עשרות, י״א–י״ט, ו„עשרים ושלושה” — נבדקים מול הסך", () => {
+    expect(countsWithin("יש לך עשרים קונים", 12)).toBe(false);
+    expect(countsWithin("יש לך שנים עשר קונים", 12)).toBe(true);
+    expect(countsWithin("יש לך שלושה עשר קונים", 12)).toBe(false);
+    expect(countsWithin("עשרים ושלושה לידים חדשים", 23)).toBe(true);
+    expect(countsWithin("עשרים ושלושה לידים חדשים", 22)).toBe(false);
+    expect(countsWithin("מאה הצעות", 50)).toBe(false);
+    expect(countsWithin("שלוש מאות הצעות", 150)).toBe(false);
+  });
+});

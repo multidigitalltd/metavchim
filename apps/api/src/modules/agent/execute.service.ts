@@ -104,9 +104,9 @@ import {
   subscriptionStatusText,
 } from "@metavchim/shared";
 import { AgreementsService, PENDING_AGREEMENTS_SCAN } from "../agreements/agreements.service";
-import { ExclusivityService } from "../exclusivity/exclusivity.service";
+import { EXCLUSIVITY_LIST_SCAN, ExclusivityService } from "../exclusivity/exclusivity.service";
 import { ContactsService } from "../contacts/contacts.service";
-import { EmailInboxService } from "../email-inbox/email-inbox.service";
+import { EMAIL_THREADS_SCAN, EmailInboxService } from "../email-inbox/email-inbox.service";
 import { AgentPrefsService } from "./agent-prefs.service";
 import { MessagingService } from "../messaging/messaging.service";
 import { SupportService } from "../support/support.service";
@@ -120,7 +120,7 @@ import { OfficeSettingsService } from "../settings/office-settings.service";
 import { TeamService } from "../settings/team.service";
 import { PasswordResetService } from "../auth/password-reset.service";
 import { AuthService } from "../auth/auth.service";
-import { CollaborationService } from "../collaboration/collaboration.service";
+import { CollaborationService, DEMANDS_FEED_SCAN } from "../collaboration/collaboration.service";
 import { BillingService } from "../billing/billing.service";
 import { RecruitmentService } from "../recruitment/recruitment.service";
 import { ListingsService } from "../collaboration/listings.service";
@@ -360,8 +360,12 @@ const OFFICE_MIN_SCORE = 50;
  * כיוון אי-הדיוק שנשאר מכוון: שורה מיושנת נספרת ואינה מוצגת, ולכן
  * התשובה עלולה לומר „יש עוד” כשאין — ולעולם לא „זה הכול” כשיש.
  */
-function page<T>(rows: T[], total: number, limit: number): { matches: T[]; hasMore: boolean } {
-  return { matches: rows.slice(0, limit), hasMore: total > limit };
+function page<T>(
+  rows: T[],
+  total: number,
+  limit: number,
+): { matches: T[]; hasMore: boolean; total: number } {
+  return { matches: rows.slice(0, limit), hasMore: total > limit, total };
 }
 
 /**
@@ -964,6 +968,7 @@ export class AgentExecuteService {
           : `נמצאו ${page.items.length} קונים`,
       data: {
         hasMore: page.nextCursor !== null,
+        ...(page.nextCursor === null ? { total: page.items.length } : {}),
         buyers: page.items.map((buyer) => ({
           id: buyer.id,
           name: buyer.contact.name,
@@ -1022,6 +1027,7 @@ export class AgentExecuteService {
       message: items.length === 0 ? "אין נכסים שעונים על התנאים" : `נמצאו ${items.length} נכסים`,
       data: {
         hasMore: page.nextCursor !== null,
+        ...(page.nextCursor === null ? { total: items.length } : {}),
         properties: items.map((p) => ({
           id: p.id,
           title: p.marketingTitle ?? [p.street, p.city].filter(Boolean).join(", "),
@@ -1184,6 +1190,7 @@ export class AgentExecuteService {
           requiresHuman: lead.requiresHuman,
         })),
         hasMore: page.nextCursor !== null,
+        ...(page.nextCursor === null ? { total: page.items.length } : {}),
       },
     };
   }
@@ -1229,6 +1236,7 @@ export class AgentExecuteService {
         })),
         // ‏הסריקה נעצרת במאתיים — מעבר לזה זו אינה הרשימה כולה
         hasMore: rows.length >= PENDING_AGREEMENTS_SCAN,
+        ...(rows.length < PENDING_AGREEMENTS_SCAN ? { total: rows.length } : {}),
       },
     };
   }
@@ -1307,6 +1315,7 @@ export class AgentExecuteService {
         })),
         // ‏עמוד של 50 מתוך 150 אינו „50 הצעות”
         hasMore: expected > rows.length,
+        total: expected,
       },
     };
   }
@@ -1378,7 +1387,9 @@ export class AgentExecuteService {
               : { budgetMaxAgorot: row.budgetMaxAgorot }),
             matchCount: count(row),
           })),
-        hasMore: rows.length > MATCH_LIST_LIMIT,
+        // ‏הפיד עצמו קטום בשרת — מה שחזר אינו הסך כשהגיע לתקרה
+        hasMore: feed.length >= DEMANDS_FEED_SCAN || rows.length > MATCH_LIST_LIMIT,
+        ...(feed.length < DEMANDS_FEED_SCAN && rows.length <= MATCH_LIST_LIMIT ? { total: rows.length } : {}),
       },
     };
   }
@@ -1698,7 +1709,11 @@ export class AgentExecuteService {
         items.length === 0
           ? `אין בלעדיות פעילות ${scope}`
           : `${items.length} בלעדיות ${scope} — לפי דחיפות`,
-      data: { exclusivity: items.map(exclusivityRow) },
+      data: {
+        exclusivity: items.map(exclusivityRow),
+        hasMore: items.length >= EXCLUSIVITY_LIST_SCAN,
+        ...(items.length < EXCLUSIVITY_LIST_SCAN ? { total: items.length } : {}),
+      },
     };
   }
 
@@ -2404,6 +2419,7 @@ export class AgentExecuteService {
         })),
         // ‏הקיטום נאמר — עשר שורות אינן „עשר שיחות” כשיש ארבע-עשרה
         hasMore: threads.length > 10,
+        ...(threads.length < EMAIL_THREADS_SCAN ? { total: threads.length } : {}),
       },
     };
   }

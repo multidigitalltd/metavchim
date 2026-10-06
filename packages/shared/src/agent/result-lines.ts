@@ -1126,25 +1126,17 @@ export function agentResultSlots(data: unknown): (AgentHistoryRef | null)[] {
 }
 
 /**
- * ‏‎**כמה שורות חזרו — כשזו רשימה שלמה.** `null` כשאינה רשימה, או
- * ‏כשהשרת קטם אותה (אז הסך האמיתי גדול ממנה). אחת לכל הצורות, כולל
- * ‏„למי לחזור” — שומר הספירה של התובנה נשען עליה (ביקורת Codex).
+ * ‏‎**הסך המדויק — רק כשהמפיק אמר אותו במפורש** (`total` בנתונים).
+ *
+ * ‏אורך הרשימה אינו הסך: מפיק שחותך בשרת, סורק עד תקרה או מסנן אחריה
+ * ‏— הכול „נראה שלם”, ושומר הספירה היה מאשר ספירה שגויה (סדרת ביקורות
+ * ‏Codex). לכן ההנחה הפוכה: רשימה נספרת רק כשהמפיק יודע שהיא שלמה
+ * ‏ומצהיר על `total`. בלי הצהרה — `null`, והספירה אינה נבדקת.
  */
 export function agentResultCount(data: unknown): number | null {
   if (typeof data !== "object" || data === null) return null;
-  const payload = data as Record<string, unknown>;
-  const callbacks = payload["callbacks"];
-  if (Array.isArray(callbacks)) return callbacks.length;
-  /*
-   * ‏‎**רק רשימה שהשלמות שלה ידועה.** מקטע `counted` מדווח `hasMore`
-   * ‏כשנקטם; מקטע אחר עשוי להיות „האחרונות” בלבד, ושם מה שהוצג אינו
-   * ‏הסך (ביקורת Codex). חיפוש כללי ודוח המשרד — גם הם לא: הראשון
-   * ‏מאחד סוגים, והשני הוא שורות מדדים ולא רשומות.
-   */
-  const sections = SECTION_KEYS.filter((key) => Array.isArray(payload[key]));
-  if (sections.length !== 1 || SECTION_META[sections[0]!]?.counted !== true) return null;
-  const list = agentResultList(data);
-  return list === null || list.hasMore ? null : list.rows.length;
+  const total = (data as Record<string, unknown>)["total"];
+  return typeof total === "number" && Number.isInteger(total) && total >= 0 ? total : null;
 }
 
 /**
