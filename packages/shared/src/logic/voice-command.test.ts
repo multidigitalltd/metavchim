@@ -5,6 +5,7 @@ import {
   routeVoiceCommand,
   stripCommandPrefix,
   taskTitleFromTranscript,
+  propertyPhraseFromTranscript,
 } from "./voice-command.js";
 import { agentAction } from "../agent/actions.js";
 import { RULE_ACTION_MAP } from "../agent/rules-fallback.js";
@@ -402,6 +403,17 @@ describe("שאלות „תראה לי” — ומה שכבר עבד", () => {
     ["לוח ההפניות", "show_referral_board"],
     ["ההמלצות שלי", "show_recommendations"],
     ["הבלעדיות שלי", "show_exclusivity"],
+    ["מה ההצעות על הדירה ברמת גן?", "show_bids"],
+    ["אילו הצעות יש על הדירה ברמת גן", "show_bids"],
+    ["אילו הצעות יש על המחסן בהרצל", "show_bids"],
+    ["מה ההצעה הכי גבוהה על הפנטהאוז בנתניה", "show_bids"],
+    ["איפה עומד המו״מ בהרב שך", "show_bids"],
+    ["הדירה ברמת גן מתומחרת נכון?", "price_check"],
+    ["כמה עולה מטר בנכס בהרב שך לעומת השכונה", "price_check"],
+    ["הפנטהאוז בנתניה יקר מדי?", "price_check"],
+    ["הורדנו מחיר בדירה ברמת גן — למי להציע שוב?", "show_reoffer"],
+    ["מי אמר שהדירה בהרב שך יקרה מדי", "show_reoffer"],
+    ["למי לחזור על הפנטהאוז אחרי ההורדה", "show_reoffer"],
     ["ההסכמים שלי", "show_agreements"],
     ["המסמכים שלי", "show_retained_documents"],
     ["מה יש לי ברשת", "show_network_listings"],
@@ -426,6 +438,8 @@ describe("שאלות „תראה לי” — ומה שכבר עבד", () => {
     ["תזכיר לי להתקשר לדנה", "add_task"],
     ["מי התקשר", "show_calls"],
     ["למי אני צריך לחזור", "show_callbacks"],
+    ["מה מחיר למטר ברמת גן", "market_prices"],
+    ["מצב ההצעות", "show_offers"],
     ["מה יש לי היום", "show_schedule"],
     ["שתף את הנכס", "share_property"],
     ["תוסיף קונה חדש", "add_buyer"],
@@ -554,5 +568,27 @@ describe("„המר ללקוח” ברצפה הדטרמיניסטית", () => {
     ]) {
       expect(routeVoiceCommand(said).action, said).not.toBe("convert_call");
     }
+  });
+});
+
+describe("propertyPhraseFromTranscript — הנכס שהשאלה עליו", () => {
+  it.each([
+    ["מה ההצעות על הדירה ברמת גן?", "הדירה ברמת גן"],
+    ["איפה עומד המו״מ בהרב שך", "הרב שך"],
+    ["הדירה ברמת גן מתומחרת נכון?", "הדירה ברמת גן"],
+    ["כמה עולה מטר בנכס בהרב שך לעומת השכונה", "נכס בהרב שך"],
+    ["הפנטהאוז בנתניה יקר מדי?", "הפנטהאוז בנתניה"],
+    ["הורדנו מחיר בדירה ברמת גן — למי להציע שוב?", "דירה ברמת גן"],
+    ["מי אמר שהדירה בהרב שך יקרה מדי", "הדירה בהרב שך"],
+    ["למי לחזור על הפנטהאוז אחרי ההורדה", "הפנטהאוז"],
+    ["מה ההצעה הכי גבוהה על המחסן בהרצל", "המחסן בהרצל"],
+    ["הסטודיו בפלורנטין מתומחר נכון?", "הסטודיו בפלורנטין"],
+    ["מה ההצעות על יחידת דיור בגבעתיים", "יחידת דיור בגבעתיים"],
+  ])("„%s” ⟵ „%s”", (said, phrase) => {
+    expect(propertyPhraseFromTranscript(said)).toBe(phrase);
+  });
+
+  it("בלי נכס — אין ניחוש", () => {
+    expect(propertyPhraseFromTranscript("מה ההצעה הכי גבוהה")).toBeUndefined();
   });
 });

@@ -76,6 +76,15 @@ import {
   marketRoomBucket,
   marketRoomBucketLabel,
   withoutPhoneNumbers,
+  BID_DECISIONS,
+  BID_SIDE_LABELS,
+  BID_STATUS_LABELS,
+  OPEN_HOUSE_DEFAULT_HOURS,
+  OPEN_HOUSE_DEFAULT_SLOT_MINUTES,
+  OpenHouseCreateSchema,
+  openHouseWhen,
+  shekelsLabel,
+  type BidDecision,
 } from "@metavchim/shared";
 import { isCardAccessible,
   assertContactAccess,
@@ -141,6 +150,9 @@ import { MATCH_LIST_LIMIT, MatchingService } from "../matching/matching.service"
 import { NotificationsService } from "../notifications/notifications.service";
 import { OffersService } from "../offers/offers.service";
 import { PropertiesService } from "../properties/properties.service";
+import { OpenHouseService } from "../properties/open-house.service";
+import { PropertyBidsService, type BidThreadDto } from "../properties/property-bids.service";
+import { PropertyReofferService } from "../properties/property-reoffer.service";
 import { SearchService } from "../search/search.service";
 import { TASK_LIST_SCAN, TasksService } from "../tasks/tasks.service";
 import { MarketService } from "../market/market.service";
@@ -471,6 +483,13 @@ export class AgentExecuteService {
     private readonly practice: MentorPracticeService,
     private readonly forum: ForumService,
     private readonly market: MarketService,
+    /*
+     * ‏מו״מ ושיווק על נכס — אותם שירותים של הלשוניות בכרטיס: הסתרת
+     * ‏שמות קונים, נעילת הנכס והכללים של בית פתוח יושבים שם.
+     */
+    private readonly bids: PropertyBidsService,
+    private readonly openHouse: OpenHouseService,
+    private readonly reoffer: PropertyReofferService,
   ) {}
 
   async execute(
@@ -682,6 +701,18 @@ export class AgentExecuteService {
         return this.showExclusivity(params);
       case "log_marketing_action":
         return this.logMarketingAction(params);
+      case "show_bids":
+        return this.showBids(params);
+      case "log_bid":
+        return this.logBid(params);
+      case "decide_bid":
+        return this.decideBid(params);
+      case "schedule_open_house":
+        return this.scheduleOpenHouse(params);
+      case "price_check":
+        return this.priceCheck(params);
+      case "show_reoffer":
+        return this.showReoffer(params);
       case "show_agreements":
         return this.showAgreements();
       case "show_offers":
@@ -854,7 +885,17 @@ export class AgentExecuteService {
     try {
       if (!(await this.gemini.isConfigured())) return result;
       // קיצוץ קשיח: המודל צריך את ראש הרשימה, לא את כל המאגר
-      const compact = JSON.stringify(redactForInsight(result.data)).slice(0, 6000);
+      /*
+       * ‏‎**הסך והקיטום לפני השורות.** רשימה ארוכה נחתכת בשישה אלף תווים,
+       * ‏ו-`total` שאחרי המערך נחתך איתה — והמודל היה סופר את מה שנשאר
+       * ‏(ביקורת Codex). הם עוברים לראש האובייקט, לפני כל השאר.
+       */
+      const redacted = redactForInsight(result.data);
+      const compact = JSON.stringify(
+        typeof redacted === "object" && redacted !== null && !Array.isArray(redacted)
+          ? { ...countFirst(redacted as Record<string, unknown>), ...redacted }
+          : redacted,
+      ).slice(0, 6000);
       /*
        * ההצעה מוגבלת לפעולות שלמשתמש הזה יש הרשאה אליהן — הצעה
        * לפעולה חסומה הייתה מסתיימת ב"אין לך הרשאה" על משהו שהסוכן
@@ -1773,6 +1814,207 @@ export class AgentExecuteService {
     return {
       href: `/properties/${propertyId}`,
       message: `${MARKETING_ACTION_LABEL[kind as MarketingActionKind]} תועדה — ${next.summary}`,
+    };
+  }
+
+  /**
+   * ‎**המו״מ על הנכס — מה על השולחן ומי הציע.** המשפטים הם אותם משפטים
+   * ‏שבדוח למוכר, והשמות מסוננים בשירות: קונה של סוכן אחר נשאר בלי שם.
+   */
+  private async showBids(params: Record<string, unknown>): Promise<ExecuteResult> {
+    const propertyId = requiredProperty(params);
+    const bids = await this.bids.list(propertyId);
+    const href = `/properties/${propertyId}?tab=bids`;
+    if (bids.threads.length === 0) {
+      return {
+        href,
+        message: bids.complete
+          ? "אין עדיין הצעות מחיר על הנכס"
+          : "בצעדים האחרונים במו״מ אין הצעות של קונים פעילים — ייתכנו ותיקות יותר",
+        ...(bids.complete ? {} : { data: { bids: [], hasMore: true } }),
+      };
+    }
+    return {
+      href,
+      message: bidSummary(bids),
+      // ‏כל השרשורים — הסך המדויק לשומר הספירה; סריקה שנחתכה — „יש עוד”
+      data: {
+        bids: bids.threads.map(bidRow),
+        ...(bids.complete ? { total: bids.threads.length } : { hasMore: true }),
+      },
+    };
+  }
+
+  /**
+   * ‎**צעד במו״מ — מהרכב, לא מהמחשב.** הצעד החדש סוגר את הקודם באותו
+   * ‏שרשור (בשירות, תחת נעילת הנכס), ורק לקונה שהדובר רשאי לראות.
+   */
+  private async logBid(params: Record<string, unknown>): Promise<ExecuteResult> {
+    const buyerId = str(params["buyerId"]);
+    if (buyerId === undefined) throw new BadRequestException("לא זוהה הקונה — אמרו את שמו");
+    const propertyId = requiredProperty(params);
+    const amount = num(params["bidShekels"]);
+    if (amount === undefined || amount <= 0) {
+      throw new BadRequestException("אמרו את סכום ההצעה — למשל „2 מיליון 350”");
+    }
+    const side = str(params["bidSide"]) === "seller" ? "seller" : "buyer";
+    const result = await this.bids.create(propertyId, {
+      buyerId,
+      side,
+      amountAgorot: Math.round(amount * 100),
+    });
+    const who = result.threads.find((thread) => thread.buyer.id === buyerId)?.buyer.name ?? "הקונה";
+    return {
+      href: `/properties/${propertyId}?tab=bids`,
+      message: `נרשמה ${BID_SIDE_LABELS[side]} — ${who}: ${shekelsLabel(amount)}. ${bidSummary(result)}`.trim(),
+      ...refOf(who, "buyer", buyerId),
+    };
+  }
+
+  /**
+   * ‎**ההכרעה חלה על מה שעל השולחן.** בלי שם קונה — ההצעה הפתוחה
+   * ‏היחידה; כשיש כמה, הסוכן אומר זאת ואינו בוחר בשביל המתווך.
+   */
+  private async decideBid(params: Record<string, unknown>): Promise<ExecuteResult> {
+    const propertyId = requiredProperty(params);
+    const decision = str(params["bidDecision"]);
+    if (!BID_DECISIONS.includes(decision as BidDecision)) {
+      throw new BadRequestException("לא ברור מה הוחלט — ההצעה התקבלה, נדחתה או נמשכה?");
+    }
+    const bids = await this.bids.list(propertyId);
+    const open = bids.threads.filter((thread) => thread.open !== null);
+    const buyerId = str(params["buyerId"]);
+    /*
+     * ‏‎**סריקה שנחתכה אינה „ההצעה היחידה”.** הצעה פתוחה ותיקה יותר עלולה
+     * ‏להיות מחוץ לתקרה, ובחירה אוטומטית הייתה מכריעה על השרשור הלא נכון
+     * ‏(ביקורת Codex, P1). שם, בלי שם קונה — שואלים.
+     */
+    const thread =
+      buyerId !== undefined
+        ? open.find((candidate) => candidate.buyer.id === buyerId)
+        : open.length === 1 && bids.complete
+          ? open[0]
+          : undefined;
+    if (thread === undefined || thread.open === null) {
+      throw new BadRequestException(
+        buyerId !== undefined
+          ? bids.complete
+            ? "אין הצעה פתוחה של הקונה הזה על הנכס"
+            : "לא נמצאה הצעה פתוחה של הקונה הזה בין הצעדים האחרונים — הכריעו בלשונית ההצעות בכרטיס"
+          : !bids.complete
+            ? "למו״מ על הנכס היסטוריה ארוכה — אמרו של איזה קונה ההצעה"
+            : open.length === 0
+              ? "אין הצעה פתוחה על הנכס"
+              : `יש ${open.length} הצעות פתוחות על הנכס — אמרו של איזה קונה`,
+      );
+    }
+    const result = await this.bids.decide(propertyId, thread.open.id, decision as BidDecision);
+    return {
+      href: `/properties/${propertyId}?tab=bids`,
+      message: `ההצעה של ${thread.buyer.name} (${shekelsLabel(thread.open.amountAgorot / 100)}) ${
+        BID_STATUS_LABELS[decision as BidDecision]
+      }. ${bidSummary(result)}`.trim(),
+      ...(thread.buyer.visible ? refOf(thread.buyer.name, "buyer", thread.buyer.id) : {}),
+    };
+  }
+
+  /**
+   * ‎**בית פתוח — האירוע וקישור ההרשמה.** האורך והמשבצת נבדקים באותה
+   * ‏סכימה של הטופס; נכס שאינו בשיווק, מועד שעבר ואירוע חופף — בשירות.
+   * ‏הקישור יוצא ב-`link`: הוא נשלח ללקוחות, ולא נזכר.
+   */
+  private async scheduleOpenHouse(params: Record<string, unknown>): Promise<ExecuteResult> {
+    const propertyId = requiredProperty(params);
+    const startsAt = date(params["startsAt"]);
+    if (startsAt === undefined) {
+      throw new BadRequestException("אמרו מתי — למשל „ביום שישי מעשר עד שתיים”");
+    }
+    const hours = num(params["openHouseHours"]) ?? OPEN_HOUSE_DEFAULT_HOURS;
+    const endsAt = new Date(startsAt.getTime() + hours * 3_600_000);
+    const input = OpenHouseCreateSchema.safeParse({
+      startsAt: startsAt.toISOString(),
+      endsAt: endsAt.toISOString(),
+      slotMinutes: Number(str(params["slotMinutes"]) ?? OPEN_HOUSE_DEFAULT_SLOT_MINUTES),
+      slotCapacity: null,
+    });
+    if (!input.success) {
+      throw new BadRequestException(input.error.issues[0]?.message ?? "פרטי הבית הפתוח אינם תקינים");
+    }
+    const result = await this.openHouse.create(propertyId, input.data);
+    return {
+      href: `/properties/${propertyId}?tab=openhouse`,
+      message: `בית פתוח נקבע: ${openHouseWhen(startsAt, endsAt)}, כניסה כל ${input.data.slotMinutes} דקות.${
+        result.registrationUrl === null ? "" : " קישור ההרשמה מצורף — אפשר לשלוח אותו ללקוחות."
+      }`,
+      ...(result.registrationUrl === null ? {} : { link: result.registrationUrl }),
+    };
+  }
+
+  /**
+   * ‎**„מתומחר נכון?” — מול הנכסים של המשרד.** אותו חישוב שבכרטיס:
+   * ‏הממוצע למ״ר בשכונה ובעיר, ועל כמה נכסים הוא נשען — תמיד.
+   */
+  private async priceCheck(params: Record<string, unknown>): Promise<ExecuteResult> {
+    const propertyId = requiredProperty(params);
+    const benchmark = await this.properties.priceBenchmark(propertyId);
+    const href = `/properties/${propertyId}`;
+    if (benchmark.perSqmAgorot === null) {
+      return { href, message: "לנכס חסר מחיר או שטח בכרטיס, ולכן אין מחיר למ״ר להשוות" };
+    }
+    const lines = [`המחיר למ״ר בנכס: ${shekelsLabel(benchmark.perSqmAgorot / 100)}.`];
+    for (const [where, row] of [
+      ["בשכונה", benchmark.neighborhood],
+      ["בעיר", benchmark.city],
+    ] as const) {
+      if (row === null) continue;
+      const gap =
+        row.gapPercent === null
+          ? ""
+          : row.gapPercent === 0
+            ? " — הנכס כמו הממוצע"
+            : ` — הנכס ${row.gapPercent > 0 ? "יקר" : "זול"} ב-${Math.abs(row.gapPercent)}%`;
+      lines.push(
+        `${where} ${row.label}: ממוצע ${shekelsLabel(row.avgPerSqmAgorot / 100)} על ${row.count} נכסים${gap}.`,
+      );
+    }
+    if (lines.length === 1) lines.push("אין מספיק נכסים במשרד באותה שכונה ועיר כדי להשוות.");
+    return { href, message: lines.join(" "), data: { priceBenchmark: benchmark } };
+  }
+
+  /**
+   * ‎**ירד המחיר — למי לחזור.** מי שאמר בסיור „יקר” או דחה התאמה על
+   * ‏המחיר, לפני ההורדה; מי שטרם פנו אליו — ראשון. השירות דורש גם
+   * ‏נכסים וגם קונים, ומסנן לפי בעלות.
+   */
+  private async showReoffer(params: Record<string, unknown>): Promise<ExecuteResult> {
+    const propertyId = requiredProperty(params);
+    const result = await this.reoffer.candidates(propertyId);
+    const href = `/properties/${propertyId}`;
+    if (result.drop === null) {
+      return { href, message: `המחיר של ${result.propertyLabel} לא ירד ב-30 הימים האחרונים — אין למי להציע שוב` };
+    }
+    const drop = `המחיר ירד מ-${shekelsLabel(result.drop.fromAgorot / 100)} ל-${shekelsLabel(result.drop.toAgorot / 100)}`;
+    if (result.candidates.length === 0) {
+      // ‏סריקה שנחתכה אינה „אף אחד” — ייתכן שהוא ותיק יותר (ביקורת Codex)
+      return result.complete
+        ? { href, message: `${drop}, ואף קונה לא אמר לפני ההורדה שהנכס יקר` }
+        : {
+            href,
+            message: `${drop}. בין הסיורים וההתאמות האחרונים לא נמצא קונה שלך שאמר שהנכס יקר — ייתכנו ותיקים יותר`,
+          };
+    }
+    // ‏מקור שהגיע לתקרה — „לפחות”, ובלי סך מדויק לשומר הספירה (ביקורת Codex)
+    const count = result.candidates.length;
+    return {
+      href,
+      message: `${drop}. ${
+        result.complete
+          ? count === 1
+            ? "קונה אחד אמר"
+            : `${count} קונים אמרו`
+          : `לפחות ${count} קונים אמרו`
+      } שהנכס יקר — מי שטרם פנית אליו ראשון.`,
+      data: { reoffer: result.candidates, ...(result.complete ? { total: count } : { hasMore: true }) },
     };
   }
 
@@ -4405,6 +4647,38 @@ export class AgentExecuteService {
 
 // --- קריאה בטוחה מ-`unknown` ---
 
+/**
+ * ‏‎**משפטי המו״מ — במקום אחד, לשלוש הפעולות.** סריקה שנחתכה מחזירה משפטים
+ * ‏על הצעדים האחרונים בלבד, ולכן הם נאמרים ככאלה ולא כמצב המלא (ביקורת Codex).
+ */
+function bidSummary(bids: { sentences: readonly string[]; complete: boolean }): string {
+  const text = bids.sentences.join(" ");
+  return bids.complete || text === "" ? text : `לפי הצעדים האחרונים במו״מ: ${text}`;
+}
+
+/** ‏הנכס שהפעולה מדברת עליו — חובה; בלעדיו אין על מה לרשום. */
+function requiredProperty(params: Record<string, unknown>): string {
+  const propertyId = str(params["propertyId"]);
+  if (propertyId === undefined) throw new BadRequestException("לא זוהה הנכס — אמרו על איזה נכס מדובר");
+  return propertyId;
+}
+
+/**
+ * ‏שרשור הצעות ⟵ שורת תוצאה: הצעד האחרון, מי הציע ומה קרה לו. בלי
+ * ‏הערה — טקסט חופשי שהתובנה הייתה שולחת למודל חיצוני.
+ */
+function bidRow(thread: BidThreadDto): Record<string, unknown> {
+  const last = thread.events[0];
+  return {
+    ...(thread.buyer.visible ? { buyerId: thread.buyer.id } : {}),
+    buyerName: thread.buyer.name,
+    side: last?.side,
+    amountAgorot: last?.amountAgorot,
+    status: last?.status,
+    at: thread.lastAt,
+  };
+}
+
 function str(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() !== "" ? value.trim() : undefined;
 }
@@ -4487,6 +4761,13 @@ function buildTitle(fields: PropertyFields): string | undefined {
  * הייתה מייצאת בשקט בדיוק את מה שהתמלול המקומי נבנה כדי לשמור
  * בתוך המכונה (ביקורת Codex).
  */
+/** ‏`total` ו-`hasMore` של רשימה — מה שהמודל חייב לראות גם כשהשורות נחתכות. */
+function countFirst(record: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(
+    (["total", "hasMore"] as const).filter((key) => key in record).map((key) => [key, record[key]]),
+  );
+}
+
 function redactForInsight(value: unknown): unknown {
   /*
    * ‏לפי מפתח לא מספיק: כותרת התראה („📵 שיחה שלא נענתה מ-050…”)

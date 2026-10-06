@@ -53,7 +53,12 @@ export interface PropertyBidsDto {
   sentences: string[];
   /** ‏קונים שכבר נגעו בנכס (סיור, התאמה) ורשאים להיראות — לבורר בטופס */
   buyerOptions: { id: string; name: string }[];
+  /** ‏הסריקה לא הגיעה לתקרה — כל השרשורים כאן */
+  complete: boolean;
 }
+
+/** ‏תקרת צעדי המו״מ שנסרקים לנכס — מעליה שרשורים ותיקים עלולים לחסור. */
+const BID_EVENTS_SCAN = 500;
 
 function toEvent(row: {
   id: string;
@@ -180,7 +185,7 @@ export class PropertyBidsService {
 
   /** ‏המשפטים למוכר בלבד — לדוח הפעילות. בלי שמות, ולכן בלי שאלת ראייה. */
   async sentencesFor(tx: TenantTx, propertyId: string): Promise<string[]> {
-    const threads = await this.threadsIn(tx, propertyId);
+    const { threads } = await this.threadsIn(tx, propertyId);
     return bidSummarySentences(bidsSummary(threads));
   }
 
@@ -198,21 +203,22 @@ export class PropertyBidsService {
     const rows = await tx.propertyBid.findMany({
       where: { tenantId, propertyId },
       orderBy: { createdAt: "desc" },
-      take: 500,
+      take: BID_EVENTS_SCAN,
     });
+    const complete = rows.length < BID_EVENTS_SCAN;
     const threads = groupBidThreads(rows.map(toEvent));
-    if (threads.length === 0) return threads;
+    if (threads.length === 0) return { threads, complete };
     const alive = await tx.buyer.findMany({
       where: { tenantId, id: { in: threads.map((t) => t.buyerId) }, deletedAt: null },
       select: { id: true },
     });
     const aliveIds = new Set(alive.map((b) => b.id));
-    return threads.filter((t) => aliveIds.has(t.buyerId));
+    return { threads: threads.filter((t) => aliveIds.has(t.buyerId)), complete };
   }
 
   private async listIn(tx: TenantTx, propertyId: string): Promise<PropertyBidsDto> {
     const tenantId = TenantContext.current().tenantId;
-    const threads = await this.threadsIn(tx, propertyId);
+    const { threads, complete } = await this.threadsIn(tx, propertyId);
     const [viewed, matched] = await Promise.all([
       tx.appointment.findMany({ where: { tenantId, propertyId, buyerId: { not: null } }, select: { buyerId: true }, take: 200 }),
       tx.match.findMany({ where: { tenantId, propertyId }, select: { buyerId: true }, take: 200 }),
@@ -250,6 +256,6 @@ export class PropertyBidsService {
       .filter((id) => nameOf.has(id))
       .map((id) => ({ id, name: nameOf.get(id)! }))
       .sort((a, b) => a.name.localeCompare(b.name, "he"));
-    return { threads: dtoThreads, summary, sentences: bidSummarySentences(summary), buyerOptions };
+    return { threads: dtoThreads, summary, sentences: bidSummarySentences(summary), buyerOptions, complete };
   }
 }

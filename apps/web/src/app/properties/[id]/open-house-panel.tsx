@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import {
+  OPEN_HOUSE_DEFAULT_SLOT_MINUTES,
   OPEN_HOUSE_SLOT_MINUTES,
   OPEN_HOUSE_STATUS_LABELS,
   formatJerusalemTime,
@@ -87,7 +88,7 @@ export function OpenHousePanel({
   const [date, setDate] = useState("");
   const [from, setFrom] = useState("17:00");
   const [to, setTo] = useState("19:00");
-  const [slotMinutes, setSlotMinutes] = useState<number>(20);
+  const [slotMinutes, setSlotMinutes] = useState<number>(OPEN_HOUSE_DEFAULT_SLOT_MINUTES);
   const [capacity, setCapacity] = useState("");
   /* ‏מבקר שהגיע בלי להירשם */
   const [walkName, setWalkName] = useState("");

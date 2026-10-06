@@ -83,7 +83,12 @@ export interface ReofferDto {
   drop: { fromAgorot: number; toAgorot: number; changedAt: string } | null;
   propertyLabel: string;
   candidates: ReofferCandidateDto[];
+  /** ‏אף מקור לא הגיע לתקרה — הרשימה היא כל המועמדים */
+  complete: boolean;
 }
+
+/** ‏תקרת כל מקור (סיורים, התאמות שנדחו) — מעליה ייתכנו עוד מועמדים. */
+const REOFFER_SOURCE_SCAN = 200;
 
 function labelOf(p: { marketingTitle: string | null; street: string | null; houseNumber: string | null; city: string | null }): string {
   const address = [[p.street, p.houseNumber].filter(Boolean).join(" "), p.city].filter((part) => part).join(", ");
@@ -111,7 +116,7 @@ export class PropertyReofferService {
       });
       if (!property) throw new NotFoundException("נכס לא נמצא");
       const propertyLabel = labelOf(property);
-      if (!dropIsLive(property)) return { drop: null, propertyLabel, candidates: [] };
+      if (!dropIsLive(property)) return { drop: null, propertyLabel, candidates: [], complete: true };
       const since = property.priceChangedAt;
 
       const [viewings, dismissed] = await Promise.all([
@@ -122,12 +127,12 @@ export class PropertyReofferService {
           },
           select: { buyerId: true, startsAt: true },
           orderBy: { startsAt: "desc" },
-          take: 200,
+          take: REOFFER_SOURCE_SCAN,
         }),
         tx.match.findMany({
           where: { tenantId, propertyId, dismissReason: "price", dismissedAt: { lt: since } },
           select: { buyerId: true },
-          take: 200,
+          take: REOFFER_SOURCE_SCAN,
         }),
       ]);
       const reasons = new Map<string, { reasons: Set<ReofferReason>; lastViewingAt: Date | null }>();
@@ -142,8 +147,9 @@ export class PropertyReofferService {
         entry.reasons.add("dismissed_on_price");
         reasons.set(row.buyerId, entry);
       }
+      const complete = viewings.length < REOFFER_SOURCE_SCAN && dismissed.length < REOFFER_SOURCE_SCAN;
       const ids = [...reasons.keys()];
-      if (ids.length === 0) return { drop: dropOf(property), propertyLabel, candidates: [] };
+      if (ids.length === 0) return { drop: dropOf(property), propertyLabel, candidates: [], complete };
 
       const buyers = await tx.buyer.findMany({
         where: { tenantId, id: { in: ids }, deletedAt: null, ...ownershipFilter("buyers.view_all", "ownerUserId") },
@@ -179,7 +185,7 @@ export class PropertyReofferService {
         if ((a.contactedAt === null) !== (b.contactedAt === null)) return a.contactedAt === null ? -1 : 1;
         return (b.lastViewingAt ?? "").localeCompare(a.lastViewingAt ?? "");
       });
-      return { drop: dropOf(property), propertyLabel, candidates };
+      return { drop: dropOf(property), propertyLabel, candidates, complete };
     });
   }
 

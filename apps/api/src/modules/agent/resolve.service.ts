@@ -171,7 +171,7 @@ export class AgentResolveService {
 
     const { candidates, chosen, warning } = await this.resolveEntity(action.id, params, refs);
     if (warning !== undefined) warnings.push(warning);
-    const second = await this.resolveSecondEntity(action.id, params);
+    const second = await this.resolveSecondEntity(action.id, params, refs);
     if (second.warning !== undefined) warnings.push(second.warning);
 
     for (const key of interpretation.rejected) {
@@ -701,6 +701,7 @@ export class AgentResolveService {
   private async resolveSecondEntity(
     actionId: string,
     params: Record<string, unknown>,
+    refs?: readonly AgentHistoryRef[],
   ): Promise<{ chosen?: AgentField; warning?: string }> {
     const spec = ENTITY_LOOKUP[actionId]?.also;
     if (spec === undefined) return {};
@@ -714,6 +715,19 @@ export class AgentResolveService {
       return {};
     }
     if (resultRefIndex(phrase) !== null) return {};
+    /*
+     * ‎**ההפניה מהשיחה — גם לרשומה השנייה.** „משה הציע 2.3 על הדירה
+     * ‏הזאת” מגיע עם ⟪הרצל 5⟫ של הכרטיס שנפתח, וחיפוש הסימון כטקסט
+     * ‏לעולם לא מוצא דבר. אותה הכרעה כמו ברשומה הראשית.
+     */
+    const ref = matchHistoryRef(refs, phrase);
+    const refId = ref ? entityRefId(spec.kind, ref) : null;
+    if (ref && refId) {
+      params[spec.idKey] = refId;
+      return {
+        chosen: { key: spec.idKey, label: spec.label, value: refId, display: ref.label, source: "resolved" },
+      };
+    }
 
     const options = await this.candidatesFor(spec.kind, phrase.trim());
     if (options.length === 1) {
@@ -1022,6 +1036,8 @@ const DATE_FIELD: Record<string, string | undefined> = {
   create_property: "entryDate",
   // „מהיום” כברירת מחדל; „מהראשון לחודש” נתפס כאן
   start_exclusivity: "startsAt",
+  // ‏שעת הפתיחה; המשך — `openHouseHours`
+  schedule_open_house: "startsAt",
   update_property: "entryDate",
   create_buyer: "entryBy",
   update_buyer: "entryBy",
@@ -1203,6 +1219,43 @@ const ENTITY_LOOKUP: Record<
     idKey: "propertyId",
     label: "על איזה נכס",
     kind: "property",
+  },
+  /*
+   * ‎**מו״מ ושיווק על נכס אחד — הנכס חובה.** הצעה, בית פתוח ובדיקת
+   * ‏מחיר על הנכס הלא נכון הם רישום במקום שאינו שלו.
+   */
+  show_bids: { key: "propertyPhrase", idKey: "propertyId", label: "איזה נכס", kind: "property" },
+  schedule_open_house: {
+    key: "propertyPhrase",
+    idKey: "propertyId",
+    label: "באיזה נכס",
+    kind: "property",
+  },
+  price_check: { key: "propertyPhrase", idKey: "propertyId", label: "איזה נכס", kind: "property" },
+  show_reoffer: { key: "propertyPhrase", idKey: "propertyId", label: "איזה נכס", kind: "property" },
+  /*
+   * ‎**הקונה ראשי, הנכס שני.** שמות קונים הם העמומים (שני „משה”),
+   * ‏ולכן להם הבורר; הנכס נפתר לבד — לרוב מההקשר, „הדירה הזאת” של
+   * ‏הכרטיס הפתוח. נכס שלא נפתר עוצר בביצוע, לא נרשם על נכס אחר.
+   */
+  log_bid: {
+    key: "buyerPhrase",
+    idKey: "buyerId",
+    label: "איזה קונה",
+    kind: "buyer",
+    also: { key: "propertyPhrase", idKey: "propertyId", label: "איזה נכס", kind: "property" },
+  },
+  /*
+   * ‏בהכרעה הקונה רשות כשלא נאמר: „המוכר דחה את ההצעה” מדבר על
+   * ‏ההצעה היחידה שעל השולחן. כשיש כמה — הביצוע אומר זאת ולא בוחר.
+   */
+  decide_bid: {
+    key: "buyerPhrase",
+    idKey: "buyerId",
+    label: "של איזה קונה",
+    kind: "buyer",
+    optionalIfUnsaid: true,
+    also: { key: "propertyPhrase", idKey: "propertyId", label: "איזה נכס", kind: "property" },
   },
   /*
    * ‎**הפגישה הייתה נקבעת ריקה — עם אף אחד ועל שום נכס.**
@@ -1638,6 +1691,12 @@ const RECOMMENDED: Record<string, readonly string[]> = {
   update_property: ["propertyPhrase"],
   show_exclusivity: ["propertyPhrase"],
   log_marketing_action: ["propertyPhrase"],
+  show_bids: ["propertyPhrase"],
+  log_bid: ["buyerPhrase", "propertyPhrase", "bidShekels"],
+  decide_bid: ["propertyPhrase", "bidDecision"],
+  schedule_open_house: ["propertyPhrase", "startsAt", "openHouseHours"],
+  price_check: ["propertyPhrase"],
+  show_reoffer: ["propertyPhrase"],
   complete_task: ["taskPhrase"],
   assign_task: ["taskPhrase", "assigneePhrase"],
   dismiss_match: ["buyerPhrase", "propertyPhrase", "dismissReason"],

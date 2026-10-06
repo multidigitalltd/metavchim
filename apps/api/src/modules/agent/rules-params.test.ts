@@ -43,6 +43,13 @@ describe("מה שהרצפה מחלצת", () => {
     expect(params("show_card", "תראה לי את הכרטיס של שרה לוי")["cardPhrase"]).toBe("שרה לוי");
   });
 
+  // ‏שאלה על נכס אחד בלי מודל — הנכס מהמשפט, אחרת הפעולה נתקעת (ביקורת Codex, P1)
+  it("הצעות, תמחור והצעה חוזרת ⟵ הנכס שנאמר", () => {
+    expect(params("show_bids", "מה ההצעות על הדירה ברמת גן?")["propertyPhrase"]).toBe("הדירה ברמת גן");
+    expect(params("price_check", "הפנטהאוז בנתניה יקר מדי?")["propertyPhrase"]).toBe("הפנטהאוז בנתניה");
+    expect(params("show_reoffer", "למי לחזור על הפנטהאוז אחרי ההורדה")["propertyPhrase"]).toBe("הפנטהאוז");
+  });
+
   it("„ההקלטה של” ⟵ שם הלקוח", () => {
     expect(params("play_recording", "תשמיע לי את ההקלטה של דנה")["cardPhrase"]).toBe("דנה");
   });

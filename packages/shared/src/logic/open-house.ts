@@ -15,6 +15,9 @@ export type OpenHouseSlotMinutes = (typeof OPEN_HOUSE_SLOT_MINUTES)[number];
 /** ‏אורך מרבי לאירוע — יותר מזה הוא כבר לא „בית פתוח” אלא יום עבודה */
 export const OPEN_HOUSE_MAX_HOURS = 6;
 export const OPEN_HOUSE_MAX_CAPACITY = 50;
+/** ‏ברירות המחדל של טופס האירוע — ושל הסוכן, כשלא נאמר אחרת */
+export const OPEN_HOUSE_DEFAULT_SLOT_MINUTES: OpenHouseSlotMinutes = 20;
+export const OPEN_HOUSE_DEFAULT_HOURS = 2;
 export const OPEN_HOUSE_STATUSES = ["planned", "done", "cancelled"] as const;
 export type OpenHouseStatus = (typeof OPEN_HOUSE_STATUSES)[number];
 export const OPEN_HOUSE_STATUS_LABELS: Record<OpenHouseStatus, string> = {

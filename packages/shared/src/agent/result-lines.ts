@@ -1,4 +1,10 @@
 import { COOP_DEAL_STAGE_LABELS, type CoopDealStage } from "../logic/coop-deal.js";
+import {
+  BID_SIDE_LABELS,
+  BID_STATUS_LABELS,
+  type BidSide,
+  type BidStatus,
+} from "../logic/property-bids.js";
 import { AGENT_RESULT_ROWS, agentTurnRefs, numberedForms } from "./history.js";
 import type { AgentResultCount } from "./insight-guard.js";
 import type { AgentHistoryRef, AgentHistoryTurn } from "./prompt.js";
@@ -596,6 +602,51 @@ const SECTION_ROWS: Record<string, (value: unknown) => AgentResultRow[]> = {
             }),
       };
     }),
+  /*
+   * ‎**שרשור הצעות — הצעד האחרון שלו.** קונה של סוכן אחר מגיע בלי מזהה
+   * ‏ובשם המוסתר, ולכן בלי הפניה: אין לאן להמשיך ממנו.
+   */
+  bids: (value) =>
+    rowsOf(value).map((b) => {
+      const side = BID_SIDE_LABELS[String(b["side"]) as BidSide];
+      const amount = price(b["amountAgorot"]);
+      return factsRow({
+        label: text(b["buyerName"]) ?? "קונה",
+        detail: join([
+          side === undefined || amount === null ? null : `${side} ${amount}`,
+          BID_STATUS_LABELS[String(b["status"]) as BidStatus],
+          whenText(b["at"]),
+        ]),
+        kindLabel: "הצעת מחיר",
+        ...(text(b["buyerId"]) !== null
+          ? {
+              href: `/buyers/${String(b["buyerId"])}`,
+              ref: { entityType: "buyer" as const, entityId: String(b["buyerId"]) },
+            }
+          : {}),
+      });
+    }),
+  /*
+   * ‎**למי להציע שוב — ולמה.** הסיבה (אמר „יקר” בסיור, דחה על המחיר)
+   * ‏והאם כבר פנית: מי שטרם פנית אליו הוא השיחה הבאה.
+   */
+  reoffer: (value) =>
+    rowsOf(value).map((c) => factsRow({
+      label: text(c["name"]) ?? "קונה",
+      detail: join([
+        Array.isArray(c["reasonLabels"]) ? c["reasonLabels"].join(", ") : null,
+        whenText(c["lastViewingAt"]) === "" ? null : `ביקר ${whenText(c["lastViewingAt"])}`,
+        whenText(c["contactedAt"]) === "" ? "טרם פנית" : `פנית ${whenText(c["contactedAt"])}`,
+      ]),
+      kindLabel: "קונה להצעה חוזרת",
+      ...(phoneOf(c) !== null ? { phone: phoneOf(c)! } : {}),
+      ...(text(c["buyerId"]) !== null
+        ? {
+            href: `/buyers/${String(c["buyerId"])}`,
+            ref: { entityType: "buyer" as const, entityId: String(c["buyerId"]) },
+          }
+        : {}),
+    })),
   properties: (value) =>
     rowsOf(value).map((p) => factsRow({
       label: text(p["title"]) ?? text(p["marketingTitle"]) ?? text(p["street"]) ?? "נכס",
@@ -632,6 +683,9 @@ const SECTION_META: Record<string, { noun: string; counted: boolean }> = {
   notifications: { noun: "התראות", counted: true },
   emails: { noun: "שיחות מייל", counted: true },
   callbacks: { noun: "ממתינים לחזרה", counted: true },
+  // ‏שלמות — השירותים מחזירים את כל השרשורים / המועמדים
+  bids: { noun: "הצעות מחיר", counted: true },
+  reoffer: { noun: "קונים להצעה חוזרת", counted: true },
 };
 
 /** הסדר קובע מה מוצג ראשון בתוצאת חיפוש כללי. */

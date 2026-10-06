@@ -15,6 +15,8 @@
  * מתורגמת להצעה שהמתווך מאשר.
  */
 
+import { PROPERTY_TYPE_LABELS } from "../agent/vocabulary.js";
+
 export type VoiceAction =
   | "add_property"
   | "add_buyer"
@@ -67,6 +69,9 @@ export type VoiceAction =
   | "show_reach"
   | "show_recommendations"
   | "show_exclusivity"
+  | "show_bids"
+  | "price_check"
+  | "show_reoffer"
   | "show_agreements"
   | "show_retained_documents"
   | "show_network_listings"
@@ -93,6 +98,24 @@ export interface VoiceCommand {
   query?: string;
 }
 
+/*
+ * ‏שמות הנכס — מאוצר סוגי הנכס של הקטלוג ולא רשימה מקבילה, כדי ש„המחסן
+ * ‏בהרצל” ו„הסטודיו בפלורנטין” יזוהו כמו „הדירה” (ביקורת Codex). הארוך
+ * ‏קודם: „דירת גן” לפני „דירה”.
+ */
+const PROPERTY_NOUNS = [
+  ...Object.entries(PROPERTY_TYPE_LABELS)
+    .filter(([type]) => type !== "other" && type !== "commercial")
+    .map(([, label]) => label),
+  "נכס",
+  "בית",
+  "דירת",
+  "וילה",
+  "קוטג'",
+]
+  .sort((a, b) => b.length - a.length)
+  .map((noun) => noun.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"))
+  .join("|");
 const RULES: {
   action: VoiceAction;
   pattern: RegExp;
@@ -275,6 +298,18 @@ const RULES: {
     confidence: "high",
   },
   /*
+   * ‎**„למי לחזור אחרי ההורדה” — לפני „למי לחזור”.** החזרות הן שיחות
+   * ‏שלא נענו; כאן מדובר בקונים שאמרו שהנכס יקר. התבנית דורשת את
+   * ‏ההורדה עצמה (שוב, מחדש, אחרי ההורדה, הורדנו מחיר), ולכן „למי אני
+   * ‏צריך לחזור” נשאר שאלה על שיחות.
+   */
+  {
+    action: "show_reoffer",
+    pattern:
+      /(?:למי|מי)\s+(?:להציע|לחזור|להתקשר)\s.*(?:שוב|מחדש|אחרי\s+ה?הורדה)|הורדנו\s+(?:את\s+)?ה?מחיר|מי\s+אמר\s+ש[א-ת]*.*יקר/u,
+    confidence: "high",
+  },
+  /*
    * „למי לחזור” **לפני** „מי התקשר”, וזה הסדר שמכריע.
    *
    * „מי התקשר ולא חזרתי אליו” נופל גם על התבנית של יומן השיחות, וזו
@@ -381,6 +416,27 @@ const RULES: {
   {
     action: "mentor_status",
     pattern: /ה?יעדים?\s+שלי|ה?מצב\s+ב?ה?יעדים|מול\s+ה?יעד/u,
+    confidence: "high",
+  },
+  /*
+   * ‎**שאלות על נכס אחד — לפני ההצעות, ההתאמות ומחירי השוק.** „אילו
+   * ‏הצעות יש על הדירה” היא מו״מ על הנכס, לא ההצעות שנשלחו ללקוחות;
+   * ‏ו„יקרה מדי לעומת השכונה” הוא הנכס מול המלאי, לא עסקאות בעיר.
+   * ‏„מי אמר שהיא יקרה” נתפס קודם, בכלל של ההצעה החוזרת: שאלה על קונים.
+   */
+  {
+    action: "show_bids",
+    pattern:
+      // ‏כל סוג נכס מהקטלוג — „הצעות על המחסן” הוא מו״מ, לא ההצעות שנשלחו (ביקורת Codex)
+      new RegExp(
+        `ה?הצעות\\s+(?:ה?מחיר\\s+)?(?:יש\\s+)?על\\s+ה?(?:${PROPERTY_NOUNS})|ה?מו["״]?מ\\s+(?:על|ב)|ה?הצעה\\s+(?:ה?הכי\\s+)?ה?גבוהה`,
+        "u",
+      ),
+    confidence: "high",
+  },
+  {
+    action: "price_check",
+    pattern: /מתומחר(?:ת)?\s+נכון|(?:יקר|זול)(?:ה)?\s+מדי|(?:לעומת|מול)\s+ה?שכונה/u,
     confidence: "high",
   },
   {
@@ -713,6 +769,30 @@ export function mentorQuestionFromTranscript(transcript: string): string {
     .replace(/[\s,:\-–—]*(?:את\s+)?ה?מנטור\s*[?؟]?$/u, "")
     .trim();
   return stripped === "" ? transcript.trim() : stripped;
+}
+
+/**
+ * ‏‎**הנכס שהשאלה מדברת עליו** — לרצפה הדטרמיניסטית של שאלות על נכס אחד
+ * ‏(הצעות מחיר, תמחור, הצעה חוזרת). בלי מודל אין מי שימלא `propertyPhrase`,
+ * ‏והפעולה נתקעת על „איזה נכס” (ביקורת Codex, P1).
+ *
+ * ‏מעוגן בשם עצם של נכס („הדירה ברמת גן”, „בפנטהאוז בנתניה”) או במו״מ
+ * ‏(„המו״מ בהרב שך”), ונחתך במילות השאלה שאחריו („מתומחרת נכון”, „יקרה
+ * ‏מדי”, „למי להציע שוב”). לא נמצא — `undefined`, והכרטיס ישאל.
+ */
+const PROPERTY_NOUN = new RegExp(
+  `(?:^|[\\s"'״])[בלשו]?(ה?(?:${PROPERTY_NOUNS})(?![א-ת]).*)$`,
+  "u",
+);
+const NEGOTIATION_ON = /מו["״]?מ\s+(?:על\s+|ב)(.+)$/u;
+const PROPERTY_PHRASE_END =
+  /\s+(?:מתומחר|יקר|זול|לעומת|מול|למי|להציע|לחזור|להתקשר|שוב|מחדש|אחרי)|\s*[?!.,—–]/u;
+
+export function propertyPhraseFromTranscript(transcript: string): string | undefined {
+  const text = transcript.replace(/\s+/gu, " ").trim();
+  const tail = PROPERTY_NOUN.exec(text)?.[1] ?? NEGOTIATION_ON.exec(text)?.[1];
+  const phrase = tail?.split(PROPERTY_PHRASE_END)[0]?.trim();
+  return phrase !== undefined && phrase.length >= 2 ? phrase : undefined;
 }
 
 export function stripCommandPrefix(transcript: string): string {

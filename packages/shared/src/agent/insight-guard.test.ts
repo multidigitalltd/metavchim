@@ -152,7 +152,24 @@ describe("countsWithin — מספרים במילים מעל עשר", () => {
     expect(countsWithin("ושלושה לידים מהם חמים", leads(2))).toBe(false);
   });
 
+  // ‏„שנים-עשר” במקף — מספר אחד, לא „עשר” (ביקורת Codex)
+  it("מספר במקף או במקף עברי — נקרא שלם", () => {
+    expect(countsWithin("יש לך שנים-עשר קונים", buyers(10))).toBe(false);
+    expect(countsWithin("יש לך שלושה־עשר קונים", buyers(13))).toBe(true);
+    expect(countsWithin("יש לך שלושה־עשר קונים", buyers(12))).toBe(false);
+    expect(countsWithin("עשרים-ושלושה קונים", buyers(2))).toBe(false);
+    expect(countsWithin("עשרים-ושלושה קונים", buyers(23))).toBe(true);
+  });
+
   it("מילות מספר צמודות שאינן מספר אחד — אינן מתחברות", () => {
     expect(countsWithin("ביום שני שלושה קונים הגיעו", buyers(3))).toBe(true);
+  });
+});
+
+describe("countsWithin — הצעות מחיר על נכס", () => {
+  it("שורה היא קונה שמתמקח; הצעדים בתוכה אינם ספירה של השורות", () => {
+    const bids = { section: "bids", total: 1 };
+    expect(countsWithin("משה הגיש שלוש הצעות עד עכשיו", bids)).toBe(true);
+    expect(countsWithin("שלושה קונים הציעו על הנכס", bids)).toBe(false);
   });
 });

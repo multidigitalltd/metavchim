@@ -41,6 +41,13 @@ import {
 } from "../logic/exclusivity.js";
 import { SUPPORT_KINDS, SUPPORT_KIND_LABEL } from "../logic/support.js";
 import {
+  BID_DECISIONS,
+  BID_SIDE_LABELS,
+  BID_SIDES,
+  BID_STATUS_LABELS,
+} from "../logic/property-bids.js";
+import { OPEN_HOUSE_MAX_HOURS, OPEN_HOUSE_SLOT_MINUTES } from "../logic/open-house.js";
+import {
   DISMISS_REASONS,
   DISMISS_REASON_LABEL,
 } from "../logic/match-feedback.js";
@@ -139,6 +146,12 @@ export const AGENT_ACTION_IDS = [
   "show_exclusivity",
   "start_exclusivity",
   "log_marketing_action",
+  "show_bids",
+  "log_bid",
+  "decide_bid",
+  "schedule_open_house",
+  "price_check",
+  "show_reoffer",
   "show_agreements",
   "show_retained_documents",
   "show_offers",
@@ -227,6 +240,13 @@ export interface AgentActionDef {
    * שנכתב במיוחד בשבילו נבדק (ביקורת Codex).
    */
   capabilityAlts?: readonly Capability[];
+  /**
+   * ‎**יכולות שנדרשות בנוסף — כולן.** לפעולה שנשענת על שני מודולים:
+   * ‏„למי להציע שוב” קוראת גם נכס וגם קונים, והשירות דורש את שניהם.
+   * ‏בלי השדה הפעולה הייתה מוצעת למי שחסר לו אחד מהם, ונכשלת תמיד
+   * ‏(ביקורת Codex).
+   */
+  alsoRequires?: readonly Capability[];
   /**
    * ‎**פיצ'ר המסלול שהפעולה דורשת** — הזכאות המסחרית, לא ההרשאה.
    *
@@ -2456,6 +2476,177 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
   },
 
   // -------------------------------------------------------------------------
+  // הנכס במו״מ ובשיווק — מה שהכרטיס יודע והסוכן לא ידע
+  // -------------------------------------------------------------------------
+
+  /*
+   * ‎**הצעות מחיר — היומן שסוגר עסקה.** „משה הציע 2.3” נאמר בטלפון,
+   * ‏מהרכב, ולא ליד המחשב. אותו שירות של לשונית ההצעות בכרטיס: שם של
+   * ‏קונה שאינו של הדובר מוסתר שם, והצעה נרשמת רק לקונה שהדובר רואה.
+   */
+  {
+    id: "show_bids",
+    title: "הצעות מחיר על נכס",
+    when: "שאלה על המו״מ בנכס — אילו הצעות יש, מה הגבוהה, מה על השולחן ומה ענה המוכר. לרישום הצעה שהתקבלה יש „רישום הצעת מחיר”.",
+    examples: [
+      "מה ההצעות על הדירה ברמת גן?",
+      "מה ההצעה הכי גבוהה על הפנטהאוז בנתניה",
+      "איפה עומד המו״מ בהרב שך",
+    ],
+    capability: "properties.view",
+    risk: "read",
+    chainable: ["buyer"],
+    fields: [F_PROPERTY_PHRASE],
+  },
+  {
+    id: "log_bid",
+    title: "רישום הצעת מחיר",
+    when: "רישום צעד במו״מ על נכס: קונה הציע סכום, או המוכר ענה לו בהצעת נגד. הצעד החדש סוגר את הקודם באותו שרשור. להכרעה (קיבל, דחה, משך) יש „הכרעה על הצעת מחיר”.",
+    examples: [
+      "משה כהן הציע 2 מיליון 350 על הדירה ברמת גן",
+      "המוכר בהרב שך ענה למשפחת לוי ב-2.5 מיליון",
+      "תרשום שדנה העלתה ל-1.9 מיליון על הדירה בגבעתיים",
+    ],
+    /*
+     * ‏‎**עריכת נכס וגם ראיית קונים** — השירות רושם רק לקונה שהדובר רשאי
+     * ‏לראות, ובלי אף יכולת קונים הפעולה הייתה מוצעת ונכשלת תמיד.
+     */
+    capability: "buyers.view_own",
+    capabilityAlts: ["buyers.view_all"],
+    alsoRequires: ["properties.edit"],
+    risk: "create",
+    fields: [
+      F_BUYER_PHRASE,
+      F_PROPERTY_PHRASE,
+      {
+        key: "bidSide",
+        label: "מי הציע",
+        type: "enum",
+        hint: "הקונה הציע או העלה ⇒ buyer; המוכר ענה, ביקש או הוריד ⇒ seller",
+        values: [...BID_SIDES],
+        valueLabels: BID_SIDE_LABELS,
+      },
+      {
+        key: "bidShekels",
+        label: "סכום ההצעה",
+        type: "integer",
+        hint: "בשקלים, המספר המלא („2 מיליון 350” ⇒ 2350000, „1.9 מיליון” ⇒ 1900000)",
+        min: 1,
+        max: 10_000_000_000,
+      },
+    ],
+  },
+  /*
+   * ‎**הכרעה הפיכה במעשה.** הצעה שהתקבלה או נדחתה בטעות נפתחת מחדש
+   * ‏בצעד הבא של אותו קונה — השרשור ממשיך מההצעה החדשה, וההכרעה
+   * ‏נשארת ביומן כהיסטוריה. זו אינה מחיקה.
+   */
+  {
+    id: "decide_bid",
+    title: "הכרעה על הצעת מחיר",
+    when: "מה הוחלט על ההצעה שעל השולחן: התקבלה, נדחתה, או שהקונה משך אותה. בלי שם קונה — ההצעה הפתוחה היחידה על הנכס.",
+    examples: [
+      "המוכר קיבל את ההצעה של משה כהן על הדירה ברמת גן",
+      "המוכר בהרב שך דחה את ההצעה",
+      "משפחת לוי משכו את ההצעה על הדירה בגבעתיים",
+    ],
+    capability: "properties.edit",
+    risk: "update",
+    fields: [
+      F_BUYER_PHRASE,
+      F_PROPERTY_PHRASE,
+      {
+        key: "bidDecision",
+        label: "ההכרעה",
+        type: "enum",
+        values: [...BID_DECISIONS],
+        valueLabels: Object.fromEntries(BID_DECISIONS.map((d) => [d, BID_STATUS_LABELS[d]])),
+      },
+    ],
+  },
+  /*
+   * ‎**בית פתוח — האירוע, לא סיור.** משבצות הרשמה וקישור לדף הנחיתה
+   * ‏של הנכס, אותו שירות של הלשונית בכרטיס: נכס שאינו בשיווק, מועד
+   * ‏שעבר ואירוע חופף נדחים שם, לא כאן.
+   */
+  {
+    id: "schedule_open_house",
+    title: "בית פתוח",
+    when: "קביעת בית פתוח בנכס — יום, שעת התחלה ומשך, ואפשר גם כל כמה דקות נכנסת קבוצה. נוצר קישור הרשמה. לסיור עם לקוח אחד יש „פגישה / סיור”.",
+    examples: [
+      "תקבע בית פתוח בדירה ברמת גן ביום שישי מעשר עד שתיים",
+      "בית פתוח בהרב שך מחר בחמש לשעתיים",
+      "בית פתוח בפנטהאוז בנתניה ביום שלישי בשש, כל חצי שעה קבוצה",
+    ],
+    capability: "properties.edit",
+    /*
+     * ‏קישור ההרשמה הוא עמוד נחיתה ציבורי — בלי הפיצ'ר במסלול הוא נדחה,
+     * ‏והאירוע היה נקבע עם קישור מת (ביקורת Codex).
+     */
+    feature: "landing_pages",
+    risk: "create",
+    fields: [
+      F_PROPERTY_PHRASE,
+      {
+        key: "openHouseHours",
+        label: "משך בשעות",
+        type: "number",
+        hint: "„מעשר עד שתיים” ⇒ 4, „לשעתיים” ⇒ 2. לא נאמר ⇒ ריק",
+        min: 0.5,
+        max: OPEN_HOUSE_MAX_HOURS,
+        multipleOf: 0.5,
+      },
+      {
+        key: "slotMinutes",
+        label: "משבצת",
+        type: "enum",
+        hint: "כל כמה דקות נכנסת קבוצה. לא נאמר ⇒ ריק",
+        values: OPEN_HOUSE_SLOT_MINUTES.map(String),
+        valueLabels: { "15": "רבע שעה", "20": "20 דקות", "30": "חצי שעה", "45": "45 דקות", "60": "שעה" },
+      },
+    ],
+    resolved: [{ key: "startsAt", label: "מתחיל" }],
+  },
+  /*
+   * ‎**„מתומחר נכון?” — מול המלאי של המשרד.** אותו חישוב שבכרטיס:
+   * ‏ממוצע המחיר למ״ר בשכונה ובעיר, ועל כמה נכסים הוא נשען.
+   */
+  {
+    id: "price_check",
+    title: "מחיר למ״ר מול השכונה",
+    when: "האם נכס מסוים מתומחר נכון — המחיר למ״ר שלו מול הממוצע בשכונה ובעיר, מתוך הנכסים של המשרד. לעסקאות שנחתמו בעיר יש „מחירי עסקאות בשוק”.",
+    examples: [
+      "הדירה ברמת גן מתומחרת נכון?",
+      "כמה עולה מטר בנכס בהרב שך לעומת השכונה",
+      "הפנטהאוז בנתניה יקר מדי?",
+    ],
+    capability: "properties.view",
+    risk: "read",
+    fields: [F_PROPERTY_PHRASE],
+  },
+  /*
+   * ‎**ירד המחיר — למי לחזור.** מי שאמר בסיור „יקר” או דחה התאמה על
+   * ‏המחיר, לפני ההורדה. השער כמו במסך: יכולת קונים, והשירות דורש גם
+   * ‏נכסים — הרשימה נוגעת בשני כרטיסים.
+   */
+  {
+    id: "show_reoffer",
+    title: "ירד המחיר — למי להציע שוב",
+    when: "אחרי הורדת מחיר בנכס: מי מהקונים אמר שהמחיר גבוה (בסיור, או כשדחה את ההתאמה) ושווה לחזור אליו. רק כשהמחיר ירד ב-30 הימים האחרונים.",
+    examples: [
+      "הורדנו מחיר בדירה ברמת גן — למי להציע שוב?",
+      "מי אמר שהדירה בהרב שך יקרה מדי",
+      "למי לחזור על הפנטהאוז אחרי ההורדה",
+    ],
+    capability: "buyers.view_own",
+    capabilityAlts: ["buyers.view_all"],
+    alsoRequires: ["properties.view"],
+    risk: "read",
+    chainable: ["buyer"],
+    fields: [F_PROPERTY_PHRASE],
+  },
+
+  // -------------------------------------------------------------------------
   // מה שהמערכת ידעה והסוכן לא יכול היה לשאול
   // -------------------------------------------------------------------------
 
@@ -3305,6 +3496,7 @@ export function mayUseAction(
 ): boolean {
   /* ‏פעולה על הרשומה של הקורא עצמו — ראו ההסבר על `capability` */
   if (action.capability === null) return true;
+  if (!(action.alsoRequires ?? []).every((needed) => capabilities.has(needed))) return false;
   if (capabilities.has(action.capability)) return true;
   return (action.capabilityAlts ?? []).some((alt) => capabilities.has(alt));
 }
