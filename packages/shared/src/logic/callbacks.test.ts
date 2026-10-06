@@ -26,6 +26,19 @@ function candidate(over: Partial<CallbackCandidate> = {}): CallbackCandidate {
 }
 
 describe("rankCallbacks", () => {
+  it("הליד של האדם נשמר על השורה — גם כשהסיבה החזקה היא שיחה", () => {
+    const rows = rankCallbacks(
+      [
+        candidate({ contactId: "c1", reason: "missed_call", since: hoursAgo(1) }),
+        candidate({ contactId: "c1", reason: "task", since: hoursAgo(5), leadId: "lead-1" }),
+        candidate({ contactId: "c2", reason: "missed_call", since: hoursAgo(2) }),
+      ],
+      NOW,
+    );
+    expect(rows.find((r) => r.contactId === "c1")?.leadId).toBe("lead-1");
+    expect(rows.find((r) => r.contactId === "c2")?.leadId).toBeUndefined();
+  });
+
   it("שיחה שלא נענתה קודמת לליד ממתין, וזה קודם למשימה", () => {
     /*
      * מי שהרים טלפון וקיבל דלת סגורה דוחק יותר ממשימה שנפתחה

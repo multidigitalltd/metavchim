@@ -240,6 +240,17 @@ export class AgentResolveService {
         );
         continue;
       }
+      /*
+       * ‏‎⟪תוצאה N⟫ נקשר לרשימה של **הפעולה הראשית** בלבד — זו שהמתווך
+       * ‏רואה. פעולה ראשית שאינה שאילתה אינה מציגה רשימה, והצעד היה
+       * ‏נכשל רק אחרי שהיא כבר בוצעה.
+       */
+      if (action.risk !== "read" && this.boundToResult(step.actionId, step.params)) {
+        warnings.push(
+          `„${sub.title}” מתייחסת לשורה ברשימה, אבל הפעולה הראשית אינה מציגה רשימה — הריצו אותה בנפרד`,
+        );
+        continue;
+      }
       followUps.push(sub);
     }
 
@@ -346,6 +357,13 @@ export class AgentResolveService {
     return [spec, spec.also].some(
       (one) => one?.alwaysChoose === true && resultRefIndex(params[one.key]) !== null,
     );
+  }
+
+  /** ‏האם אחד הביטויים של הפעולה הוא ⟪תוצאה N⟫. */
+  private boundToResult(actionId: string, params: Record<string, unknown>): boolean {
+    const spec = ENTITY_LOOKUP[actionId];
+    if (spec === undefined) return false;
+    return [spec, spec.also].some((one) => one !== undefined && resultRefIndex(params[one.key]) !== null);
   }
 
   private async resolveOneForExecution(

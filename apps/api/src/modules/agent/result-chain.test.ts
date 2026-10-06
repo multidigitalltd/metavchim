@@ -131,4 +131,18 @@ describe("הכרטיס המשורשר — לפני הביצוע", () => {
     expect(proposal.followUps ?? []).toHaveLength(0);
     expect(proposal.warnings.join(" ")).toContain("יוצאת ללקוח");
   });
+
+  /*
+   * ‏⟪תוצאה N⟫ נקשר לרשימה של הפעולה הראשית. פעולה ראשית שכותבת אינה
+   * ‏מציגה רשימה, והצעד היה נכשל רק אחרי שהיא כבר בוצעה.
+   */
+  it("פעולה ראשית שאינה מציגה רשימה — צעד שנקשר לתוצאה יורד, עם אזהרה", async () => {
+    const proposal = await service().toProposal("תוסיף משימה ותסגור את השנייה", {
+      ...chain({ actionId: "complete_task", params: { taskPhrase: "⟪תוצאה 2⟫" } }),
+      actionId: "create_task",
+      params: { title: "לחזור לדנה" },
+    });
+    expect(proposal.followUps ?? []).toHaveLength(0);
+    expect(proposal.warnings.join(" ")).toContain("אינה מציגה רשימה");
+  });
 });

@@ -1094,12 +1094,29 @@ export function agentResultRefs(data: unknown): AgentHistoryRef[] {
  */
 export function agentResultSlots(data: unknown): (AgentHistoryRef | null)[] {
   const list = agentResultList(data);
-  if (list === null) return [];
+  if (list === null) return callbackSlots(data);
   return list.rows.slice(0, AGENT_RESULT_ROWS).map((row) =>
     row.ref === undefined || row.ref.entityId === ""
       ? null
       : { label: row.memoryLabel ?? row.label, ...row.ref },
   );
+}
+
+/**
+ * ‏‎**„למי לחזור” — רשימה בצורה משלה, באותו סדר שמוצג.** השורה נקשרת
+ * ‏לליד של האדם; שיחה שלא נענתה מאיש קשר בלי ליד היא `null`.
+ */
+function callbackSlots(data: unknown): (AgentHistoryRef | null)[] {
+  if (typeof data !== "object" || data === null) return [];
+  return rowsOf((data as Record<string, unknown>)["callbacks"])
+    .slice(0, AGENT_RESULT_ROWS)
+    .map((row) => {
+      const leadId = text(row["leadId"]);
+      const name = text(row["name"]);
+      return leadId === null || name === null
+        ? null
+        : { label: name.slice(0, AGENT_RESULT_LABEL_MAX), entityType: "lead" as const, entityId: leadId };
+    });
 }
 
 /**

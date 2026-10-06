@@ -1871,6 +1871,7 @@ export class AgentExecuteService {
         reason: "waiting_lead",
         since: lead.createdAt,
         href: `/leads/${lead.id}`,
+        leadId: lead.id,
         ...(lead.summary !== undefined ? { detail: lead.summary } : {}),
       });
     }
@@ -1913,6 +1914,7 @@ export class AgentExecuteService {
          */
         since: task.dueAt ?? task.createdAt,
         href: `/leads/${lead.id}`,
+        leadId: lead.id,
         detail: task.title,
       });
     }

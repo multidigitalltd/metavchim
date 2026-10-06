@@ -46,6 +46,8 @@ export interface CallbackCandidate {
   href: string;
   /** כותרת המשימה, או סיכום השיחה — מה שהופך את השורה למובנת */
   detail?: string;
+  /** ‏הליד שהסיבה שייכת לו — כשיש. שיחה שלא נענתה מאיש קשר בלבד — בלי. */
+  leadId?: string;
 }
 
 export interface CallbackRow {
@@ -76,6 +78,11 @@ export interface CallbackRow {
    * שיחה **אחת**. המספר קיים כדי שהמתווך יידע שיש עוד הקשר בכרטיס.
    */
   alsoCount: number;
+  /**
+   * ‏הליד של האדם, אם יש לו — מכל סיבה שלו, לא רק החזקה. ‏„תוסיף משימה
+   * ‏לראשון” אחרי הרשימה נקשר אליו (`agentResultSlots`).
+   */
+  leadId?: string;
 }
 
 /** שיחה כפי שהיא מגיעה מיומן השיחות — רק מה שדרוש להכרעה. */
@@ -233,6 +240,10 @@ export function rankCallbacks(
         ? { detail: strongest.detail }
         : {}),
       alsoCount: group.length - 1,
+      ...((): { leadId?: string } => {
+        const leadId = strongest.leadId ?? group.find((c) => c.leadId !== undefined)?.leadId;
+        return leadId === undefined ? {} : { leadId };
+      })(),
     });
   }
 

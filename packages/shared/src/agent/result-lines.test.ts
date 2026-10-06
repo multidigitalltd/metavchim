@@ -1242,6 +1242,19 @@ describe("agentResultSlots — המקום שבו השורה הוצגה", () => {
     expect(agentResultRefs(data)).toHaveLength(slots.length - 1);
   });
 
+  it("„למי לחזור” — באותו סדר שמוצג; שורה בלי ליד היא null", () => {
+    const slots = agentResultSlots({
+      callbacks: [
+        { contactId: "c1", name: "יוסי", phone: null, reason: "missed_call" },
+        { contactId: "c2", name: "דנה לוי", phone: null, reason: "waiting_lead", leadId: "01J0000000000000000000LEAD" },
+      ],
+    });
+    expect(slots).toEqual([
+      null,
+      { label: "דנה לוי", entityType: "lead", entityId: "01J0000000000000000000LEAD" },
+    ]);
+  });
+
   it("צורה שאינה רשימה — אין שורות", () => {
     expect(agentResultSlots({ ok: true })).toEqual([]);
   });

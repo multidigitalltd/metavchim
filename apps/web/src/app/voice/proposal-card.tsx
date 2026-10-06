@@ -261,8 +261,11 @@ export function ProposalCard({
        * על הסדר, ו-`matchHistoryRef` בוחרת את הראשון.
        */
       const acted: (AgentHistoryRef | undefined)[] = [primary.ref];
-      // ‏מה ש-⟪תוצאה N⟫ נקשר אליו — התוצאה האחרונה שהייתה בה רשימה, לפי המקום שבו הוצגה
-      let previous = agentResultSlots(primary.data);
+      /*
+       * ‏מה ש-⟪תוצאה N⟫ נקשר אליו — הרשימה של הראשית, לפי המקום שבו הוצגה.
+       * ‏רק היא מוצגת למתווך; רשימה של צעד ביניים הייתה בוחרת שורה שלא ראה.
+       */
+      const previous = agentResultSlots(primary.data);
       let failure: string | null = null;
       for (const step of followUps) {
         try {
@@ -273,8 +276,6 @@ export function ProposalCard({
             params: stepParams,
             ...(previous.length > 0 ? { previous } : {}),
           });
-          const listed = agentResultSlots(done.data);
-          if (listed.length > 0) previous = listed;
           messages.push(done.message);
           link ??= done.link;
           // רק צעד שהצליח — הפניה לרשומה שלא נוצרה היא שיוך לכלום
