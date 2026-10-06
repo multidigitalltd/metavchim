@@ -1218,7 +1218,12 @@ export class AgentExecuteService {
       this.agreements.listPending(tx, new Date()),
     );
     if (rows.length === 0) {
-      return { href: "/offers", message: "כל מי שנשלח אליו הסכם — חתם", data: { agreements: [] } };
+      // ‏ריק ומלא — סך אפס, כדי ש„שבעה ממתינים” בניסוח ייפסל (ביקורת Codex)
+      return {
+        href: "/offers",
+        message: "כל מי שנשלח אליו הסכם — חתם",
+        data: { agreements: [], total: 0 },
+      };
     }
     const byState = new Map<PendingAgreementState, number>();
     for (const row of rows) byState.set(row.state, (byState.get(row.state) ?? 0) + 1);
@@ -1277,7 +1282,7 @@ export class AgentExecuteService {
     const counts = await this.offers.statusCounts();
     const total = [...counts.values()].reduce((sum, n) => sum + n, 0);
     if (total === 0) {
-      return { href: "/offers", message: "לא נשלחו הצעות", data: { offers: [] } };
+      return { href: "/offers", message: "לא נשלחו הצעות", data: { offers: [], total: 0 } };
     }
     const inBucket = (id: OfferBucket): number =>
       OFFER_BUCKETS[id].statuses.reduce(
@@ -1357,7 +1362,8 @@ export class AgentExecuteService {
       return {
         href: "/collaboration",
         message: `אין ביקושים פעילים ברשת${where}`,
-        data: { demands: [] },
+        // ‏אפס הוא הסך רק כשהפיד לא נקטע לפני הסינון
+        data: { demands: [], ...(feed.length < DEMANDS_FEED_SCAN ? { total: 0 } : {}) },
       };
     }
     /*

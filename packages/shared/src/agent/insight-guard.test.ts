@@ -54,6 +54,8 @@ const offers = (total: number) => ({ section: "offers", total });
 describe("countsWithin — ספירה שנאמרה אינה גדולה ממה שחזר", () => {
   it("ספירה במילים שגדולה מהרשימה — נפסלת", () => {
     expect(countsWithin("יש לך שבעה קונים ברמת גן", buyers(2))).toBe(false);
+    // ‏רשימה ריקה ומלאה — סך אפס
+    expect(countsWithin("יש שבע הצעות שממתינות", offers(0))).toBe(false);
   });
 
   it("ספירה בספרות שגדולה מהרשימה — נפסלת", () => {
