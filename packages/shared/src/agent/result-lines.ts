@@ -184,15 +184,20 @@ function factsRow<T extends AgentResultRow>(row: T): T {
 }
 
 /**
- * ‎**כותרת בלי מספרי טלפון — לזיכרון בלבד.**
+ * ‎**טקסט בלי מספרי טלפון — לכל מה שנוסע למודל חיצוני.**
  *
  * ‏כותרות התראה נבנות סביב המספר („📵 שיחה שלא נענתה מ-050…”), כי הוא
- * ‏מה שהמתווך צריך כדי לחזור. אבל הכותרת היא גם התווית שנזכרת ונוסעת
- * ‏לפרומפט של מודל חיצוני — וטלפון לעולם אינו מגיע לשם. רצף של שבע
- * ‏ספרות ומעלה (עם מקפים, רווחים או `+`) הוא מספר, ולא שעה או מחיר.
+ * ‏מה שהמתווך צריך כדי לחזור. אבל הכותרת היא גם התווית שנזכרת, וגם
+ * ‏טקסט שהתובנה שולחת — וטלפון לעולם אינו מגיע לשם.
+ *
+ * ‏מספר הוא מה שמתחיל ב-0 או בקידומת בינלאומית (`+`) ונמשך לשמונה
+ * ‏ספרות ומעלה, עם רווחים או מקפים. תאריך (`2026-08-27`), שעה ומחיר
+ * ‏אינם נפגעים — דפוס רחב יותר היה מוחק אותם מהתובנה ושובר אותה.
  */
-function withoutPhones(value: string): string {
-  return value.replace(/\+?\d(?:[\d\s-]{5,}\d)/gu, "…").replace(/\s+/gu, " ").trim();
+const PHONE_NUMBER = /(?:\+\d{1,3}[\s-]?|\b0)(?:\d[\s-]?){6,11}\d\b/gu;
+
+export function withoutPhoneNumbers(value: string): string {
+  return value.replace(PHONE_NUMBER, "…").replace(/[ \t]{2,}/gu, " ").trim();
 }
 
 function rowsOf(value: unknown): Record<string, unknown>[] {
@@ -333,7 +338,7 @@ const SECTION_ROWS: Record<string, (value: unknown) => AgentResultRow[]> = {
   notifications: (value) =>
     rowsOf(value).map((n) => {
       const title = text(n["title"]);
-      const safeTitle = title === null ? null : withoutPhones(title);
+      const safeTitle = title === null ? null : withoutPhoneNumbers(title);
       return {
         label: title ?? "התראה",
         ...(safeTitle !== null && safeTitle !== title ? { memoryLabel: safeTitle } : {}),
@@ -919,14 +924,21 @@ export interface AgentMemoryRow {
 export function agentResultRows(data: unknown): AgentMemoryRow[] {
   const shared = agentResultList(data);
   if (shared !== null) {
-    return shared.rows.slice(0, AGENT_RESULT_ROWS).map((row) => ({
-      label: row.label,
-      ...(row.memoryLabel === undefined ? {} : { memoryLabel: row.memoryLabel }),
-      ...(row.memoryDetail === undefined || row.memoryDetail === ""
-        ? {}
-        : { memoryDetail: row.memoryDetail }),
-      ...(row.phone === undefined ? {} : { phone: row.phone }),
-    }));
+    return shared.rows.slice(0, AGENT_RESULT_ROWS).map((row) => {
+      /*
+       * ‏‎**המעבר האחרון לפני הזיכרון — גם כאן בלי טלפון.** כרטיס שנפתח
+       * ‏משיחה בלי שם נקרא בשם המספר עצמו, וכך הוא מגיע גם לפרטי שורה
+       * ‏אחרת: „התקשר בחזרה · 050…” במשימה שמקושרת אליו (ביקורת Codex).
+       * ‏כאן, ולא בכל בונה — בונה חדש מחר לא יצטרך לזכור.
+       */
+      const memoryDetail = withoutPhoneNumbers(row.memoryDetail ?? "");
+      return {
+        label: row.label,
+        ...(row.memoryLabel === undefined ? {} : { memoryLabel: row.memoryLabel }),
+        ...(memoryDetail === "" ? {} : { memoryDetail }),
+        ...(row.phone === undefined ? {} : { phone: row.phone }),
+      };
+    });
   }
 
   const rows: AgentMemoryRow[] = [];

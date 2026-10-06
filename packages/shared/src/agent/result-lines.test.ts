@@ -1154,6 +1154,19 @@ describe("הזיכרון לתור הבא — מאפיינים לצד השם", ()
     expect(agentResultText(data)).toContain("050-123-4567");
   });
 
+  /*
+   * ‏כרטיס שנפתח משיחה בלי שם נקרא בשם המספר, והמשימה שמקושרת אליו
+   * ‏נושאת אותו בפרטים — המסך מציג, הזיכרון לא (ביקורת Codex).
+   */
+  it("מספר טלפון בפרטי שורה אינו נזכר — גם כשהגיע כשם של כרטיס", () => {
+    const data = { tasks: [{ id: "t1", title: "לחזור ללקוח", entityLabel: "050-1234567", dueAt: "2026-08-27T07:00:00Z" }] };
+    const summary = agentHistorySummary("משימות", data);
+    expect(summary).toContain("לחזור ללקוח");
+    expect(summary).toContain("27.08.2026");
+    expect(summary).not.toContain("050-1234567");
+    expect(agentResultText(data)).toContain("050-1234567");
+  });
+
   it("רשימה ארוכה מדי לתקרה — המאפיינים יורדים, השמות נשארים שלמים", () => {
     const cities = ["רמת גן", "גבעתיים", "בני ברק", "תל אביב", "חולון", "בת ים", "פתח תקווה", "הרצליה"];
     const buyers = Array.from({ length: 8 }, (_, i) => ({
