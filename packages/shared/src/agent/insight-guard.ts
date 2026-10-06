@@ -75,6 +75,8 @@ const SECTION_NOUNS: Record<string, { plural: string; singular: string }> = {
   // ‏הסך הוא של שיחות המייל; מיילים בתוכן הם מדד בתוך שורה
   emails: { plural: "שיחות|שרשורים|התכתבויות", singular: "שיחה|שרשור|התכתבות" },
   callbacks: { plural: "ממתינים|אנשים|לקוחות", singular: "ממתין|אדם|לקוח" },
+  tasks: { plural: "משימות|תזכורות", singular: "משימה|תזכורת" },
+  appointments: { plural: "פגישות|סיורים|ביקורים", singular: "פגישה|סיור|ביקור" },
 };
 
 /** ‏„שבע תוצאות” — ספירה של השורות בכל רשימה (ביקורת Codex). */

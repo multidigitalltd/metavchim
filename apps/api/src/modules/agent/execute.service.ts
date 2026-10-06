@@ -113,7 +113,7 @@ import { SupportService } from "../support/support.service";
 import { AnalyticsService, type ReportWindowDays } from "../analytics/analytics.service";
 import { AgentResolveService } from "./resolve.service";
 import { BuyersService } from "../buyers/buyers.service";
-import { CalendarService } from "../calendar/calendar.service";
+import { APPOINTMENT_LIST_SCAN, CalendarService } from "../calendar/calendar.service";
 import type { Readable } from "node:stream";
 import { CallsService, type CallDto } from "../calls/calls.service";
 import { OfficeSettingsService } from "../settings/office-settings.service";
@@ -142,7 +142,7 @@ import { NotificationsService } from "../notifications/notifications.service";
 import { OffersService } from "../offers/offers.service";
 import { PropertiesService } from "../properties/properties.service";
 import { SearchService } from "../search/search.service";
-import { TasksService } from "../tasks/tasks.service";
+import { TASK_LIST_SCAN, TasksService } from "../tasks/tasks.service";
 import { MarketService } from "../market/market.service";
 
 /**
@@ -1118,6 +1118,7 @@ export class AgentExecuteService {
           startsAt: a.startsAt,
           status: a.status,
         })),
+        ...(appointments.length < APPOINTMENT_LIST_SCAN ? { total: appointments.length } : {}),
       },
     };
   }
@@ -1150,6 +1151,7 @@ export class AgentExecuteService {
           ...(t.dueAt !== undefined && t.dueAt !== null ? { dueAt: t.dueAt } : {}),
           ...(t.entityLabel !== undefined ? { entityLabel: t.entityLabel } : {}),
         })),
+        ...(tasks.length < TASK_LIST_SCAN ? { total: tasks.length } : {}),
       },
     };
   }

@@ -97,6 +97,12 @@ describe("countsWithin — רק שמות העצם של הרשימה", () => {
     expect(countsWithin("יש תוצאה אחת", { section: "emails", total: 0 })).toBe(false);
   });
 
+  it("משימות ופגישות — נספרות מול הסך שלהן", () => {
+    expect(countsWithin("יש לך שבע משימות פתוחות", { section: "tasks", total: 0 })).toBe(false);
+    expect(countsWithin("שלוש פגישות היום", { section: "appointments", total: 3 })).toBe(true);
+    expect(countsWithin("ארבעה סיורים היום", { section: "appointments", total: 3 })).toBe(false);
+  });
+
   it("רשימה שאין לה שמות עצם מוכרים — אינה נבדקת", () => {
     expect(countsWithin("עשרה דברים", { section: "unknown", total: 0 })).toBe(true);
   });
