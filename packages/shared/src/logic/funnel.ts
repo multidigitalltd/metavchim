@@ -29,7 +29,11 @@
  * כל כללי העיתוי בלי מסד, בלי שעון אמיתי, ובלי לשלוח דבר.
  */
 
-import type { EmailContent, EmailOptOutLinks } from "./email-template.js";
+import {
+  advertisementSubject,
+  type EmailContent,
+  type EmailOptOutLinks,
+} from "./email-template.js";
 import { onboardingSteps, type OnboardingFacts } from "./onboarding.js";
 import {
   jerusalemDayStart,
@@ -911,7 +915,11 @@ export function funnelEmail(
       ? { label, url: tracking === undefined ? `${origin}${path}` : tracking.clickUrl }
       : undefined;
   return {
-    subject,
+    /*
+     * ‏מייל ההמרה הוא דבר פרסומת, ולכן „פרסומת” בתחילת הנושא (החלטת
+     * ‏בעל המוצר). הכותרת שבגוף נשארת בלי הקידומת — החובה היא על הנושא.
+     */
+    subject: advertisementSubject(subject),
     content: {
       heading: fill(copy.emailHeading) || subject,
       paragraphs,

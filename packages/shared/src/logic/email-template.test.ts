@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { escapeHtml, firstNameOf, renderEmailHtml, renderEmailText } from "./email-template.js";
+import {
+  advertisementSubject,
+  escapeHtml,
+  firstNameOf,
+  renderEmailHtml,
+  renderEmailText,
+} from "./email-template.js";
 
 const base = { paragraphs: ["שורה ראשונה", "שורה שנייה"] };
 
@@ -81,6 +87,22 @@ describe("renderEmailHtml", () => {
     const html = renderEmailHtml({ ...base, button: { label: "x", url: "https://a.co" } });
     expect(html).not.toContain("<style");
     expect(html).not.toContain("<link");
+  });
+});
+
+describe("advertisementSubject — „פרסומת” בתחילת הנושא (§30א)", () => {
+  it("מוסיף את המילה בתחילת הנושא", () => {
+    expect(advertisementSubject("  הנכס הראשון מחכה ")).toBe("פרסומת: הנכס הראשון מחכה");
+  });
+
+  it("נושא שכבר נפתח במילה — כמו שהוא, בלי כפילות", () => {
+    for (const subject of ["פרסומת: מבצע", "פרסומת | מבצע", "פרסומת - מבצע", "פרסומת"]) {
+      expect(advertisementSubject(subject)).toBe(subject);
+    }
+  });
+
+  it("מילה שרק מתחילה באותן אותיות אינה הסימון", () => {
+    expect(advertisementSubject("פרסומתי במיוחד")).toBe("פרסומת: פרסומתי במיוחד");
   });
 });
 

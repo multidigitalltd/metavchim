@@ -47,9 +47,10 @@ describe("fillFunnelPlaceholders", () => {
 describe("funnelEmail", () => {
   it("נושא, כותרת, פסקאות וכפתור — כפי שהנמען יראה", () => {
     expect(funnelEmail(COPY, VALUES, ORIGIN, OPT_OUT)).toEqual({
-      subject: "דנה, הנכס הראשון מחכה",
+      // ‏דבר פרסומת — „פרסומת” בתחילת הנושא (חוק התקשורת §30א)
+      subject: "פרסומת: דנה, הנכס הראשון מחכה",
       content: {
-        // ‏בלי כותרת נפרדת — הנושא הוא הכותרת
+        // ‏בלי כותרת נפרדת — הנושא הוא הכותרת, בלי הקידומת
         heading: "דנה, הנכס הראשון מחכה",
         paragraphs: ["שלום דנה,", "בתיווך השרון עוד אין נכסים.", "כדאי להתחיל."],
         button: { label: "להוספת נכס", url: "https://app.example.test/properties/new" },
@@ -60,6 +61,11 @@ describe("funnelEmail", () => {
         },
       },
     });
+  });
+
+  it("נושא שכבר נפתח ב„פרסומת” אינו מקבל אותה פעמיים", () => {
+    const labeled = { ...COPY, emailSubject: "פרסומת | {{שם_פרטי}}, הנכס הראשון" };
+    expect(funnelEmail(labeled, VALUES, ORIGIN, OPT_OUT)?.subject).toBe("פרסומת | דנה, הנכס הראשון");
   });
 
   it("בלי תווית או בלי נתיב — בלי כפתור", () => {

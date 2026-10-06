@@ -96,6 +96,23 @@ export interface EmailUnsubscribe {
   oneClickUrl?: string;
 }
 
+/** ‏המילה שחוק התקשורת §30א(ה) מחייב בתחילת נושא של דבר פרסומת. */
+export const ADVERTISEMENT_LABEL = "פרסומת";
+
+/** ‏המילה כמילה שלמה — „פרסומת:”, „פרסומת |”, ולא „פרסומתי”. */
+const LABELED = new RegExp(String.raw`^${ADVERTISEMENT_LABEL}(?=$|[\s:|\-–—])`, "u");
+
+/**
+ * ‎**„פרסומת” בתחילת הנושא — חוק התקשורת §30א(ה).**
+ *
+ * ‏כלל אחד ולא קידומת שכל בונה מוסיף בעצמו: נוסח שכבר נפתח במילה
+ * ‏(מי שכתב אותה ידנית במסך הנוסחים) אינו מקבל אותה פעמיים.
+ */
+export function advertisementSubject(subject: string): string {
+  const trimmed = subject.trim();
+  return LABELED.test(trimmed) ? trimmed : `${ADVERTISEMENT_LABEL}: ${trimmed}`;
+}
+
 /** ‏שתי הכתובות של הסרה — מה שהקורא בונה מהטוקן, והבונה מוסיף לו את הנוסח. */
 export type EmailOptOutLinks = Pick<EmailUnsubscribe, "url" | "oneClickUrl">;
 

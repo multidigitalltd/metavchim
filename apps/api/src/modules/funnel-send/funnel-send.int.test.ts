@@ -197,7 +197,8 @@ describe("מסלול ההמרה — השליחה", () => {
       Record<string, unknown>,
     ];
     expect(to).toBe("dana.funnel@example.test");
-    expect(subject.length).toBeGreaterThan(0);
+    // ‏דבר פרסומת — „פרסומת” בתחילת הנושא (חוק התקשורת §30א)
+    expect(subject).toMatch(/^פרסומת: \S/u);
     const [row] = await messages();
     expect(row).toMatchObject({ status: "sent", channel: "email" });
     expect(row!.token).toMatch(/^[A-Za-z0-9_-]{43}$/u);

@@ -90,7 +90,7 @@ describe("שליחת בדיקה של שלב", () => {
       Record<string, unknown>,
     ];
     expect(to).toBe("owner@example.test");
-    expect(subject).toBe("[בדיקה] דנה, הנכס הראשון");
+    expect(subject).toBe("[בדיקה] פרסומת: דנה, הנכס הראשון");
     expect(content.paragraphs).toEqual(["שלום דנה מתיווך השרון"]);
     expect(content.button.url).toBe("https://app.example.test/properties/new");
     expect(content.footnote).toContain("נשלחה רק אליך");
