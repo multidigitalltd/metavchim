@@ -103,7 +103,7 @@ import {
   renewalLinkText,
   subscriptionStatusText,
 } from "@metavchim/shared";
-import { AgreementsService } from "../agreements/agreements.service";
+import { AgreementsService, PENDING_AGREEMENTS_SCAN } from "../agreements/agreements.service";
 import { ExclusivityService } from "../exclusivity/exclusivity.service";
 import { ContactsService } from "../contacts/contacts.service";
 import { EmailInboxService } from "../email-inbox/email-inbox.service";
@@ -1227,6 +1227,8 @@ export class AgentExecuteService {
           ...(row.daysWaiting === null ? {} : { daysWaiting: row.daysWaiting }),
           ...(row.url === null ? {} : { url: row.url }),
         })),
+        // ‏הסריקה נעצרת במאתיים — מעבר לזה זו אינה הרשימה כולה
+        hasMore: rows.length >= PENDING_AGREEMENTS_SCAN,
       },
     };
   }
@@ -1282,6 +1284,11 @@ export class AgentExecuteService {
       limit: MATCH_LIST_LIMIT,
       ...(spec === undefined ? {} : { status: spec.statuses }),
     });
+    // ‏כמה יש באמת במצב שנשאל — העמוד קטום ל-MATCH_LIST_LIMIT
+    const expected =
+      spec === undefined
+        ? total
+        : spec.statuses.reduce((sum: number, status: string) => sum + (counts.get(status) ?? 0), 0);
 
     return {
       href: "/offers",
@@ -1298,6 +1305,8 @@ export class AgentExecuteService {
           openCount: row.openCount,
           ...(row.sentAt === undefined ? {} : { sentAt: row.sentAt }),
         })),
+        // ‏עמוד של 50 מתוך 150 אינו „50 הצעות”
+        hasMore: expected > rows.length,
       },
     };
   }
