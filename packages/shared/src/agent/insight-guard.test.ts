@@ -89,6 +89,12 @@ describe("countsWithin — רק שמות העצם של הרשימה", () => {
     expect(countsWithin("יש שלושה ביקושים חדשים ברשת", demands)).toBe(false);
   });
 
+  it("„תוצאות”, „רשומות” — ספירה של השורות בכל רשימה", () => {
+    expect(countsWithin("יש שבע תוצאות", buyers(2))).toBe(false);
+    expect(countsWithin("מצאתי שתי רשומות", buyers(2))).toBe(true);
+    expect(countsWithin("יש תוצאה אחת", { section: "emails", total: 0 })).toBe(false);
+  });
+
   it("רשימה שאין לה שמות עצם מוכרים — אינה נבדקת", () => {
     expect(countsWithin("עשרה דברים", { section: "unknown", total: 0 })).toBe(true);
   });

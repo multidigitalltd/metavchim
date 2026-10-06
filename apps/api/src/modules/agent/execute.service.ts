@@ -359,13 +359,20 @@ const OFFICE_MIN_SCORE = 50;
  *
  * כיוון אי-הדיוק שנשאר מכוון: שורה מיושנת נספרת ואינה מוצגת, ולכן
  * התשובה עלולה לומר „יש עוד” כשאין — ולעולם לא „זה הכול” כשיש.
+ *
+ * ‏ומאותה סיבה הספירה אינה סך מדויק: היא מוצהרת כ-`total` רק כשהיא
+ * ‏שווה למה שחזר — אין שורות מיושנות ואין קיטום (ביקורת Codex).
  */
 function page<T>(
   rows: T[],
   total: number,
   limit: number,
-): { matches: T[]; hasMore: boolean; total: number } {
-  return { matches: rows.slice(0, limit), hasMore: total > limit, total };
+): { matches: T[]; hasMore: boolean; total?: number } {
+  return {
+    matches: rows.slice(0, limit),
+    hasMore: total > limit,
+    ...(rows.length === total ? { total } : {}),
+  };
 }
 
 /**

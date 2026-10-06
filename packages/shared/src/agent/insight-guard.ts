@@ -77,6 +77,9 @@ const SECTION_NOUNS: Record<string, { plural: string; singular: string }> = {
   callbacks: { plural: "ממתינים|אנשים|לקוחות", singular: "ממתין|אדם|לקוח" },
 };
 
+/** ‏„שבע תוצאות” — ספירה של השורות בכל רשימה (ביקורת Codex). */
+const ROW_NOUNS = { plural: "תוצאות|רשומות|שורות|פריטים", singular: "תוצאה|רשומה|שורה|פריט" };
+
 /** ‏יחידות — כל הצורות: זכר, נקבה, נסמך, וצורת „שנים/שתים” של י״א–י״ט. */
 const UNITS: Record<string, number> = {
   אחד: 1, אחת: 1,
@@ -133,9 +136,11 @@ function claimsOf(section: string): { plural: RegExp; singular: RegExp } | undef
   if (nouns === undefined) return undefined;
   let built = claims.get(section);
   if (built === undefined) {
+    const plural = `${nouns.plural}|${ROW_NOUNS.plural}`;
+    const singular = `${nouns.singular}|${ROW_NOUNS.singular}`;
     built = {
-      plural: new RegExp(`${BEFORE}ו?(?:(${NUMBER})|(\\d[\\d,]*))\\s+(?:${nouns.plural})${AFTER}`, "gu"),
-      singular: new RegExp(`${BEFORE}(?:${nouns.singular})\\s+(?:אחד|אחת)${AFTER}`, "u"),
+      plural: new RegExp(`${BEFORE}ו?(?:(${NUMBER})|(\\d[\\d,]*))\\s+(?:${plural})${AFTER}`, "gu"),
+      singular: new RegExp(`${BEFORE}(?:${singular})\\s+(?:אחד|אחת)${AFTER}`, "u"),
     };
     claims.set(section, built);
   }
