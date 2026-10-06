@@ -60,11 +60,12 @@ function thread(buyerId: string, name: string, open: { id: string; amountAgorot:
   };
 }
 
-const bidsDto = (threads: ReturnType<typeof thread>[]) => ({
+const bidsDto = (threads: ReturnType<typeof thread>[], complete = true) => ({
   threads,
   summary: {},
   sentences: ["קונה אחד במו״מ על הנכס."],
   buyerOptions: [],
+  complete,
 });
 
 describe("רישום הצעת מחיר", () => {
@@ -214,6 +215,18 @@ describe("ירד המחיר — למי להציע שוב", () => {
     expect(text).toContain("טרם פנית");
   });
 
+  it("סריקה שנחתכה ואין מועמד — לא „אף קונה” מוחלט", async () => {
+    const candidates = async () => ({
+      drop: { fromAgorot: 250_000_000, toAgorot: 230_000_000, changedAt: "2026-10-01T00:00:00.000Z" },
+      propertyLabel: "הרצל 5",
+      candidates: [],
+      complete: false,
+    });
+    const result = await run(() => serviceWith({ candidates }).execute("show_reoffer", { propertyId: PROPERTY }));
+    expect(result.message).toContain("ייתכנו ותיקים יותר");
+    expect(result.message).not.toContain("ואף קונה לא אמר");
+  });
+
   // ‏מקור שהגיע לתקרה — „לפחות”, ובלי סך מדויק (ביקורת Codex)
   it("סריקה שנחתכה — „לפחות”, ויש עוד", async () => {
     const candidates = async () => ({
@@ -277,5 +290,15 @@ describe("הרשומה השנייה — גם מההפניה בשיחה", () => {
     expect(proposal.candidates).toBeUndefined();
     expect(proposal.fields.find((field) => field.key === "propertyId")?.value).toBe(PROPERTY);
     expect(proposal.fields.find((field) => field.key === "buyerId")?.value).toBe(BUYER);
+  });
+});
+
+describe("הצעות מחיר על נכס — סריקה שנחתכה", () => {
+  // ‏מעל תקרת הצעדים ייתכנו שרשורים ותיקים — אין סך מדויק (ביקורת Codex)
+  it("בלי סך מדויק, ויש עוד", async () => {
+    const list = async () => bidsDto([thread(BUYER, "משה כהן", { id: "BID1", amountAgorot: 230_000_000 })], false);
+    const result = await run(() => serviceWith({ list }).execute("show_bids", { propertyId: PROPERTY }));
+    expect(result.data).toEqual(expect.objectContaining({ hasMore: true }));
+    expect(result.data).not.toHaveProperty("total");
   });
 });

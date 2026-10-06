@@ -1829,8 +1829,11 @@ export class AgentExecuteService {
     return {
       href,
       message: bids.sentences.join(" "),
-      // ‏כל השרשורים — הסך המדויק לשומר הספירה של התובנה
-      data: { bids: bids.threads.map(bidRow), total: bids.threads.length },
+      // ‏כל השרשורים — הסך המדויק לשומר הספירה; סריקה שנחתכה — „יש עוד”
+      data: {
+        bids: bids.threads.map(bidRow),
+        ...(bids.complete ? { total: bids.threads.length } : { hasMore: true }),
+      },
     };
   }
 
@@ -1975,7 +1978,13 @@ export class AgentExecuteService {
     }
     const drop = `המחיר ירד מ-${shekelsLabel(result.drop.fromAgorot / 100)} ל-${shekelsLabel(result.drop.toAgorot / 100)}`;
     if (result.candidates.length === 0) {
-      return { href, message: `${drop}, ואף קונה לא אמר לפני ההורדה שהנכס יקר` };
+      // ‏סריקה שנחתכה אינה „אף אחד” — ייתכן שהוא ותיק יותר (ביקורת Codex)
+      return result.complete
+        ? { href, message: `${drop}, ואף קונה לא אמר לפני ההורדה שהנכס יקר` }
+        : {
+            href,
+            message: `${drop}. בין הסיורים וההתאמות האחרונים לא נמצא קונה שלך שאמר שהנכס יקר — ייתכנו ותיקים יותר`,
+          };
     }
     // ‏מקור שהגיע לתקרה — „לפחות”, ובלי סך מדויק לשומר הספירה (ביקורת Codex)
     const count = result.candidates.length;

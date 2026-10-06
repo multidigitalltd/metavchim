@@ -69,6 +69,9 @@ describe("קטלוג הפעולות — שלמות מבנית", () => {
     expect(mayUseAction(reoffer, new Set(["buyers.view_own"]))).toBe(false);
     expect(mayUseAction(reoffer, new Set(["buyers.view_own", "properties.view"]))).toBe(true);
     expect(mayUseAction(reoffer, new Set(["buyers.view_all", "properties.view"]))).toBe(true);
+    const logBid = AGENT_ACTIONS.find((a) => a.id === "log_bid")!;
+    expect(mayUseAction(logBid, new Set(["properties.edit"]))).toBe(false);
+    expect(mayUseAction(logBid, new Set(["properties.edit", "buyers.view_own"]))).toBe(true);
     for (const action of AGENT_ACTIONS) {
       for (const needed of action.alsoRequires ?? []) {
         expect(CAPABILITIES, action.id).toContain(needed);

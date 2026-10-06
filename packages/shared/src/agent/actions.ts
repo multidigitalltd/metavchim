@@ -2507,7 +2507,13 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
       "המוכר בהרב שך ענה למשפחת לוי ב-2.5 מיליון",
       "תרשום שדנה העלתה ל-1.9 מיליון על הדירה בגבעתיים",
     ],
-    capability: "properties.edit",
+    /*
+     * ‏‎**עריכת נכס וגם ראיית קונים** — השירות רושם רק לקונה שהדובר רשאי
+     * ‏לראות, ובלי אף יכולת קונים הפעולה הייתה מוצעת ונכשלת תמיד.
+     */
+    capability: "buyers.view_own",
+    capabilityAlts: ["buyers.view_all"],
+    alsoRequires: ["properties.edit"],
     risk: "create",
     fields: [
       F_BUYER_PHRASE,
