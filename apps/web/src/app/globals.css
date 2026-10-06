@@ -3222,7 +3222,8 @@ button.mv-list-row:hover {
   font-weight: 800;
   gap: 9px;
 }
-.mv-forum-tabs .mv-entity-tabs {
+/* ‏על המעטפת, שנושאת את הריווח — על הסרגל הוא היה מצטבר מעליו */
+.mv-forum-tabs .mv-entity-tabs-wrap {
   margin-bottom: 22px;
 }
 
@@ -7421,7 +7422,12 @@ a.mv-bar-row:focus-visible {
   flex: 1 0 100%;
   margin-bottom: 0;
 }
-.mv-tabrow > .mv-entity-tabs {
+/*
+ * ‏הפריט בשורה הוא המעטפת ולא הסרגל שבתוכה (ביקורת Codex): בלי
+ * ‏`min-width: 0` עליה היא נשארת ברוחב הטבעי של כל הלשוניות, הסרגל
+ * ‏אינו נעשה המיכל שנגלל, והעמוד כולו נמתח לרוחב.
+ */
+.mv-tabrow > .mv-entity-tabs-wrap {
   margin-bottom: 0;
   min-width: 0;
 }
