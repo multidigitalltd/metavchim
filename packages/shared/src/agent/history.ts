@@ -237,6 +237,8 @@ export function assistantMemoryTurn(
   const refs: AgentHistoryRef[] = [];
   const seenRefs = new Set<string>();
   const seenTexts = new Set<string>();
+  // ‏עדכונים בלי רשומה — גם הם חלק ממה שהמתווך ראה (`plural`)
+  let unreferenced = 0;
 
   for (const item of items) {
     const text = NOTIFY_MEMORY[item.type];
@@ -249,11 +251,12 @@ export function assistantMemoryTurn(
     if (
       item.entityId === null ||
       item.entityType === null ||
-      !REF_ENTITY_TYPES.has(item.entityType) ||
-      seenRefs.has(item.entityId)
+      !REF_ENTITY_TYPES.has(item.entityType)
     ) {
+      unreferenced += 1;
       continue;
     }
+    if (seenRefs.has(item.entityId)) continue;
     seenRefs.add(item.entityId);
     /*
      * מספור רק כשיש יותר מאחד. „הליד מהעדכון 1” כשיש אחד בלבד הוא
@@ -274,6 +277,11 @@ export function assistantMemoryTurn(
     params: {},
     origin: "assistant",
     ...(refs.length > 0 ? { refs: numberDuplicateLabels(refs) } : {}),
+    /*
+     * ‏ליד ותזכורת לפגישה באותה הודעה — הפניה אחת, אבל שני דברים.
+     * ‏„תוסיף לו הערה” אחרי הודעה כזו אינו על הליד (ביקורת Codex, P1).
+     */
+    ...(seenRefs.size + unreferenced > 1 ? { plural: true as const } : {}),
   };
 }
 

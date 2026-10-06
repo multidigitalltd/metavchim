@@ -68,6 +68,26 @@ describe("assistantMemoryTurn", () => {
     expect(turn?.refs).toBeUndefined();
   });
 
+  /*
+   * ‏ליד ותזכורת באותה הודעה: הפניה אחת, אבל המתווך ראה שני דברים —
+   * ‏הליד אינו „הוא” של המשפט הבא (ביקורת Codex, P1).
+   */
+  it("כמה עדכונים בהודעה אחת — רשימה, גם כשרק לאחד יש הפניה", () => {
+    const turn = assistantMemoryTurn([
+      { type: "call_missed", entityType: "lead", entityId: LEAD_ID },
+      { type: "appointment_reminder", entityType: null, entityId: null },
+    ]);
+    expect(turn?.refs).toHaveLength(1);
+    expect(turn?.plural).toBe(true);
+    expect(currentSubject([turn!])).toBeNull();
+  });
+
+  it("עדכון יחיד — אינו רשימה, והליד הוא הנושא", () => {
+    const turn = assistantMemoryTurn([{ type: "call_missed", entityType: "lead", entityId: LEAD_ID }]);
+    expect(turn?.plural).toBeUndefined();
+    expect(currentSubject([turn!])).toEqual(expect.objectContaining({ entityId: LEAD_ID }));
+  });
+
   it("מתעלם מסוג התראה שאין לו ניסוח — ולא כותב תור ריק", () => {
     expect(assistantMemoryTurn([{ type: "weekly_summary", entityType: null, entityId: null }])).toBe(
       null,
