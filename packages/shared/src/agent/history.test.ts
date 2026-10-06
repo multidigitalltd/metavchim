@@ -82,6 +82,15 @@ describe("assistantMemoryTurn", () => {
     expect(currentSubject([turn!])).toBeNull();
   });
 
+  it("גם עדכון מסוג שאינו נזכר נספר — הוא נשלח והמתווך קרא אותו", () => {
+    const turn = assistantMemoryTurn([
+      { type: "lead", entityType: "lead", entityId: LEAD_ID },
+      { type: "lead_requires_human", entityType: "lead", entityId: PROP_ID },
+    ]);
+    expect(turn?.refs).toHaveLength(1);
+    expect(turn?.plural).toBe(true);
+  });
+
   it("עדכון יחיד — אינו רשימה, והליד הוא הנושא", () => {
     const turn = assistantMemoryTurn([{ type: "call_missed", entityType: "lead", entityId: LEAD_ID }]);
     expect(turn?.plural).toBeUndefined();

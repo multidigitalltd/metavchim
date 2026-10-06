@@ -237,12 +237,18 @@ export function assistantMemoryTurn(
   const refs: AgentHistoryRef[] = [];
   const seenRefs = new Set<string>();
   const seenTexts = new Set<string>();
-  // ‏עדכונים בלי רשומה — גם הם חלק ממה שהמתווך ראה (`plural`)
+  /*
+   * ‏עדכונים בלי רשומה — גם הם חלק ממה שהמתווך ראה (`plural`). כולל
+   * ‏סוג שאין לו ניסוח בזיכרון: הוא נשלח ונקרא, גם אם לא נזכר.
+   */
   let unreferenced = 0;
 
   for (const item of items) {
     const text = NOTIFY_MEMORY[item.type];
-    if (text === undefined) continue;
+    if (text === undefined) {
+      unreferenced += 1;
+      continue;
+    }
     // אותו סוג פעמיים באותה הודעה — משפט אחד, לא חזרה
     if (!seenTexts.has(text)) {
       seenTexts.add(text);
