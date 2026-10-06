@@ -15,6 +15,8 @@
  * מתורגמת להצעה שהמתווך מאשר.
  */
 
+import { PROPERTY_TYPE_LABELS } from "../agent/vocabulary.js";
+
 export type VoiceAction =
   | "add_property"
   | "add_buyer"
@@ -756,8 +758,28 @@ export function mentorQuestionFromTranscript(transcript: string): string {
  * ‏(„המו״מ בהרב שך”), ונחתך במילות השאלה שאחריו („מתומחרת נכון”, „יקרה
  * ‏מדי”, „למי להציע שוב”). לא נמצא — `undefined`, והכרטיס ישאל.
  */
-const PROPERTY_NOUN =
-  /(?:^|[\s"'״])[בלשו]?(ה?(?:דירה|דירת|נכס|בית|פנטהאוז|דופלקס|וילה|קוטג'|מגרש|משרד|חנות)(?![א-ת]).*)$/u;
+/*
+ * ‏שמות הנכס — מאוצר סוגי הנכס של הקטלוג ולא רשימה מקבילה, כדי ש„המחסן
+ * ‏בהרצל” ו„הסטודיו בפלורנטין” יזוהו כמו „הדירה” (ביקורת Codex). הארוך
+ * ‏קודם: „דירת גן” לפני „דירה”.
+ */
+const PROPERTY_NOUNS = [
+  ...Object.entries(PROPERTY_TYPE_LABELS)
+    .filter(([type]) => type !== "other" && type !== "commercial")
+    .map(([, label]) => label),
+  "נכס",
+  "בית",
+  "דירת",
+  "וילה",
+  "קוטג'",
+]
+  .sort((a, b) => b.length - a.length)
+  .map((noun) => noun.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"))
+  .join("|");
+const PROPERTY_NOUN = new RegExp(
+  `(?:^|[\\s"'״])[בלשו]?(ה?(?:${PROPERTY_NOUNS})(?![א-ת]).*)$`,
+  "u",
+);
 const NEGOTIATION_ON = /מו["״]?מ\s+(?:על\s+|ב)(.+)$/u;
 const PROPERTY_PHRASE_END =
   /\s+(?:מתומחר|יקר|זול|לעומת|מול|למי|להציע|לחזור|להתקשר|שוב|מחדש|אחרי)|\s*[?!.,—–]/u;

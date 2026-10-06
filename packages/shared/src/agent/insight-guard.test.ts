@@ -157,6 +157,8 @@ describe("countsWithin — מספרים במילים מעל עשר", () => {
     expect(countsWithin("יש לך שנים-עשר קונים", buyers(10))).toBe(false);
     expect(countsWithin("יש לך שלושה־עשר קונים", buyers(13))).toBe(true);
     expect(countsWithin("יש לך שלושה־עשר קונים", buyers(12))).toBe(false);
+    expect(countsWithin("עשרים-ושלושה קונים", buyers(2))).toBe(false);
+    expect(countsWithin("עשרים-ושלושה קונים", buyers(23))).toBe(true);
   });
 
   it("מילות מספר צמודות שאינן מספר אחד — אינן מתחברות", () => {

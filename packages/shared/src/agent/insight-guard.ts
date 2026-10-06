@@ -116,7 +116,7 @@ const AFTER = "(?![\\p{L}\\d])";
  * ‏וחמישים”, „עשרים ושלושה”. מילים צמודות שאינן מספר אחד („ביום שני
  * ‏שלושה קונים”) אינן מתחברות — כל אחת נבדקת לבד.
  */
-const REST = `(?:${alt(TENS)})(?:\\s+ו(?:${alt(UNITS)}))?|(?:${alt(UNITS)})${JOIN}(?:${alt(TEN)})|${alt(UNITS)}|${alt(TEN)}`;
+const REST = `(?:${alt(TENS)})(?:${JOIN}ו(?:${alt(UNITS)}))?|(?:${alt(UNITS)})${JOIN}(?:${alt(TEN)})|${alt(UNITS)}|${alt(TEN)}`;
 const HUNDREDS = `(?:(?:${alt(UNITS)})\\s+)?מאות|מאתיים|מאה`;
 const THOUSANDS = `(?:(?:${REST})\\s+)?(?:אלפים|אלף)|אלפיים`;
 const NUMBER = `(?:${THOUSANDS})(?:\\s+ו?(?:${HUNDREDS}))?(?:\\s+ו?(?:${REST}))?|(?:${HUNDREDS})(?:\\s+ו?(?:${REST}))?|${REST}`;
