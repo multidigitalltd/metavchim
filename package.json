@@ -36,7 +36,9 @@
       "deepmerge-ts@<8.0.0": "^8.0.1",
       "qs@<6.16.0": "^6.16.0",
       "multer@<2.4.0": "^2.4.0",
-      "mysql2@<3.22.0": "^3.22.0"
+      "mysql2@<3.22.0": "^3.22.0",
+      "proxy-addr@<2.0.8": "^2.0.8",
+      "source-map-js@<1.2.2": "^1.2.2"
     },
     "onlyBuiltDependencies": [
       "@prisma/client",
