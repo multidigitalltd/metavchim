@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildPropertyPitchEmail,
+  contactOptOutLinks,
   pitchDeliverable,
   pitchPropertyLine,
   pitchRecipientState,
@@ -110,7 +111,11 @@ describe("‏שורת הנכס — רק מה שידוע", () => {
 });
 
 describe("‏המייל", () => {
-  const base = { officeName: "תיווך הכרמל", buyerName: "דנה", optOutUrl: "https://app.example/optout/t" };
+  const base = {
+    officeName: "תיווך הכרמל",
+    buyerName: "דנה",
+    optOut: contactOptOutLinks("https://app.example", "t"),
+  };
 
   it("‏מפנה לדף הנחיתה של הנכס", () => {
     const { content } = buildPropertyPitchEmail({ ...base, properties: [PROPERTY] });
@@ -124,14 +129,17 @@ describe("‏המייל", () => {
    */
   it("‏אינו טוען שנשלח אוטומטית", () => {
     const { content } = buildPropertyPitchEmail({ ...base, properties: [PROPERTY] });
-    expect(content.footnote).not.toContain("אוטומטית");
-    expect(content.footnote).toContain("תיווך הכרמל");
+    expect(content.unsubscribe?.reason).not.toContain("אוטומטית");
+    expect(content.unsubscribe?.reason).toContain("תיווך הכרמל");
   });
 
   /* ‏חובה חוקית בכל דיוור שיווקי (§30א) */
   it("‏נושא קישור הסרה", () => {
     const { content } = buildPropertyPitchEmail({ ...base, properties: [PROPERTY] });
-    expect(content.footnote).toContain("https://app.example/optout/t");
+    expect(content.unsubscribe).toMatchObject({
+      url: "https://app.example/contact-optout/t",
+      oneClickUrl: "https://app.example/api/v1/public/contacts/t/email-optout",
+    });
   });
 
   it("‏בלי שם — בלי שורת ברכה", () => {

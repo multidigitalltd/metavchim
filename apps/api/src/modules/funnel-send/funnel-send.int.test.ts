@@ -45,6 +45,7 @@ const SATURDAY_10 = new Date("2026-10-10T07:00:00Z");
 const HOUR = 60 * 60 * 1000;
 /** ‏כתובת הקליטה של תיבת התמיכה — לשם חוזרות תשובות למיילי המסלול */
 const SUPPORT_INBOX = "support-inbox@inbound.example.test";
+const SUPPORT_FROM = "תמיכה מתווכים <support@example.test>";
 const DAY = 24 * HOUR;
 
 let direct: PrismaClient;
@@ -88,7 +89,11 @@ function service(
       isConfigured: () => Promise.resolve(false),
     } as unknown as EmailDomainProviderService),
     {
-      outgoing: () => Promise.resolve({ sender: null, replyTo: SUPPORT_INBOX }),
+      outgoing: () =>
+        Promise.resolve({
+          sender: { from: SUPPORT_FROM, token: "support-server-token" },
+          replyTo: SUPPORT_INBOX,
+        }),
     } as unknown as SupportInboxService,
   );
 }
@@ -185,15 +190,29 @@ describe("מסלול ההמרה — השליחה", () => {
     expect(first.enrolled).toBeGreaterThanOrEqual(1);
     expect(first.sent).toBe(1);
     expect(send).toHaveBeenCalledTimes(1);
-    const [to, subject, content] = send.mock.calls[0] as [string, string, { pixel: string }];
+    const [to, subject, content, options] = send.mock.calls[0] as [
+      string,
+      string,
+      { pixel: string; unsubscribe: { url: string; oneClickUrl: string } },
+      Record<string, unknown>,
+    ];
     expect(to).toBe("dana.funnel@example.test");
     expect(subject.length).toBeGreaterThan(0);
     const [row] = await messages();
     expect(row).toMatchObject({ status: "sent", channel: "email" });
     expect(row!.token).toMatch(/^[A-Za-z0-9_-]{43}$/u);
     expect(content.pixel).toBe(`https://app.example.test/api/v1/public/funnel/o/${row!.token}`);
-    // ‏„תענו למייל הזה” מגיע לתמיכה, לא לכתובת השולח הכללית
-    expect(send.mock.calls[0]![3]).toMatchObject({ replyTo: SUPPORT_INBOX });
+    /*
+     * ‏יוצא מכתובת התמיכה, ותשובה חוזרת לתיבה — ולא מהשולח הכללי שאיש
+     * ‏אינו קורא. הטוקן של שרת התמיכה אינו עובר: הדיוור נשאר בשרת הכללי.
+     */
+    expect(options).toMatchObject({ replyTo: SUPPORT_INBOX, sender: { from: SUPPORT_FROM } });
+    expect(options["sender"]).not.toHaveProperty("token");
+    // ‏קישור הסרה לחיץ, ונתיב POST לכפתור „ביטול הרשמה” של ספק הדואר (§30א)
+    expect(content.unsubscribe.url).toMatch(/^https:\/\/app\.example\.test\/nudge-optout\/[A-Za-z0-9_-]+$/u);
+    expect(content.unsubscribe.oneClickUrl).toMatch(
+      /^https:\/\/app\.example\.test\/api\/v1\/public\/nudge\/[A-Za-z0-9_-]+\/optout$/u,
+    );
 
     // ‏סבב נוסף באותה שעה: השלב כבר נשלח, והמרווח המזערי עוד לא עבר
     const second = await service().run(new Date(MONDAY_10.getTime() + HOUR));

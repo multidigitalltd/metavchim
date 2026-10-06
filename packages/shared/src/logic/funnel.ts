@@ -29,7 +29,7 @@
  * כל כללי העיתוי בלי מסד, בלי שעון אמיתי, ובלי לשלוח דבר.
  */
 
-import type { EmailContent } from "./email-template.js";
+import type { EmailContent, EmailOptOutLinks } from "./email-template.js";
 import { onboardingSteps, type OnboardingFacts } from "./onboarding.js";
 import {
   jerusalemDayStart,
@@ -872,8 +872,6 @@ export interface FunnelEmailTracking {
   clickUrl: string;
   /** ‏פיקסל הפתיחה */
   pixelUrl: string;
-  /** ‏קישור ההסרה (חוק התקשורת §30א) */
-  optOutUrl: string;
 }
 
 /**
@@ -885,13 +883,18 @@ export interface FunnelEmailTracking {
  *
  * ‏הגוף מתפצל לפסקאות בשורה ריקה — אותו מבנה של `EmailContent`.
  * ‏הכפתור נבנה רק כשיש גם תווית וגם נתיב, והנתיב יחסי למקור המערכת.
- * ‏עם `tracking` הכפתור עובר דרך כתובת הלחיצה, ובתחתית יש פיקסל
- * ‏וקישור הסרה.
+ * ‏עם `tracking` הכפתור עובר דרך כתובת הלחיצה ובתחתית יש פיקסל.
+ *
+ * ‎**קישור ההסרה אינו חלק מהמעקב — הוא חובה** (חוק התקשורת §30א).
+ * ‏הוא ישב קודם בתוך `tracking`, ולכן מייל הבדיקה יצא בלעדיו — ובעל
+ * ‏הפלטפורמה ראה בתיבה שלו הודעה בלי אפשרות הסרה, שונה ממה שהלקוח
+ * ‏יקבל. עכשיו הוא פרמטר נדרש, ואין דרך לבנות מייל בלעדיו.
  */
 export function funnelEmail(
   copy: FunnelEmailCopy,
   values: FunnelPlaceholderValues,
   origin: string,
+  optOut: EmailOptOutLinks,
   tracking?: FunnelEmailTracking,
 ): { subject: string; content: EmailContent } | null {
   const fill = (text: string): string => fillFunnelPlaceholders(text, values).trim();
@@ -913,12 +916,12 @@ export function funnelEmail(
       heading: fill(copy.emailHeading) || subject,
       paragraphs,
       ...(button === undefined ? {} : { button }),
-      ...(tracking === undefined
-        ? {}
-        : {
-            footnote: `קיבלתם את ההודעה כי פתחתם חשבון ניסיון. להפסקת ההודעות: ${tracking.optOutUrl}`,
-            pixel: tracking.pixelUrl,
-          }),
+      unsubscribe: {
+        reason: "קיבלתם את ההודעה כי פתחתם חשבון ניסיון במתווכים.",
+        label: "להפסקת ההודעות",
+        ...optOut,
+      },
+      ...(tracking === undefined ? {} : { pixel: tracking.pixelUrl }),
     },
   };
 }

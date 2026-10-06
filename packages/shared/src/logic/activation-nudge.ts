@@ -1,4 +1,4 @@
-import { type EmailContent } from "./email-template.js";
+import { type EmailContent, type EmailOptOutLinks } from "./email-template.js";
 
 /**
  * ‎**תזכורות ההפעלה — למי שנרשם ולא השאיר כרטיס תקף.**
@@ -144,7 +144,21 @@ export interface ActivationNudgeInput {
   /** הקישור למסך המנוי. */
   billingUrl: string;
   /** קישור ההסרה — חובה בכל דיוור אוטומטי (חוק התקשורת §30א). */
-  optOutUrl: string;
+  optOut: EmailOptOutLinks;
+}
+
+/**
+ * ‎**כתובות ההסרה מתזכורות ההפעלה ומהודעות ההמרה — לפי טוקן הבעלים.**
+ *
+ * ‏שני המסלולים חולקים את אותה הסרה ואת אותו דף, ולכן גם את הכתובות:
+ * ‏הדף שבגוף ההודעה, ונתיב ה-POST שכפתור „ביטול הרשמה” של ספק הדואר
+ * ‏קורא לו.
+ */
+export function nudgeOptOutLinks(origin: string, token: string): EmailOptOutLinks {
+  return {
+    url: `${origin}/nudge-optout/${token}`,
+    oneClickUrl: `${origin}/api/v1/public/nudge/${token}/optout`,
+  };
 }
 
 /**
@@ -172,9 +186,11 @@ export function activationNudgeEmail(input: ActivationNudgeInput): {
   subject: string;
   content: EmailContent;
 } {
-  const footnote =
-    "קיבלתם את ההודעה כי פתחתם חשבון במתווכים ועדיין לא הפעלתם אותו. " +
-    `להפסקת התזכורות: ${input.optOutUrl}`;
+  const unsubscribe = {
+    reason: "קיבלתם את ההודעה כי פתחתם חשבון במתווכים ועדיין לא הפעלתם אותו.",
+    label: "להפסקת התזכורות",
+    ...input.optOut,
+  };
   const button = { label: "להפעלת החשבון", url: input.billingUrl };
   const greeting = `שלום ${input.ownerName},`;
 
@@ -191,7 +207,7 @@ export function activationNudgeEmail(input: ActivationNudgeInput): {
           `דקה אחת במסך המנוי מחזירה את מסלול ${input.planName} למקומו, וזה כל הסיפור.`,
         ],
         button,
-        footnote,
+        unsubscribe,
       },
     };
   }
@@ -209,7 +225,7 @@ export function activationNudgeEmail(input: ActivationNudgeInput): {
           "הזנת כרטיס פותחת את הכול בחזרה באותו רגע — בלי הקמה מחדש ובלי לאבד שורה אחת.",
         ],
         button,
-        footnote,
+        unsubscribe,
       },
     };
   }
@@ -226,7 +242,7 @@ export function activationNudgeEmail(input: ActivationNudgeInput): {
         `אם בעוד חודש או בעוד שנה תרצו לחזור: הנתונים שלכם עדיין שם, והזנת כרטיס תפתח את ${input.planName} בחזרה תוך שנייה.`,
       ],
       button,
-      footnote,
+      unsubscribe,
     },
   };
 }

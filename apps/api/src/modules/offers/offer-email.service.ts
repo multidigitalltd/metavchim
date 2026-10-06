@@ -13,6 +13,7 @@ import {
   buildOfferEmail,
   OfferPresentationSchema,
   type OfferEmailItem,
+  offerOptOutLinks,
 } from "@metavchim/shared";
 import { ownershipFilter } from "../../common/ownership";
 import { actingUserId, TenantContext } from "../../common/tenant-context";
@@ -887,7 +888,7 @@ export class OfferEmailService {
       buyerName,
       offers: items,
       // כל טוקן הצעה מזהה את הלקוח — הראשון משמש גם להסרה
-      optOutUrl: `${env.WEB_ORIGIN}/offer-optout/${first.token}`,
+      optOut: offerOptOutLinks(env.WEB_ORIGIN, first.token),
     });
 
     const offerIds = rows.map((row) => row.offerId);

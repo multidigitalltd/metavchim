@@ -14,6 +14,7 @@ import {
   pitchRecipientState,
   type PitchProperty,
   type PitchRecipientState,
+  contactOptOutLinks,
 } from "@metavchim/shared";
 import { actingUserId, TenantContext } from "../../common/tenant-context";
 import { ownershipFilter } from "../../common/ownership";
@@ -445,7 +446,7 @@ export class PropertyPitchService {
       officeName,
       buyerName: row.name,
       properties,
-      optOutUrl: `${origin}/contact-optout/${token}`,
+      optOut: contactOptOutLinks(origin, token),
     });
 
     /*

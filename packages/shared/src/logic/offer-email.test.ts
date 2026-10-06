@@ -5,6 +5,7 @@ import {
   AUTO_OFFER_MIN_SCORE,
   buildOfferEmail,
   offerEmailLineLabel,
+  offerOptOutLinks,
 } from "./offer-email.js";
 
 describe("offerEmailLineLabel", () => {
@@ -27,7 +28,7 @@ describe("buildOfferEmail", () => {
   const base = {
     officeName: "נדל\"ן הצפון",
     buyerName: "דנה",
-    optOutUrl: "https://app.example/offer-optout/tok",
+    optOut: offerOptOutLinks("https://app.example", "tok"),
   };
 
   it("הצעה אחת — יחיד; כמה — רבים עם המניין", () => {
@@ -54,8 +55,11 @@ describe("buildOfferEmail", () => {
       ...base,
       offers: [{ title: "דירה", url: "https://a" }],
     });
-    expect(content.footnote).toContain("נדל\"ן הצפון");
-    expect(content.footnote).toContain(base.optOutUrl);
+    expect(content.unsubscribe?.reason).toContain("נדל\"ן הצפון");
+    expect(content.unsubscribe).toMatchObject({
+      url: "https://app.example/offer-optout/tok",
+      oneClickUrl: "https://app.example/api/v1/public/offers/tok/email-optout",
+    });
     expect(content.greeting).toBe("שלום דנה,");
   });
 

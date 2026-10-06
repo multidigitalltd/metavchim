@@ -1,4 +1,9 @@
-import { PITCH_MAX_BUYERS, PITCH_MAX_PROPERTIES } from "@metavchim/shared";
+import {
+  PITCH_MAX_BUYERS,
+  PITCH_MAX_PROPERTIES,
+  renderEmailText,
+  type EmailContent,
+} from "@metavchim/shared";
 import { SendSchema } from "./property-pitch.controller";
 import { beforeAll, describe, expect, it } from "vitest";
 import { BadRequestException, ForbiddenException } from "@nestjs/common";
@@ -185,27 +190,11 @@ function serviceFor(world: World): {
 
   const email = {
     isConfigured: () => Promise.resolve(true),
-    send: (
-      to: string,
-      subject: string,
-      content: {
-        paragraphs: string[];
-        links?: { label: string; url: string }[];
-        footnote?: string;
-      },
-    ) => {
+    send: (to: string, subject: string, content: EmailContent) => {
       const boom = world.throwFor?.(to);
       if (boom !== undefined && boom !== null) return Promise.reject(boom);
-      /* ‏המייל כולו — הקישורים אינם בפסקאות אלא בשדות משלהם */
-      sent.push({
-        to,
-        subject,
-        body: [
-          ...content.paragraphs,
-          ...(content.links ?? []).map((l) => `${l.label} ${l.url}`),
-          content.footnote ?? "",
-        ].join("\n"),
-      });
+      /* ‏המייל כולו, כפי שהנמען יקבל אותו — ולא הרכבה ידנית של שדות */
+      sent.push({ to, subject, body: renderEmailText(content) });
       world.afterSend?.(to);
       return Promise.resolve();
     },

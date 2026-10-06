@@ -84,6 +84,41 @@ describe("renderEmailHtml", () => {
   });
 });
 
+/*
+ * ‎**קישור ההסרה — לחיץ, ולא כתובת בטקסט** (חוק התקשורת §30א).
+ *
+ * ‏הוא ישב בהערת השוליים ככתובת גולמית, ובחלק מלקוחות הדואר לא היה
+ * ‏לחיץ כלל — „דרך פשוטה להודיע על סירוב” שדורשת להעתיק כתובת.
+ */
+describe("קישור ההסרה", () => {
+  const unsubscribe = {
+    reason: "קיבלתם את ההודעה כי פתחתם חשבון.",
+    label: "להפסקת ההודעות",
+    url: "https://a.co/optout/t?x=1&y=2",
+    oneClickUrl: "https://a.co/api/optout/t",
+  };
+
+  it("ב-HTML הוא קישור אמיתי לדף האישור, עם התווית", () => {
+    const html = renderEmailHtml({ paragraphs: ["גוף"], unsubscribe });
+    expect(html).toContain('<a href="https://a.co/optout/t?x=1&amp;y=2"');
+    expect(html).toContain(">להפסקת ההודעות</a>");
+    expect(html).toContain("קיבלתם את ההודעה כי פתחתם חשבון.");
+    // ‏נתיב ה-POST שייך לכותרת בלבד — קישור בגוף היה מסיר בכל סריקה
+    expect(html).not.toContain("https://a.co/api/optout/t");
+  });
+
+  it("בטקסט — הסיבה, התווית והכתובת", () => {
+    expect(renderEmailText({ paragraphs: ["גוף"], unsubscribe })).toContain(
+      "קיבלתם את ההודעה כי פתחתם חשבון. להפסקת ההודעות: https://a.co/optout/t?x=1&y=2",
+    );
+  });
+
+  it("קו מפריד אחד בלבד כשיש גם הערת שוליים", () => {
+    const html = renderEmailHtml({ paragraphs: ["גוף"], footnote: "הערה", unsubscribe });
+    expect(html.split("border-top:1px solid").length - 1).toBe(1);
+  });
+});
+
 describe("renderEmailText", () => {
   it("נגזר מאותו תוכן ולא נכתב בנפרד", () => {
     const content = {
