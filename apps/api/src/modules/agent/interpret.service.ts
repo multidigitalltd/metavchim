@@ -257,7 +257,18 @@ export class AgentInterpretService {
       ...(history !== undefined && history.length > 0 ? { history } : {}),
     });
 
-    const detailed = await this.gemini.generateStructuredDetailed(prompt, interpretJsonSchema());
+    /*
+     * ‎**בוואטסאפ המודל חושב יותר.** שם השיחה נמשכת לאורך היום —
+     * ‏„לו”, „הזול מביניהם”, תיקון להצעה ששלחנו לפני עשר דקות — והבנת
+     * ‏ההקשר היא מה שהמתווך מודד אותנו לפיו (בעל המוצר). שנייה נוספת
+     * ‏שם אינה מורגשת; במסך, שבו מחכים לכרטיס מול העיניים, נשארים ברמה
+     * ‏הנמוכה.
+     */
+    const detailed = await this.gemini.generateStructuredDetailed(
+      prompt,
+      interpretJsonSchema(),
+      channel === "whatsapp" ? { thinkingLevel: "medium" } : {},
+    );
     const meta = {
       model: detailed.model,
       latencyMs: detailed.latencyMs,

@@ -7,6 +7,7 @@ import {
   agentReplyTurn,
   agentResultRefs,
   agentTurnRefs,
+  keepRecentTurns,
   proposalRunsImmediately,
   type AgentHistoryRef,
   type AgentHistoryTurn,
@@ -238,7 +239,7 @@ export default function AgentPage(): React.JSX.Element {
     apiGet<{ turns: HistoryTurn[] }>("/agent/conversation")
       .then(({ turns = [] }) => {
         if (turns.length === 0) return;
-        setHistory(turns.slice(-6));
+        setHistory(keepRecentTurns(turns));
         setThread((prev) => [
           ...turns.flatMap((turn): ChatItem[] =>
             /*
@@ -289,7 +290,8 @@ export default function AgentPage(): React.JSX.Element {
 
   /** תור לזיכרון השיחה — המקומי והשמור, לשני סוגי התורות. */
   const keep = useCallback((turn: HistoryTurn): void => {
-    setHistory((prev) => [...prev.slice(-5), turn]);
+    // ‏אותו חלון כמו בשרת ובוואטסאפ — פונקציה אחת לכל מי שחותך
+    setHistory((prev) => keepRecentTurns([...prev, turn]));
     /*
      * התור נרשם גם לשיחה השמורה בשרת — זו שהוואטסאפ קורא. כשל
      * ברישום אינו מפיל את השיחה שעל המסך: ההקשר המקומי כבר עודכן,
@@ -399,7 +401,7 @@ export default function AgentPage(): React.JSX.Element {
           transcript: text,
           ...(pin === undefined ? {} : { pin }),
           ...(prior ? { prior } : {}),
-          ...(history.length > 0 ? { history: history.slice(-6) } : {}),
+          ...(history.length > 0 ? { history: keepRecentTurns(history) } : {}),
         });
 
         // שיחה ולא פעולה — תשובה חופשית, לא כרטיס "לא הבנתי"

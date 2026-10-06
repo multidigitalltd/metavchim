@@ -6,6 +6,7 @@ import {
   AGENT_RESULT_LABEL_MAX,
   AGENT_RESULT_ROWS,
   AGENT_REPLY_MAX,
+  AGENT_HISTORY_KEPT,
   AGENT_RESULT_SUMMARY_MAX,
   agentAction,
   agentHelpGroups,
@@ -109,10 +110,10 @@ const InterpretSchema = z
       .optional(),
     /**
      * התורות האחרונות בשיחה — למשפטי המשך ("ומה עם רמת גן?").
-     * המסך שולח את מה שבוצע בפועל, לא את מה שרק הוצע; שישה תורות
-     * מספיקים לשיחה ומונעים פרומפט שמתנפח בלי סוף.
+     * המסך שולח את מה שבוצע בפועל, לא את מה שרק הוצע — באותו חלון
+     * שהשיחה השמורה נחתכת אליו, כדי ששני הערוצים יזכרו אותו דבר.
      */
-    history: z.array(TurnSchema).max(6).optional(),
+    history: z.array(TurnSchema).max(AGENT_HISTORY_KEPT).optional(),
     /**
      * הפעולה שהמתווך בחר מתוך „אולי התכוונת”, אחרי „לא הבנתי”.
      *

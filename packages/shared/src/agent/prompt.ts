@@ -9,6 +9,7 @@
 
 import { AGENT_ACTIONS } from "./actions.js";
 import { fieldDescription } from "./field-spec.js";
+import { currentSubject } from "./history.js";
 
 /**
  * תור אחד בשיחה — מה נאמר, מה בוצע, ומה חזר.
@@ -84,6 +85,14 @@ export interface AgentHistoryRef {
   entityType: "lead" | "buyer" | "property" | "task";
   entityId: string;
 }
+
+/** ‏איך הנושא מוצג למודל — סוג הרשומה בעברית, בלי שום פרט שלה. */
+const SUBJECT_KIND_LABELS: Record<AgentHistoryRef["entityType"], string> = {
+  lead: "ליד",
+  buyer: "קונה",
+  property: "נכס",
+  task: "משימה",
+};
 
 /** ההקשר שהופך את התשובה לנכונה למשרד הזה ולרגע הזה. */
 export interface AgentPromptContext {
@@ -252,6 +261,25 @@ export function buildInterpretPrompt(
         ...(turn.offer ? [`   הצעתי: "${turn.offer.replaceAll('"', "'")}"`] : []),
       );
     });
+
+    /*
+     * ‎**הנושא — במפורש, ולא כהסקה מהשורות שלמעלה.**
+     *
+     * ‏„תוסיף לו הערה” אחרי כרטיס שנפתח לפני שלושה תורות דרש מהמודל
+     * ‏לסרוק את השיחה ולנחש מי „הוא”; ניחוש שגוי נפל לחיפוש לפי שם
+     * ‏ולרשימת בחירה, או לרשומה אחרת. הסימון הוא אותו מנגנון של
+     * ‏עדכוני הסוכן: התווית חוזרת כמו שהיא, והקוד מתרגם אותה לרשומה.
+     */
+    const subject = currentSubject(context.history);
+    if (subject !== null) {
+      lines.push(
+        "",
+        "## הרשומה שעליה מדברים עכשיו",
+        "",
+        `⟪${subject.label}⟫ — ${SUBJECT_KIND_LABELS[subject.entityType]}.`,
+        "פנייה בלי שם — \"לו\", \"לה\", \"אליו\", \"אותה\", \"הנכס הזה\", \"הליד הזה\" — מתייחסת אליה: העתק את הסימון **כמו שהוא, כולל הסוגריים**, לשדה הביטוי המזהה. כשנאמר שם אחר — השם שנאמר גובר.",
+      );
+    }
   }
 
   /*

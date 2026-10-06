@@ -73,6 +73,20 @@ export interface AgentResultRow {
    * עובד לפי מיקום ולא לפי שם.
    */
   memoryLabel?: string;
+  /**
+   * ‎**מה שנשמר לזיכרון לצד התווית — רק מאפיינים, לעולם לא תוכן חופשי.**
+   *
+   * ‏„הזול מביניהם”, „אלה שברמת גן”, „זה עם ארבעה חדרים” — שאלות על
+   * ‏רשימה שהמתווך הרגע ראה, ושהזיכרון לא יכול היה לענות עליהן כי נשמרו
+   * ‏בו שמות בלבד (בעל המוצר: „לא מבין הקשרים”).
+   *
+   * ‏שדה נפרד ולא `detail`, מאותה סיבה שהטלפון נפרד: `detail` נושא גם
+   * ‏תקציר שיחה, תוכן הערה, גוף התראה ונושא מייל — טקסט חופשי שעלול
+   * ‏להכיל כל פרט, ושהזיכרון אינו שולח למודל החיצוני. כאן נכנס רק מה
+   * ‏שנבנה מערכים מובנים: חדרים, עיר, מחיר, סטטוס, מועד, שלב. שורה
+   * ‏בלי השדה נזכרת בשמה בלבד, כמו קודם.
+   */
+  memoryDetail?: string;
   /** קישור יחסי למסך המלא של השורה, כשיש כזה. */
   href?: string;
   /**
@@ -160,6 +174,27 @@ function phoneOf(record: Record<string, unknown>): string | null {
   return text(record["phone"]) ?? text(record["contactPhone"]);
 }
 
+/**
+ * ‏שורה שכל ה-`detail` שלה בנוי ממאפיינים מובנים — ולכן הוא גם מה
+ * ‏שנזכר. רק לבונים שאין ב-`detail` שלהם טקסט חופשי (תקציר, הערה,
+ * ‏נושא, גוף); לשאר `memoryDetail` נכתב במפורש, בלי החלק החופשי.
+ */
+function factsRow<T extends AgentResultRow>(row: T): T {
+  return row.detail === "" ? row : { ...row, memoryDetail: row.detail };
+}
+
+/**
+ * ‎**כותרת בלי מספרי טלפון — לזיכרון בלבד.**
+ *
+ * ‏כותרות התראה נבנות סביב המספר („📵 שיחה שלא נענתה מ-050…”), כי הוא
+ * ‏מה שהמתווך צריך כדי לחזור. אבל הכותרת היא גם התווית שנזכרת ונוסעת
+ * ‏לפרומפט של מודל חיצוני — וטלפון לעולם אינו מגיע לשם. רצף של שבע
+ * ‏ספרות ומעלה (עם מקפים, רווחים או `+`) הוא מספר, ולא שעה או מחיר.
+ */
+function withoutPhones(value: string): string {
+  return value.replace(/\+?\d(?:[\d\s-]{5,}\d)/gu, "…").replace(/\s+/gu, " ").trim();
+}
+
 function rowsOf(value: unknown): Record<string, unknown>[] {
   if (!Array.isArray(value)) return [];
   return value.filter(
@@ -179,6 +214,7 @@ const SECTION_ROWS: Record<string, (value: unknown) => AgentResultRow[]> = {
     rowsOf(value).map((a) => ({
       label: text(a["title"]) ?? APPOINTMENT_KIND_LABELS[String(a["kind"])] ?? "פגישה",
       detail: whenText(a["startsAt"]),
+      memoryDetail: whenText(a["startsAt"]),
       kindLabel: APPOINTMENT_KIND_LABELS[String(a["kind"])] ?? "פגישה",
       href: "/calendar",
     })),
@@ -191,7 +227,7 @@ const SECTION_ROWS: Record<string, (value: unknown) => AgentResultRow[]> = {
    * כאן כל הזמן, ורק הגזירה מה-`href` הסתירה אותו.
    */
   tasks: (value) =>
-    rowsOf(value).map((t) => ({
+    rowsOf(value).map((t) => factsRow({
       label: text(t["title"]) ?? "משימה",
       detail: join([text(t["entityLabel"]), whenText(t["dueAt"])]),
       kindLabel: "משימה",
@@ -227,6 +263,12 @@ const SECTION_ROWS: Record<string, (value: unknown) => AgentResultRow[]> = {
           whenText(c["occurredAt"]),
           text(c["summary"]),
         ]),
+        // ‏הכול חוץ מהתקציר — הוא תוכן השיחה עצמה
+        memoryDetail: join([
+          CALL_DIRECTION_LABELS[String(c["direction"])],
+          CALL_OUTCOME_LABELS[String(c["outcome"])],
+          whenText(c["occurredAt"]),
+        ]),
         ...(phone !== null ? { phone } : {}),
         href: "/calls",
       };
@@ -239,7 +281,7 @@ const SECTION_ROWS: Record<string, (value: unknown) => AgentResultRow[]> = {
    * ומגיע מהשרת ולא מנוסח כאן: אותו ניסוח בדיוק לשני הערוצים.
    */
   agreements: (value) =>
-    rowsOf(value).map((a) => ({
+    rowsOf(value).map((a) => factsRow({
       label: text(a["contactName"]) ?? "לקוח",
       detail: join([
         text(a["state"]),
@@ -257,7 +299,7 @@ const SECTION_ROWS: Record<string, (value: unknown) => AgentResultRow[]> = {
   offers: (value) =>
     rowsOf(value).map((o) => {
       const opens = typeof o["openCount"] === "number" ? (o["openCount"] as number) : 0;
-      return {
+      return factsRow({
         label: text(o["buyerName"]) ?? text(o["title"]) ?? "הצעה",
         detail: join([
           text(o["status"]),
@@ -267,7 +309,7 @@ const SECTION_ROWS: Record<string, (value: unknown) => AgentResultRow[]> = {
         ]),
         kindLabel: "הצעה",
         href: "/offers",
-      };
+      });
     }),
   /*
    * ‎**„יש לך נכס בשבילו” קודם לכל תיאור אחר.** ביקוש בלי התאמה הוא
@@ -276,7 +318,7 @@ const SECTION_ROWS: Record<string, (value: unknown) => AgentResultRow[]> = {
   demands: (value) =>
     rowsOf(value).map((d) => {
       const count = typeof d["matchCount"] === "number" ? (d["matchCount"] as number) : 0;
-      return {
+      return factsRow({
         label: text(d["office"]) ?? "משרד ברשת",
         detail: join([
           count > 0 ? `${count} מהנכסים שלך מתאימים` : null,
@@ -286,15 +328,22 @@ const SECTION_ROWS: Record<string, (value: unknown) => AgentResultRow[]> = {
         ]),
         kindLabel: "ביקוש ברשת",
         href: "/collaboration",
-      };
+      });
     }),
   notifications: (value) =>
-    rowsOf(value).map((n) => ({
-      label: text(n["title"]) ?? "התראה",
-      detail: join([text(n["body"]), whenText(n["createdAt"])]),
-      kindLabel: "התראה",
-      href: "/notifications",
-    })),
+    rowsOf(value).map((n) => {
+      const title = text(n["title"]);
+      const safeTitle = title === null ? null : withoutPhones(title);
+      return {
+        label: title ?? "התראה",
+        ...(safeTitle !== null && safeTitle !== title ? { memoryLabel: safeTitle } : {}),
+        detail: join([text(n["body"]), whenText(n["createdAt"])]),
+        // ‏בלי הגוף — טקסט חופשי שעלול לשאת פרטים
+        memoryDetail: whenText(n["createdAt"]),
+        kindLabel: "התראה",
+        href: "/notifications",
+      };
+    }),
   /*
    * שיחות המייל — שם, נושא, וכמה לא נקראו. **בלי גוף ההודעה**:
    * התקציר נשלח למתווך במסך התיבה עצמו; כאן, בתשובת סוכן שמנוסחת
@@ -310,6 +359,11 @@ const SECTION_ROWS: Record<string, (value: unknown) => AgentResultRow[]> = {
           text(thread["lastSubject"]),
           whenText(thread["lastAt"]),
         ]),
+        // ‏בלי הנושא — הוא נכתב בידי הלקוח
+        memoryDetail: join([
+          unread > 0 ? (unread === 1 ? "מייל אחד שלא נקרא" : `${unread} שלא נקראו`) : null,
+          whenText(thread["lastAt"]),
+        ]),
         kindLabel: "שיחת מייל",
         href: "/inbox",
         ...(text(thread["buyerId"]) !== null
@@ -318,7 +372,7 @@ const SECTION_ROWS: Record<string, (value: unknown) => AgentResultRow[]> = {
       };
     }),
   deals: (value) =>
-    rowsOf(value).map((d) => ({
+    rowsOf(value).map((d) => factsRow({
       label: text(d["title"]) ?? "עסקה משותפת",
       detail: join([
         COOP_DEAL_STAGE_LABELS[String(d["stage"]) as CoopDealStage],
@@ -329,7 +383,7 @@ const SECTION_ROWS: Record<string, (value: unknown) => AgentResultRow[]> = {
       ...(text(d["id"]) !== null ? { href: `/collaboration/deals/${String(d["id"])}` } : {}),
     })),
   buyers: (value) =>
-    rowsOf(value).map((b) => ({
+    rowsOf(value).map((b) => factsRow({
       label: text(b["name"]) ?? "קונה",
       detail: join([
         rooms(b["roomsMin"], b["roomsMax"]),
@@ -349,7 +403,7 @@ const SECTION_ROWS: Record<string, (value: unknown) => AgentResultRow[]> = {
         : {}),
     })),
   leads: (value) =>
-    rowsOf(value).map((l) => ({
+    rowsOf(value).map((l) => factsRow({
       label: text(l["name"]) ?? "ליד",
       /*
        * הסטטוס מגיע גולמי (`new`, `in_progress`) ומתורגם כאן, מטבלת
@@ -391,6 +445,7 @@ const SECTION_ROWS: Record<string, (value: unknown) => AgentResultRow[]> = {
          */
         label: who ?? "הערה",
         detail: join([text(n["content"]), whenText(n["createdAt"])]),
+        memoryDetail: whenText(n["createdAt"]),
         kindLabel: "הערה",
         ...(text(n["buyerId"]) !== null
           ? {
@@ -427,6 +482,10 @@ const SECTION_ROWS: Record<string, (value: unknown) => AgentResultRow[]> = {
       const missing = typeof row["missing"] === "number" ? row["missing"] : null;
       return {
         label: text(row["propertyTitle"]) ?? "בלעדיות",
+        memoryDetail: join([
+          days === null ? null : `נותרו ${days} ימים`,
+          missing !== null && missing > 0 ? `חסרות ${missing} פעולות שיווק` : null,
+        ]),
         detail: [
           days === null ? null : `נותרו ${days} ימים`,
           /*
@@ -489,6 +548,8 @@ const SECTION_ROWS: Record<string, (value: unknown) => AgentResultRow[]> = {
       return {
         label,
         detail: join([label === address ? null : address, score, text(match["explanation"])]),
+        // ‏בלי ההסבר — הוא ניסוח חופשי על הקונה
+        memoryDetail: join([label === address ? null : address, score]),
         ...(target === null
           ? {}
           : {
@@ -501,7 +562,7 @@ const SECTION_ROWS: Record<string, (value: unknown) => AgentResultRow[]> = {
       };
     }),
   properties: (value) =>
-    rowsOf(value).map((p) => ({
+    rowsOf(value).map((p) => factsRow({
       label: text(p["title"]) ?? text(p["marketingTitle"]) ?? text(p["street"]) ?? "נכס",
       detail: join([rooms(p["rooms"], undefined), text(p["city"]), price(p["priceAgorot"])]),
       ...(text(p["id"]) !== null
@@ -815,7 +876,13 @@ export function agentResultText(data: unknown): string | null {
  * `resultSummary` בבקר מוגבל לאותו אורך, ושני מספרים נפרדים היו
  * נפרדים ביום שאחד מהם משתנה — וההודעה הייתה נדחית או נקטעת בשקט.
  */
-export const AGENT_RESULT_SUMMARY_MAX = 600;
+export const AGENT_RESULT_SUMMARY_MAX = 1000;
+
+/**
+ * ‏כמה מהתקרה נשמר לשורת המצב כשהשורות נזכרות עם המאפיינים שלהן.
+ * ‏פחות מזה — והמאפיינים יורדים והשמות נשארים, כמו קודם.
+ */
+const SUMMARY_HEAD_MIN = 80;
 
 /**
  * אורך תשובה שיחתית (`reply`) — גם כפי שנוסחה וגם כפי שנזכרת. כפול
@@ -830,6 +897,8 @@ export const AGENT_REPLY_MAX = 1200;
 export interface AgentMemoryRow {
   label: string;
   memoryLabel?: string;
+  /** ‏המאפיינים שנזכרים לצד התווית — ראו `AgentResultRow.memoryDetail` */
+  memoryDetail?: string;
   phone?: string;
 }
 
@@ -853,6 +922,9 @@ export function agentResultRows(data: unknown): AgentMemoryRow[] {
     return shared.rows.slice(0, AGENT_RESULT_ROWS).map((row) => ({
       label: row.label,
       ...(row.memoryLabel === undefined ? {} : { memoryLabel: row.memoryLabel }),
+      ...(row.memoryDetail === undefined || row.memoryDetail === ""
+        ? {}
+        : { memoryDetail: row.memoryDetail }),
       ...(row.phone === undefined ? {} : { phone: row.phone }),
     }));
   }
@@ -891,7 +963,8 @@ export function agentResultRows(data: unknown): AgentMemoryRow[] {
  *
  * ## מה לעולם אינו נכנס
  *
- * שם וסדר בלבד. לא טלפון, לא אימייל, לא הערות ולא תקצירי שיחות:
+ * שם, סדר ומאפיינים מובנים (`memoryDetail`) בלבד. לא טלפון, לא
+ * אימייל, לא הערות, לא תקצירי שיחות ולא נושאי מיילים:
  * הזיכרון נוסע בתור הבא לפרומפט של מודל חיצוני, והתשובה שנשלחה
  * למתווך נשארת אצלו. `memoryLabel` מחליף כותרת שהיא עצמה פרט מזהה.
  *
@@ -902,10 +975,24 @@ export function agentResultRows(data: unknown): AgentMemoryRow[] {
  * זאת, היא ניסוח שהמודל מייצר מחדש ממילא.
  */
 export function agentHistorySummary(message: string, data: unknown): string {
-  const labels = agentResultRows(data).map((row) => row.memoryLabel ?? row.label);
+  const rows = agentResultRows(data);
+  const labels = rows.map((row) => row.memoryLabel ?? row.label);
   const head = message.replaceAll("\n", " ").trim();
   if (labels.length === 0) return head.slice(0, AGENT_RESULT_SUMMARY_MAX);
-  const tail = ` | לפי הסדר: ${labels.join(", ")}`;
+  /*
+   * ‎**השם, ואחריו המאפיינים — כשיש להם מקום.**
+   *
+   * ‏„הזול מביניהם” ו„אלה שברמת גן” צריכים את המחיר ואת העיר לצד כל
+   * ‏שם. כשהרשימה ארוכה מדי לתקרה, המאפיינים הם שיורדים ולא השמות:
+   * ‏שם הוא מפתח החיפוש של „תוסיף לו הערה”, והמאפיין רק עוזר לבחור.
+   */
+  const rich = ` | לפי הסדר: ${rows
+    .map((row, i) => (row.memoryDetail ? `${labels[i]!} (${row.memoryDetail})` : labels[i]!))
+    .join(", ")}`;
+  const tail =
+    rich.length <= AGENT_RESULT_SUMMARY_MAX - SUMMARY_HEAD_MIN
+      ? rich
+      : ` | לפי הסדר: ${labels.join(", ")}`;
   return `${head.slice(0, Math.max(0, AGENT_RESULT_SUMMARY_MAX - tail.length))}${tail}`.slice(
     0,
     AGENT_RESULT_SUMMARY_MAX,

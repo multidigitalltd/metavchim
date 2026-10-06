@@ -20,7 +20,7 @@ import {
   decodeButtonId,
   historyRefs,
   lastOffer,
-  AGENT_HISTORY_KEPT,
+  keepRecentTurns,
   AGENT_ID_KEYS,
   type WhatsAppButton,
   isEmojiOnlyMessage,
@@ -174,13 +174,6 @@ import { WhatsAppLinkService } from "./whatsapp-link.service";
 const FEATURE_ID = "voice_intake";
 /** הזכאות של המנטור — אותו מפתח כמו `feature` בפעולות `mentor_*` בקטלוג. */
 const MENTOR_FEATURE = "ai_coach";
-/**
- * כמה תורות נשמרים לזיכרון השיחה.
- *
- * מהחבילה המשותפת ולא כמספר כאן: סבב ההתראות ב-Worker כותב לאותו
- * שדה, ושני חלונות שונים היו חותכים זה את זה.
- */
-const HISTORY_KEPT = AGENT_HISTORY_KEPT;
 /** כמה מזהי הודעות נשמרים ל-Idempotency — Meta חוזר תוך דקות. */
 const HANDLED_KEPT = 30;
 /** המענה השיווקי למספר לא רשום — לכל היותר פעם בשבוע לכל מספר. */
@@ -2242,7 +2235,7 @@ export class WhatsAppAssistantService {
       prior
         ? { action: prior.proposal.actionId, params: this.paramsOf(prior) }
         : undefined,
-      chat.history.slice(-HISTORY_KEPT),
+      keepRecentTurns(chat.history),
       "whatsapp",
       speaker,
       pin,
@@ -2417,7 +2410,8 @@ export class WhatsAppAssistantService {
    * בפועל.
    */
   private remember(chat: ChatState, turn: AgentHistoryTurn): void {
-    chat.history = [...chat.history.slice(-(HISTORY_KEPT - 1)), turn];
+    // ‏אותו חלון כמו בשמירה — עדכוני הסוכן אינם דוחקים את המתווך
+    chat.history = keepRecentTurns([...chat.history, turn]);
     chat.added = [...chat.added, turn];
   }
 

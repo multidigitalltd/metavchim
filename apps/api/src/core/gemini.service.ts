@@ -83,6 +83,22 @@ export interface GeminiImage {
   data: string;
 }
 
+/**
+ * ‏רמת החשיבה של המודל. `low` היא ברירת המחדל — חילוץ צר בטמפרטורה
+ * ‏0, ואסימוני החשיבה מחויבים כפלט. `medium` לפירוש שיחה שבה ההקשר
+ * ‏הוא כל העניין: „לו”, „הזול מביניהם”, תיקון להצעה קודמת.
+ */
+export type GeminiThinkingLevel = "low" | "medium";
+
+/** ‏מה שקריאה אחת למודל נושאת — מהממשק הציבורי ועד הניסיון הבודד. */
+interface CallOptions {
+  responseSchema?: Record<string, unknown>;
+  maxOutputTokens?: number;
+  timeoutMs?: number;
+  image?: GeminiImage;
+  thinkingLevel?: GeminiThinkingLevel;
+}
+
 @Injectable()
 export class GeminiService {
   private readonly logger = new Logger(GeminiService.name);
@@ -264,7 +280,7 @@ export class GeminiService {
   async generateStructuredDetailed(
     prompt: string,
     responseSchema: Record<string, unknown>,
-    options: { maxOutputTokens?: number; timeoutMs?: number; image?: GeminiImage } = {},
+    options: Omit<CallOptions, "responseSchema"> = {},
   ): Promise<{ value: unknown | null; model: string; latencyMs: number; usage?: GeminiUsage }> {
     const started = Date.now();
     const result = await this.callDetailed(prompt, {
@@ -277,6 +293,7 @@ export class GeminiService {
        */
       timeoutMs: options.timeoutMs ?? (options.image === undefined ? 12_000 : 30_000),
       ...(options.image === undefined ? {} : { image: options.image }),
+      ...(options.thinkingLevel === undefined ? {} : { thinkingLevel: options.thinkingLevel }),
     });
     return {
       value: result.value,
@@ -288,12 +305,7 @@ export class GeminiService {
 
   private async call(
     prompt: string,
-    options: {
-      responseSchema?: Record<string, unknown>;
-      maxOutputTokens?: number;
-      timeoutMs?: number;
-      image?: GeminiImage;
-    },
+    options: CallOptions,
   ): Promise<unknown | null> {
     return (await this.callDetailed(prompt, options)).value;
   }
@@ -341,14 +353,17 @@ export class GeminiService {
    */
   private thinkingRejectedFor: string | null = null;
 
+  /**
+   * ‏מודל שדחה רמת חשיבה **גבוהה מברירת המחדל** — אבל קיבל את `low`.
+   *
+   * ‏נפרד מ-`thinkingRejectedFor` בכוונה: דחייה של `medium` אינה סיבה
+   * ‏לבטל את ההגבלה כולה, שמחזיקה את העלות של כל שאר הקריאות.
+   */
+  private higherThinkingRejectedFor: string | null = null;
+
   private async callDetailed(
     prompt: string,
-    options: {
-      responseSchema?: Record<string, unknown>;
-      maxOutputTokens?: number;
-      timeoutMs?: number;
-      image?: GeminiImage;
-    },
+    options: CallOptions,
   ): Promise<{ value: unknown | null; error?: string; model?: string; usage?: GeminiUsage }> {
     const key = await this.apiKey();
     if (key === "") return { value: null, error: "לא מוגדר מפתח Gemini" };
@@ -401,12 +416,7 @@ export class GeminiService {
     model: string,
     key: string,
     prompt: string,
-    options: {
-      responseSchema?: Record<string, unknown>;
-      maxOutputTokens?: number;
-      timeoutMs?: number;
-      image?: GeminiImage;
-    },
+    options: CallOptions,
   ): Promise<{
     value: unknown | null;
     error?: string;
@@ -451,12 +461,7 @@ export class GeminiService {
     model: string,
     key: string,
     prompt: string,
-    options: {
-      responseSchema?: Record<string, unknown>;
-      maxOutputTokens?: number;
-      timeoutMs?: number;
-      image?: GeminiImage;
-    },
+    options: CallOptions,
   ): Promise<{
     value: unknown | null;
     error?: string;
@@ -466,9 +471,26 @@ export class GeminiService {
     usage?: GeminiUsage;
   }> {
     const withThinkingCap = this.thinkingRejectedFor !== model;
-    const first = await this.rawAttempt(model, key, prompt, options, withThinkingCap);
+    const wanted = options.thinkingLevel ?? "low";
+    const level = this.higherThinkingRejectedFor === model ? "low" : wanted;
+    const first = await this.rawAttempt(model, key, prompt, options, withThinkingCap ? level : null);
     if (first.badRequest === true && withThinkingCap) {
-      const retry = await this.rawAttempt(model, key, prompt, options, false);
+      /*
+       * ‏רמה גבוהה שנדחתה — קודם ברירת המחדל, ורק אחריה בלי הגבלה.
+       * ‏מודל שאינו מכיר `medium` מכיר בדרך כלל את `low`, ומעבר ישר
+       * ‏ל„בלי הגבלה” היה מייקר את כל הקריאות שלו מכאן והלאה.
+       */
+      if (level !== "low") {
+        const lower = await this.rawAttempt(model, key, prompt, options, "low");
+        if (lower.badRequest !== true) {
+          this.higherThinkingRejectedFor = model;
+          this.logger.warn(
+            `המודל ${model} דוחה רמת חשיבה ${level} — ממשיכים ברמה הנמוכה.`,
+          );
+          return lower;
+        }
+      }
+      const retry = await this.rawAttempt(model, key, prompt, options, null);
       /*
        * הצליח (או לפחות כבר לא 400) בלי ההגבלה — היא הייתה הבעיה.
        * נשאר 400 גם בלעדיה — הסיבה אחרת (כנראה הסכימה), והכשל
@@ -490,13 +512,9 @@ export class GeminiService {
     model: string,
     key: string,
     prompt: string,
-    options: {
-      responseSchema?: Record<string, unknown>;
-      maxOutputTokens?: number;
-      timeoutMs?: number;
-      image?: GeminiImage;
-    },
-    withThinkingCap: boolean,
+    options: CallOptions,
+    /** ‏`null` = בלי הגבלת חשיבה — למודל שאינו מכיר את השדה */
+    thinking: GeminiThinkingLevel | null,
   ): Promise<{
     value: unknown | null;
     error?: string;
@@ -541,7 +559,7 @@ export class GeminiService {
               // דטרמיניזם עדיף על יצירתיות — זה חילוץ, לא כתיבה
               temperature: 0,
               maxOutputTokens: options.maxOutputTokens ?? 1_024,
-              ...(withThinkingCap ? { thinkingConfig: { thinkingLevel: "low" } } : {}),
+              ...(thinking === null ? {} : { thinkingConfig: { thinkingLevel: thinking } }),
             },
           }),
           signal: AbortSignal.timeout(options.timeoutMs ?? 5_000),

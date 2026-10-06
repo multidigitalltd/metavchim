@@ -29,8 +29,65 @@ import type { AgentHistoryRef, AgentHistoryTurn } from "./prompt.js";
  * כאן ולא בשירות, כי **שני** כותבים נוגעים באותו שדה: מענה הסוכן
  * ב-API וסבב ההתראות ב-Worker. שני מספרים היו נחתכים זה את זה —
  * הצד עם החלון הקטן היה מוחק בכל כתיבה את מה שהצד השני שמר.
+ *
+ * ‎**שש היו מעט מדי** (בעל המוצר: „לא מבין הקשרים”). שיחת עבודה
+ * ‏אמיתית — חיפוש, כרטיס, תיקון, עוד שאלה על אותו לקוח — חוצה שש
+ * ‏תורות תוך דקות, ושלוש התראות באמצע דחקו את מה שהמתווך אמר רגע
+ * ‏קודם. הפרומפט נשאר בגבולות סבירים: הקטלוג הוא רובו, והוא קבוע.
  */
-export const AGENT_HISTORY_KEPT = 6;
+export const AGENT_HISTORY_KEPT = 16;
+
+/**
+ * ‎**כמה עדכונים של הסוכן נשמרים בתוך החלון — לא יותר.**
+ *
+ * ‏התראות מגיעות בצרורות (שיחה שלא נענתה, ליד, תזכורת), וכל אחת
+ * ‏היא תור. בלי תקרה משלהן הן דוחקות את מה שהמתווך עצמו ביקש —
+ * ‏כלומר את ההקשר שהוא באמת ממשיך. ארבע מספיקות ל„אליו” על
+ * ‏העדכונים האחרונים; ישנות יותר כבר אינן „הוא” של אף משפט.
+ */
+export const AGENT_NOTICE_TURNS_KEPT = 4;
+
+/**
+ * ‎**חלון השיחה — פונקציה אחת לכל מי שחותך.**
+ *
+ * ‏מהחדש לישן: תורות של המתווך נשמרים עד התקרה, ועדכונים של הסוכן
+ * ‏(`origin: "assistant"`) רק עד `AGENT_NOTICE_TURNS_KEPT` האחרונים.
+ * ‏הסדר המקורי נשמר — זו שיחה, וההמשך שלה תלוי בסדר.
+ */
+export function keepRecentTurns(turns: readonly AgentHistoryTurn[]): AgentHistoryTurn[] {
+  const kept: AgentHistoryTurn[] = [];
+  let notices = 0;
+  for (let i = turns.length - 1; i >= 0 && kept.length < AGENT_HISTORY_KEPT; i -= 1) {
+    const turn = turns[i]!;
+    if (turn.origin === "assistant") {
+      if (notices >= AGENT_NOTICE_TURNS_KEPT) continue;
+      notices += 1;
+    }
+    kept.push(turn);
+  }
+  return kept.reverse();
+}
+
+/**
+ * ‎**הרשומה שעליה מדברים עכשיו** — או `null` כשאין אחת כזו.
+ *
+ * ‏„תוסיף לו הערה”, „תקבע לה סיור”, „כמה הנכס הזה עולה” — בלי שם.
+ * ‏התשובה היא הרשומה היחידה שהתור האחרון שנגע ברשומות הציג או שינה:
+ * ‏כרטיס שנפתח, קונה שנוצר, ליד מהעדכון. תור שהציג **רשימה** אינו
+ * ‏נושא — „לו” אחרי חמישה קונים הוא שאלה, לא תשובה — ולכן החיפוש
+ * ‏נעצר שם ואינו ממשיך אחורה לנושא ישן יותר.
+ *
+ * ‏תורות בלי רשומות (שיחה חופשית, „תודה”) אינם מחליפים נושא, והחיפוש
+ * ‏ממשיך מעליהם אחורה.
+ */
+export function currentSubject(history: readonly AgentHistoryTurn[]): AgentHistoryRef | null {
+  for (let i = history.length - 1; i >= 0; i -= 1) {
+    const refs = history[i]!.refs ?? [];
+    if (refs.length === 0) continue;
+    return refs.length === 1 ? refs[0]! : null;
+  }
+  return null;
+}
 
 /**
  * ‎**ליבת האחסון של שיחת הסוכן — פעם אחת, לשלושת הכותבים.**
@@ -79,7 +136,7 @@ export function mergeStoredTurns(
   stored: readonly AgentHistoryTurn[],
   added: readonly AgentHistoryTurn[],
 ): AgentHistoryTurn[] {
-  return [...stored, ...added].slice(-AGENT_HISTORY_KEPT);
+  return keepRecentTurns([...stored, ...added]);
 }
 
 /**

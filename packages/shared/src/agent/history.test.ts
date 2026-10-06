@@ -1,11 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
   AGENT_HISTORY_KEPT,
+  AGENT_NOTICE_TURNS_KEPT,
   AGENT_RESULT_ROWS,
   agentTurnRefs,
   assistantMemoryTurn,
   conversationLockKey,
+  currentSubject,
   historyRefs,
+  keepRecentTurns,
   matchHistoryRef,
   mergeStoredTurns,
   parseStoredTurns,
@@ -282,14 +285,106 @@ describe("ליבת אחסון השיחה — פירוק ומיזוג", () => {
   });
 
   it("המיזוג מוסיף בסוף וחותך בתקרה אחת — הישן יוצא ראשון", () => {
-    const stored = [1, 2, 3, 4, 5, 6].map((n) => turn(String(n)));
-    const merged = mergeStoredTurns(stored, [turn("7")]);
+    const stored = Array.from({ length: AGENT_HISTORY_KEPT }, (_, i) => turn(String(i + 1)));
+    const merged = mergeStoredTurns(stored, [turn("new")]);
     expect(merged).toHaveLength(AGENT_HISTORY_KEPT);
     expect(merged[0]?.transcript).toBe("2");
-    expect(merged.at(-1)?.transcript).toBe("7");
+    expect(merged.at(-1)?.transcript).toBe("new");
   });
 
   it("מפתח המנעול זהה לכל הכותבים — נגזר מהמשרד והמשתמש", () => {
     expect(conversationLockKey("t1", "u1")).toBe("wa-chat:t1:u1");
+  });
+});
+
+/*
+ * ‎**חלון השיחה — עדכוני הסוכן אינם דוחקים את המתווך** (בעל המוצר:
+ * ‏„לא מבין הקשרים”). צרור התראות באמצע שיחה מחק קודם את מה שהמתווך
+ * ‏ביקש רגע לפניו, כי כל התראה היא תור.
+ */
+describe("keepRecentTurns — חלון השיחה", () => {
+  const said = (transcript: string): AgentHistoryTurn => ({
+    transcript,
+    action: "search",
+    params: {},
+  });
+  const notice = (transcript: string): AgentHistoryTurn => ({
+    transcript,
+    action: "notify",
+    params: {},
+    origin: "assistant",
+  });
+
+  it("צרור התראות אינו מוחק את מה שהמתווך אמר", () => {
+    const turns = [said("קונים בגבעתיים"), ...Array.from({ length: 20 }, (_, i) => notice(`עדכון ${i}`))];
+    const kept = keepRecentTurns(turns);
+    expect(kept[0]?.transcript).toBe("קונים בגבעתיים");
+    expect(kept.filter((t) => t.origin === "assistant")).toHaveLength(AGENT_NOTICE_TURNS_KEPT);
+    // ‏נשמרים העדכונים **האחרונים**, לפי הסדר
+    expect(kept.at(-1)?.transcript).toBe("עדכון 19");
+  });
+
+  it("הסדר המקורי נשמר — גם כשתורות התערבבו", () => {
+    const turns = [said("א"), notice("1"), said("ב"), notice("2"), said("ג")];
+    expect(keepRecentTurns(turns).map((t) => t.transcript)).toEqual(["א", "1", "ב", "2", "ג"]);
+  });
+
+  it("התקרה הכוללת נשמרת — הישן ביותר יוצא", () => {
+    const turns = Array.from({ length: AGENT_HISTORY_KEPT + 5 }, (_, i) => said(String(i)));
+    const kept = keepRecentTurns(turns);
+    expect(kept).toHaveLength(AGENT_HISTORY_KEPT);
+    expect(kept[0]?.transcript).toBe("5");
+  });
+});
+
+/*
+ * ‎**הנושא — הרשומה היחידה שהתור האחרון נגע בה.** „תוסיף לו הערה”
+ * ‏אחרי כרטיס הוא הכרטיס; אחרי רשימה של חמישה — אין „הוא” אחד.
+ */
+describe("currentSubject — הרשומה שעליה מדברים עכשיו", () => {
+  const buyer: AgentHistoryRef = { label: "משה כהן", entityType: "buyer", entityId: LEAD_ID };
+  const property: AgentHistoryRef = { label: "הרצל 5", entityType: "property", entityId: PROP_ID };
+  const with_ = (refs: AgentHistoryRef[]): AgentHistoryTurn => ({
+    transcript: "x",
+    action: "show_card",
+    params: {},
+    refs,
+  });
+  const chat = (): AgentHistoryTurn => ({ transcript: "תודה", action: "unknown", params: {}, reply: "בשמחה" });
+
+  it("כרטיס שנפתח — הוא הנושא, גם אחרי שיחה חופשית", () => {
+    expect(currentSubject([with_([buyer]), chat()])).toEqual(buyer);
+  });
+
+  it("רשימה אחרי הכרטיס — אין נושא אחד, ואין חזרה לכרטיס הישן", () => {
+    expect(currentSubject([with_([buyer]), with_([buyer, property])])).toBeNull();
+  });
+
+  it("רשומה חדשה מחליפה את הנושא", () => {
+    expect(currentSubject([with_([buyer]), with_([property])])).toEqual(property);
+  });
+
+  it("שיחה בלי רשומות — אין נושא", () => {
+    expect(currentSubject([chat()])).toBeNull();
+  });
+
+  it("הנושא מופיע בפרומפט עם הסימון, וסוג הרשומה בלי שום פרט שלה", () => {
+    const prompt = buildInterpretPrompt("תוסיף לו הערה", {
+      nowText: "יום שני",
+      allowedActions: ["add_note"],
+      history: [with_([buyer])],
+    });
+    expect(prompt).toContain("## הרשומה שעליה מדברים עכשיו");
+    expect(prompt).toContain("⟪משה כהן⟫ — קונה.");
+    expect(prompt).not.toContain(LEAD_ID);
+  });
+
+  it("בלי נושא — בלי הקטע", () => {
+    const prompt = buildInterpretPrompt("תוסיף לו הערה", {
+      nowText: "יום שני",
+      allowedActions: ["add_note"],
+      history: [with_([buyer, property])],
+    });
+    expect(prompt).not.toContain("## הרשומה שעליה מדברים עכשיו");
   });
 });
