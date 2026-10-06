@@ -368,6 +368,25 @@ describe("currentSubject — הרשומה שעליה מדברים עכשיו", (
     expect(currentSubject([chat()])).toBeNull();
   });
 
+  /*
+   * ‏רשימת שיחות או פגישות — שורות בלי הפניה. היא אינה „שיחה”, ולכן אינה
+   * ‏שקופה: „תוסיף לו הערה” אחריה אינו על הקונה שנפתח לפניה (ביקורת Codex).
+   */
+  it("רשימה בלי הפניות אחרי הכרטיס — אין נושא, ולא חזרה לכרטיס", () => {
+    const calls: AgentHistoryTurn = { transcript: "שיחות אחרונות", action: "show_calls", params: {} };
+    expect(currentSubject([with_([buyer]), calls])).toBeNull();
+  });
+
+  it("עדכון של הסוכן בלי רשומה — גם הוא מכריע", () => {
+    const brief: AgentHistoryTurn = {
+      transcript: 'שלחתי לך את דו"ח הבוקר',
+      action: "notify",
+      params: {},
+      origin: "assistant",
+    };
+    expect(currentSubject([with_([buyer]), brief])).toBeNull();
+  });
+
   it("הנושא מופיע בפרומפט עם הסימון, וסוג הרשומה בלי שום פרט שלה", () => {
     const prompt = buildInterpretPrompt("תוסיף לו הערה", {
       nowText: "יום שני",

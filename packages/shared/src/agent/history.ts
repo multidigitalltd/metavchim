@@ -77,13 +77,17 @@ export function keepRecentTurns(turns: readonly AgentHistoryTurn[]): AgentHistor
  * ‏נושא — „לו” אחרי חמישה קונים הוא שאלה, לא תשובה — ולכן החיפוש
  * ‏נעצר שם ואינו ממשיך אחורה לנושא ישן יותר.
  *
- * ‏תורות בלי רשומות (שיחה חופשית, „תודה”) אינם מחליפים נושא, והחיפוש
- * ‏ממשיך מעליהם אחורה.
+ * ‏רק תור **שיחתי** (תשובה חופשית, „תודה” — `action: "unknown"`) אינו
+ * ‏מחליף נושא, והחיפוש ממשיך מעליו אחורה. כל תור אחר מכריע — גם רשימה
+ * ‏שלשורות שלה אין הפניה (שיחות, פגישות, הצעות): „תוסיף לו הערה” אחרי
+ * ‏רשימת שיחות אינו מדבר על הקונה שנפתח לפניה, והחזרתו כנושא הייתה
+ * ‏מכוונת כתיבה לרשומה הלא נכונה (ביקורת Codex, P1).
  */
 export function currentSubject(history: readonly AgentHistoryTurn[]): AgentHistoryRef | null {
   for (let i = history.length - 1; i >= 0; i -= 1) {
-    const refs = history[i]!.refs ?? [];
-    if (refs.length === 0) continue;
+    const turn = history[i]!;
+    if (turn.action === "unknown") continue;
+    const refs = turn.refs ?? [];
     return refs.length === 1 ? refs[0]! : null;
   }
   return null;
