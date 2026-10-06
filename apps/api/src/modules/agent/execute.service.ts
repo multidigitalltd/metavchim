@@ -76,6 +76,15 @@ import {
   marketRoomBucket,
   marketRoomBucketLabel,
   withoutPhoneNumbers,
+  BID_DECISIONS,
+  BID_SIDE_LABELS,
+  BID_STATUS_LABELS,
+  OPEN_HOUSE_DEFAULT_HOURS,
+  OPEN_HOUSE_DEFAULT_SLOT_MINUTES,
+  OpenHouseCreateSchema,
+  openHouseWhen,
+  shekelsLabel,
+  type BidDecision,
 } from "@metavchim/shared";
 import { isCardAccessible,
   assertContactAccess,
@@ -141,6 +150,9 @@ import { MATCH_LIST_LIMIT, MatchingService } from "../matching/matching.service"
 import { NotificationsService } from "../notifications/notifications.service";
 import { OffersService } from "../offers/offers.service";
 import { PropertiesService } from "../properties/properties.service";
+import { OpenHouseService } from "../properties/open-house.service";
+import { PropertyBidsService, type BidThreadDto } from "../properties/property-bids.service";
+import { PropertyReofferService } from "../properties/property-reoffer.service";
 import { SearchService } from "../search/search.service";
 import { TASK_LIST_SCAN, TasksService } from "../tasks/tasks.service";
 import { MarketService } from "../market/market.service";
@@ -471,6 +483,13 @@ export class AgentExecuteService {
     private readonly practice: MentorPracticeService,
     private readonly forum: ForumService,
     private readonly market: MarketService,
+    /*
+     * ‏מו״מ ושיווק על נכס — אותם שירותים של הלשוניות בכרטיס: הסתרת
+     * ‏שמות קונים, נעילת הנכס והכללים של בית פתוח יושבים שם.
+     */
+    private readonly bids: PropertyBidsService,
+    private readonly openHouse: OpenHouseService,
+    private readonly reoffer: PropertyReofferService,
   ) {}
 
   async execute(
@@ -682,6 +701,18 @@ export class AgentExecuteService {
         return this.showExclusivity(params);
       case "log_marketing_action":
         return this.logMarketingAction(params);
+      case "show_bids":
+        return this.showBids(params);
+      case "log_bid":
+        return this.logBid(params);
+      case "decide_bid":
+        return this.decideBid(params);
+      case "schedule_open_house":
+        return this.scheduleOpenHouse(params);
+      case "price_check":
+        return this.priceCheck(params);
+      case "show_reoffer":
+        return this.showReoffer(params);
       case "show_agreements":
         return this.showAgreements();
       case "show_offers":
@@ -1773,6 +1804,173 @@ export class AgentExecuteService {
     return {
       href: `/properties/${propertyId}`,
       message: `${MARKETING_ACTION_LABEL[kind as MarketingActionKind]} תועדה — ${next.summary}`,
+    };
+  }
+
+  /**
+   * ‎**המו״מ על הנכס — מה על השולחן ומי הציע.** המשפטים הם אותם משפטים
+   * ‏שבדוח למוכר, והשמות מסוננים בשירות: קונה של סוכן אחר נשאר בלי שם.
+   */
+  private async showBids(params: Record<string, unknown>): Promise<ExecuteResult> {
+    const propertyId = requiredProperty(params);
+    const bids = await this.bids.list(propertyId);
+    const href = `/properties/${propertyId}?tab=bids`;
+    if (bids.threads.length === 0) return { href, message: "אין עדיין הצעות מחיר על הנכס" };
+    return {
+      href,
+      message: bids.sentences.join(" "),
+      // ‏כל השרשורים — הסך המדויק לשומר הספירה של התובנה
+      data: { bids: bids.threads.map(bidRow), total: bids.threads.length },
+    };
+  }
+
+  /**
+   * ‎**צעד במו״מ — מהרכב, לא מהמחשב.** הצעד החדש סוגר את הקודם באותו
+   * ‏שרשור (בשירות, תחת נעילת הנכס), ורק לקונה שהדובר רשאי לראות.
+   */
+  private async logBid(params: Record<string, unknown>): Promise<ExecuteResult> {
+    const buyerId = str(params["buyerId"]);
+    if (buyerId === undefined) throw new BadRequestException("לא זוהה הקונה — אמרו את שמו");
+    const propertyId = requiredProperty(params);
+    const amount = num(params["bidShekels"]);
+    if (amount === undefined || amount <= 0) {
+      throw new BadRequestException("אמרו את סכום ההצעה — למשל „2 מיליון 350”");
+    }
+    const side = str(params["bidSide"]) === "seller" ? "seller" : "buyer";
+    const result = await this.bids.create(propertyId, {
+      buyerId,
+      side,
+      amountAgorot: Math.round(amount * 100),
+    });
+    const who = result.threads.find((thread) => thread.buyer.id === buyerId)?.buyer.name ?? "הקונה";
+    return {
+      href: `/properties/${propertyId}?tab=bids`,
+      message: [`נרשמה ${BID_SIDE_LABELS[side]} — ${who}: ${shekelsLabel(amount)}.`, ...result.sentences].join(" "),
+      ...refOf(who, "buyer", buyerId),
+    };
+  }
+
+  /**
+   * ‎**ההכרעה חלה על מה שעל השולחן.** בלי שם קונה — ההצעה הפתוחה
+   * ‏היחידה; כשיש כמה, הסוכן אומר זאת ואינו בוחר בשביל המתווך.
+   */
+  private async decideBid(params: Record<string, unknown>): Promise<ExecuteResult> {
+    const propertyId = requiredProperty(params);
+    const decision = str(params["bidDecision"]);
+    if (!BID_DECISIONS.includes(decision as BidDecision)) {
+      throw new BadRequestException("לא ברור מה הוחלט — ההצעה התקבלה, נדחתה או נמשכה?");
+    }
+    const open = (await this.bids.list(propertyId)).threads.filter((thread) => thread.open !== null);
+    const buyerId = str(params["buyerId"]);
+    const thread =
+      buyerId !== undefined
+        ? open.find((candidate) => candidate.buyer.id === buyerId)
+        : open.length === 1
+          ? open[0]
+          : undefined;
+    if (thread === undefined || thread.open === null) {
+      throw new BadRequestException(
+        buyerId !== undefined
+          ? "אין הצעה פתוחה של הקונה הזה על הנכס"
+          : open.length === 0
+            ? "אין הצעה פתוחה על הנכס"
+            : `יש ${open.length} הצעות פתוחות על הנכס — אמרו של איזה קונה`,
+      );
+    }
+    const result = await this.bids.decide(propertyId, thread.open.id, decision as BidDecision);
+    return {
+      href: `/properties/${propertyId}?tab=bids`,
+      message: [
+        `ההצעה של ${thread.buyer.name} (${shekelsLabel(thread.open.amountAgorot / 100)}) ${BID_STATUS_LABELS[decision as BidDecision]}.`,
+        ...result.sentences,
+      ].join(" "),
+      ...(thread.buyer.visible ? refOf(thread.buyer.name, "buyer", thread.buyer.id) : {}),
+    };
+  }
+
+  /**
+   * ‎**בית פתוח — האירוע וקישור ההרשמה.** האורך והמשבצת נבדקים באותה
+   * ‏סכימה של הטופס; נכס שאינו בשיווק, מועד שעבר ואירוע חופף — בשירות.
+   * ‏הקישור יוצא ב-`link`: הוא נשלח ללקוחות, ולא נזכר.
+   */
+  private async scheduleOpenHouse(params: Record<string, unknown>): Promise<ExecuteResult> {
+    const propertyId = requiredProperty(params);
+    const startsAt = date(params["startsAt"]);
+    if (startsAt === undefined) {
+      throw new BadRequestException("אמרו מתי — למשל „ביום שישי מעשר עד שתיים”");
+    }
+    const hours = num(params["openHouseHours"]) ?? OPEN_HOUSE_DEFAULT_HOURS;
+    const endsAt = new Date(startsAt.getTime() + hours * 3_600_000);
+    const input = OpenHouseCreateSchema.safeParse({
+      startsAt: startsAt.toISOString(),
+      endsAt: endsAt.toISOString(),
+      slotMinutes: Number(str(params["slotMinutes"]) ?? OPEN_HOUSE_DEFAULT_SLOT_MINUTES),
+      slotCapacity: null,
+    });
+    if (!input.success) {
+      throw new BadRequestException(input.error.issues[0]?.message ?? "פרטי הבית הפתוח אינם תקינים");
+    }
+    const result = await this.openHouse.create(propertyId, input.data);
+    return {
+      href: `/properties/${propertyId}?tab=openhouse`,
+      message: `בית פתוח נקבע: ${openHouseWhen(startsAt, endsAt)}, כניסה כל ${input.data.slotMinutes} דקות.${
+        result.registrationUrl === null ? "" : " קישור ההרשמה מצורף — אפשר לשלוח אותו ללקוחות."
+      }`,
+      ...(result.registrationUrl === null ? {} : { link: result.registrationUrl }),
+    };
+  }
+
+  /**
+   * ‎**„מתומחר נכון?” — מול הנכסים של המשרד.** אותו חישוב שבכרטיס:
+   * ‏הממוצע למ״ר בשכונה ובעיר, ועל כמה נכסים הוא נשען — תמיד.
+   */
+  private async priceCheck(params: Record<string, unknown>): Promise<ExecuteResult> {
+    const propertyId = requiredProperty(params);
+    const benchmark = await this.properties.priceBenchmark(propertyId);
+    const href = `/properties/${propertyId}`;
+    if (benchmark.perSqmAgorot === null) {
+      return { href, message: "לנכס חסר מחיר או שטח בכרטיס, ולכן אין מחיר למ״ר להשוות" };
+    }
+    const lines = [`המחיר למ״ר בנכס: ${shekelsLabel(benchmark.perSqmAgorot / 100)}.`];
+    for (const [where, row] of [
+      ["בשכונה", benchmark.neighborhood],
+      ["בעיר", benchmark.city],
+    ] as const) {
+      if (row === null) continue;
+      const gap =
+        row.gapPercent === null
+          ? ""
+          : row.gapPercent === 0
+            ? " — הנכס כמו הממוצע"
+            : ` — הנכס ${row.gapPercent > 0 ? "יקר" : "זול"} ב-${Math.abs(row.gapPercent)}%`;
+      lines.push(
+        `${where} ${row.label}: ממוצע ${shekelsLabel(row.avgPerSqmAgorot / 100)} על ${row.count} נכסים${gap}.`,
+      );
+    }
+    if (lines.length === 1) lines.push("אין מספיק נכסים במשרד באותה שכונה ועיר כדי להשוות.");
+    return { href, message: lines.join(" "), data: { priceBenchmark: benchmark } };
+  }
+
+  /**
+   * ‎**ירד המחיר — למי לחזור.** מי שאמר בסיור „יקר” או דחה התאמה על
+   * ‏המחיר, לפני ההורדה; מי שטרם פנו אליו — ראשון. השירות דורש גם
+   * ‏נכסים וגם קונים, ומסנן לפי בעלות.
+   */
+  private async showReoffer(params: Record<string, unknown>): Promise<ExecuteResult> {
+    const propertyId = requiredProperty(params);
+    const result = await this.reoffer.candidates(propertyId);
+    const href = `/properties/${propertyId}`;
+    if (result.drop === null) {
+      return { href, message: `המחיר של ${result.propertyLabel} לא ירד ב-30 הימים האחרונים — אין למי להציע שוב` };
+    }
+    const drop = `המחיר ירד מ-${shekelsLabel(result.drop.fromAgorot / 100)} ל-${shekelsLabel(result.drop.toAgorot / 100)}`;
+    if (result.candidates.length === 0) {
+      return { href, message: `${drop}, ואף קונה לא אמר לפני ההורדה שהנכס יקר` };
+    }
+    return {
+      href,
+      message: `${drop}. ${result.candidates.length === 1 ? "קונה אחד אמר" : `${result.candidates.length} קונים אמרו`} שהנכס יקר — מי שטרם פנית אליו ראשון.`,
+      data: { reoffer: result.candidates, total: result.candidates.length },
     };
   }
 
@@ -4404,6 +4602,29 @@ export class AgentExecuteService {
 }
 
 // --- קריאה בטוחה מ-`unknown` ---
+
+/** ‏הנכס שהפעולה מדברת עליו — חובה; בלעדיו אין על מה לרשום. */
+function requiredProperty(params: Record<string, unknown>): string {
+  const propertyId = str(params["propertyId"]);
+  if (propertyId === undefined) throw new BadRequestException("לא זוהה הנכס — אמרו על איזה נכס מדובר");
+  return propertyId;
+}
+
+/**
+ * ‏שרשור הצעות ⟵ שורת תוצאה: הצעד האחרון, מי הציע ומה קרה לו. בלי
+ * ‏הערה — טקסט חופשי שהתובנה הייתה שולחת למודל חיצוני.
+ */
+function bidRow(thread: BidThreadDto): Record<string, unknown> {
+  const last = thread.events[0];
+  return {
+    ...(thread.buyer.visible ? { buyerId: thread.buyer.id } : {}),
+    buyerName: thread.buyer.name,
+    side: last?.side,
+    amountAgorot: last?.amountAgorot,
+    status: last?.status,
+    at: thread.lastAt,
+  };
+}
 
 function str(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() !== "" ? value.trim() : undefined;

@@ -78,6 +78,9 @@ const SECTION_NOUNS: Record<string, { plural: string; singular: string }> = {
   tasks: { plural: "משימות|תזכורות", singular: "משימה|תזכורת" },
   appointments: { plural: "פגישות|סיורים|ביקורים", singular: "פגישה|סיור|ביקור" },
   notifications: { plural: "התראות|עדכונים", singular: "התראה|עדכון" },
+  // ‏שורה היא קונה שמתמקח; „הצעות” הן הצעדים בתוכה
+  bids: { plural: "מציעים|קונים|לקוחות", singular: "מציע|קונה|לקוח" },
+  reoffer: { plural: "קונים|לקוחות", singular: "קונה|לקוח" },
 };
 
 /** ‏„שבע תוצאות” — ספירה של השורות בכל רשימה (ביקורת Codex). */

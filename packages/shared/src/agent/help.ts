@@ -133,6 +133,17 @@ const GROUPS: { label: string; ids: readonly string[] }[] = [
     ids: ["show_exclusivity", "start_exclusivity", "log_marketing_action"],
   },
   {
+    label: "מו״מ ושיווק נכס",
+    ids: [
+      "show_bids",
+      "log_bid",
+      "decide_bid",
+      "schedule_open_house",
+      "price_check",
+      "show_reoffer",
+    ],
+  },
+  {
     label: "רשת המשרדים",
     ids: [
       "share_property",

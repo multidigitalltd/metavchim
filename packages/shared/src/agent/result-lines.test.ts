@@ -1331,3 +1331,30 @@ describe("agentResultCount — רק סך שהמפיק הצהיר עליו", () =
     expect(agentResultCount({ buyers: [], leads: [], total: 3 })).toBeNull();
   });
 });
+
+describe("הצעות מחיר ולמי להציע שוב — שורות התוצאה", () => {
+  it("שרשור הצעות: הצעד האחרון, ומי שאינו של הדובר — בלי הפניה", () => {
+    const list = agentResultList({
+      bids: [
+        { buyerId: "01J000000000000000000BUYER", buyerName: "משה כהן", side: "buyer", amountAgorot: 230_000_000, status: "open", at: "2026-10-01T07:00:00Z" },
+        { buyerName: "קונה של סוכן אחר", side: "seller", amountAgorot: 250_000_000, status: "countered", at: "2026-09-30T07:00:00Z" },
+      ],
+    });
+    expect(list?.noun).toBe("הצעות מחיר");
+    expect(list?.rows[0]?.detail).toMatch(/^הצעת הקונה .*2,300,000.* · על השולחן · /u);
+    expect(list?.rows[0]?.ref).toEqual({ entityType: "buyer", entityId: "01J000000000000000000BUYER" });
+    expect(list?.rows[1]?.ref).toBeUndefined();
+  });
+
+  it("קונה להצעה חוזרת: הסיבה ומצב הפנייה נזכרים, הטלפון לא", () => {
+    const data = {
+      reoffer: [
+        { buyerId: "01J000000000000000000BUYER", name: "משה כהן", phone: "050-1234567", reasonLabels: ["אמר בסיור שהמחיר גבוה"], lastViewingAt: null, contactedAt: null },
+      ],
+    };
+    const summary = agentHistorySummary("קונים להצעה חוזרת", data);
+    expect(summary).toContain("משה כהן (אמר בסיור שהמחיר גבוה · טרם פנית)");
+    expect(summary).not.toContain("050-1234567");
+    expect(agentResultText(data)).toContain("050-1234567");
+  });
+});

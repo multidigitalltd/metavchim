@@ -156,3 +156,11 @@ describe("countsWithin — מספרים במילים מעל עשר", () => {
     expect(countsWithin("ביום שני שלושה קונים הגיעו", buyers(3))).toBe(true);
   });
 });
+
+describe("countsWithin — הצעות מחיר על נכס", () => {
+  it("שורה היא קונה שמתמקח; הצעדים בתוכה אינם ספירה של השורות", () => {
+    const bids = { section: "bids", total: 1 };
+    expect(countsWithin("משה הגיש שלוש הצעות עד עכשיו", bids)).toBe(true);
+    expect(countsWithin("שלושה קונים הציעו על הנכס", bids)).toBe(false);
+  });
+});

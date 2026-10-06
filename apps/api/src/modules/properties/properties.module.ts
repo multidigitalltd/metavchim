@@ -76,6 +76,17 @@ import { PropertyTwinsService } from "./property-twins.service";
     OpenHouseService,
     OpenHousePhoneBackfillService,
   ],
-  exports: [PropertiesService, LandingService, PropertyPhotoService],
+  /*
+   * ‏הצעות המחיר, הבית הפתוח וההצעה החוזרת — גם לסוכן, דרך אותם
+   * ‏שירותים: הכללים (הסתרת שמות, נעילה, חפיפה) יושבים בהם ולא בו.
+   */
+  exports: [
+    PropertiesService,
+    LandingService,
+    PropertyPhotoService,
+    PropertyBidsService,
+    OpenHouseService,
+    PropertyReofferService,
+  ],
 })
 export class PropertiesModule {}
