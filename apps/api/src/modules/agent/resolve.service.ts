@@ -242,12 +242,13 @@ export class AgentResolveService {
       }
       /*
        * ‏‎⟪תוצאה N⟫ נקשר לרשימה של **הפעולה הראשית** בלבד — זו שהמתווך
-       * ‏רואה. פעולה ראשית שאינה שאילתה אינה מציגה רשימה, והצעד היה
-       * ‏נכשל רק אחרי שהיא כבר בוצעה.
+       * ‏רואה — ורק לסוג רשומה שהיא מציגה (`chainable`). פעולה ראשית
+       * ‏שכותבת, או רשימה בלי רשומות לבחור (פגישות, שיחות), הייתה מריצה
+       * ‏את הראשית ונכשלת בצעד רק אחריה (ביקורת Codex).
        */
-      if (action.risk !== "read" && this.boundToResult(step.actionId, step.params)) {
+      if (!this.chainsFrom(action.chainable, step.actionId, step.params)) {
         warnings.push(
-          `„${sub.title}” מתייחסת לשורה ברשימה, אבל הפעולה הראשית אינה מציגה רשימה — הריצו אותה בנפרד`,
+          `„${sub.title}” מתייחסת לשורה ברשימה, אבל הפעולה הראשית אינה מציגה רשימה שאפשר לבחור ממנה רשומה כזו — הריצו אותה בנפרד`,
         );
         continue;
       }
@@ -359,11 +360,25 @@ export class AgentResolveService {
     );
   }
 
-  /** ‏האם אחד הביטויים של הפעולה הוא ⟪תוצאה N⟫. */
-  private boundToResult(actionId: string, params: Record<string, unknown>): boolean {
+  /**
+   * ‏האם כל ביטוי ⟪תוצאה N⟫ של הצעד יכול להיקשר לסוג רשומה שהרשימה
+   * ‏הראשית מציגה. צעד בלי סימון כזה — תמיד כן.
+   */
+  private chainsFrom(
+    chainable: readonly AgentHistoryRef["entityType"][] | undefined,
+    actionId: string,
+    params: Record<string, unknown>,
+  ): boolean {
     const spec = ENTITY_LOOKUP[actionId];
-    if (spec === undefined) return false;
-    return [spec, spec.also].some((one) => one !== undefined && resultRefIndex(params[one.key]) !== null);
+    if (spec === undefined) return true;
+    return [spec, spec.also].every(
+      (one) =>
+        one === undefined ||
+        resultRefIndex(params[one.key]) === null ||
+        (chainable ?? []).some(
+          (entityType) => entityRefId(one.kind, { label: "", entityType, entityId: "-" }) !== null,
+        ),
+    );
   }
 
   private async resolveOneForExecution(

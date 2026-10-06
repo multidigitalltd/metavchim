@@ -145,4 +145,17 @@ describe("הכרטיס המשורשר — לפני הביצוע", () => {
     expect(proposal.followUps ?? []).toHaveLength(0);
     expect(proposal.warnings.join(" ")).toContain("אינה מציגה רשימה");
   });
+
+  /*
+   * ‏לשורת פגישה אין רשומה שאפשר לבחור, ולכן „תזיז את השנייה” אחרי
+   * ‏„תראה את הפגישות” יורד לפני האישור — לא נכשל אחרי (ביקורת Codex).
+   */
+  it("רשימה בלי רשומות לבחור (פגישות) — צעד שנקשר לתוצאה יורד, עם אזהרה", async () => {
+    const proposal = await service().toProposal("תראה את הפגישות של היום ותזיז את השנייה לשלוש", {
+      ...chain({ actionId: "reschedule_appointment", params: { buyerPhrase: "⟪תוצאה 2⟫" } }),
+      actionId: "show_schedule",
+    });
+    expect(proposal.followUps ?? []).toHaveLength(0);
+    expect(proposal.warnings.join(" ")).toContain("אינה מציגה רשימה");
+  });
 });
