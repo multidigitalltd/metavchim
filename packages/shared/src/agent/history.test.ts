@@ -377,6 +377,23 @@ describe("currentSubject — הרשומה שעליה מדברים עכשיו", (
     expect(currentSubject([with_([buyer]), calls])).toBeNull();
   });
 
+  /*
+   * ‏במסך, עדכון מההתראות מצורף לסוף בלי חותמת זמן. קונה שנפתח בפאנל
+   * ‏אחרי ההתראה לא יהפוך את הליד מההתראה ל„הוא” (ביקורת Codex, P1).
+   */
+  it("תור שמקומו מנוחש — אין נושא מפורש", () => {
+    const lead: AgentHistoryRef = { label: "הליד מהעדכון", entityType: "lead", entityId: PROP_ID };
+    const guessed: AgentHistoryTurn = {
+      transcript: "עדכנתי אותך על ליד חדש",
+      action: "notify",
+      params: {},
+      origin: "assistant",
+      refs: [lead],
+      unordered: true,
+    };
+    expect(currentSubject([with_([buyer]), guessed])).toBeNull();
+  });
+
   it("עדכון של הסוכן בלי רשומה — גם הוא מכריע", () => {
     const brief: AgentHistoryTurn = {
       transcript: 'שלחתי לך את דו"ח הבוקר',

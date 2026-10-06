@@ -86,6 +86,8 @@ export function keepRecentTurns(turns: readonly AgentHistoryTurn[]): AgentHistor
 export function currentSubject(history: readonly AgentHistoryTurn[]): AgentHistoryRef | null {
   for (let i = history.length - 1; i >= 0; i -= 1) {
     const turn = history[i]!;
+    // ‏סדר מנוחש — אין לדעת מה קדם למה, ולכן אין נושא מפורש
+    if (turn.unordered === true) return null;
     if (turn.action === "unknown") continue;
     const refs = turn.refs ?? [];
     return refs.length === 1 ? refs[0]! : null;

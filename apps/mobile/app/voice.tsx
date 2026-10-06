@@ -6,6 +6,7 @@ import {
   agentHistorySummary,
   agentReplyTurn,
   agentResultText,
+  keepRecentTurns,
   proposalRunsImmediately,
   type AgentHistoryRef,
 } from "@metavchim/shared";
@@ -128,7 +129,8 @@ export default function VoiceScreen() {
 
   /** ‏תור לזיכרון השיחה — המקומי והשמור, לשני סוגי התורות. */
   const keep = useCallback((turn: HistoryTurn) => {
-    history.current = [...history.current, turn].slice(-6);
+    // ‏אותו חלון כמו בשרת, בוואטסאפ ובמסך — פונקציה אחת לכל מי שחותך
+    history.current = keepRecentTurns([...history.current, turn]);
     // השיחה נשמרת גם בשרת — כדי שתימשך בוואטסאפ ובמחשב. בלי המתנה.
     void apiPost("/agent/conversation/turn", turn).catch(() => undefined);
   }, []);

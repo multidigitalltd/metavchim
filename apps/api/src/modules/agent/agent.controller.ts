@@ -11,6 +11,7 @@ import {
   agentAction,
   agentHelpGroups,
   agentWelcomeExamples,
+  keepRecentTurns,
   historyRefs,
   type AgentHelpGroup,
   type AgentHistoryTurn,
@@ -226,12 +227,16 @@ export class AgentController {
      * (הדפדפן שולח אותם כמערך), ולכן אי אפשר למזג את שני המקורות
      * לפי סדר אמיתי. בהיעדר חותמת, „מה שזה עתה קפץ למסך” הוא
      * הניחוש הטוב יותר למה שהמתווך מתכוון אליו כשהוא אומר „אליו”.
+     *
+     * ‎**ולכן הוא מסומן `unordered`.** ניחוש מספיק להקשר — המודל רואה
+     * ‏את העדכון ומחליט — אבל לא ל„נושא הנוכחי” המפורש: קונה שנפתח
+     * ‏בפאנל *אחרי* ההתראה היה מפנה לליד מההתראה (ביקורת Codex, P1).
      */
     const memory = await this.memory.recentTurn();
-    const history = [
+    const history = keepRecentTurns([
       ...((body.history ?? []) as AgentHistoryTurn[]),
-      ...(memory ? [memory] : []),
-    ];
+      ...(memory ? [{ ...memory, unordered: true as const }] : []),
+    ]);
     const interpretation = await this.interpret.interpret(
       body.transcript,
       body.prior as { action: string; params: Record<string, unknown> } | undefined,
