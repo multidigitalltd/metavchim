@@ -146,6 +146,16 @@ describe("הכרטיס המשורשר — לפני הביצוע", () => {
     expect(proposal.warnings.join(" ")).toContain("אינה מציגה רשימה");
   });
 
+  // ‏מוצגות לכל היותר שמונה שורות — לתשיעית אין למה להיקשר (ביקורת Codex)
+  it("מקום מעבר לשורות המוצגות — הצעד יורד לפני הביצוע", async () => {
+    const proposal = await service().toProposal(
+      "תראה את המשימות ותסגור את התשיעית",
+      chain({ actionId: "complete_task", params: { taskPhrase: "⟪תוצאה 9⟫" } }),
+    );
+    expect(proposal.followUps ?? []).toHaveLength(0);
+    expect(proposal.warnings.join(" ")).toContain("מתייחסת לשורה ברשימה");
+  });
+
   /*
    * ‏לשורת פגישה אין רשומה שאפשר לבחור, ולכן „תזיז את השנייה” אחרי
    * ‏„תראה את הפגישות” יורד לפני האישור — לא נכשל אחרי (ביקורת Codex).

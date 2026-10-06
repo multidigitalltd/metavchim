@@ -1,5 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import {
+  AGENT_RESULT_ROWS,
   agentAction,
   agentDegradedNotice,
   AGENT_ACTIONS,
@@ -362,7 +363,8 @@ export class AgentResolveService {
 
   /**
    * ‏האם כל ביטוי ⟪תוצאה N⟫ של הצעד יכול להיקשר לסוג רשומה שהרשימה
-   * ‏הראשית מציגה. צעד בלי סימון כזה — תמיד כן.
+   * ‏הראשית מציגה — ולשורה שמוצגת בה (עד `AGENT_RESULT_ROWS`; מעבר לזה
+   * ‏אין שורה, ביקורת Codex). צעד בלי סימון כזה — תמיד כן.
    */
   private chainsFrom(
     chainable: readonly AgentHistoryRef["entityType"][] | undefined,
@@ -371,14 +373,16 @@ export class AgentResolveService {
   ): boolean {
     const spec = ENTITY_LOOKUP[actionId];
     if (spec === undefined) return true;
-    return [spec, spec.also].every(
-      (one) =>
-        one === undefined ||
-        resultRefIndex(params[one.key]) === null ||
-        (chainable ?? []).some(
-          (entityType) => entityRefId(one.kind, { label: "", entityType, entityId: "-" }) !== null,
-        ),
-    );
+    return [spec, spec.also].every((one) => {
+      const index = one === undefined ? null : resultRefIndex(params[one.key]);
+      return (
+        index === null ||
+        (index <= AGENT_RESULT_ROWS &&
+          (chainable ?? []).some(
+            (entityType) => entityRefId(one!.kind, { label: "", entityType, entityId: "-" }) !== null,
+          ))
+      );
+    });
   }
 
   private async resolveOneForExecution(
