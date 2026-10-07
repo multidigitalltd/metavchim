@@ -60,6 +60,12 @@ export function describeFetchFailure(error: unknown): string {
 /**
  * ‏‎`fetch` עם ניסיון חוזר על תקלת רשת חולפת. ‏`timeoutMs` — לכל ניסיון,
  * ‏ולכן האות נבנה מחדש בכל פעם. ‏`idempotent` — ראו ההסבר למעלה.
+ *
+ * ‏‎**הגוף נקרא כאן, בתוך הניסיון** (ביקורת Codex, P2). ‏`fetch` מסתיים
+ * ‏כשמגיעות הכותרות, וניתוק בזמן קריאת הגוף היה נזרק אצל הקורא — מחוץ
+ * ‏לניסיון החוזר ובלי הסיבה בלוג. התשובה שחוזרת מחזיקה גוף שכבר נקרא
+ * ‏במלואו, ולכן ‎`json()`‏ ו-‎`text()`‏ אצל הקורא אינם נוגעים עוד ברשת.
+ * ‏מתאים לתשובות קטנות (JSON של API) — לא להורדת קבצים.
  */
 export async function resilientFetch(
   url: string,
@@ -68,7 +74,17 @@ export async function resilientFetch(
 ): Promise<Response> {
   for (let attempt = 0; ; attempt += 1) {
     try {
-      return await fetch(url, { ...init, signal: AbortSignal.timeout(options.timeoutMs) });
+      const response = await fetch(url, {
+        ...init,
+        signal: AbortSignal.timeout(options.timeoutMs),
+      });
+      const body = await response.arrayBuffer();
+      // ‏‎204/304 אינם יכולים לשאת גוף, גם לא ריק
+      return new Response(body.byteLength === 0 ? null : body, {
+        status: response.status,
+        statusText: response.statusText,
+        headers: response.headers,
+      });
     } catch (error) {
       const code = fetchFailureCode(error);
       const retryable =
