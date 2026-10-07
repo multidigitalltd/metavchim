@@ -2591,6 +2591,7 @@ export default function PropertyDetailPage({
           priceAgorot={property.priceAgorot ?? null}
           officeName={user?.tenantName ?? "משרד התיווך"}
           canEdit={canEditOwner}
+          canSchedule={canLanding}
           onLoaded={(data) => setOpenHouseCount(upcomingRegistered(data) || undefined)}
         />
       </TabPanel>
