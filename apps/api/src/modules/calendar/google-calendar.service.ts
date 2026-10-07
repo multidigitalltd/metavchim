@@ -10,6 +10,7 @@ import { loadEnv } from "../../config/env";
 import { CryptoService } from "../../core/crypto.service";
 import { PlatformSettingsService } from "../../core/platform-settings.service";
 import { PrismaService } from "../../core/prisma.service";
+import { describeFetchFailure, resilientFetch } from "../../common/outbound-fetch";
 
 /**
  * סנכרון יומן Google — דו-כיווני.
@@ -39,6 +40,14 @@ import { PrismaService } from "../../core/prisma.service";
 
 const AUTH_ENDPOINT = "https://accounts.google.com/o/oauth2/v2/auth";
 const TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token";
+
+interface GoogleRequest {
+  method?: string;
+  body?: URLSearchParams;
+  json?: unknown;
+  token?: string;
+  idempotent?: boolean;
+}
 const CALENDAR_BASE = "https://www.googleapis.com/calendar/v3";
 const SCOPE = "https://www.googleapis.com/auth/calendar.events openid email";
 
@@ -205,9 +214,11 @@ export class GoogleCalendarService {
       client_secret: creds.clientSecret,
       grant_type: "refresh_token",
     });
+    // ‏רענון אסימון חוזר בבטחה — אותו אסימון רענון, אסימון גישה חדש
     const res = await this.fetchJson<{ access_token?: string }>(TOKEN_ENDPOINT, {
       method: "POST",
       body,
+      idempotent: true,
     });
     if (!res.access_token) throw new ServiceUnavailableException("Google לא החזיר אסימון גישה");
     return res.access_token;
@@ -328,30 +339,36 @@ export class GoogleCalendarService {
 
   /** ---------- עזר ---------- */
 
+  /**
+   * ‏‎`idempotent` — כברירת מחדל לפי השיטה: קריאה, עדכון ומחיקה חוזרים בבטחה
+   * ‏על ניתוק; יצירת אירוע והחלפת קוד הרשאה — רק כשהחיבור לא נוצר. ראו
+   * ‏`resilientFetch`.
+   */
   private async fetchRaw(
     url: string,
-    init: { method?: string; body?: URLSearchParams; json?: unknown; token?: string },
+    init: GoogleRequest,
   ): Promise<Response> {
+    const method = init.method ?? "GET";
     const headers: Record<string, string> = {};
     if (init.token) headers.authorization = `Bearer ${init.token}`;
     if (init.json !== undefined) headers["content-type"] = "application/json";
     try {
-      return await fetch(url, {
-        method: init.method ?? "GET",
-        headers,
-        body: init.json !== undefined ? JSON.stringify(init.json) : init.body,
-        signal: AbortSignal.timeout(20_000),
-      });
+      return await resilientFetch(
+        url,
+        {
+          method,
+          headers,
+          body: init.json !== undefined ? JSON.stringify(init.json) : init.body,
+        },
+        { idempotent: init.idempotent ?? method !== "POST", timeoutMs: 20_000 },
+      );
     } catch (error) {
-      this.logger.error(`Google Calendar אינו נגיש: ${String(error)}`);
+      this.logger.error(`Google Calendar אינו נגיש: ${describeFetchFailure(error)}`);
       throw new ServiceUnavailableException("יומן Google אינו זמין כרגע");
     }
   }
 
-  private async fetchJson<T>(
-    url: string,
-    init: { method?: string; body?: URLSearchParams; json?: unknown; token?: string },
-  ): Promise<T> {
+  private async fetchJson<T>(url: string, init: GoogleRequest): Promise<T> {
     const res = await this.fetchRaw(url, init);
     if (!res.ok) {
       const detail = await res.text().catch(() => "");
