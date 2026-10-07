@@ -1,5 +1,5 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { join, relative } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
@@ -129,5 +129,48 @@ describe("תזכורות ההפעלה", () => {
     expect(SERVICE).toContain('this.settings.get("partnerPlanCode")');
     expect(SERVICE).toMatch(/this\.plans\.byCode\(code\)/u);
     expect(SERVICE, "שם מסלול כתוב בקוד").not.toMatch(/partnerPlanName = "/u);
+  });
+});
+
+/*
+ * ‎**ההסרה עוצרת דיוור — ולא שום מייל אחר.**
+ *
+ * ‏דף ההסרה מבטיח שהודעות חיוב והודעות תפעוליות ממשיכות להגיע. ההבטחה
+ * ‏מתקיימת כי רק שני שולחים קוראים את ההסרה: תזכורות סיום הניסיון
+ * ‏ומסלול ההמרה (דרך `ActivationNudgeService`). שולח שלישי שיקרא אותה —
+ * ‏או ישאל את השירות למי מותר לשלוח — היה משתיק בשקט חשבונית או איפוס
+ * ‏סיסמה למי שביקש רק להפסיק לקבל מדריכים.
+ */
+describe("מי קורא את ההסרה מהדיוור", () => {
+  const SRC = join(import.meta.dirname, "..");
+  const READERS = new Set([
+    "core/activation-nudge.service.ts",
+    "core/core.module.ts",
+    "modules/funnel-send/funnel-send.service.ts",
+    // ‏הכותב היחיד — דף ההסרה הציבורי
+    "modules/settings/activation-nudge.controller.ts",
+    // ‏מחיקת החשבון מוחקת גם את שורות ההסרה
+    "modules/settings/account-deletion.service.ts",
+  ]);
+
+  function sources(dir: string, out: string[] = []): string[] {
+    for (const entry of readdirSync(dir)) {
+      const path = join(dir, entry);
+      if (statSync(path).isDirectory()) sources(path, out);
+      else if (entry.endsWith(".ts") && !entry.includes(".test.")) out.push(path);
+    }
+    return out;
+  }
+
+  it("רק תזכורות הניסיון ומסלול ההמרה", () => {
+    const offenders = sources(SRC)
+      .filter((file) =>
+        /nudgeOptOut|activationNudgeOptOut|ActivationNudgeService/u.test(
+          code(relative(import.meta.dirname, file)),
+        ),
+      )
+      .map((file) => relative(SRC, file).split("\\").join("/"))
+      .filter((file) => !READERS.has(file));
+    expect(offenders, "שולח נוסף קורא את ההסרה מהדיוור").toEqual([]);
   });
 });
