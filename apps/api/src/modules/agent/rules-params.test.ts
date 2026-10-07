@@ -29,7 +29,7 @@ type WithRules = {
 
 const params = (actionId: string, transcript: string): Record<string, unknown> =>
   (
-    new AgentInterpretService(null as never, null as never) as unknown as WithRules
+    new AgentInterpretService(null as never, null as never, null as never) as unknown as WithRules
   ).rulesParams(actionId, transcript);
 
 describe("מה שהרצפה מחלצת", () => {

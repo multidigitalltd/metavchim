@@ -3,13 +3,12 @@ import {
   AGENT_RESULT_ROWS,
   agentAction,
   agentDegradedNotice,
-  AGENT_ACTIONS,
   agentFieldLabel,
   formatFieldValue,
   matchHistoryRef,
   resultRefDisplay,
   resultRefIndex,
-  mayUseAction,
+  availableAgentActions,
   normalizePhone,
   parseHebrewDateTime,
   PhoneSchema,
@@ -283,38 +282,18 @@ export class AgentResolveService {
    * נפתרות כאן אוטומטית — הבחירה המפורשת היא חלק מהפעולה.
    */
   /**
-   * מה שמותר למתווך הזה — לצורך „מה עדיין עובד” בלבד.
-   *
-   * אותה גזירה כמו ב-`AgentInterpretService.allowedActions`, ולא
-   * העתק שלה: שתיהן קוראות `mayUseAction` על אותו קטלוג ועל אותן
-   * יכולות. הצעה לפעולה חסומה גרועה מהיעדר הצעה.
+   * מה שמותר למתווך הזה — לצורך „מה עדיין עובד” בלבד. הצעה לפעולה
+   * חסומה גרועה מהיעדר הצעה.
    */
   private async allowedActionIds(): Promise<string[]> {
     const ctx = TenantContext.current();
-    const byRole = AGENT_ACTIONS.filter((action) => mayUseAction(action, ctx.capabilities));
-
     /*
-     * ‎**הרשאה אינה זכאות.** `mayUseAction` בודק את התפקיד בלבד;
-     * פעולה יכולה לדרוש גם תכונה במסלול, והביצוע דוחה בלעדיה. סוכן
-     * עם `analytics.view` במשרד שאין לו `analytics` היה מקבל „דוח
-     * המשרד” ברשימת מה שכן עובד — ונדחה כשינסה (ביקורת Codex).
-     * כלומר בדיוק הקיר השני שהרשימה נועדה למנוע.
-     *
-     * כל תכונה נבדקת פעם אחת: הקטלוג חוזר על אותן תכונות בעשרות
-     * פעולות, ובדיקה לכל אחת הייתה עשרות שאילתות על מסלול יחיד.
+     * ‎**הרשאה אינה זכאות** — התפקיד וגם המסלול, באותה גזירה שהפירוש
+     * ‏משתמש בה (`availableAgentActions`). „דוח המשרד” למשרד שאין לו
+     * ‏`analytics` היה מופיע ב„מה שכן עובד” ונדחה כשינסו (ביקורת Codex).
      */
-    const features = [...new Set(byRole.flatMap((a) => (a.feature ? [a.feature] : [])))];
-    const granted = new Map(
-      await Promise.all(
-        features.map(
-          async (feature) =>
-            [feature, await this.plans.tenantHasFeature(ctx.tenantId, feature)] as const,
-        ),
-      ),
-    );
-    return byRole
-      .filter((action) => action.feature === undefined || granted.get(action.feature) === true)
-      .map((a) => a.id);
+    const features = new Set(await this.plans.tenantFeatures(ctx.tenantId));
+    return availableAgentActions(ctx.capabilities, features).map((action) => action.id);
   }
 
   async resolveForExecution(
