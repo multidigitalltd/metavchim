@@ -2,6 +2,7 @@ import { Injectable, Logger, UnauthorizedException } from "@nestjs/common";
 import { randomBytes } from "node:crypto";
 import { loadEnv } from "../../config/env";
 import { PlatformSettingsService } from "../../core/platform-settings.service";
+import { describeFetchFailure, resilientFetch } from "../../common/outbound-fetch";
 
 /**
  * התחברות עם Google (OpenID Connect, Authorization Code).
@@ -88,18 +89,22 @@ export class GoogleAuthService {
 
     let payload: Record<string, unknown>;
     try {
-      const res = await fetch(TOKEN_ENDPOINT, {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({
-          code,
-          client_id: creds.clientId,
-          client_secret: creds.clientSecret,
-          redirect_uri: this.redirectUri(),
-          grant_type: "authorization_code",
-        }),
-        signal: AbortSignal.timeout(TOKEN_TIMEOUT_MS),
-      });
+      // ‏הקוד חד-פעמי — נשלח שוב רק כשהחיבור לא נוצר (ראו `resilientFetch`)
+      const res = await resilientFetch(
+        TOKEN_ENDPOINT,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: new URLSearchParams({
+            code,
+            client_id: creds.clientId,
+            client_secret: creds.clientSecret,
+            redirect_uri: this.redirectUri(),
+            grant_type: "authorization_code",
+          }),
+        },
+        { idempotent: false, timeoutMs: TOKEN_TIMEOUT_MS },
+      );
       if (!res.ok) {
         this.logger.warn(`החלפת קוד מול Google נכשלה: ${res.status}`);
         throw new UnauthorizedException("ההתחברות עם Google נכשלה");
@@ -109,7 +114,7 @@ export class GoogleAuthService {
       payload = decodeJwtPayload(body.id_token);
     } catch (error) {
       if (error instanceof UnauthorizedException) throw error;
-      this.logger.error(`שגיאת תקשורת מול Google: ${String(error)}`);
+      this.logger.error(`שגיאת תקשורת מול Google: ${describeFetchFailure(error)}`);
       throw new UnauthorizedException("ההתחברות עם Google נכשלה");
     }
 
