@@ -43,7 +43,7 @@ import {
   type WhatsAppNotifyPrefs,
 } from "@metavchim/shared";
 import { prisma, withTenant } from "../runtime.js";
-import { tenantFeatures, tenantHasFeature } from "../tenant-settings.js";
+import { tenantFeatures } from "../tenant-settings.js";
 import {
   jerusalemHour,
   sendWhatsApp,
@@ -269,8 +269,13 @@ export async function processWhatsAppNotifySweep(): Promise<void> {
   const tenants = await prisma.tenant.findMany({ select: { id: true, blockedModules: true } });
 
   for (const tenant of tenants) {
-    // אותו שער כמו הסוכן עצמו: הדחיפה היא חלק מהפיצ'ר, לא תוספת חינם
-    if (!(await tenantHasFeature(tenant.id, "voice_intake"))) continue;
+    /*
+     * ‏זכאות המסלול — פעם אחת למשרד: אותו שער כמו הסוכן עצמו (הדחיפה
+     * ‏היא חלק מהפיצ'ר, לא תוספת חינם), ואותה קבוצה מסננת אחר כך את
+     * ‏הכפתורים שההודעה מציעה.
+     */
+    const features = new Set(await tenantFeatures(tenant.id));
+    if (!features.has("voice_intake")) continue;
 
     const pending = await withTenant(tenant.id, async (tx) => {
       return tx.notification.findMany({
@@ -355,8 +360,6 @@ export async function processWhatsAppNotifySweep(): Promise<void> {
     const capsOf = await capabilitiesByUser(tenant.id, users, tenant.blockedModules, now);
     /* ‏העוגנים פעם אחת למשרד — הם אינם תלויים בנמען */
     const anchorSubjects = await notificationAnchorSubjects(tenant.id, pending);
-    // ‏זכאות המסלול — פעם אחת למשרד, כמו החריגים
-    const features = new Set(await tenantFeatures(tenant.id));
 
     const recipients = new Map<string, WaRecipient>();
     for (const user of users) {
