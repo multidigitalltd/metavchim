@@ -315,6 +315,8 @@ export class ActivationNudgeService {
            */
           idempotency: { key: `nudge:${stage}:${owner.id}`, purpose: "nudge" },
           required: true,
+          // ‏דיוור עם קישור הסרה — בערוץ הדיוור, לא לצד החשבוניות
+          mailing: true,
         });
         delivered += 1;
       }

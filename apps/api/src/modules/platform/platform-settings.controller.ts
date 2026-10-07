@@ -67,6 +67,10 @@ const UpdateSettingsSchema = z
     /** טוקן ה-Account — ניהול דומיינים שמשרדים מחברים; נפרד מטוקן השרת */
     postmarkAccountToken: z.union([z.string().trim().min(16).max(200), z.literal("")]).optional(),
     emailFrom: OptionalEmailSchema.optional(),
+    /** ‏ערוץ הדיוור ב-Postmark — הכלל של הספק: מתחיל באות, עד 30 תווים */
+    emailBroadcastStream: z
+      .union([z.string().trim().regex(/^[A-Za-z][A-Za-z0-9_-]{0,29}$/u), z.literal("")])
+      .optional(),
     /** תיבת הדואר הפנימית — כתובת ה-Inbound של שרת Postmark והסוד שבנתיב ה-Webhook */
     emailInboundAddress: OptionalEmailSchema.optional(),
     emailInboundSecret: z.union([z.string().trim().min(16).max(200), z.literal("")]).optional(),
@@ -419,6 +423,8 @@ export class PlatformSettingsController {
       configured: boolean;
       source: "db" | "env" | "none";
       emailFrom?: string;
+      /** ‏ערוץ הדיוור — הערך, כי זה מסך העריכה שלו; ריק = הערוץ התפעולי */
+      broadcastStream: string;
       /** טוקן ה-Account מוגדר — משרדים יכולים לחבר דומיין משלהם */
       officeDomains: boolean;
       /** תיבת הדואר הפנימית — כתובת ה-Inbound; ריק = לא הוגדרה */
@@ -720,6 +726,7 @@ export class PlatformSettingsController {
         configured: postmarkDb || postmarkEnv,
         source: postmarkDb ? "db" : postmarkEnv ? "env" : "none",
         emailFrom: (await this.platformSettings.get("emailFrom")) ?? env.EMAIL_FROM,
+        broadcastStream: (await this.platformSettings.get("emailBroadcastStream")) ?? "",
         officeDomains: postmarkAccount,
         /*
          * התיבה הפנימית: הכתובת מוצגת (אינה סוד — היא כתובת דואר),

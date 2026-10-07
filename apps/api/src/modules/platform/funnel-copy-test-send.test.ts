@@ -101,6 +101,8 @@ describe("שליחת בדיקה של שלב", () => {
     expect(options).toMatchObject({
       sender: { from: "תמיכה מתווכים <support@example.test>" },
       replyTo: "inbox@inbound.example.test",
+      // ‏באותו ערוץ דיוור כמו השליחה האמיתית
+      mailing: true,
     });
     expect(content.unsubscribe.url).toBe(
       "https://app.example.test/nudge-optout/preview-only-not-a-real-token",

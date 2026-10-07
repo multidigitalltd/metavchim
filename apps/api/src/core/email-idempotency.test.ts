@@ -81,10 +81,16 @@ function fakePrisma(): { prisma: unknown; rows: Map<string, Row> } {
   return { prisma, rows };
 }
 
-function serviceWith(prisma: unknown): EmailService {
+function serviceWith(prisma: unknown, broadcastStream?: string): EmailService {
   const platformSettings = {
     get: async (key: string) =>
-      key === "postmarkServerToken" ? "tok" : key === "emailFrom" ? "a@b.example" : undefined,
+      key === "postmarkServerToken"
+        ? "tok"
+        : key === "emailFrom"
+          ? "a@b.example"
+          : key === "emailBroadcastStream"
+            ? broadcastStream
+            : undefined,
   };
   return new EmailService(platformSettings as never, prisma as never);
 }
@@ -346,5 +352,69 @@ describe("שורת „מאת” שיוצאת מהשירות", () => {
     await send(serviceWith(prisma), null);
     const body = calls[0]?.body as { From?: string } | undefined;
     expect(body?.From).toBe('"מתווכים" <a@b.example>');
+  });
+});
+
+/*
+ * ‎**דיוור יוצא בערוץ הדיוור — וכל השאר בערוץ התפעולי.**
+ *
+ * ‏הספק חוסם נמען לפי ערוץ, ולתמיד: סימון ספאם על מדריך בערוץ משותף
+ * ‏היה משתיק לנמען גם את החשבונית הבאה.
+ */
+describe("‏ערוץ הדיוור", () => {
+  const streamOf = (call: { body: unknown } | undefined): unknown =>
+    (call?.body as { MessageStream?: string } | undefined)?.MessageStream;
+  const mailing = (service: EmailService, idempotency: EmailIdempotency | null): Promise<void> =>
+    service.send("client@example.com", "נושא", "גוף", { idempotency, mailing: true });
+
+  it("‏דיוור — בערוץ שבהגדרות", async () => {
+    const { prisma } = fakePrisma();
+    const { calls } = stubFetch(200);
+    await mailing(serviceWith(prisma, "broadcast"), null);
+    expect(streamOf(calls[0])).toBe("broadcast");
+  });
+
+  it("‏הודעה תפעולית — בערוץ התפעולי, גם כשיש ערוץ דיוור", async () => {
+    const { prisma } = fakePrisma();
+    const { calls } = stubFetch(200);
+    await send(serviceWith(prisma, "broadcast"), null);
+    expect(streamOf(calls[0])).toBe("outbound");
+  });
+
+  it("‏בלי ערוץ דיוור בהגדרות — הכול בערוץ התפעולי, כמו קודם", async () => {
+    const { prisma } = fakePrisma();
+    const { calls } = stubFetch(200);
+    await mailing(serviceWith(prisma), null);
+    expect(streamOf(calls[0])).toBe("outbound");
+  });
+
+  /* ‏החיפוש של הספק מסתכל בערוץ התפעולי בלבד, אלא אם נאמר אחרת */
+  it("‏אחרי עמום — הספק נשאל בערוץ שבו ההודעה יצאה", async () => {
+    const { prisma } = fakePrisma();
+    const service = serviceWith(prisma, "broadcast");
+    stubFetch(503);
+    await expect(mailing(service, KEY)).rejects.toBeInstanceOf(EmailAmbiguousError);
+
+    const seen: string[] = [];
+    vi.stubGlobal("fetch", async (url: string) => {
+      seen.push(url);
+      return { ok: true, status: 200, json: async () => ({ TotalCount: 1 }), text: async () => "" };
+    });
+    await mailing(service, KEY);
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toContain("messagestream=broadcast");
+  });
+
+  it("‏מזהה ערוץ שגוי — נאמר במפורש, לא „נסו שוב”", async () => {
+    const { prisma } = fakePrisma();
+    vi.stubGlobal("fetch", async () => ({
+      ok: false,
+      status: 422,
+      json: async () => ({}),
+      text: async () => '{"ErrorCode":1235,"Message":"The stream provided does not exist"}',
+    }));
+    const error = await mailing(serviceWith(prisma, "broadcasts"), null).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(EmailRejectedError);
+    expect((error as Error).message).toContain("„broadcasts”");
   });
 });

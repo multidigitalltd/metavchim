@@ -114,14 +114,19 @@ type SupportOutgoing = Awaited<ReturnType<SupportInboxService["outgoing"]>>;
  * ‏הדחיות והתלונות. הכתובת מאומתת ברמת החשבון אצל הספק, ולכן היא
  * ‏שמישה גם מהשרת הכללי.
  *
+ * ‎**ובערוץ הדיוור** (`mailing`) — מדריכים והודעות על פיצ׳רים הם דיוור,
+ * ‏וסימון ספאם עליהם אינו אמור לחסום לנמען את החשבוניות.
+ *
  * ‏מיוצאת כי גם שליחת הבדיקה עוברת כאן — מה שבעל הפלטפורמה רואה
- * ‏בתיבה שלו הוא מה שהלקוח יקבל.
+ * ‏בתיבה שלו הוא מה שהלקוח יקבל, באותו ערוץ.
  */
 export function funnelSender(outgoing: SupportOutgoing): {
   sender?: { from: string };
   replyTo?: string;
+  mailing: true;
 } {
   return {
+    mailing: true,
     ...(outgoing.sender === null ? {} : { sender: { from: outgoing.sender.from } }),
     ...(outgoing.replyTo === null ? {} : { replyTo: outgoing.replyTo }),
   };
