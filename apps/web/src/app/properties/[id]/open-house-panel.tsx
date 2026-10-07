@@ -20,6 +20,7 @@ import { waMeUrl } from "@/lib/format";
 import { IconHome } from "../../icons";
 import { Notice } from "../../notice";
 import { ViewingFeedbackCell } from "./owner-activity";
+import { LockedFeature } from "../../settings/locked-feature";
 
 /**
  * ‏לשונית „בית פתוח” בכרטיס הנכס (docs/03 — open_houses).
@@ -71,6 +72,7 @@ export function OpenHousePanel({
   priceAgorot,
   officeName,
   canEdit,
+  canSchedule,
   onLoaded,
 }: {
   propertyId: string;
@@ -78,6 +80,12 @@ export function OpenHousePanel({
   priceAgorot: number | null;
   officeName: string;
   canEdit: boolean;
+  /**
+   * ‏המסלול כולל עמודי נחיתה. ההרשמה לבית פתוח היא עמוד נחיתה ציבורי,
+   * ‏ובלעדיו קישור ההרשמה אינו נפתח — לכן אין קביעת אירוע חדש, ואירועים
+   * ‏שכבר נקבעו ממשיכים להתנהל כרגיל.
+   */
+  canSchedule: boolean;
   onLoaded?: (data: OpenHousesResponse) => void;
 }) {
   const [data, setData] = useState<OpenHousesResponse | null>(null);
@@ -264,7 +272,14 @@ export function OpenHousePanel({
         );
       })}
 
-      {canEdit ? (
+      {canEdit && !canSchedule ? (
+        <LockedFeature
+          code="landing_pages"
+          description="בית פתוח נקבע עם עמוד הרשמה ציבורי שבו הקונים בוחרים משבצת. בלי עמודי נחיתה במסלול קישור ההרשמה לא נפתח, ולכן אי אפשר לקבוע בית פתוח חדש."
+        />
+      ) : null}
+
+      {canEdit && canSchedule ? (
         <section className="mv-card mv-card--pad" aria-labelledby="oh-new">
           <h3 id="oh-new" className="m-0 mb-3 text-[length:var(--type-body)] font-extrabold">בית פתוח חדש</h3>
           <form onSubmit={createEvent} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">

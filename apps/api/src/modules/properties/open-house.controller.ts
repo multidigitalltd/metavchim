@@ -13,6 +13,7 @@ import {
   type OpenHouseWalkIn,
 } from "@metavchim/shared";
 import { Public, RequireCapability } from "../../common/auth.decorators";
+import { RequireFeature } from "../../common/feature.guard";
 import { ZodValidationPipe, IdParam, PublicTokenParam } from "../../common/zod-validation.pipe";
 import { OpenHouseService, type OpenHousesDto, type PublicOpenHouseDto } from "./open-house.service";
 
@@ -32,8 +33,13 @@ export class OpenHouseController {
     return this.openHouse.list(propertyId);
   }
 
+  /*
+   * ‏ההרשמה היא עמוד נחיתה ציבורי, שנדחה בלי `landing_pages` — ואירוע
+   * ‏חדש היה נקבע עם קישור מת. ניהול אירועים קיימים אינו נחסם.
+   */
   @Post("properties/:id/open-houses")
   @RequireCapability("properties.edit")
+  @RequireFeature("landing_pages")
   create(
     @Param("id", IdParam) propertyId: string,
     @Body(new ZodValidationPipe(OpenHouseCreateSchema)) body: OpenHouseCreate,
