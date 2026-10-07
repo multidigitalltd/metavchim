@@ -90,19 +90,23 @@ async function planFeatures(): Promise<Map<string, PlanFeature[]>> {
  * שנסגרה הייתה ממשיכה לרוץ ברקע — שתי תקלות שאיש אינו מדווח עליהן
  * כי שום מסך אינו סותר אותן.
  */
-export async function tenantHasFeature(
-  tenantId: string,
-  feature: PlanFeature,
-): Promise<boolean> {
+export async function tenantFeatures(tenantId: string): Promise<PlanFeature[]> {
   const tenant = await prisma.tenant.findUnique({
     where: { id: tenantId },
     select: { plan: true, featureGrants: true, featureDenials: true },
   });
-  if (!tenant) return false;
+  if (!tenant) return [];
   const planCodes = (await planFeatures()).get(tenant.plan);
-  if (!planCodes) return false;
+  if (!planCodes) return [];
   return effectiveFeatures(planCodes, {
     grants: tenant.featureGrants,
     denials: tenant.featureDenials,
-  }).includes(feature);
+  });
+}
+
+export async function tenantHasFeature(
+  tenantId: string,
+  feature: PlanFeature,
+): Promise<boolean> {
+  return (await tenantFeatures(tenantId)).includes(feature);
 }

@@ -212,8 +212,8 @@ export class AgentController {
    */
   @Get("help")
   @AnyAuthenticated()
-  help(): { groups: AgentHelpGroup[]; examples: string[] } {
-    const allowedIds = this.interpret.allowedActions().map((action) => action.id);
+  async help(): Promise<{ groups: AgentHelpGroup[]; examples: string[] }> {
+    const allowedIds = (await this.interpret.allowedActions()).map((action) => action.id);
     return {
       groups: agentHelpGroups(allowedIds),
       examples: agentWelcomeExamples(allowedIds, 6),

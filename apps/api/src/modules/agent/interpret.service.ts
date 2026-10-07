@@ -1,7 +1,6 @@
 import { Injectable, Logger } from "@nestjs/common";
 import {
   practiceScenarioFromText,
-  AGENT_ACTIONS,
   agentAction,
   type AgentHistoryTurn,
   buildInterpretPrompt,
@@ -9,7 +8,7 @@ import {
   extractPropertyFromTranscript,
   interpretJsonSchema,
   InterpretResponseSchema,
-  mayUseAction,
+  availableAgentActions,
   narrowParams,
   routeVoiceCommand,
   RULE_ACTION_MAP,
@@ -21,6 +20,7 @@ import {
 } from "@metavchim/shared";
 import { TenantContext } from "../../common/tenant-context";
 import { GeminiService, type GeminiUsage } from "../../core/gemini.service";
+import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { AgentEventsService } from "./agent-events.service";
 
 /**
@@ -95,6 +95,7 @@ export class AgentInterpretService {
   constructor(
     private readonly gemini: GeminiService,
     private readonly events: AgentEventsService,
+    private readonly plans: PlanCatalogService,
   ) {}
 
   /**
@@ -103,11 +104,12 @@ export class AgentInterpretService {
    * זו אינה שכבת האבטחה — הבדיקה בשרת נשארת בכל מקרה לפני הביצוע.
    * זו שכבת החוויה: מודל שמכיר פעולה יציע אותה, והמתווך יקבל „אין
    * לך הרשאה” על ניסוח סביר לגמרי. עדיף שהמודל יבחר את הפעולה
-   * המותרת הקרובה, או יודה שאינו יודע.
+   * המותרת הקרובה, או יודה שאינו יודע. וגם המסלול: פעולה שאינה בו
+   * הייתה מוצעת ונדחית רק אחרי האישור (`availableAgentActions`).
    */
-  allowedActions(): AgentActionDef[] {
+  async allowedActions(): Promise<AgentActionDef[]> {
     const ctx = TenantContext.current();
-    return AGENT_ACTIONS.filter((action) => mayUseAction(action, ctx.capabilities));
+    return availableAgentActions(ctx.capabilities, new Set(await this.plans.tenantFeatures(ctx.tenantId)));
   }
 
   async interpret(
@@ -127,7 +129,7 @@ export class AgentInterpretService {
      */
     pin?: string,
   ): Promise<Interpretation> {
-    const allowed = this.allowedActions();
+    const allowed = await this.allowedActions();
     /*
      * ‎**נעיצה שאינה מותרת עוצרת — ואינה מושמטת.**
      *
