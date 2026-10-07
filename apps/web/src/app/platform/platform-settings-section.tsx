@@ -138,6 +138,8 @@ interface PlatformSettings {
     configured: boolean;
     source: "db" | "env" | "none";
     emailFrom?: string;
+    /** ‏ערוץ הדיוור ב-Postmark; ריק = הערוץ התפעולי */
+    broadcastStream: string;
     /** טוקן ה-Account מוגדר — משרדים יכולים לחבר דומיין משלהם */
     officeDomains: boolean;
     /** תיבת הדואר הפנימית — כתובת ה-Inbound; ריק = לא הוגדרה */
@@ -408,6 +410,7 @@ export function PlatformSettingsSection({
         ...(token !== "" ? { postmarkServerToken: token } : {}),
         ...(accountToken !== "" ? { postmarkAccountToken: accountToken } : {}),
         emailFrom: String(f.get("emailFrom")).trim(),
+        emailBroadcastStream: String(f.get("emailBroadcastStream")).trim(),
         emailInboundAddress: String(f.get("emailInboundAddress")).trim(),
         ...(inboundSecret !== "" ? { emailInboundSecret: inboundSecret } : {}),
       });
@@ -1041,6 +1044,26 @@ export function PlatformSettingsSection({
               style={inputStyle}
             />
           </div>
+          {/*
+            ‏ערוץ הדיוור: מיילי ההמרה ותזכורות סיום הניסיון יוצאים בו, וסימון
+            ‏ספאם עליהם אינו חוסם לנמען את החשבוניות ואת איפוס הסיסמה. ריק =
+            ‏הכול בערוץ התפעולי, כמו קודם.
+          */}
+          <div className="flex-1" style={{ minWidth: "220px" }}>
+            <label htmlFor="emailBroadcastStream" className="mb-1 block font-medium">
+              ערוץ דיוור (Broadcast){" "}
+              <span className="font-normal">(ריק = הערוץ התפעולי)</span>
+            </label>
+            <input
+              id="emailBroadcastStream"
+              name="emailBroadcastStream"
+              dir="ltr"
+              placeholder="broadcast"
+              defaultValue={settings.postmark.broadcastStream}
+              className="w-full rounded-lg border px-3 py-2.5"
+              style={inputStyle}
+            />
+          </div>
           <Button type="submit" disabled={busy}>שמור</Button>
           {settings.postmark.configured ? (
             <Button type="button" variant="secondary" disabled={busy} onClick={() => void sendTest()}>
@@ -1058,8 +1081,15 @@ export function PlatformSettingsSection({
           ‏(השרת היוצא → Webhooks) מוסיפים את הכתובת ומסמנים Delivery ו-Bounce.
           ‏משם מגיעים „נמסרו” ו„חזרו” במדדי מסלול ההמרה.
         */}
+        <p className="mb-0 mt-3 text-sm" style={{ color: "var(--color-text-muted)" }}>
+          ערוץ הדיוור: מזהה ערוץ ה-Broadcast מ-Postmark (Servers ← השרת ← Message Streams).
+          לפני שממלאים: לבקש מהתמיכה של Postmark להפעיל לערוץ ניהול הסרה עצמי
+          (Manage unsubscribes on your own) — בלעדיו Postmark מוסיף לכל מייל קישור הסרה
+          משלו באנגלית — ולהוסיף בו גם את ה-Webhook מסירה שמתחת.
+        </p>
         <p className="mb-0 mt-3 text-sm font-medium">
-          Webhook מסירה — ב-Postmark, בשרת היוצא: Webhooks ← הוספה, לסמן Delivery ו-Bounce
+          Webhook מסירה — ב-Postmark, בשרת היוצא: Webhooks ← הוספה, לסמן Delivery ו-Bounce.
+          ה-Webhook מוגדר לכל ערוץ בנפרד — גם בערוץ הדיוור, אם הוגדר.
         </p>
         <WebhookUrl
           path="/public/email/events/"

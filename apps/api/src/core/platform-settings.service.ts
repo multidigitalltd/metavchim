@@ -29,6 +29,13 @@ export type PlatformSettingKey =
   | "postmarkAccountToken"
   | "emailFrom"
   /**
+   * ‎**ערוץ הדיוור אצל Postmark (Broadcast) — מזהה הערוץ.** מיילי ההמרה
+   * ‏ותזכורות סיום הניסיון יוצאים בו, כדי שסימון ספאם על דיוור לא
+   * ‏יחסום לנמען את החשבוניות ואת איפוס הסיסמה. ריק = הערוץ התפעולי.
+   * ‏ראו `mailing` ב-`EmailService.send`.
+   */
+  | "emailBroadcastStream"
+  /**
    * תיבת הדואר הפנימית: כתובת ה-Inbound של שרת Postmark, והסוד
    * שבנתיב ה-Webhook. שניהם ריקים = מיילים יוצאים בלי Reply-To
    * ייחודי ותשובות אינן נקלטות — והכל השאר ממשיך לעבוד.
