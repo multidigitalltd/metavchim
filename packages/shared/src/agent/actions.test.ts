@@ -6,6 +6,7 @@ import {
   agentFieldLabel,
   isReadOnlyAction,
   mayUseAction,
+  availableAgentActions,
 } from "./actions";
 import { CAPABILITIES } from "../rbac";
 import { fieldDescription } from "./field-spec";
@@ -77,6 +78,21 @@ describe("קטלוג הפעולות — שלמות מבנית", () => {
         expect(CAPABILITIES, action.id).toContain(needed);
       }
     }
+  });
+
+  /*
+   * ‏הרשאה אינה זכאות: פעולה שהמסלול אינו כולל אינה מוצעת כלל, ולא
+   * ‏נדחית רק אחרי האישור (ביקורת Codex).
+   */
+  it("availableAgentActions — התפקיד וגם המסלול", () => {
+    const gated = AGENT_ACTIONS.filter((action) => action.feature !== undefined);
+    expect(gated.length).toBeGreaterThan(0);
+    const everything = new Set(CAPABILITIES);
+    const withoutPlan = availableAgentActions(everything, new Set()).map((a) => a.id);
+    for (const action of gated) expect(withoutPlan, action.id).not.toContain(action.id);
+    const features = new Set(gated.map((action) => action.feature!));
+    const withPlan = availableAgentActions(everything, features).map((a) => a.id);
+    for (const action of gated) expect(withPlan, action.id).toContain(action.id);
   });
 
   it("היכולת החלופית פותחת את הפעולה — ורק אותה", () => {

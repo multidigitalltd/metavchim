@@ -582,7 +582,7 @@ export class WhatsAppAssistantService {
     void this.sender.markRead(msg.externalId, true);
 
     const context = await this.buildContext(user);
-    const allowed = TenantContext.run(context, () => this.interpreter.allowedActions());
+    const allowed = await TenantContext.run(context, () => this.interpreter.allowedActions());
 
     /*
      * הודעה ראשונה אי־פעם בצ'אט הזה — הכרות קצרה לפני התשובה.

@@ -60,7 +60,7 @@ describe("העשרת ההתראות בעובד", () => {
     const at = WORKERS.indexOf("      const capabilities = ");
     expect(at, "חישוב היכולות פר-נמען נעלם").toBeGreaterThan(0);
     const build = WORKERS.slice(at, WORKERS.indexOf("const delivered = new Map<string, Date>();"));
-    expect(build).toContain("allowedActionIds: allowedActionsFor(capabilities)");
+    expect(build).toContain("allowedActionIds: allowedActionsFor(capabilities, features)");
     expect(build).toContain("capabilities: [...capabilities]");
   });
 

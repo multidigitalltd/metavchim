@@ -18,10 +18,10 @@ import {
   formatNotifyMessage,
   notifyFollowUp,
   dominantNotifyCategory,
-  AGENT_ACTIONS,
-  mayUseAction,
+  availableAgentActions,
   effectiveCapabilities,
   type Capability,
+  type PlanFeature,
   type CapabilityOverride,
   inQuietHours,
   notifyQuickReplies,
@@ -43,7 +43,7 @@ import {
   type WhatsAppNotifyPrefs,
 } from "@metavchim/shared";
 import { prisma, withTenant } from "../runtime.js";
-import { tenantHasFeature } from "../tenant-settings.js";
+import { tenantFeatures } from "../tenant-settings.js";
 import {
   jerusalemHour,
   sendWhatsApp,
@@ -105,10 +105,12 @@ interface WaRecipient {
  * ולכן אין כאן מטמון פר-תפקיד: החריגים הם פר-משתמש, ומטמון כזה
  * שגוי בהגדרה ולא רק לא-מדויק.
  */
-function allowedActionsFor(capabilities: Set<Capability>): readonly string[] {
-  return AGENT_ACTIONS.filter((action) => mayUseAction(action, capabilities)).map(
-    (action) => action.id,
-  );
+function allowedActionsFor(
+  capabilities: Set<Capability>,
+  features: ReadonlySet<PlanFeature>,
+): readonly string[] {
+  // ‏ואותה זכאות מסלול כמו בסוכן — כפתור לפעולה שהמסלול אינו כולל נדחה בלחיצה
+  return availableAgentActions(capabilities, features).map((action) => action.id);
 }
 
 /**
@@ -267,8 +269,13 @@ export async function processWhatsAppNotifySweep(): Promise<void> {
   const tenants = await prisma.tenant.findMany({ select: { id: true, blockedModules: true } });
 
   for (const tenant of tenants) {
-    // אותו שער כמו הסוכן עצמו: הדחיפה היא חלק מהפיצ'ר, לא תוספת חינם
-    if (!(await tenantHasFeature(tenant.id, "voice_intake"))) continue;
+    /*
+     * ‏זכאות המסלול — פעם אחת למשרד: אותו שער כמו הסוכן עצמו (הדחיפה
+     * ‏היא חלק מהפיצ'ר, לא תוספת חינם), ואותה קבוצה מסננת אחר כך את
+     * ‏הכפתורים שההודעה מציעה.
+     */
+    const features = new Set(await tenantFeatures(tenant.id));
+    if (!features.has("voice_intake")) continue;
 
     const pending = await withTenant(tenant.id, async (tx) => {
       return tx.notification.findMany({
@@ -370,7 +377,7 @@ export async function processWhatsAppNotifySweep(): Promise<void> {
         windowOpen: sessionWindowOpen(chat?.lastInboundAt ?? null, now),
         snoozed: chat?.notifySnoozeUntil ? chat.notifySnoozeUntil > now : false,
         notifiedThrough: chat?.notifiedThrough ?? null,
-        allowedActionIds: allowedActionsFor(capabilities),
+        allowedActionIds: allowedActionsFor(capabilities, features),
         capabilities: [...capabilities],
       });
     }

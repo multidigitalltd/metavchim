@@ -3490,6 +3490,23 @@ export function isReadOnlyAction(id: string): boolean {
  * מהן שנשארו על `has(action.capability)` בזמן שהשלישית התעדכנה היו
  * מייצרות בדיוק את מה שהמשתמש חווה כשרירותי: פעולה שמוצעת ונדחית.
  */
+/**
+ * ‏‎**מה מותר להציע למשתמש הזה** — התפקיד שלו (`mayUseAction`) **וגם**
+ * ‏הזכאות של המסלול. הרשאה אינה זכאות: פעולה שהמסלול אינו כולל הייתה
+ * ‏מוצעת, מאושרת ונדחית רק בביצוע (ביקורת Codex). גזירה אחת לכל מי
+ * ‏שמציע — הפירוש, התפריט, „מה עדיין עובד” וכפתורי ההתראות.
+ */
+export function availableAgentActions(
+  capabilities: { has(capability: Capability): boolean },
+  features: ReadonlySet<PlanFeature>,
+): AgentActionDef[] {
+  return AGENT_ACTIONS.filter(
+    (action) =>
+      mayUseAction(action, capabilities) &&
+      (action.feature === undefined || features.has(action.feature)),
+  );
+}
+
 export function mayUseAction(
   action: AgentActionDef,
   capabilities: { has(capability: Capability): boolean },

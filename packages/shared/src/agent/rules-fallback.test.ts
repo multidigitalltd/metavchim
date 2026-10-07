@@ -136,10 +136,11 @@ describe("הרצפה הדטרמיניסטית", () => {
     );
     const fn = RESOLVE.slice(
       RESOLVE.indexOf("private async allowedActionIds()"),
-      RESOLVE.indexOf(".map((a) => a.id);", RESOLVE.indexOf("private async allowedActionIds()")),
+      RESOLVE.indexOf(".map((action) => action.id);", RESOLVE.indexOf("private async allowedActionIds()")),
     );
-    expect(fn).toContain("mayUseAction");
-    expect(fn).toContain("tenantHasFeature");
+    // ‏הגזירה המשותפת — תפקיד וגם מסלול, אותה שהפירוש משתמש בה
+    expect(fn).toContain("availableAgentActions");
+    expect(fn).toContain("tenantFeatures");
   });
 
   it("מספר הדוגמאות מוגבל — הודעת וואטסאפ אינה רשימה של עשרים", () => {
