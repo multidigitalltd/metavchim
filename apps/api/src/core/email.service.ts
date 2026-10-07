@@ -560,6 +560,7 @@ export class EmailService {
           tenantId: tenantId ?? null,
           purpose: idempotency.purpose.slice(0, 40),
           status: "sending",
+          stream,
           updatedAt: now,
         },
       ],
@@ -572,7 +573,7 @@ export class EmailService {
 
     const previous = await this.prisma.emailSendAttempt.findUnique({
       where: { key: idempotency.key },
-      select: { status: true, updatedAt: true },
+      select: { status: true, updatedAt: true, stream: true },
     });
     const decision = emailAttemptDecision(
       previous === null ? null : { status: previous.status as EmailAttemptStatus, updatedAt: previous.updatedAt },
@@ -588,7 +589,15 @@ export class EmailService {
         idempotency.key,
       );
     }
-    if (decision === "probe" && (await this.providerHasMessage(token, idempotency.key, stream))) {
+    /*
+     * ‏בערוץ שבו הניסיון הקודם יצא — ההגדרה יכלה להשתנות מאז, והחיפוש
+     * ‏של הספק אינו רואה ערוץ אחר (ביקורת Codex).
+     */
+    const probeStream = previous?.stream ?? TRANSACTIONAL_STREAM;
+    if (
+      decision === "probe" &&
+      (await this.providerHasMessage(token, idempotency.key, probeStream))
+    ) {
       await this.settle(idempotency, "sent", null);
       this.logger.log(`הספק מאשר שההודעה יצאה — לא נשלחת שוב (${idempotency.key})`);
       return true;
@@ -619,7 +628,7 @@ export class EmailService {
         status: previous?.status ?? "sending",
         updatedAt: previous?.updatedAt ?? now,
       },
-      data: { status: "sending", providerMessageId: null, updatedAt: now },
+      data: { status: "sending", providerMessageId: null, stream, updatedAt: now },
     });
     if (taken.count === 0) {
       throw new EmailAmbiguousError(

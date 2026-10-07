@@ -405,6 +405,28 @@ describe("‏ערוץ הדיוור", () => {
     expect(seen[0]).toContain("messagestream=broadcast");
   });
 
+  /*
+   * ‏ההגדרה השתנתה בין הניסיון העמום לחוזר. החיפוש בערוץ החדש לא היה
+   * ‏מוצא את ההודעה שיצאה בישן, והיא הייתה נשלחת שוב (ביקורת Codex).
+   */
+  it("‏ההגדרה השתנתה בינתיים — הספק נשאל בערוץ שבו הניסיון הקודם יצא", async () => {
+    const { prisma } = fakePrisma();
+    stubFetch(503);
+    await expect(mailing(serviceWith(prisma, "broadcast"), KEY)).rejects.toBeInstanceOf(
+      EmailAmbiguousError,
+    );
+
+    const seen: string[] = [];
+    vi.stubGlobal("fetch", async (url: string) => {
+      seen.push(url);
+      return { ok: true, status: 200, json: async () => ({ TotalCount: 1 }), text: async () => "" };
+    });
+    // ‏ערוץ הדיוור נוקה מההגדרות
+    await mailing(serviceWith(prisma), KEY);
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toContain("messagestream=broadcast");
+  });
+
   it("‏מזהה ערוץ שגוי — נאמר במפורש, לא „נסו שוב”", async () => {
     const { prisma } = fakePrisma();
     vi.stubGlobal("fetch", async () => ({

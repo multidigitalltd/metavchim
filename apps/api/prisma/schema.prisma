@@ -1443,6 +1443,8 @@ model EmailSendAttempt {
   /// sending | sent | unknown | rejected
   status            String   @db.VarChar(10)
   providerMessageId String?  @map("provider_message_id") @db.VarChar(120)
+  /// ‏הערוץ אצל הספק שבו השליחה יצאה — שם נשאלים אחרי כישלון עמום. NULL = התפעולי
+  stream            String?  @db.VarChar(30)
   createdAt         DateTime @default(now()) @map("created_at")
   updatedAt         DateTime @updatedAt @map("updated_at")
 
